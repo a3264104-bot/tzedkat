@@ -1,0 +1,144 @@
+// Prisma schema for צדקת רבותינו ordering system
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  sortOrder Int       @default(0)
+  products  Product[]
+  createdAt DateTime  @default(now())
+}
+
+model Product {
+  id            String   @id @default(cuid())
+  name          String
+  categoryId    String
+  category      Category @relation(fields: [categoryId], references: [id])
+  // מחיר קרטון הוא ברירת המחדל המוצגת מהמחירון
+  cartonPrice   Decimal  @db.Decimal(10, 2)
+  // האם המוצר תומך בקנייה בבודדים (בשר/דגים) עם תוספת לק"ג
+  allowSingles  Boolean  @default(false)
+  // תוספת מחיר לבודדים לק"ג (ברירת מחדל 3 ש"ח, ניתן לעריכה גלובלית/למוצר)
+  singleSurcharge Decimal? @db.Decimal(10, 2)
+  unit          String   @default("ק\"ג") // ק"ג / יחידה / מארז
+  saleType      String   @default("WEIGHT") // WEIGHT / UNIT / PACKAGE
+  packageWeight String?  // 200 גרם / 400 גרם / 500 גרם / 900 גרם
+  isFrozen      Boolean  @default(false)
+  limitedQty    Boolean  @default(false)
+  limitedQtyAmount Int?   // מגבלת כמות שהמנהל מגדיר (תצוגה/אזהרה בלבד, לא חוסם לקוח)
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  orderItems    OrderItem[]
+  pricelists    PricelistProduct[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model DeliveryPoint {
+  id           String   @id @default(cuid())
+  name         String
+  city         String?
+  address      String?
+  contactName  String?
+  phone        String?
+  email        String?
+  deliveryHours String?
+  notes        String?
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  orders       Order[]
+  pricelists   PricelistPoint[]
+  createdAt    DateTime @default(now())
+}
+
+model Pricelist {
+  id            String   @id @default(cuid())
+  name          String
+  openDate      DateTime?
+  closeDate     DateTime?
+  deliveryDate  DateTime?
+  deliveryDateText String?  // טקסט חופשי לתאריך עברי
+  notes         String?
+  status        String   @default("DRAFT") // DRAFT / ACTIVE / CLOSED / DONE
+  singleSurcharge Decimal @default(3) @db.Decimal(10, 2) // תוספת לבודדים גלובלית למחירון
+  points        PricelistPoint[]
+  products      PricelistProduct[]
+  orders        Order[]
+  createdAt     DateTime @default(now())
+}
+
+model PricelistPoint {
+  id            String   @id @default(cuid())
+  pricelistId   String
+  pricelist     Pricelist @relation(fields: [pricelistId], references: [id], onDelete: Cascade)
+  pointId       String
+  point         DeliveryPoint @relation(fields: [pointId], references: [id], onDelete: Cascade)
+  @@unique([pricelistId, pointId])
+}
+
+model PricelistProduct {
+  id          String   @id @default(cuid())
+  pricelistId String
+  pricelist   Pricelist @relation(fields: [pricelistId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // מחיר ספציפי למחירון (אם null נופל חזרה למחיר המוצר)
+  price       Decimal?  @db.Decimal(10, 2)
+  @@unique([pricelistId, productId])
+}
+
+model Order {
+  id              String   @id @default(cuid())
+  orderNumber     Int      @unique @default(autoincrement())
+  pricelistId     String?
+  pricelist       Pricelist? @relation(fields: [pricelistId], references: [id])
+  pointId         String
+  point           DeliveryPoint @relation(fields: [pointId], references: [id])
+  // snapshot של מה שהלקוח ראה בזמן ההזמנה (לתיעוד)
+  pointNameSnapshot     String?
+  deliveryDateSnapshot  String?
+  pricelistNameSnapshot String?
+  customerName    String
+  phone           String
+  phone2          String?
+  notes           String?
+  internalNotes   String?
+  status          String   @default("NEW") // NEW / CONFIRMED / PROCESSING / READY / DELIVERED / CANCELLED
+  estimatedTotal  Decimal  @db.Decimal(10, 2)
+  finalTotal      Decimal? @db.Decimal(10, 2)
+  items           OrderItem[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model OrderItem {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+  productName   String   // snapshot
+  unit          String
+  isSingle      Boolean  @default(false) // נקנה בבודדים (תוספת)
+  quantity      Decimal  @db.Decimal(10, 3)
+  unitPrice     Decimal  @db.Decimal(10, 2) // מחיר ליחידה ששמור בהזמנה
+  estimatedPrice Decimal @db.Decimal(10, 2)
+  finalWeight   Decimal? @db.Decimal(10, 3)
+  finalPrice    Decimal? @db.Decimal(10, 2)
+}
