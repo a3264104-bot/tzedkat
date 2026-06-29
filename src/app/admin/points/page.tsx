@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client";
-import { Modal, Field } from "@/app/admin/products/page";
+import { Modal, Field } from "@/components/AdminModal";
 
 type Point = {
   id: string;

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, download } from "@/lib/client";
 import { PRICELIST_STATUS, fmt } from "@/lib/pricing";
-import { Modal, Field } from "@/app/admin/products/page";
+import { Modal, Field } from "@/components/AdminModal";
 
 type Pricelist = {
   id: string;
