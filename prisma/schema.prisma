@@ -17,6 +17,31 @@ model Admin {
   createdAt DateTime @default(now())
 }
 
+// לקוחות קצה - הרשמה עצמאית, התחברות עם טלפון או מייל (חובה לפחות אחד)
+model Customer {
+  id                   String    @id @default(cuid())
+  name                 String
+  // אחד מהשניים (phone/email) חייב להיות מלא - נאכף בקוד (Prisma לא תומך
+  // ב"אחד משני שדות חובה" ברמת הסכמה). שניהם unique כדי למנוע כפילות חשבון.
+  phone                String?   @unique
+  email                String?   @unique
+  passwordHash         String
+  role                 String    @default("CUSTOMER") // CUSTOMER / AGENT / ADMIN
+  // נקודת חלוקה ברירת מחדל - נבחרת חובה בהרשמה, ניתנת לשינוי באזור האישי
+  defaultPointId       String?
+  defaultPoint         DeliveryPoint? @relation(fields: [defaultPointId], references: [id])
+  resetToken           String?   @unique
+  resetTokenExpiry     DateTime?
+  // תשלום ואימות כרטיס - הטוקן מגיע מ-webhook של נדרים אחרי חיוב אימות 1₪ בהרשמה
+  paymentToken         String?
+  cardLast4            String?
+  cardVerifiedAt       DateTime?
+  creditVerificationCharged Boolean @default(false)
+  orders               Order[]
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
 model Category {
   id        String    @id @default(cuid())
   name      String
@@ -39,6 +64,8 @@ model Product {
   unit          String   @default("ק\"ג") // ק"ג / יחידה / מארז
   saleType      String   @default("WEIGHT") // WEIGHT / UNIT / PACKAGE
   packageWeight String?  // 200 גרם / 400 גרם / 500 גרם / 900 גרם
+  // משקל ממוצע משוער ליחידה/קרטון - משמש לחישוב מחיר משוער מדויק יותר ללקוח
+  avgWeightPerUnit Decimal? @db.Decimal(10, 3)
   isFrozen      Boolean  @default(false)
   limitedQty    Boolean  @default(false)
   limitedQtyAmount Int?   // מגבלת כמות שהמנהל מגדיר (תצוגה/אזהרה בלבד, לא חוסם לקוח)
@@ -64,6 +91,7 @@ model DeliveryPoint {
   sortOrder    Int      @default(0)
   orders       Order[]
   pricelists   PricelistPoint[]
+  customers    Customer[] // לקוחות שבחרו נקודה זו כברירת מחדל
   createdAt    DateTime @default(now())
 }
 
@@ -110,7 +138,10 @@ model Order {
   pricelist       Pricelist? @relation(fields: [pricelistId], references: [id])
   pointId         String
   point           DeliveryPoint @relation(fields: [pointId], references: [id])
-  // snapshot של מה שהלקוח ראה בזמן ההזמנה (לתיעוד)
+  // כל הזמנה משויכת ללקוח רשום (אין יותר הזמנת אורח)
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id])
+  // snapshot של מה שהלקוח ראה/הזין בזמן ההזמנה (לתיעוד - לא משתנה גם אם הלקוח עצמו ישתנה אחר כך)
   pointNameSnapshot     String?
   deliveryDateSnapshot  String?
   pricelistNameSnapshot String?
@@ -119,9 +150,38 @@ model Order {
   phone2          String?
   notes           String?
   internalNotes   String?
-  status          String   @default("NEW") // NEW / CONFIRMED / PROCESSING / READY / DELIVERED / CANCELLED
-  estimatedTotal  Decimal  @db.Decimal(10, 2)
-  finalTotal      Decimal? @db.Decimal(10, 2)
+
+  // מחזור חיים: PENDING_REVIEW -> FINAL_PRICE_SET -> PAYMENT_PENDING -> PAID -> READY_FOR_PICKUP -> COMPLETED
+  // (או CANCELLED בכל שלב)
+  status          String   @default("PENDING_REVIEW")
+
+  estimatedTotal  Decimal  @db.Decimal(10, 2) // מחיר משוער בזמן ההזמנה
+  finalTotal      Decimal? @db.Decimal(10, 2) // מחיר סופי אחרי שקילה ע"י נציג/מנהל
+
+  // תשלום - משתנים אך ורק מהשרת (admin API מאומת עם תפקיד מורשה, או webhook חתום מהסולק). אף פעם לא מהדפדפן.
+  // PENDING (טרם נקבע מחיר סופי) / PAYMENT_PENDING (ממתין לתשלום אונליין) / PAID / PARTIALLY_PAID / FAILED / REFUNDED
+  paymentStatus       String    @default("PENDING")
+  // ONLINE (אונליין דרך נדרים) / CASH (מזומן בשטח) / BANK_TRANSFER / MANUAL
+  paymentMethod        String?
+  paymentLink          String?
+  amountPaid            Decimal?  @db.Decimal(10, 2) // מה שבפועל שולם (יכול להיות שונה מ-finalTotal)
+  paidAt                DateTime?
+  paymentTransactionId String?
+  paymentProvider      String?   // למשל "nedarim_plus"
+  // תשלום מזומן - תיעוד חובה
+  receivedByUserId     String?   // מזהה/מייל המנהל-נציג שקיבל את הכסף בפועל
+  manualPaymentNote    String?
+
+  // מתי אישרו אדמין/נציג מחיר סופי, ומי
+  finalPriceSetAt DateTime?
+  finalPriceSetBy String?   // email של המנהל/נציג שעדכן
+
+  // מעקב אישורים שנשלחו (לא מפיל את ההזמנה אם נכשל - רק לוג)
+  adminNotifiedAt    DateTime?
+  adminNotifyError   String?
+  customerNotifiedAt DateTime?
+  customerNotifyError String?
+
   items           OrderItem[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -137,8 +197,35 @@ model OrderItem {
   unit          String
   isSingle      Boolean  @default(false) // נקנה בבודדים (תוספת)
   quantity      Decimal  @db.Decimal(10, 3)
-  unitPrice     Decimal  @db.Decimal(10, 2) // מחיר ליחידה ששמור בהזמנה
+  unitPrice     Decimal  @db.Decimal(10, 2) // מחיר ליחידה ששמור בהזמנה (snapshot)
+  estimatedWeight Decimal? @db.Decimal(10, 3) // משקל משוער (לפי avgWeightPerUnit של המוצר, אם קיים)
   estimatedPrice Decimal @db.Decimal(10, 2)
-  finalWeight   Decimal? @db.Decimal(10, 3)
+  actualWeight  Decimal? @db.Decimal(10, 3) // משקל בפועל - מעודכן ע"י נציג/מנהל אחרי שקילה
+  finalWeight   Decimal? @db.Decimal(10, 3) // נשמר לתאימות לאחור (זהה ל-actualWeight)
   finalPrice    Decimal? @db.Decimal(10, 2)
+}
+
+// הגדרות מערכת גלובליות - שורה יחידה, נערכת מאזור הניהול
+model SystemSettings {
+  id                    String  @id @default("singleton")
+  adminEmail            String  @default("m5402088@gmail.com")
+  adminWhatsappPhone    String?
+  sendEmailToCustomer   Boolean @default(true)
+  sendEmailToAdmin      Boolean @default(true)
+  customerEmailTemplate String? // נוסח חופשי, null = ברירת המחדל הקבועה בקוד
+  adminEmailTemplate    String?
+  updatedAt             DateTime @updatedAt
+}
+
+// תיעוד audit לכל סימון תשלום ידני (מזומן/העברה) - לא נמחק לעולם, רק נוסף
+model PaymentAuditLog {
+  id              String   @id @default(cuid())
+  orderId         String
+  action          String   // "MANUAL_CASH_PAYMENT" / "REFUND" / וכו'
+  amountPaid      Decimal  @db.Decimal(10, 2)
+  finalTotalAtTime Decimal @db.Decimal(10, 2) // מה היה finalTotal ברגע הסימון, לתיעוד
+  paymentMethod   String   // CASH / BANK_TRANSFER / MANUAL
+  receivedByUserId String  // מי ביצע את הפעולה (חובה - אין רישום אנונימי)
+  note            String?
+  createdAt       DateTime @default(now())
 }

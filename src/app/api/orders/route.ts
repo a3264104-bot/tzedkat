@@ -7,8 +7,8 @@ import { effectiveUnitPrice, lineEstimate } from "@/lib/pricing";
 const schema = z.object({
   pricelistId: z.string(),
   pointId: z.string(),
-  customerName: z.string().min(1),
-  phone: z.string().min(1),
+  // customerName ו-phone כבר לא מגיעים מהלקוח - הם נלקחים מהחשבון המחובר
+  // phone2/notes הם פר-הזמנה ונשארים כשדות אופציונליים מהלקוח
   phone2: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   items: z
@@ -23,9 +23,28 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  // חובה להיות מחובר כלקוח. אין יותר הזמנת אורח.
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "יש להתחבר לפני ביצוע הזמנה" }, { status: 401 });
+  }
+
+  // admin אמור להזמין דרך מסך הניהול, לא כלקוח
+  const role = (session.user as any).role;
+  const customerId = (session.user as any).id as string;
+
   try {
     const body = await req.json();
     const data = schema.parse(body);
+
+    // שולפים את פרטי הלקוח מהמסד - לא סומכים על מה שנשלח מהלקוח
+    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer) {
+      return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 401 });
+    }
+    if (!customer.phone && !customer.email) {
+      return NextResponse.json({ error: "חשבון לא תקין — חסר פרטי קשר" }, { status: 400 });
+    }
 
     const pricelist = await prisma.pricelist.findUnique({
       where: { id: data.pricelistId },
@@ -67,12 +86,11 @@ export async function POST(req: Request) {
 
     const surcharge = Number(pricelist.singleSurcharge);
 
-    // build server-side priced items
+    // build server-side priced items - לא סומכים על מחירים מהלקוח
     const itemsData = [];
     let estimatedTotal = 0;
     for (const item of data.items) {
       const pp = pricelist.products.find((x) => x.productId === item.productId);
-      // המוצר חייב להשתתף במכירה וגם להיות פעיל
       if (!pp) return NextResponse.json({ error: "מוצר לא נמצא במחירון" }, { status: 400 });
       if (!pp.product.isActive)
         return NextResponse.json(
@@ -96,21 +114,35 @@ export async function POST(req: Request) {
     }
     estimatedTotal = Math.round(estimatedTotal * 100) / 100;
 
+    // הזמנה נוצרת עם:
+    // - customerId מה-session (לא מהלקוח)
+    // - customerName/phone snapshot מהחשבון (לא מהלקוח)
+    // - status: PENDING_REVIEW (במקום הישן NEW)
     const order = await prisma.order.create({
       data: {
         pricelistId: data.pricelistId,
         pointId: data.pointId,
-        // snapshot של מה שהלקוח ראה
+        customerId,
+        // snapshot של מה שהלקוח ראה בזמן ההזמנה
         pointNameSnapshot: plPoint.point.name,
         deliveryDateSnapshot: pricelist.deliveryDateText ?? null,
         pricelistNameSnapshot: pricelist.name,
-        customerName: data.customerName,
-        phone: data.phone,
+        // snapshot של פרטי הלקוח מהחשבון
+        customerName: customer.name,
+        phone: customer.phone ?? "",
         phone2: data.phone2 || null,
         notes: data.notes || null,
         estimatedTotal,
+        status: "PENDING_REVIEW",
         items: { create: itemsData },
       },
+      include: { point: true, items: true },
+    });
+
+    // שליחת מיילים - לא חוסמת את ההצלחה אפילו אם נכשלת
+    // (לוגיקת המייל המלאה תיבנה בנפרד כשיהיה Resend + SystemSettings מחוברים)
+    sendOrderNotificationsAsync(order, customer, pricelist).catch((err) => {
+      console.error("order notification error (non-blocking):", err);
     });
 
     return NextResponse.json({ ok: true, orderNumber: order.orderNumber, id: order.id });
@@ -121,10 +153,60 @@ export async function POST(req: Request) {
   }
 }
 
-// list orders (admin only)
+// שליחת התראות אסינכרונית - לא חוסמת את התשובה ללקוח
+// הלוגיקה המלאה (Resend + SystemSettings + וואטסאפ) תיכנס לכאן בהמשך
+async function sendOrderNotificationsAsync(order: any, customer: any, pricelist: any) {
+  try {
+    // שמירת לוג שהתחלנו לשלוח
+    const updateData: any = {};
+
+    // מייל למנהל - stub שמוכן להרחבה
+    const settings = await prisma.systemSettings.findUnique({ where: { id: "singleton" } })
+      .catch(() => null);
+
+    if (settings?.sendEmailToAdmin) {
+      try {
+        // כשיהיה מחובר email.ts מלא, נקרא כאן:
+        // await sendAdminOrderNotification({ ...order, ...customer });
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { adminNotifiedAt: new Date() },
+        });
+      } catch (err: any) {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { adminNotifyError: String(err?.message || err).slice(0, 500) },
+        }).catch(() => null);
+      }
+    }
+
+    // מייל ללקוח - רק אם יש לו מייל
+    if (settings?.sendEmailToCustomer && customer.email) {
+      try {
+        // כשיהיה מחובר email.ts מלא, נקרא כאן:
+        // await sendCustomerOrderConfirmation({ ...order }, customer.email);
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { customerNotifiedAt: new Date() },
+        });
+      } catch (err: any) {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { customerNotifyError: String(err?.message || err).slice(0, 500) },
+        }).catch(() => null);
+      }
+    }
+  } catch (err) {
+    console.error("sendOrderNotificationsAsync outer error:", err);
+  }
+}
+
+// list orders (admin only) - מוגן ב-role בנוסף ל-session
 export async function GET(req: Request) {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
+  if (!session?.user || (session.user as any).role !== "ADMIN") {
+    return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
+  }
 
   const { searchParams } = new URL(req.url);
   const pointId = searchParams.get("pointId");

@@ -40,25 +40,39 @@ type Pricelist = {
   singleSurcharge: number;
 };
 
+// פרטי הלקוח המחובר - מגיעים מה-session, לא מוקלדים מחדש בכל הזמנה
+type LoggedInCustomer = {
+  name: string;
+  phone: string | null;
+  email: string | null;
+  defaultPointId: string | null;
+};
+
 type CartLine = { isSingle: boolean; qty: number };
 
+// "details" נשאר רק כדי להשלים טלפון אם חסר בחשבון, ולקלוט פרטים פר-הזמנה (טלפון נוסף/הערות)
 type Step = "point" | "date" | "products" | "cart" | "details" | "summary" | "done";
 
 export function OrderFlow({
   pricelist,
   points,
   products,
+  customer,
 }: {
   pricelist: Pricelist;
   points: Point[];
   products: Product[];
+  customer: LoggedInCustomer;
 }) {
   const [step, setStep] = useState<Step>("point");
-  const [pointId, setPointId] = useState<string>("");
+  // אם ללקוח יש נקודה שמורה, בוחרים אותה כברירת מחדל - אבל הוא עדיין יכול לשנות
+  const [pointId, setPointId] = useState<string>(customer.defaultPointId ?? "");
+  const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [dateConfirmed, setDateConfirmed] = useState(false);
   const [cart, setCart] = useState<Record<string, CartLine>>({});
-  const [customerName, setName] = useState("");
-  const [phone, setPhone] = useState("");
+  // טלפון נוסף והערות הם פר-הזמנה ונשארים כשדות חופשיים. הטלפון הראשי מגיע מהחשבון,
+  // ואם הוא חסר שם (לקוח שנרשם עם מייל בלבד) - משלימים אותו כאן פעם אחת.
+  const [phone, setPhone] = useState(customer.phone ?? "");
   const [phone2, setPhone2] = useState("");
   const [notes, setNotes] = useState("");
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
@@ -67,6 +81,21 @@ export function OrderFlow({
   const [error, setError] = useState("");
 
   const point = points.find((p) => p.id === pointId) || null;
+  const needsPhoneInput = !customer.phone;
+
+  // קיבוץ נקודות חלוקה לפי עיר - אם יש כמה ערים, קודם בוחרים עיר ואז נקודה בתוכה.
+  // אם יש עיר אחת בלבד (או שלנקודות אין עיר מוגדרת כלל), מציגים ישר רשימת נקודות בלי שלב עיר.
+  const cities = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of points) if (p.city) set.add(p.city);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "he"));
+  }, [points]);
+  const pointsWithoutCity = useMemo(() => points.filter((p) => !p.city), [points]);
+  const showCityStep = cities.length > 1;
+  const pointsInSelectedCity = useMemo(
+    () => (selectedCity ? points.filter((p) => p.city === selectedCity) : []),
+    [points, selectedCity]
+  );
 
   const categories = useMemo(() => {
     const map = new Map<string, Product[]>();
@@ -109,12 +138,12 @@ export function OrderFlow({
 
   async function submit() {
     setError("");
-    if (!customerName.trim() || !phone.trim()) {
-      setError("נא למלא שם וטלפון");
+    if (needsPhoneInput && !phone.trim()) {
+      setError("נא להזין מספר טלפון");
       return;
     }
     if (!paymentConfirmed) {
-      setError("נא לאשר את תנאי התשלום");
+      setError("נא לאשר את תנאי ההזמנה");
       return;
     }
     setSubmitting(true);
@@ -125,8 +154,9 @@ export function OrderFlow({
         body: JSON.stringify({
           pricelistId: pricelist.id,
           pointId,
-          customerName: customerName.trim(),
-          phone: phone.trim(),
+          // השם תמיד מגיע מהחשבון המחובר - לא ניתן לעריכה כאן
+          customerName: customer.name,
+          phone: (phone || customer.phone || "").trim(),
           phone2: phone2.trim() || null,
           notes: notes.trim() || null,
           items: cartLines.map((l) => ({
@@ -162,28 +192,85 @@ export function OrderFlow({
       <div className="mx-auto max-w-md px-4 pt-5">
         <StepBar step={step} />
 
-        {/* STEP: choose point */}
+        {/* STEP: choose point - מקובץ לפי עיר אם יש יותר מעיר אחת */}
         {step === "point" && (
           <section>
             <h2 className="text-lg font-extrabold text-brand-slatedark mb-3">
-              בחירת נקודת חלוקה
+              {showCityStep && !selectedCity ? "בחירת עיר" : "בחירת נקודת חלוקה"}
             </h2>
-            <div className="space-y-2.5">
-              {points.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setPointId(p.id)}
-                  className={`w-full text-right card p-4 transition ${
-                    pointId === p.id ? "ring-2 ring-brand-rust border-brand-rust" : ""
-                  }`}
-                >
-                  <div className="font-bold text-brand-slatedark">{p.name}</div>
-                  {p.contactName && (
-                    <div className="text-sm text-zinc-500 mt-0.5">{p.contactName}</div>
-                  )}
-                </button>
-              ))}
-            </div>
+
+            {/* שלב עיר - רק אם יש כמה ערים ועדיין לא נבחרה אחת */}
+            {showCityStep && !selectedCity && (
+              <div className="space-y-2.5">
+                {cities.map((city) => (
+                  <button
+                    key={city}
+                    onClick={() => setSelectedCity(city)}
+                    className="w-full text-right card p-4 flex justify-between items-center"
+                  >
+                    <span className="font-bold text-brand-slatedark">{city}</span>
+                    <span className="text-zinc-400 text-sm">
+                      {points.filter((p) => p.city === city).length > 1
+                        ? `${points.filter((p) => p.city === city).length} נקודות`
+                        : ""}
+                    </span>
+                  </button>
+                ))}
+                {pointsWithoutCity.length > 0 && (
+                  <>
+                    <div className="text-sm text-zinc-400 pt-2">נקודות נוספות</div>
+                    {pointsWithoutCity.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setPointId(p.id);
+                          setStep("date");
+                        }}
+                        className="w-full text-right card p-4"
+                      >
+                        <div className="font-bold text-brand-slatedark">{p.name}</div>
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* שלב נקודה בתוך עיר שנבחרה (או רשימה שטוחה אם עיר אחת בלבד) */}
+            {(!showCityStep || selectedCity) && (
+              <div className="space-y-2.5">
+                {showCityStep && (
+                  <button
+                    onClick={() => setSelectedCity(null)}
+                    className="text-sm text-brand-rust font-medium mb-1"
+                  >
+                    ← חזרה לבחירת עיר
+                  </button>
+                )}
+                {(showCityStep ? pointsInSelectedCity : points).map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setPointId(p.id)}
+                    className={`w-full text-right card p-4 transition ${
+                      pointId === p.id ? "ring-2 ring-brand-rust border-brand-rust" : ""
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-brand-slatedark">{p.name}</div>
+                        {p.contactName && (
+                          <div className="text-sm text-zinc-500 mt-0.5">{p.contactName}</div>
+                        )}
+                      </div>
+                      {customer.defaultPointId === p.id && (
+                        <span className="badge bg-amber-100 text-amber-700">נקודה שמורה</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
             <BottomBar>
               <button
                 disabled={!pointId}
@@ -356,25 +443,26 @@ export function OrderFlow({
           </section>
         )}
 
-        {/* STEP: details */}
+        {/* STEP: details - מוצג רק כדי להשלים טלפון אם חסר בחשבון, ולקלוט פרטים פר-הזמנה (טלפון נוסף/הערות) */}
         {step === "details" && (
           <section>
-            <h2 className="text-lg font-extrabold text-brand-slatedark mb-3">פרטי הלקוח</h2>
+            <h2 className="text-lg font-extrabold text-brand-slatedark mb-1">פרטי ההזמנה</h2>
+            <p className="text-sm text-zinc-500 mb-4">
+              מזמין/ה בתור <span className="font-semibold text-brand-slatedark">{customer.name}</span>
+            </p>
             <div className="space-y-3">
-              <div>
-                <label className="label">שם מלא *</label>
-                <input className="input" value={customerName} onChange={(e) => setName(e.target.value)} />
-              </div>
-              <div>
-                <label className="label">טלפון *</label>
-                <input
-                  className="input"
-                  type="tel"
-                  inputMode="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                />
-              </div>
+              {needsPhoneInput && (
+                <div>
+                  <label className="label">טלפון *</label>
+                  <input
+                    className="input"
+                    type="tel"
+                    inputMode="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                </div>
+              )}
               <div>
                 <label className="label">טלפון נוסף</label>
                 <input
@@ -399,7 +487,7 @@ export function OrderFlow({
                 חזרה
               </button>
               <button
-                disabled={!customerName.trim() || !phone.trim()}
+                disabled={needsPhoneInput && !phone.trim()}
                 onClick={() => setStep("summary")}
                 className="btn-primary flex-1"
               >
@@ -417,8 +505,8 @@ export function OrderFlow({
             <div className="card p-4 space-y-2 text-sm">
               <Row label="נקודת חלוקה" value={point.name} />
               <Row label="תאריך חלוקה" value={pricelist.deliveryDateText || "—"} />
-              <Row label="שם" value={customerName} />
-              <Row label="טלפון" value={phone} />
+              <Row label="שם" value={customer.name} />
+              <Row label="טלפון" value={phone || customer.phone || "—"} />
               {phone2 && <Row label="טלפון נוסף" value={phone2} />}
               {notes && <Row label="הערות" value={notes} />}
             </div>
@@ -439,12 +527,13 @@ export function OrderFlow({
               </div>
             </div>
 
+            {/* הודעת התשלום עודכנה: התשלום מתבצע באתר, ורק לאחר קביעת מחיר סופי לפי שקילה */}
             <div className="card p-4 mt-3 bg-amber-50 border-amber-200">
               <p className="text-sm font-semibold text-amber-900">
-                המחיר באתר הוא מחיר משוער. המחיר הסופי ייקבע לפי המשקל והאריזה בפועל.
+                המחיר המוצג הוא מחיר משוער בלבד. המחיר הסופי ייקבע לאחר שקילה בפועל על ידי הנציג.
               </p>
               <p className="text-sm font-bold text-amber-900 mt-2">
-                אין לקחת בהקפה. יש לשלם מיד עם לקיחת הסחורה.
+                לאחר עדכון המחיר הסופי תקבל/י הודעה עם קישור לתשלום באתר.
               </p>
             </div>
 
@@ -456,7 +545,7 @@ export function OrderFlow({
                 className="mt-1 h-5 w-5 accent-brand-rust"
               />
               <span className="text-sm font-medium text-zinc-700">
-                אני מאשר/ת שהתשלום מתבצע בעת לקיחת הסחורה ושאין אפשרות לקחת בהקפה.
+                אני מאשר/ת שראיתי שהמחיר משוער, ושהתשלום הסופי יתבצע באתר לאחר קביעת מחיר סופי.
               </span>
             </label>
 
@@ -492,7 +581,7 @@ export function OrderFlow({
               <Row label="סה״כ משוער" value={fmt(estimatedTotal)} />
             </div>
             <p className="text-xs text-zinc-500 mt-4">
-              נציג ייצור עמך קשר. יש לשלם מיד עם לקיחת הסחורה.
+              ההזמנה ממתינה לשקילה. לאחר קביעת מחיר סופי תקבל/י הודעה עם קישור לתשלום.
             </p>
             <Link href="/" className="btn-primary mt-6 inline-flex">
               חזרה לדף הבית

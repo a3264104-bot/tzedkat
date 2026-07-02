@@ -1,10 +1,27 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 import { OrderFlow } from "./OrderFlow";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrderPage() {
+  // התחברות נדרשת לפני כל דבר אחר - אין יותר הזמנת אורח.
+  // אם אין session, מפנים ל-login עם callbackUrl כדי שהלקוח יחזור לכאן בדיוק אחרי שהתחבר/נרשם.
+  const session = await auth();
+  if (!session?.user) {
+    redirect("/login?callbackUrl=/order");
+  }
+
+  // session.user.id מגיע מה-jwt/session callbacks ב-auth.ts (מוסיפים אותו שם ל-token)
+  const customerId = (session.user as any).id as string;
+  const customerRecord = await prisma.customer.findUnique({ where: { id: customerId } });
+  if (!customerRecord) {
+    // מצב קצה: יש session תקין אבל הלקוח נמחק מהמסד בינתיים - מחזירים להתחברות מחדש
+    redirect("/login?callbackUrl=/order");
+  }
+
   const pricelist = await prisma.pricelist.findFirst({
     where: { status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
@@ -16,7 +33,7 @@ export default async function OrderPage() {
     },
   });
 
-  // מכירה פעילה אך מעבר לשעת הסגירה — סגורה להזמנות
+  // מכירה פעילה אך מעבר לשעת הסגירה - סגורה להזמנות
   const closed =
     pricelist?.closeDate != null && new Date() > new Date(pricelist.closeDate);
   const notYetOpen =
@@ -83,6 +100,12 @@ export default async function OrderPage() {
       }}
       points={points}
       products={products}
+      customer={{
+        name: customerRecord.name,
+        phone: customerRecord.phone,
+        email: customerRecord.email,
+        defaultPointId: customerRecord.defaultPointId,
+      }}
     />
   );
 }

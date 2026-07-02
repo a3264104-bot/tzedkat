@@ -1,20 +1,17 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-// קוקי הסשן של Auth.js v5 (בפרודקשן עם https זה בדרך כלל __Secure-authjs.session-token,
-// ובפיתוח authjs.session-token). בודקים את שניהם כדי שזה יעבוד גם ב-dev וגם ב-prod.
-const SESSION_COOKIE_NAMES = [
-  "__Secure-authjs.session-token",
-  "authjs.session-token",
-  "__Secure-next-auth.session-token",
-  "next-auth.session-token",
-];
-
-export function middleware(req: NextRequest) {
-  const isLoggedIn = SESSION_COOKIE_NAMES.some((name) => req.cookies.get(name));
+// משתמשים ב-getToken (לא ב-auth() המלא) כדי לא לגרור Prisma/bcrypt ל-Edge Function
+// ולהישאר הרבה מתחת למגבלת ה-1MB של Vercel, אבל עדיין לבדוק את ה-role בפועל
+// ולא רק "יש קוקי כלשהו" (שזו הייתה הבעיה בגרסה הקודמת - לקוח מחובר היה עובר).
+export async function middleware(req: NextRequest) {
   const isLoginPage = req.nextUrl.pathname === "/admin/login";
 
-  if (!isLoggedIn && !isLoginPage) {
+  const token = await getToken({ req, secret: process.env.AUTH_SECRET });
+  const isAdmin = (token as any)?.role === "ADMIN";
+
+  if (!isAdmin && !isLoginPage) {
     const loginUrl = new URL("/admin/login", req.url);
     return NextResponse.redirect(loginUrl);
   }
