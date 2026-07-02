@@ -15,7 +15,8 @@ export default function LoginPage() {
   async function submit() {
     setError("");
     setLoading(true);
-    const res = await signIn("credentials", { email, password, redirect: false });
+    // חשוב: שם ה-provider הוא "admin" (לא "credentials") מאז שפיצלנו לשני providers
+    const res = await signIn("admin", { email, password, redirect: false });
     setLoading(false);
     if (res?.error) {
       setError("אימייל או סיסמה שגויים");
