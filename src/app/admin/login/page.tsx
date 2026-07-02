@@ -1,119 +1,69 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { useSearchParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import { Logo } from "@/components/Logo";
 
-function LoginPageInner() {
-  const params = useSearchParams();
+export default function LoginPage() {
   const router = useRouter();
-  const callbackUrl = params.get("callbackUrl") || "/order";
-
-  const [identifier, setIdentifier] = useState(""); // טלפון או מייל
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleLogin() {
+  async function submit() {
     setError("");
-    if (!identifier.trim() || !password) {
-      setError("נא למלא טלפון / מייל וסיסמה");
-      return;
-    }
     setLoading(true);
-    const res = await signIn("customer", {
-      identifier: identifier.trim(),
-      password,
-      redirect: false,
-    });
+    // חשוב: שם ה-provider הוא "admin" (לא "credentials") מאז שפיצלנו לשני providers
+    const res = await signIn("admin", { email, password, redirect: false });
     setLoading(false);
     if (res?.error) {
-      setError("פרטים שגויים. אם אין לך חשבון — הירשם קודם.");
-    } else {
-      router.replace(callbackUrl);
+      setError("אימייל או סיסמה שגויים");
+      return;
     }
+    router.push("/admin");
+    router.refresh();
   }
 
   return (
-    <main
-      dir="rtl"
-      className="min-h-screen flex items-center justify-center px-4"
-      style={{ background: "linear-gradient(to bottom, #fff3a3, #fff8d8)" }}
-    >
+    <main className="min-h-screen bg-brand-yellow flex items-center justify-center p-5">
       <div className="w-full max-w-sm">
-        <div className="flex justify-center mb-8">
-          <Logo size={100} />
+        <div className="flex justify-center mb-6">
+          <Logo size={120} />
         </div>
-
-        <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 p-6 space-y-4">
-          <h1 className="text-xl font-extrabold text-brand-slatedark text-center">
-            כניסה לחשבון
+        <div className="card p-6">
+          <h1 className="text-xl font-extrabold text-brand-slatedark text-center mb-5">
+            כניסת מנהל
           </h1>
-
-          <div>
-            <label className="label">טלפון או מייל</label>
-            <input
-              className="input"
-              type="text"
-              inputMode="email"
-              autoComplete="username"
-              placeholder="050-1234567 או user@example.com"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-            />
-          </div>
-
-          <div>
-            <label className="label">סיסמה</label>
-            <input
-              className="input"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-            />
-          </div>
-
-          {error && (
-            <p className="text-red-600 text-sm font-medium">{error}</p>
-          )}
-
-          <button
-            onClick={handleLogin}
-            disabled={loading}
-            className="btn-primary w-full"
-          >
-            {loading ? "מתחבר..." : "כניסה"}
-          </button>
-
-          <div className="flex justify-between text-sm pt-1">
-            <Link
-              href={`/forgot-password`}
-              className="text-brand-rust font-medium"
-            >
-              שכחתי סיסמה
-            </Link>
-            <Link
-              href={`/register?callbackUrl=${encodeURIComponent(callbackUrl)}`}
-              className="text-brand-rust font-medium"
-            >
-              הרשמה ←
-            </Link>
+          <div className="space-y-3">
+            <div>
+              <label className="label">אימייל</label>
+              <input
+                className="input"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submit()}
+              />
+            </div>
+            <div>
+              <label className="label">סיסמה</label>
+              <input
+                className="input"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submit()}
+              />
+            </div>
+            {error && <p className="text-red-600 text-sm">{error}</p>}
+            <button onClick={submit} disabled={loading} className="btn-primary w-full">
+              {loading ? "מתחבר..." : "כניסה"}
+            </button>
           </div>
         </div>
       </div>
     </main>
-  );
-}
-
-export default function LoginPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(to bottom, #fff3a3, #fff8d8)"}}>טוען...</div>}>
-      <LoginPageInner />
-    </Suspense>
   );
 }
