@@ -6,52 +6,57 @@ import { prisma } from "@/lib/prisma";
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   session: { strategy: "jwt" },
-  pages: { signIn: "/admin/login" },
+  pages: { signIn: "/login" },
   providers: [
-    // התחברות מנהל - נשאר זהה לחלוטין למה שהיה
+    // provider אחד מאוחד - מנסה קודם מנהל (לפי מייל), ואז לקוח (טלפון או מייל).
+    // כך יש מסך התחברות אחד לכולם, וה-role נקבע אוטומטית לפי מי שנמצא.
     Credentials({
-      id: "admin",
-      name: "admin",
-      credentials: { email: {}, password: {} },
-      async authorize(creds) {
-        if (!creds?.email || !creds?.password) return null;
-        const admin = await prisma.admin.findUnique({
-          where: { email: String(creds.email).toLowerCase().trim() },
-        });
-        if (!admin) return null;
-        const ok = await bcrypt.compare(String(creds.password), admin.password);
-        if (!ok) return null;
-        return { id: admin.id, email: admin.email, name: admin.name ?? "מנהל", role: "ADMIN" };
-      },
-    }),
-    // התחברות לקוח - טלפון או מייל + סיסמה
-    Credentials({
-      id: "customer",
-      name: "customer",
+      id: "login",
+      name: "login",
       credentials: { identifier: {}, password: {} },
       async authorize(creds) {
         const identifier = String(creds?.identifier ?? "").trim();
         const password = String(creds?.password ?? "");
         if (!identifier || !password) return null;
 
-        // הזיהוי יכול להיות טלפון או מייל - בודקים את שניהם
+        // 1) מנסים קודם כמנהל (טבלת Admin, לפי מייל)
+        const admin = await prisma.admin.findUnique({
+          where: { email: identifier.toLowerCase() },
+        });
+        if (admin) {
+          const ok = await bcrypt.compare(password, admin.password);
+          if (ok) {
+            return {
+              id: admin.id,
+              email: admin.email,
+              name: admin.name ?? "מנהל",
+              role: "ADMIN",
+            };
+          }
+        }
+
+        // 2) אם לא מנהל - מנסים כלקוח (טבלת Customer, טלפון או מייל)
         const customer = await prisma.customer.findFirst({
           where: { OR: [{ phone: identifier }, { email: identifier.toLowerCase() }] },
         });
-        if (!customer) return null;
-        const ok = await bcrypt.compare(password, customer.passwordHash);
-        if (!ok) return null;
-        return {
-          id: customer.id,
-          email: customer.email ?? undefined,
-          name: customer.name,
-          role: customer.role, // CUSTOMER / AGENT / ADMIN (מוכן להרחבה עתידית לנציגים)
-        };
+        if (customer) {
+          const ok = await bcrypt.compare(password, customer.passwordHash);
+          if (ok) {
+            return {
+              id: customer.id,
+              email: customer.email ?? undefined,
+              name: customer.name,
+              role: customer.role, // CUSTOMER / AGENT / ADMIN
+            };
+          }
+        }
+
+        // לא נמצא אף אחד תואם
+        return null;
       },
     }),
   ],
   callbacks: {
-    // מעבירים role לתוך ה-JWT כדי שיהיה זמין ב-session בלי שאילתת DB נוספת
     async jwt({ token, user }) {
       if (user) {
         token.role = (user as any).role;
@@ -68,19 +73,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     authorized({ auth, request }) {
       const path = request.nextUrl.pathname;
-      const isAdminLogin = path.startsWith("/admin/login");
+      const isLoginPage = path === "/login" || path === "/admin/login";
       const isAdminArea = path.startsWith("/admin");
       const isAccountArea = path.startsWith("/account");
 
-      if (isAdminLogin) return true;
+      if (isLoginPage) return true;
 
-      // אזור הניהול: חובה session עם role של ADMIN בלבד.
-      // זה קריטי - בלי הבדיקה הזו, לקוח רגיל מחובר היה יכול לגשת לאזור הניהול.
+      // אזור הניהול: חובה role של ADMIN בלבד
       if (isAdminArea) {
         return (auth?.user as any)?.role === "ADMIN";
       }
 
-      // אזור אישי של לקוח: כל session מחובר (לקוח/נציג/מנהל) מספיק
+      // אזור אישי: כל session מחובר מספיק
       if (isAccountArea) {
         return !!auth?.user;
       }

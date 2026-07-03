@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { STATUSES_REQUIRING_PAYMENT } from "@/lib/pricing";
+import { sendFinalPriceEmail } from "@/lib/email";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireAdmin();
@@ -119,6 +120,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     data,
     include: { point: true, items: true },
   });
+  // אם נקבע מחיר סופי עכשיו - שולחים ללקוח מייל עם קישור תשלום (לא חוסם)
+  if (justSetFinalTotal) {
+    const fullOrder = await prisma.order.findUnique({
+      where: { id },
+      include: { items: true, customer: true },
+    });
+    if (fullOrder?.customer?.email) {
+      const res = await sendFinalPriceEmail(fullOrder as any, fullOrder.customer.email);
+      await prisma.order.update({
+        where: { id },
+        data: res.ok
+          ? { customerNotifiedAt: new Date() }
+          : { customerNotifyError: res.error },
+      }).catch(() => null);
+    }
+  }
+
   return NextResponse.json({ ...order, _finalPriceJustSet: justSetFinalTotal });
 }
 

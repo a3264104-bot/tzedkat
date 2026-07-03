@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { effectiveUnitPrice, lineEstimate } from "@/lib/pricing";
+import { sendAdminOrderNotification, sendCustomerOrderConfirmation } from "@/lib/email";
 
 const schema = z.object({
   pricelistId: z.string(),
@@ -157,42 +158,32 @@ export async function POST(req: Request) {
 // הלוגיקה המלאה (Resend + SystemSettings + וואטסאפ) תיכנס לכאן בהמשך
 async function sendOrderNotificationsAsync(order: any, customer: any, pricelist: any) {
   try {
-    // שמירת לוג שהתחלנו לשלוח
-    const updateData: any = {};
-
-    // מייל למנהל - stub שמוכן להרחבה
-    const settings = await prisma.systemSettings.findUnique({ where: { id: "singleton" } })
-      .catch(() => null);
-
-    if (settings?.sendEmailToAdmin) {
-      try {
-        // כשיהיה מחובר email.ts מלא, נקרא כאן:
-        // await sendAdminOrderNotification({ ...order, ...customer });
-        await prisma.order.update({
-          where: { id: order.id },
-          data: { adminNotifiedAt: new Date() },
-        });
-      } catch (err: any) {
-        await prisma.order.update({
-          where: { id: order.id },
-          data: { adminNotifyError: String(err?.message || err).slice(0, 500) },
-        }).catch(() => null);
-      }
+    // מייל למנהל
+    const adminResult = await sendAdminOrderNotification(order, customer.email);
+    if (adminResult.ok) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { adminNotifiedAt: new Date() },
+      }).catch(() => null);
+    } else {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { adminNotifyError: adminResult.error },
+      }).catch(() => null);
     }
 
     // מייל ללקוח - רק אם יש לו מייל
-    if (settings?.sendEmailToCustomer && customer.email) {
-      try {
-        // כשיהיה מחובר email.ts מלא, נקרא כאן:
-        // await sendCustomerOrderConfirmation({ ...order }, customer.email);
+    if (customer.email) {
+      const custResult = await sendCustomerOrderConfirmation(order, customer.email);
+      if (custResult.ok) {
         await prisma.order.update({
           where: { id: order.id },
           data: { customerNotifiedAt: new Date() },
-        });
-      } catch (err: any) {
+        }).catch(() => null);
+      } else {
         await prisma.order.update({
           where: { id: order.id },
-          data: { customerNotifyError: String(err?.message || err).slice(0, 500) },
+          data: { customerNotifyError: custResult.error },
         }).catch(() => null);
       }
     }

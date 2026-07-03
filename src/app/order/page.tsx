@@ -82,6 +82,7 @@ export default async function OrderPage() {
       allowSingles: pp.product.allowSingles,
       unit: pp.product.unit,
       saleType: pp.product.saleType,
+      priceType: pp.product.priceType,
       packageWeight: pp.product.packageWeight,
       isFrozen: pp.product.isFrozen,
       limitedQty: pp.product.limitedQty,

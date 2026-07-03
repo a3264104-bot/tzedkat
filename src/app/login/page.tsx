@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, Suspense } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, getSession } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
@@ -9,7 +9,7 @@ import { Logo } from "@/components/Logo";
 function LoginPageInner() {
   const params = useSearchParams();
   const router = useRouter();
-  const callbackUrl = params.get("callbackUrl") || "/order";
+  const callbackUrl = params.get("callbackUrl") || "";
 
   const [identifier, setIdentifier] = useState(""); // טלפון או מייל
   const [password, setPassword] = useState("");
@@ -23,17 +23,31 @@ function LoginPageInner() {
       return;
     }
     setLoading(true);
-    const res = await signIn("customer", {
+    const res = await signIn("login", {
       identifier: identifier.trim(),
       password,
       redirect: false,
     });
-    setLoading(false);
+
     if (res?.error) {
+      setLoading(false);
       setError("פרטים שגויים. אם אין לך חשבון — הירשם קודם.");
-    } else {
-      router.replace(callbackUrl);
+      return;
     }
+
+    // אחרי התחברות מוצלחת - בודקים את ה-role כדי להפנות למקום הנכון
+    const session = await getSession();
+    const role = (session?.user as any)?.role;
+    setLoading(false);
+
+    if (callbackUrl) {
+      router.replace(callbackUrl);
+    } else if (role === "ADMIN") {
+      router.replace("/admin");
+    } else {
+      router.replace("/account");
+    }
+    router.refresh();
   }
 
   return (
@@ -78,27 +92,18 @@ function LoginPageInner() {
             />
           </div>
 
-          {error && (
-            <p className="text-red-600 text-sm font-medium">{error}</p>
-          )}
+          {error && <p className="text-red-600 text-sm font-medium">{error}</p>}
 
-          <button
-            onClick={handleLogin}
-            disabled={loading}
-            className="btn-primary w-full"
-          >
+          <button onClick={handleLogin} disabled={loading} className="btn-primary w-full">
             {loading ? "מתחבר..." : "כניסה"}
           </button>
 
           <div className="flex justify-between text-sm pt-1">
-            <Link
-              href={`/forgot-password`}
-              className="text-brand-rust font-medium"
-            >
+            <Link href="/forgot-password" className="text-brand-rust font-medium">
               שכחתי סיסמה
             </Link>
             <Link
-              href={`/register?callbackUrl=${encodeURIComponent(callbackUrl)}`}
+              href={`/register${callbackUrl ? `?callbackUrl=${encodeURIComponent(callbackUrl)}` : ""}`}
               className="text-brand-rust font-medium"
             >
               הרשמה ←
@@ -112,7 +117,16 @@ function LoginPageInner() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(to bottom, #fff3a3, #fff8d8)"}}>טוען...</div>}>
+    <Suspense
+      fallback={
+        <div
+          className="min-h-screen flex items-center justify-center"
+          style={{ background: "linear-gradient(to bottom, #fff3a3, #fff8d8)" }}
+        >
+          טוען...
+        </div>
+      }
+    >
       <LoginPageInner />
     </Suspense>
   );

@@ -25,6 +25,7 @@ export async function POST(req: Request) {
       singleSurcharge: b.singleSurcharge ?? null,
       unit: b.unit ?? 'ק"ג',
       saleType: b.saleType ?? "WEIGHT",
+      priceType: b.priceType ?? "REGULAR",
       packageWeight: b.packageWeight ?? null,
       isFrozen: b.isFrozen ?? false,
       limitedQty: b.limitedQty ?? false,

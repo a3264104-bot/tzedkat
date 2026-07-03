@@ -16,6 +16,7 @@ type Product = {
   singleSurcharge: string | null;
   unit: string;
   saleType: string;
+  priceType: string;
   packageWeight: string | null;
   isFrozen: boolean;
   limitedQty: boolean;
@@ -29,6 +30,33 @@ const SALE_TYPES = [
   { v: "UNIT", l: "לפי יחידה" },
   { v: "PACKAGE", l: "מארז" },
 ];
+
+// יחידת מידה נגזרת אוטומטית מאופן המכירה
+function unitForSaleType(saleType: string): string {
+  if (saleType === "UNIT") return "יחידה";
+  if (saleType === "PACKAGE") return "מארז";
+  return 'ק"ג';
+}
+
+// תווית שדה המחיר לפי אופן מכירה + סוג מחיר
+function priceLabel(saleType: string, priceType: string): string {
+  if (saleType === "UNIT") return "מחיר ליחידה";
+  if (saleType === "PACKAGE") return "מחיר למארז";
+  // WEIGHT
+  return priceType === "CARTON" ? 'מחיר קרטון לק"ג' : 'מחיר לק"ג';
+}
+
+// האם להציג אפשרות בודדים: רק במכירה לפי ק"ג עם סוג מחיר "קרטון"
+function canHaveSingles(saleType: string, priceType: string): boolean {
+  return saleType === "WEIGHT" && priceType === "CARTON";
+}
+
+// תווית קצרה לתצוגה בטבלה
+function priceTagForTable(p: Product): string {
+  if (p.saleType === "UNIT") return "ליחידה";
+  if (p.saleType === "PACKAGE") return "למארז";
+  return p.priceType === "CARTON" ? "קרטון" : 'לק"ג';
+}
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -48,17 +76,44 @@ export default function ProductsPage() {
     load();
   }, []);
 
+  // כשמשנים אופן מכירה - מעדכנים אוטומטית יחידת מידה, ומכבים בודדים אם לא רלוונטי
+  function changeSaleType(saleType: string) {
+    if (!editing) return;
+    const newPriceType = editing.priceType ?? "REGULAR";
+    const stillSingles = canHaveSingles(saleType, newPriceType) ? editing.allowSingles : false;
+    setEditing({
+      ...editing,
+      saleType,
+      unit: unitForSaleType(saleType),
+      allowSingles: stillSingles,
+    });
+  }
+
+  // כשמשנים סוג מחיר - מכבים בודדים אם כבר לא רלוונטי
+  function changePriceType(priceType: string) {
+    if (!editing) return;
+    const saleType = editing.saleType ?? "WEIGHT";
+    const stillSingles = canHaveSingles(saleType, priceType) ? editing.allowSingles : false;
+    setEditing({ ...editing, priceType, allowSingles: stillSingles });
+  }
+
   async function save() {
     if (!editing) return;
+    const saleType = editing.saleType ?? "WEIGHT";
+    const priceType = editing.priceType ?? "REGULAR";
     const payload = {
       name: editing.name,
       categoryId: editing.categoryId,
       cartonPrice: parseFloat(String(editing.cartonPrice ?? 0)),
-      allowSingles: editing.allowSingles ?? false,
+      // בודדים רק אם רלוונטי (WEIGHT+CARTON)
+      allowSingles: canHaveSingles(saleType, priceType) ? (editing.allowSingles ?? false) : false,
       singleSurcharge: editing.singleSurcharge ? parseFloat(String(editing.singleSurcharge)) : null,
-      unit: editing.unit ?? 'ק"ג',
-      saleType: editing.saleType ?? "WEIGHT",
-      packageWeight: editing.packageWeight || null,
+      // יחידת מידה תמיד נגזרת מאופן המכירה
+      unit: unitForSaleType(saleType),
+      saleType,
+      priceType,
+      // משקל מארז רק במכירת מארז
+      packageWeight: saleType === "PACKAGE" ? editing.packageWeight || null : null,
       isFrozen: editing.isFrozen ?? false,
       limitedQty: editing.limitedQty ?? false,
       limitedQtyAmount:
@@ -105,6 +160,11 @@ export default function ProductsPage() {
     load();
   }
 
+  const editSaleType = editing?.saleType ?? "WEIGHT";
+  const editPriceType = editing?.priceType ?? "REGULAR";
+  const showSingles = canHaveSingles(editSaleType, editPriceType);
+  const showPriceTypeSelect = editSaleType === "WEIGHT"; // סוג מחיר רלוונטי רק לפי ק"ג
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -121,15 +181,23 @@ export default function ProductsPage() {
                 cartonPrice: "0",
                 unit: 'ק"ג',
                 saleType: "WEIGHT",
+                priceType: "REGULAR",
                 isActive: true,
               })
             }
             className="btn-primary btn-sm"
+            disabled={cats.length === 0}
           >
             + מוצר חדש
           </button>
         </div>
       </div>
+
+      {cats.length === 0 && !loading && (
+        <div className="card p-4 bg-amber-50 border-amber-200 text-sm text-amber-800">
+          אין עדיין קטגוריות. יש ליצור קטגוריה אחת לפחות (דרך כפתור "קטגוריות") לפני הוספת מוצרים.
+        </div>
+      )}
 
       {loading ? (
         <p className="text-zinc-500">טוען...</p>
@@ -156,7 +224,10 @@ export default function ProductsPage() {
                     {p.isFrozen && <span className="badge bg-blue-100 text-blue-700 mr-1">קפוא</span>}
                   </td>
                   <td className="text-zinc-500">{p.category.name}</td>
-                  <td>{fmt(p.cartonPrice)}</td>
+                  <td>
+                    {fmt(p.cartonPrice)}
+                    <span className="text-zinc-400 text-xs mr-1">{priceTagForTable(p)}</span>
+                  </td>
                   <td className="text-zinc-500">{p.unit}</td>
                   <td>{p.allowSingles ? `+${fmt(p.singleSurcharge ?? 3)}` : "—"}</td>
                   <td>
@@ -212,22 +283,11 @@ export default function ProductsPage() {
                   ))}
                 </select>
               </Field>
-              <Field label="מחיר (קרטון)">
-                <input
-                  className="input"
-                  type="number"
-                  step="0.1"
-                  value={String(editing.cartonPrice ?? "")}
-                  onChange={(e) => setEditing({ ...editing, cartonPrice: e.target.value })}
-                />
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <Field label="אופן מכירה">
                 <select
                   className="input"
                   value={editing.saleType}
-                  onChange={(e) => setEditing({ ...editing, saleType: e.target.value })}
+                  onChange={(e) => changeSaleType(e.target.value)}
                 >
                   {SALE_TYPES.map((s) => (
                     <option key={s.v} value={s.v}>
@@ -236,43 +296,81 @@ export default function ProductsPage() {
                   ))}
                 </select>
               </Field>
-              <Field label="יחידת מידה">
-                <input
-                  className="input"
-                  value={editing.unit ?? ""}
-                  onChange={(e) => setEditing({ ...editing, unit: e.target.value })}
-                />
-              </Field>
             </div>
-            <Field label="משקל מארז (אם רלוונטי)">
-              <input
-                className="input"
-                placeholder="200 גרם / 400 גרם..."
-                value={editing.packageWeight ?? ""}
-                onChange={(e) => setEditing({ ...editing, packageWeight: e.target.value })}
-              />
-            </Field>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={editing.allowSingles ?? false}
-                onChange={(e) => setEditing({ ...editing, allowSingles: e.target.checked })}
-                className="h-4 w-4 accent-brand-rust"
-              />
-              אפשרות בודדים (תוספת לק"ג)
-            </label>
-            {editing.allowSingles && (
-              <Field label='תוספת לבודדים לק"ג'>
+
+            {/* סוג מחיר - רק במכירה לפי ק"ג */}
+            {showPriceTypeSelect && (
+              <Field label="סוג מחיר">
+                <select
+                  className="input"
+                  value={editing.priceType ?? "REGULAR"}
+                  onChange={(e) => changePriceType(e.target.value)}
+                >
+                  <option value="REGULAR">מחיר רגיל</option>
+                  <option value="CARTON">מחיר קרטון</option>
+                </select>
+              </Field>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={priceLabel(editSaleType, editPriceType)}>
                 <input
                   className="input"
                   type="number"
-                  step="0.5"
-                  placeholder="ברירת מחדל 3"
-                  value={String(editing.singleSurcharge ?? "")}
-                  onChange={(e) => setEditing({ ...editing, singleSurcharge: e.target.value })}
+                  step="0.1"
+                  value={String(editing.cartonPrice ?? "")}
+                  onChange={(e) => setEditing({ ...editing, cartonPrice: e.target.value })}
+                />
+              </Field>
+              {/* יחידת מידה - נגזרת אוטומטית, מוצגת לקריאה בלבד */}
+              <Field label="יחידת מידה">
+                <input
+                  className="input bg-zinc-50 text-zinc-500"
+                  value={unitForSaleType(editSaleType)}
+                  readOnly
+                />
+              </Field>
+            </div>
+
+            {/* משקל מארז - רק במכירת מארז */}
+            {editSaleType === "PACKAGE" && (
+              <Field label="משקל מארז (גרם)">
+                <input
+                  className="input"
+                  placeholder="200 גרם / 400 גרם / 500 גרם..."
+                  value={editing.packageWeight ?? ""}
+                  onChange={(e) => setEditing({ ...editing, packageWeight: e.target.value })}
                 />
               </Field>
             )}
+
+            {/* בודדים - רק ב-WEIGHT + CARTON */}
+            {showSingles && (
+              <>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={editing.allowSingles ?? false}
+                    onChange={(e) => setEditing({ ...editing, allowSingles: e.target.checked })}
+                    className="h-4 w-4 accent-brand-rust"
+                  />
+                  אפשרות קנייה בבודדים (תוספת לק"ג)
+                </label>
+                {editing.allowSingles && (
+                  <Field label='תוספת לבודדים לק"ג'>
+                    <input
+                      className="input"
+                      type="number"
+                      step="0.5"
+                      placeholder="ברירת מחדל 3"
+                      value={String(editing.singleSurcharge ?? "")}
+                      onChange={(e) => setEditing({ ...editing, singleSurcharge: e.target.value })}
+                    />
+                  </Field>
+                )}
+              </>
+            )}
+
             <div className="flex flex-wrap gap-4">
               <label className="flex items-center gap-2">
                 <input
@@ -293,7 +391,7 @@ export default function ProductsPage() {
                 כמות מוגבלת
               </label>
               {editing.limitedQty && (
-                <div className="pr-6">
+                <div className="pr-6 w-full">
                   <label className="label">מגבלת כמות (לתצוגה ואזהרה למנהל)</label>
                   <input
                     type="number"
@@ -371,6 +469,11 @@ function CategoriesModal({ cats, onClose }: { cats: Cat[]; onClose: () => void }
   return (
     <Modal onClose={onClose} title="קטגוריות">
       <div className="space-y-2">
+        {list.length === 0 && (
+          <p className="text-sm text-zinc-400 pb-2">
+            אין עדיין קטגוריות. הוסף למטה (למשל: עופות, בשר, דגים קפואים / מארזים, מיוחדים / מוגבלים).
+          </p>
+        )}
         {list.map((c) => (
           <div key={c.id} className="flex gap-2">
             <input
@@ -389,6 +492,7 @@ function CategoriesModal({ cats, onClose }: { cats: Cat[]; onClose: () => void }
             placeholder="קטגוריה חדשה"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && add()}
           />
           <button onClick={add} className="btn-primary btn-sm">
             הוסף

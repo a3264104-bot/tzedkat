@@ -110,7 +110,7 @@ function RegisterPageInner() {
     }
     setLoading(true);
     const identifier = phone.trim() || email.trim().toLowerCase();
-    const signInRes = await signIn("customer", {
+    const signInRes = await signIn("login", {
       identifier,
       password,
       redirect: false,

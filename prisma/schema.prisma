@@ -63,6 +63,8 @@ model Product {
   singleSurcharge Decimal? @db.Decimal(10, 2)
   unit          String   @default("ק\"ג") // ק"ג / יחידה / מארז
   saleType      String   @default("WEIGHT") // WEIGHT / UNIT / PACKAGE
+  // סוג המחיר: REGULAR (מחיר רגיל לק"ג/יחידה/מארז) / CARTON (מחיר קרטון, בודדים בתוספת)
+  priceType     String   @default("REGULAR") // REGULAR / CARTON
   packageWeight String?  // 200 גרם / 400 גרם / 500 גרם / 900 גרם
   // משקל ממוצע משוער ליחידה/קרטון - משמש לחישוב מחיר משוער מדויק יותר ללקוח
   avgWeightPerUnit Decimal? @db.Decimal(10, 3)

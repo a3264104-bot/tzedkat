@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
+  const session = await auth();
+  const isLoggedIn = !!session?.user;
+  const isAdmin = (session?.user as any)?.role === "ADMIN";
+
   const active = await prisma.pricelist.findFirst({
     where: { status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
@@ -28,9 +33,7 @@ export default async function Home() {
                 ההרשמה פתוחה — {active!.name}
               </h1>
               {active!.deliveryDateText && (
-                <p className="mt-2 text-zinc-600">
-                  חלוקה: {active!.deliveryDateText}
-                </p>
+                <p className="mt-2 text-zinc-600">חלוקה: {active!.deliveryDateText}</p>
               )}
               {active!.notes && (
                 <p className="mt-3 text-sm text-zinc-500 leading-relaxed">{active!.notes}</p>
@@ -49,9 +52,29 @@ export default async function Home() {
           )}
         </div>
 
-        <Link href="/admin" className="mt-8 text-sm text-brand-slate/70 underline">
-          כניסת מנהל
-        </Link>
+        {/* קישור התחברות / אזור אישי - תמיד זמין, גם כשאין מכירה פתוחה */}
+        <div className="mt-8 flex flex-col items-center gap-3">
+          {isLoggedIn ? (
+            isAdmin ? (
+              <Link href="/admin" className="btn-ghost">
+                לאזור הניהול ←
+              </Link>
+            ) : (
+              <Link href="/account" className="btn-ghost">
+                האזור האישי שלי ←
+              </Link>
+            )
+          ) : (
+            <>
+              <Link href="/login" className="btn-ghost">
+                כניסה / התחברות
+              </Link>
+              <Link href="/register" className="text-sm text-brand-slate/70 underline">
+                הרשמה לחשבון חדש
+              </Link>
+            </>
+          )}
+        </div>
       </div>
     </main>
   );

@@ -26,6 +26,7 @@ type Product = {
   allowSingles: boolean;
   unit: string;
   saleType: string;
+  priceType: string;
   packageWeight: string | null;
   isFrozen: boolean;
   limitedQty: boolean;
@@ -359,7 +360,20 @@ export function OrderFlow({
                                 {p.name}
                               </div>
                               <div className="text-sm text-zinc-500 mt-0.5">
-                                {fmt(unitPrice)} / {p.unit}
+                                {p.saleType === "WEIGHT" && p.priceType === "CARTON" ? (
+                                  <>
+                                    <span className="font-medium text-brand-slatedark">
+                                      מחיר קרטון: {fmt(p.price)} לק"ג
+                                    </span>
+                                    {p.allowSingles && (
+                                      <span className="block text-xs text-zinc-400">
+                                        בודדים: {fmt(effectiveUnitPrice(p.price, true, pricelist.singleSurcharge))} לק"ג
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>{fmt(unitPrice)} / {p.unit}</>
+                                )}
                                 {p.limitedQty && (
                                   <span className="badge bg-amber-100 text-amber-700 mr-2">
                                     כמות מוגבלת

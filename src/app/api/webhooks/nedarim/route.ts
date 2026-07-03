@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { sendPaymentConfirmedEmail } from "@/lib/email";
+import { PAYMENT_METHOD_LABELS } from "@/lib/pricing";
 
 // webhook שנדרים פלוס קוראים אחרי כל עסקה מוצלחת.
 // ה-URL הזה מוגדר כ-CallBack בפרמטרי ה-iframe.
@@ -104,6 +106,21 @@ export async function POST(req: Request) {
             ]
           : []),
       ]);
+
+      // מייל אישור תשלום ללקוח (לא חוסם)
+      if (customer.email) {
+        const fullOrder = await prisma.order.findUnique({
+          where: { id: param1 },
+          include: { items: true },
+        });
+        if (fullOrder) {
+          await sendPaymentConfirmedEmail(
+            fullOrder as any,
+            customer.email,
+            PAYMENT_METHOD_LABELS["ONLINE"]
+          ).catch(() => null);
+        }
+      }
 
       return NextResponse.json({ ok: true, type: "order", deducted1nis: verificationDeduction > 0 });
     }
