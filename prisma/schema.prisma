@@ -37,6 +37,12 @@ model Customer {
   cardLast4            String?
   cardVerifiedAt       DateTime?
   creditVerificationCharged Boolean @default(false)
+  // שדות נציג (רלוונטיים רק כאשר role=AGENT)
+  // agentPointId: הנקודה שהנציג מוגבל אליה. null = רואה את כל הלקוחות
+  agentPointId         String?
+  agentPoint           DeliveryPoint? @relation("AgentPoint", fields: [agentPointId], references: [id])
+  // האם הנציג מורשה לקבוע מחיר סופי ולשלוח לינק תשלום
+  agentCanSetFinalPrice Boolean @default(false)
   orders               Order[]
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
@@ -94,6 +100,7 @@ model DeliveryPoint {
   orders       Order[]
   pricelists   PricelistPoint[]
   customers    Customer[] // לקוחות שבחרו נקודה זו כברירת מחדל
+  agents       Customer[] @relation("AgentPoint") // נציגים המוגבלים לנקודה זו
   createdAt    DateTime @default(now())
 }
 
@@ -176,7 +183,9 @@ model Order {
 
   // מתי אישרו אדמין/נציג מחיר סופי, ומי
   finalPriceSetAt DateTime?
-  finalPriceSetBy String?   // email של המנהל/נציג שעדכן
+  finalPriceSetBy String?
+  // אם ההזמנה בוצעה ע"י נציג בשם הלקוח - מזהה הנציג
+  placedByAgentId String?   // email של המנהל/נציג שעדכן
 
   // מעקב אישורים שנשלחו (לא מפיל את ההזמנה אם נכשל - רק לוג)
   adminNotifiedAt    DateTime?

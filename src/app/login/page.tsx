@@ -44,6 +44,8 @@ function LoginPageInner() {
       router.replace(callbackUrl);
     } else if (role === "ADMIN") {
       router.replace("/admin");
+    } else if (role === "AGENT") {
+      router.replace("/agent");
     } else {
       router.replace("/account");
     }

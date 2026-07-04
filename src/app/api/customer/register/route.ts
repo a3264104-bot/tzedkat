@@ -9,6 +9,7 @@ const schema = z
     phone: z.string().trim().optional().nullable(),
     email: z.string().trim().email("כתובת מייל לא תקינה").optional().nullable().or(z.literal("")),
     password: z.string().min(6, "הסיסמה חייבת להכיל לפחות 6 תווים"),
+    defaultPointId: z.string().optional().nullable(),
   })
   .refine((d) => (d.phone && d.phone.length > 0) || (d.email && d.email.length > 0), {
     message: "יש להזין טלפון או מייל (לפחות אחד מהשניים)",
@@ -51,7 +52,13 @@ export async function POST(req: Request) {
     const passwordHash = await bcrypt.hash(data.password, 10);
 
     const customer = await prisma.customer.create({
-      data: { name: data.name.trim(), phone, email, passwordHash },
+      data: {
+        name: data.name.trim(),
+        phone,
+        email,
+        passwordHash,
+        defaultPointId: data.defaultPointId || null,
+      },
     });
 
     // לא מחזירים passwordHash בתשובה

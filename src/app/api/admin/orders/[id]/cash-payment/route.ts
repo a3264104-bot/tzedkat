@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
-import { resolvePaymentStatusFromAmount } from "@/lib/pricing";
+import { resolvePaymentStatusFromAmount, PAYMENT_METHOD_LABELS } from "@/lib/pricing";
+import { sendPaymentConfirmedEmail } from "@/lib/email";
 
 // סימון תשלום מזומן - פעולה נפרדת ומבוקרת (לא דרך ה-PATCH הכללי של ההזמנה).
 // כללים (לפי המפרט): חובה finalTotal קיים מראש; חובה receivedBy; אם amountPaid < finalTotal
@@ -70,6 +71,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       note,
     },
   });
+
+  // מייל אישור תשלום ללקוח - רק אם שולם במלואו (לא בתשלום חלקי) ויש ללקוח מייל.
+  // לא חוסם: כשל מייל לא מפיל את סימון התשלום.
+  if (paymentStatus === "PAID") {
+    const fullOrder = await prisma.order.findUnique({
+      where: { id },
+      include: { items: true, customer: true },
+    });
+    if (fullOrder?.customer?.email) {
+      await sendPaymentConfirmedEmail(
+        fullOrder as any,
+        fullOrder.customer.email,
+        PAYMENT_METHOD_LABELS["CASH"]
+      ).catch(() => null);
+    }
+  }
 
   return NextResponse.json(updated);
 }

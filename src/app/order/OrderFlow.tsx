@@ -59,11 +59,14 @@ export function OrderFlow({
   points,
   products,
   customer,
+  onBehalfOfCustomerId,
 }: {
   pricelist: Pricelist;
   points: Point[];
   products: Product[];
   customer: LoggedInCustomer;
+  // אם נציג מזמין בשם לקוח - מזהה הלקוח. undefined = הזמנה רגילה
+  onBehalfOfCustomerId?: string;
 }) {
   const [step, setStep] = useState<Step>("point");
   // אם ללקוח יש נקודה שמורה, בוחרים אותה כברירת מחדל - אבל הוא עדיין יכול לשנות
@@ -160,6 +163,7 @@ export function OrderFlow({
           phone: (phone || customer.phone || "").trim(),
           phone2: phone2.trim() || null,
           notes: notes.trim() || null,
+          onBehalfOfCustomerId: onBehalfOfCustomerId || null,
           items: cartLines.map((l) => ({
             productId: l.product.id,
             isSingle: l.isSingle,

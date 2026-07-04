@@ -12,6 +12,8 @@ const schema = z.object({
   // phone2/notes הם פר-הזמנה ונשארים כשדות אופציונליים מהלקוח
   phone2: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  // אם נציג מזמין בשם לקוח - מזהה הלקוח שעבורו מזמינים
+  onBehalfOfCustomerId: z.string().optional().nullable(),
   items: z
     .array(
       z.object({
@@ -30,13 +32,47 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "יש להתחבר לפני ביצוע הזמנה" }, { status: 401 });
   }
 
-  // admin אמור להזמין דרך מסך הניהול, לא כלקוח
   const role = (session.user as any).role;
-  const customerId = (session.user as any).id as string;
+  const sessionUserId = (session.user as any).id as string;
 
   try {
     const body = await req.json();
     const data = schema.parse(body);
+
+    // קביעת הלקוח שעבורו ההזמנה:
+    // - נציג/מנהל עם onBehalfOfCustomerId: מזמינים בשם אותו לקוח
+    // - לקוח רגיל: מזמין לעצמו
+    let customerId = sessionUserId;
+    let placedByAgentId: string | null = null;
+
+    if (data.onBehalfOfCustomerId && (role === "AGENT" || role === "ADMIN")) {
+      // נציג מזמין בשם לקוח - מאמתים הרשאה
+      const targetCustomer = await prisma.customer.findUnique({
+        where: { id: data.onBehalfOfCustomerId },
+      });
+      if (!targetCustomer || targetCustomer.role !== "CUSTOMER") {
+        return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 404 });
+      }
+      // אם הנציג מוגבל לנקודה - מוודאים שהלקוח שייך לנקודה הזו
+      if (role === "AGENT") {
+        const agent = await prisma.customer.findUnique({ where: { id: sessionUserId } });
+        if (agent?.agentPointId) {
+          const belongs =
+            targetCustomer.defaultPointId === agent.agentPointId ||
+            (await prisma.order.count({
+              where: { customerId: targetCustomer.id, pointId: agent.agentPointId },
+            })) > 0;
+          if (!belongs) {
+            return NextResponse.json(
+              { error: "אין לך הרשאה להזמין עבור לקוח זה" },
+              { status: 403 }
+            );
+          }
+        }
+      }
+      customerId = data.onBehalfOfCustomerId;
+      placedByAgentId = sessionUserId;
+    }
 
     // שולפים את פרטי הלקוח מהמסד - לא סומכים על מה שנשלח מהלקוח
     const customer = await prisma.customer.findUnique({ where: { id: customerId } });
@@ -124,6 +160,7 @@ export async function POST(req: Request) {
         pricelistId: data.pricelistId,
         pointId: data.pointId,
         customerId,
+        placedByAgentId,
         // snapshot של מה שהלקוח ראה בזמן ההזמנה
         pointNameSnapshot: plPoint.point.name,
         deliveryDateSnapshot: pricelist.deliveryDateText ?? null,

@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
-// getToken חייב לדעת את שם ה-cookie הנכון. בפרודקשן (https) Auth.js v5 משתמש
-// ב-__Secure-authjs.session-token, ובפיתוח ב-authjs.session-token.
 export async function middleware(req: NextRequest) {
-  const isLoginPage = req.nextUrl.pathname === "/login";
+  const path = req.nextUrl.pathname;
+  const isLoginPage = path === "/login";
 
   const isSecure =
     req.nextUrl.protocol === "https:" ||
@@ -18,12 +17,21 @@ export async function middleware(req: NextRequest) {
     cookieName: isSecure ? "__Secure-authjs.session-token" : "authjs.session-token",
   });
 
-  const isAdmin = (token as any)?.role === "ADMIN";
+  const role = (token as any)?.role;
+  const isAdmin = role === "ADMIN";
+  const isAgent = role === "AGENT";
 
-  // אזור הניהול פתוח רק למנהל. אם לא מנהל - מפנים למסך ההתחברות המאוחד /login
-  if (!isAdmin && !isLoginPage) {
+  // אזור הניהול: ADMIN בלבד
+  if (path.startsWith("/admin") && !isAdmin) {
     const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
+    loginUrl.searchParams.set("callbackUrl", path);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // אזור הנציג: AGENT או ADMIN
+  if (path.startsWith("/agent") && !isAgent && !isAdmin) {
+    const loginUrl = new URL("/login", req.url);
+    loginUrl.searchParams.set("callbackUrl", path);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -31,5 +39,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/admin/:path*", "/agent/:path*"],
 };

@@ -12,6 +12,8 @@ const links = [
   { href: "/admin/pricelists", label: "מחירונים / מכירות", icon: "📋" },
   { href: "/admin/points", label: "נקודות חלוקה", icon: "📍" },
   { href: "/admin/reports", label: "דוחות", icon: "📈" },
+  { href: "/admin/agents", label: "נציגים", icon: "👥" },
+  { href: "/admin/settings", label: "הגדרות", icon: "⚙️" },
 ];
 
 export function AdminNav() {
@@ -26,7 +28,7 @@ export function AdminNav() {
           ☰
         </button>
         <span className="font-extrabold text-brand-yellow">צדקת רבותינו — ניהול</span>
-        <button onClick={() => signOut({ callbackUrl: "/admin/login" })} className="text-sm">
+        <button onClick={() => signOut({ callbackUrl: "/login" })} className="text-sm">
           יציאה
         </button>
       </div>
@@ -60,7 +62,7 @@ export function AdminNav() {
         </nav>
         <div className="p-2 hidden md:block">
           <button
-            onClick={() => signOut({ callbackUrl: "/admin/login" })}
+            onClick={() => signOut({ callbackUrl: "/login" })}
             className="w-full text-right px-4 py-2.5 rounded-xl text-sm text-zinc-400 hover:bg-white/10"
           >
             יציאה ←

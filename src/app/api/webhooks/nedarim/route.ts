@@ -4,39 +4,82 @@ import { sendPaymentConfirmedEmail } from "@/lib/email";
 import { PAYMENT_METHOD_LABELS } from "@/lib/pricing";
 
 // webhook שנדרים פלוס קוראים אחרי כל עסקה מוצלחת.
-// ה-URL הזה מוגדר כ-CallBack בפרמטרי ה-iframe.
-// param1 = customerId (לאימות הרשמה) או orderId (לתשלום הזמנה).
-// param2 = סוג המטרה: "registration" | "order"
+// param1 = customerId (אימות הרשמה) או orderId (תשלום הזמנה).
+// param2 = "registration" | "order"
+//
+// ⚠️ שמות השדות של נדרים לא אומתו רשמית - לכן יש כאן לוגים מפורטים
+// שמדפיסים את כל ה-payload הגולמי כדי שנראה ב-Vercel Logs בדיוק מה נדרים שולחים.
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => null);
-    // נדרים שולחים לפעמים כ-form-urlencoded ולפעמים כ-JSON - תומכים בשניהם
+    // קוראים את הגוף הגולמי פעם אחת, ומנתחים לפי סוג התוכן
+    const rawText = await req.text();
+    const contentType = req.headers.get("content-type") || "";
+
     let data: Record<string, string> = {};
-    if (body) {
-      data = body;
-    } else {
-      const text = await req.text();
-      for (const pair of text.split("&")) {
+    // ניסיון JSON
+    if (contentType.includes("application/json")) {
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // ליפול חזרה ל-urlencoded
+      }
+    }
+    // אם לא JSON או שהניתוח נכשל - מנסים form-urlencoded
+    if (Object.keys(data).length === 0 && rawText.includes("=")) {
+      for (const pair of rawText.split("&")) {
         const [k, v] = pair.split("=");
-        if (k) data[decodeURIComponent(k)] = decodeURIComponent(v ?? "");
+        if (k) data[decodeURIComponent(k.trim())] = decodeURIComponent((v ?? "").trim());
       }
     }
 
-    const token = data["Token"] || data["token"] || "";
-    const last4 = data["Last4Digits"] || data["last4"] || data["CardNumber"]?.slice(-4) || "";
-    const param1 = data["param1"] || ""; // customerId או orderId
-    const param2 = data["param2"] || ""; // "registration" | "order"
-    const amount = parseFloat(data["Amount"] || data["amount"] || "0");
-    const transactionId = data["TransactionId"] || data["Numero"] || data["numero"] || "";
+    // ===== לוג מפורט - זה מה שנחפש ב-Vercel Logs =====
+    console.log("=== NEDARIM WEBHOOK RECEIVED ===");
+    console.log("content-type:", contentType);
+    console.log("raw body:", rawText);
+    console.log("parsed keys:", Object.keys(data).join(", "));
+    console.log("parsed data:", JSON.stringify(data));
+    console.log("================================");
+
+    // חיפוש גמיש של הטוקן - מנסים המון שמות אפשריים
+    const token =
+      data["Token"] ||
+      data["token"] ||
+      data["CardToken"] ||
+      data["cardToken"] ||
+      data["Tokef"] ||
+      data["TransactionToken"] ||
+      "";
+
+    // חיפוש גמיש של 4 ספרות אחרונות
+    const last4 =
+      data["Last4Digits"] ||
+      data["last4"] ||
+      data["Last4"] ||
+      data["CardSuffix"] ||
+      (data["CardNumber"] ? String(data["CardNumber"]).slice(-4) : "") ||
+      "";
+
+    const param1 = data["param1"] || data["Param1"] || "";
+    const param2 = data["param2"] || data["Param2"] || "";
+    const amount = parseFloat(data["Amount"] || data["amount"] || data["Sum"] || "0");
+    const transactionId =
+      data["TransactionId"] ||
+      data["Numero"] ||
+      data["numero"] ||
+      data["Asmachta"] ||
+      data["asmachta"] ||
+      "";
 
     if (!param1) {
-      return NextResponse.json({ error: "missing param1" }, { status: 400 });
+      console.log("WEBHOOK ERROR: missing param1");
+      return NextResponse.json({ error: "missing param1", receivedKeys: Object.keys(data) }, { status: 400 });
     }
 
     // === אימות הרשמה (חיוב 1₪) ===
     if (param2 === "registration" || !param2) {
       const customer = await prisma.customer.findUnique({ where: { id: param1 } });
       if (!customer) {
+        console.log("WEBHOOK ERROR: customer not found for id", param1);
         return NextResponse.json({ error: "customer not found" }, { status: 404 });
       }
 
@@ -49,7 +92,10 @@ export async function POST(req: Request) {
         },
       });
 
-      return NextResponse.json({ ok: true, type: "registration" });
+      console.log(
+        `WEBHOOK OK (registration): customer=${param1} tokenSaved=${!!token} last4=${last4 || "none"}`
+      );
+      return NextResponse.json({ ok: true, type: "registration", tokenSaved: !!token });
     }
 
     // === תשלום הזמנה ===
@@ -59,21 +105,17 @@ export async function POST(req: Request) {
         include: { customer: true },
       });
       if (!order) {
+        console.log("WEBHOOK ERROR: order not found for id", param1);
         return NextResponse.json({ error: "order not found" }, { status: 404 });
       }
       if (order.paymentStatus === "PAID") {
-        // כבר סומן כשולם - idempotent, מחזירים הצלחה בלי לכתוב שוב
+        console.log("WEBHOOK: order already paid", param1);
         return NextResponse.json({ ok: true, type: "order", note: "already paid" });
       }
 
-      // בודקים האם זו ההזמנה הראשונה שבה צריך לקזז 1₪
       const customer = order.customer;
       const verificationDeduction =
-        !customer.creditVerificationCharged &&
-        amount > 0 &&
-        Number(order.finalTotal) > 1
-          ? 1
-          : 0;
+        !customer.creditVerificationCharged && amount > 0 && Number(order.finalTotal) > 1 ? 1 : 0;
 
       await prisma.$transaction([
         prisma.order.update({
@@ -87,7 +129,6 @@ export async function POST(req: Request) {
             paymentProvider: "nedarim_plus",
           },
         }),
-        // אם קיזזנו 1₪ - נסמן שהאימות כבר נוצל
         ...(verificationDeduction > 0
           ? [
               prisma.customer.update({
@@ -96,7 +137,6 @@ export async function POST(req: Request) {
               }),
             ]
           : []),
-        // אם הכרטיס שימש לתשלום - נשמור גם את הטוקן החדש אם חסר
         ...(token && !customer.paymentToken
           ? [
               prisma.customer.update({
@@ -106,6 +146,8 @@ export async function POST(req: Request) {
             ]
           : []),
       ]);
+
+      console.log(`WEBHOOK OK (order): order=${param1} amount=${amount} deducted1nis=${verificationDeduction > 0}`);
 
       // מייל אישור תשלום ללקוח (לא חוסם)
       if (customer.email) {
@@ -125,14 +167,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, type: "order", deducted1nis: verificationDeduction > 0 });
     }
 
-    return NextResponse.json({ error: "unknown param2" }, { status: 400 });
+    console.log("WEBHOOK ERROR: unknown param2:", param2);
+    return NextResponse.json({ error: "unknown param2", param2 }, { status: 400 });
   } catch (e) {
-    console.error("nedarim webhook error:", e);
+    console.error("nedarim webhook exception:", e);
     return NextResponse.json({ error: "server error" }, { status: 500 });
   }
 }
 
-// נדרים שולחים GET לפעמים לצורך בדיקת זמינות ה-endpoint
+// נדרים עשויים לשלוח GET לבדיקת זמינות
 export async function GET() {
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, endpoint: "nedarim webhook alive" });
 }

@@ -76,12 +76,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const isLoginPage = path === "/login" || path === "/admin/login";
       const isAdminArea = path.startsWith("/admin");
       const isAccountArea = path.startsWith("/account");
+      const isAgentArea = path.startsWith("/agent");
 
       if (isLoginPage) return true;
 
       // אזור הניהול: חובה role של ADMIN בלבד
       if (isAdminArea) {
         return (auth?.user as any)?.role === "ADMIN";
+      }
+
+      // אזור נציג: AGENT או ADMIN בלבד
+      if (isAgentArea) {
+        const r = (auth?.user as any)?.role;
+        return r === "AGENT" || r === "ADMIN";
       }
 
       // אזור אישי: כל session מחובר מספיק
