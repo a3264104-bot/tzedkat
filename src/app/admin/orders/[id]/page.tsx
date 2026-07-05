@@ -57,6 +57,23 @@ export default function OrderDetail() {
     setSaving(false);
   }
 
+  // יצירת ושליחת לינק תשלום להזמנה שכבר יש לה מחיר סופי
+  // (נדרש כשנציג ללא הרשאת לינק קבע את המחיר)
+  async function sendPaymentLink() {
+    setSaving(true);
+    try {
+      await api(`/api/admin/orders/${order.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sendPaymentLink: true }),
+      });
+      await load();
+    } catch (e: any) {
+      alert(e.message || "שגיאה בשליחת הלינק");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveAll() {
     setSaving(true);
     const items = order.items.map((it: any) => ({
@@ -179,16 +196,48 @@ export default function OrderDetail() {
             )}
           </div>
           {!isPaid && (
-            <button
-              onClick={() => setShowCashForm(true)}
-              disabled={!hasFinalTotal}
-              title={!hasFinalTotal ? "יש לקבוע מחיר סופי תחילה" : undefined}
-              className="btn-yellow btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              סמן כתשלום מזומן
-            </button>
+            <div className="flex gap-2 flex-wrap">
+              {/* שליחת לינק תשלום - למשל כשנציג קבע מחיר בלי הרשאת לינק */}
+              {hasFinalTotal && !order.paymentLink && (
+                <button
+                  onClick={sendPaymentLink}
+                  disabled={saving}
+                  className="btn-primary btn-sm"
+                >
+                  {saving ? "שולח..." : "📩 שליחת לינק תשלום"}
+                </button>
+              )}
+              <button
+                onClick={() => setShowCashForm(true)}
+                disabled={!hasFinalTotal}
+                title={!hasFinalTotal ? "יש לקבוע מחיר סופי תחילה" : undefined}
+                className="btn-yellow btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                סמן כתשלום מזומן
+              </button>
+            </div>
           )}
         </div>
+        {/* תצוגת לינק תשלום קיים - להעתקה/שליחה ידנית */}
+        {order.paymentLink && !isPaid && (
+          <div className="mt-3 pt-3 border-t text-sm">
+            <span className="text-zinc-500">לינק תשלום: </span>
+            <a
+              href={order.paymentLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand-rust underline break-all"
+            >
+              {order.paymentLink.slice(0, 60)}...
+            </a>
+            <button
+              onClick={() => navigator.clipboard.writeText(order.paymentLink!)}
+              className="btn-ghost btn-sm mr-2"
+            >
+              📋 העתק
+            </button>
+          </div>
+        )}
         {!hasFinalTotal && (
           <p className="text-xs text-amber-700 mt-2">
             יש לעדכן משקלים ולשמור ("שמירת שינויים" למטה) כדי לקבוע מחיר סופי, לפני שאפשר לסמן תשלום.

@@ -17,10 +17,12 @@ type Customer = {
 export function AgentClient({
   agentName,
   canSetFinalPrice,
+  canSendPaymentLink,
   restrictedPointName,
 }: {
   agentName: string;
   canSetFinalPrice: boolean;
+  canSendPaymentLink: boolean;
   restrictedPointName: string | null;
 }) {
   const [query, setQuery] = useState("");
@@ -68,7 +70,10 @@ export function AgentClient({
             {restrictedPointName ? `נקודה: ${restrictedPointName}` : "כל הלקוחות"}
           </span>
           {canSetFinalPrice && (
-            <span className="badge bg-green-100 text-green-700">מורשה לקבוע מחיר סופי</span>
+            <span className="badge bg-green-100 text-green-700">קובע מחיר סופי</span>
+          )}
+          {canSendPaymentLink && (
+            <span className="badge bg-violet-100 text-violet-700">שולח לינק תשלום</span>
           )}
         </div>
 

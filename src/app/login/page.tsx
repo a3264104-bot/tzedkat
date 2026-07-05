@@ -40,7 +40,16 @@ function LoginPageInner() {
     const role = (session?.user as any)?.role;
     setLoading(false);
 
-    if (callbackUrl) {
+    // בודקים שה-callbackUrl מתאים להרשאות של המשתמש.
+    // בלי הבדיקה: נציג שניסה /admin היה נכנס ללולאת הפניות אינסופית
+    // (middleware מפנה ל-login, login מחזיר ל-admin, וחוזר חלילה).
+    const canAccess = (url: string): boolean => {
+      if (url.startsWith("/admin")) return role === "ADMIN";
+      if (url.startsWith("/agent")) return role === "AGENT" || role === "ADMIN";
+      return true; // כל שאר היעדים פתוחים לכל מחובר
+    };
+
+    if (callbackUrl && canAccess(callbackUrl)) {
       router.replace(callbackUrl);
     } else if (role === "ADMIN") {
       router.replace("/admin");

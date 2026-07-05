@@ -10,6 +10,7 @@ type Item = {
   unit: string;
   quantity: number;
   estimatedPrice: number;
+  estimatedWeight: number | null;
   actualWeight: number | null;
   finalWeight: number | null;
   finalPrice: number | null;
@@ -32,11 +33,13 @@ export function AgentCustomerClient({
   customerPhone,
   orders: initialOrders,
   canSetFinalPrice,
+  canSendPaymentLink,
 }: {
   customerName: string;
   customerPhone: string | null;
   orders: Order[];
   canSetFinalPrice: boolean;
+  canSendPaymentLink: boolean;
 }) {
   const [orders, setOrders] = useState(initialOrders);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -93,7 +96,13 @@ export function AgentCustomerClient({
             : o
         )
       );
-      setMsg(setFinal ? "המחיר הסופי נקבע ונשלח ללקוח" : "המשקלים נשמרו");
+      setMsg(
+        setFinal
+          ? canSendPaymentLink
+            ? "המחיר הסופי נקבע ולינק התשלום נשלח ללקוח"
+            : "המחיר הסופי נקבע. שליחת לינק התשלום תתבצע ע\"י המנהל."
+          : "המשקלים נשמרו"
+      );
     } catch {
       setMsg("שגיאת שרת");
     } finally {
@@ -160,6 +169,9 @@ export function AgentCustomerClient({
                         </div>
                         <div className="text-xs text-zinc-400">
                           {it.quantity} {it.unit} · {fmt(it.unitPrice)}/{it.unit}
+                          {it.estimatedWeight != null && (
+                            <span className="text-amber-600"> · משוער: {it.estimatedWeight} ק"ג</span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -193,7 +205,7 @@ export function AgentCustomerClient({
                         disabled={saving}
                         className="btn-primary btn-sm flex-1"
                       >
-                        קביעת מחיר סופי
+                        {canSendPaymentLink ? "מחיר סופי + לינק תשלום" : "קביעת מחיר סופי"}
                       </button>
                     )}
                   </div>

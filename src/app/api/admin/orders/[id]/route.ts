@@ -86,6 +86,29 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   // recompute finalTotal from items if any final prices exist
   let justSetFinalTotal = false;
+
+  // פעולה מפורשת: יצירת/שליחת לינק תשלום להזמנה שכבר יש לה מחיר סופי.
+  // נדרש כשנציג (ללא הרשאת לינק) קבע מחיר, והמנהל משלים את שליחת הלינק.
+  if (b.sendPaymentLink === true) {
+    if (current.finalTotal == null) {
+      return NextResponse.json(
+        { error: "לא ניתן לשלוח לינק — טרם נקבע מחיר סופי" },
+        { status: 400 }
+      );
+    }
+    const customerForLink = await prisma.customer.findUnique({
+      where: { id: current.customerId },
+    });
+    const deductOneNow =
+      customerForLink && !customerForLink.creditVerificationCharged && Number(current.finalTotal) > 1;
+    const chargeAmountNow = deductOneNow
+      ? Math.round((Number(current.finalTotal) - 1) * 100) / 100
+      : Number(current.finalTotal);
+
+    data.paymentLink = buildNedarimPaymentLink(id, chargeAmountNow, current.customerName);
+    data.paymentStatus = "PAYMENT_PENDING";
+    justSetFinalTotal = true; // מפעיל את שליחת מייל המחיר הסופי עם הלינק
+  }
   if ("recomputeFinal" in b || Array.isArray(b.items)) {
     const items = await prisma.orderItem.findMany({ where: { orderId: id } });
     const hasFinal = items.some((i) => i.finalPrice !== null);

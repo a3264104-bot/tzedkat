@@ -22,7 +22,10 @@ export default async function Home() {
     (!active.openDate || now >= new Date(active.openDate));
 
   return (
-    <main className="min-h-screen bg-brand-yellow">
+    <main
+      dir="rtl"
+      className="min-h-screen bg-soft-gradient"
+    >
       <div className="mx-auto max-w-md px-5 pt-12 pb-10 flex flex-col items-center text-center">
         <Logo size={170} />
 
@@ -75,6 +78,18 @@ export default async function Home() {
             </>
           )}
         </div>
+
+        {/* footer - קישורי פרטיות ותנאים (חשוב לנגישות ולאמון) */}
+        <footer className="mt-10 pt-6 border-t border-brand-slate/10 text-center">
+          <div className="flex justify-center gap-4 text-xs text-brand-slate/60">
+            <a href="/privacy" className="hover:text-brand-rust">מדיניות פרטיות</a>
+            <span>·</span>
+            <a href="/terms" className="hover:text-brand-rust">תנאי שימוש</a>
+          </div>
+          <p className="text-xs text-brand-slate/40 mt-2">
+            © {new Date().getFullYear()} צדקת רבותינו
+          </p>
+        </footer>
       </div>
     </main>
   );

@@ -77,6 +77,29 @@ export function lineEstimate(unitPrice: number, qty: number): number {
   return Math.round(unitPrice * qty * 100) / 100;
 }
 
+// הערכת מחיר חכמה שמתחשבת במשקל ממוצע ליחידה.
+// - WEIGHT (לפי ק"ג): הלקוח מזמין בק"ג ישירות, אז unitPrice × qty
+// - UNIT (לפי יחידה): המחיר הוא לק"ג, אז צריך unitPrice × avgWeight × qty
+//   (לדוגמה: עוף 30₪/ק"ג, משקל ממוצע 2 ק"ג, 2 יחידות = 30×2×2 = 120₪)
+// - PACKAGE (מארז): המחיר הוא למארז שלם, אז unitPrice × qty
+// אם אין avgWeightPerUnit ל-UNIT, נופלים חזרה ל-unitPrice × qty (התנהגות ישנה)
+export function smartLineEstimate(
+  unitPrice: number,
+  qty: number,
+  saleType: string,
+  priceType: string,
+  avgWeightPerUnit: number | null
+): number | null {
+  // מכירה ביחידה שמתומחרת לק"ג - חייבת משקל ממוצע.
+  // אם חסר - מחזירים null (הקורא יציג "חסר משקל משוער") במקום לנחש.
+  if (saleType === "UNIT" && priceType === "PER_KG") {
+    if (!avgWeightPerUnit || avgWeightPerUnit <= 0) return null;
+    return Math.round(unitPrice * avgWeightPerUnit * qty * 100) / 100;
+  }
+  // כל שאר המקרים: מחיר × כמות
+  return Math.round(unitPrice * qty * 100) / 100;
+}
+
 // קובע את paymentStatus הנכון לפי amountPaid מול finalTotal (כלל 5/6/7 מהדרישות)
 export function resolvePaymentStatusFromAmount(
   amountPaid: number,

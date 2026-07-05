@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { effectiveUnitPrice, lineEstimate } from "@/lib/pricing";
+import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
 import { sendAdminOrderNotification, sendCustomerOrderConfirmation } from "@/lib/email";
 
 const schema = z.object({
@@ -137,8 +137,26 @@ export async function POST(req: Request) {
       const base = Number(pp.price ?? pp.product.cartonPrice);
       const isSingle = item.isSingle && pp.product.allowSingles;
       const unitPrice = effectiveUnitPrice(base, isSingle, surcharge);
-      const est = lineEstimate(unitPrice, item.quantity);
-      estimatedTotal += est;
+      const avgWeight =
+        pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null;
+      // חישוב חכם - זהה לצד הלקוח: מוצר נשקל (PER_KG) מוכפל במשקל המשוער.
+      // אם חסר משקל משוער - ההערכה לשורה היא null; שומרים 0 בהערכה
+      // (המחיר האמיתי ייקבע ממילא בשקילה) אבל לא מנחשים סכום שגוי.
+      const est = smartLineEstimate(
+        unitPrice,
+        item.quantity,
+        pp.product.saleType,
+        pp.product.priceType,
+        avgWeight
+      );
+      estimatedTotal += est ?? 0;
+      // משקל משוער לשורה - כמות × משקל ממוצע (רק למוצר נשקל עם משקל מוגדר)
+      const estimatedWeight =
+        (pp.product.saleType === "UNIT" || pp.product.saleType === "PACKAGE") &&
+        pp.product.priceType === "PER_KG" &&
+        avgWeight
+          ? Math.round(avgWeight * item.quantity * 1000) / 1000
+          : null;
       itemsData.push({
         productId: pp.product.id,
         productName: pp.product.name,
@@ -146,7 +164,8 @@ export async function POST(req: Request) {
         isSingle,
         quantity: item.quantity,
         unitPrice,
-        estimatedPrice: est,
+        estimatedPrice: est ?? 0,
+        estimatedWeight,
       });
     }
     estimatedTotal = Math.round(estimatedTotal * 100) / 100;

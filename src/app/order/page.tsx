@@ -83,6 +83,7 @@ export default async function OrderPage() {
       unit: pp.product.unit,
       saleType: pp.product.saleType,
       priceType: pp.product.priceType,
+      avgWeightPerUnit: pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null,
       packageWeight: pp.product.packageWeight,
       isFrozen: pp.product.isFrozen,
       limitedQty: pp.product.limitedQty,

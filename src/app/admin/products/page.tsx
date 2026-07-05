@@ -18,6 +18,7 @@ type Product = {
   saleType: string;
   priceType: string;
   packageWeight: string | null;
+  avgWeightPerUnit: string | null;
   isFrozen: boolean;
   limitedQty: boolean;
   limitedQtyAmount: number | null;
@@ -40,10 +41,18 @@ function unitForSaleType(saleType: string): string {
 
 // תווית שדה המחיר לפי אופן מכירה + סוג מחיר
 function priceLabel(saleType: string, priceType: string): string {
-  if (saleType === "UNIT") return "מחיר ליחידה";
+  if (saleType === "UNIT") {
+    // ביחידה - המחיר יכול להיות ליחידה או לק"ג
+    return priceType === "PER_KG" ? 'מחיר לק"ג' : "מחיר ליחידה";
+  }
   if (saleType === "PACKAGE") return "מחיר למארז";
   // WEIGHT
   return priceType === "CARTON" ? 'מחיר קרטון לק"ג' : 'מחיר לק"ג';
+}
+
+// האם צריך משקל ממוצע: רק במכירה לפי יחידה שהמחיר בה הוא לק"ג
+function needsAvgWeight(saleType: string, priceType: string): boolean {
+  return saleType === "UNIT" && priceType === "PER_KG";
 }
 
 // האם להציג אפשרות בודדים: רק במכירה לפי ק"ג עם סוג מחיר "קרטון"
@@ -114,6 +123,11 @@ export default function ProductsPage() {
       priceType,
       // משקל מארז רק במכירת מארז
       packageWeight: saleType === "PACKAGE" ? editing.packageWeight || null : null,
+      // משקל ממוצע ליחידה - רק כשמוכרים ביחידה ומתמחרים לק"ג
+      avgWeightPerUnit:
+        needsAvgWeight(saleType, priceType) && editing.avgWeightPerUnit
+          ? parseFloat(String(editing.avgWeightPerUnit))
+          : null,
       isFrozen: editing.isFrozen ?? false,
       limitedQty: editing.limitedQty ?? false,
       limitedQtyAmount:
@@ -163,7 +177,9 @@ export default function ProductsPage() {
   const editSaleType = editing?.saleType ?? "WEIGHT";
   const editPriceType = editing?.priceType ?? "REGULAR";
   const showSingles = canHaveSingles(editSaleType, editPriceType);
-  const showPriceTypeSelect = editSaleType === "WEIGHT"; // סוג מחיר רלוונטי רק לפי ק"ג
+  // סוג מחיר רלוונטי ל-WEIGHT (רגיל/קרטון) ול-UNIT (ליחידה/לק"ג)
+  const showPriceTypeSelect = editSaleType === "WEIGHT" || editSaleType === "UNIT";
+  const showAvgWeight = editSaleType === "UNIT" && editPriceType === "PER_KG";
 
   return (
     <div className="space-y-5">
@@ -300,14 +316,23 @@ export default function ProductsPage() {
 
             {/* סוג מחיר - רק במכירה לפי ק"ג */}
             {showPriceTypeSelect && (
-              <Field label="סוג מחיר">
+              <Field label={editSaleType === "UNIT" ? "בסיס התמחור" : "סוג מחיר"}>
                 <select
                   className="input"
                   value={editing.priceType ?? "REGULAR"}
                   onChange={(e) => changePriceType(e.target.value)}
                 >
-                  <option value="REGULAR">מחיר רגיל</option>
-                  <option value="CARTON">מחיר קרטון</option>
+                  {editSaleType === "WEIGHT" ? (
+                    <>
+                      <option value="REGULAR">מחיר רגיל</option>
+                      <option value="CARTON">מחיר קרטון</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="REGULAR">המחיר הוא ליחידה</option>
+                      <option value="PER_KG">המחיר הוא לק"ג (שקילה)</option>
+                    </>
+                  )}
                 </select>
               </Field>
             )}
@@ -341,6 +366,28 @@ export default function ProductsPage() {
                   value={editing.packageWeight ?? ""}
                   onChange={(e) => setEditing({ ...editing, packageWeight: e.target.value })}
                 />
+              </Field>
+            )}
+
+            {/* משקל ממוצע ליחידה - רק כשמוכרים ביחידה ומתמחרים לק"ג */}
+            {showAvgWeight && (
+              <Field label='משקל ממוצע ליחידה (ק"ג)'>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.1"
+                  placeholder='לדוגמה: עוף שלם ≈ 2 ק"ג'
+                  value={editing.avgWeightPerUnit ?? ""}
+                  onChange={(e) => setEditing({ ...editing, avgWeightPerUnit: e.target.value })}
+                />
+                <p className="text-xs text-zinc-400 mt-1">
+                  חובה למילוי — משמש להערכת מחיר מדויקת ללקוח (מחיר לק"ג × משקל ממוצע × כמות).
+                </p>
+                {!editing.avgWeightPerUnit && (
+                  <p className="text-xs text-amber-600 mt-1 font-medium">
+                    ⚠️ חסר משקל משוער — ההערכה ללקוח לא תהיה מדויקת עד למילוי.
+                  </p>
+                )}
               </Field>
             )}
 

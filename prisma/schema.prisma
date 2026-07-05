@@ -41,8 +41,9 @@ model Customer {
   // agentPointId: הנקודה שהנציג מוגבל אליה. null = רואה את כל הלקוחות
   agentPointId         String?
   agentPoint           DeliveryPoint? @relation("AgentPoint", fields: [agentPointId], references: [id])
-  // האם הנציג מורשה לקבוע מחיר סופי ולשלוח לינק תשלום
+  // הרשאות נציג נפרדות: קביעת מחיר סופי / שליחת לינק תשלום
   agentCanSetFinalPrice Boolean @default(false)
+  agentCanSendPaymentLink Boolean @default(false)
   orders               Order[]
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt

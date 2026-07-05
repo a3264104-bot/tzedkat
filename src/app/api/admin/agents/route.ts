@@ -32,6 +32,7 @@ export async function GET() {
       agentPointId: a.agentPointId,
       agentPointName: a.agentPoint?.name ?? null,
       agentCanSetFinalPrice: a.agentCanSetFinalPrice,
+      agentCanSendPaymentLink: a.agentCanSendPaymentLink,
     }))
   );
 }
@@ -68,6 +69,7 @@ export async function POST(req: Request) {
       role: "AGENT",
       agentPointId: b.agentPointId || null,
       agentCanSetFinalPrice: !!b.agentCanSetFinalPrice,
+      agentCanSendPaymentLink: !!b.agentCanSendPaymentLink,
     },
   });
 

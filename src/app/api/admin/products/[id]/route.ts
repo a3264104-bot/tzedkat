@@ -18,6 +18,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     "saleType",
     "priceType",
     "packageWeight",
+    "avgWeightPerUnit",
     "isFrozen",
     "limitedQty",
     "limitedQtyAmount",

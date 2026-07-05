@@ -25,12 +25,15 @@ export default async function AgentPage() {
 
   // מנהל שנכנס - מקבל הרשאות מלאות
   const canSetFinalPrice = role === "ADMIN" ? true : agent?.agentCanSetFinalPrice ?? false;
+  const canSendPaymentLink =
+    role === "ADMIN" ? true : agent?.agentCanSendPaymentLink ?? false;
   const pointName = role === "ADMIN" ? null : agent?.agentPoint?.name ?? null;
 
   return (
     <AgentClient
       agentName={role === "ADMIN" ? "מנהל" : agent?.name ?? "נציג"}
       canSetFinalPrice={canSetFinalPrice}
+      canSendPaymentLink={canSendPaymentLink}
       restrictedPointName={pointName}
     />
   );

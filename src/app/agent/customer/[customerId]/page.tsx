@@ -31,9 +31,11 @@ export default async function AgentCustomerPage({
 
   // הרשאות נציג
   let canSetFinalPrice = role === "ADMIN";
+  let canSendPaymentLink = role === "ADMIN";
   if (role === "AGENT") {
     const agent = await prisma.customer.findUnique({ where: { id: sessionUserId } });
     canSetFinalPrice = agent?.agentCanSetFinalPrice ?? false;
+    canSendPaymentLink = agent?.agentCanSendPaymentLink ?? false;
     if (agent?.agentPointId) {
       const belongs =
         customer.defaultPointId === agent.agentPointId ||
@@ -57,6 +59,7 @@ export default async function AgentCustomerPage({
       unit: it.unit,
       quantity: Number(it.quantity),
       estimatedPrice: Number(it.estimatedPrice),
+      estimatedWeight: it.estimatedWeight != null ? Number(it.estimatedWeight) : null,
       actualWeight: it.actualWeight != null ? Number(it.actualWeight) : null,
       finalWeight: it.finalWeight != null ? Number(it.finalWeight) : null,
       finalPrice: it.finalPrice != null ? Number(it.finalPrice) : null,
@@ -70,6 +73,7 @@ export default async function AgentCustomerPage({
       customerPhone={customer.phone}
       orders={orders}
       canSetFinalPrice={canSetFinalPrice}
+      canSendPaymentLink={canSendPaymentLink}
     />
   );
 }

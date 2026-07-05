@@ -13,6 +13,7 @@ type Agent = {
   agentPointId: string | null;
   agentPointName: string | null;
   agentCanSetFinalPrice: boolean;
+  agentCanSendPaymentLink: boolean;
 };
 
 type EditAgent = Partial<Agent> & { password?: string };
@@ -47,6 +48,7 @@ export default function AgentsPage() {
           name: editing.name,
           agentPointId: editing.agentPointId || null,
           agentCanSetFinalPrice: editing.agentCanSetFinalPrice ?? false,
+          agentCanSendPaymentLink: editing.agentCanSendPaymentLink ?? false,
         };
         if (editing.password) payload.password = editing.password;
         await api(`/api/admin/agents/${editing.id}`, {
@@ -62,6 +64,7 @@ export default function AgentsPage() {
             password: editing.password,
             agentPointId: editing.agentPointId || null,
             agentCanSetFinalPrice: editing.agentCanSetFinalPrice ?? false,
+            agentCanSendPaymentLink: editing.agentCanSendPaymentLink ?? false,
           }),
         });
       }
@@ -86,7 +89,13 @@ export default function AgentsPage() {
         <h1 className="text-2xl font-extrabold text-brand-slatedark">ניהול נציגים</h1>
         <button
           onClick={() =>
-            setEditing({ name: "", email: "", password: "", agentCanSetFinalPrice: false })
+            setEditing({
+              name: "",
+              email: "",
+              password: "",
+              agentCanSetFinalPrice: false,
+              agentCanSendPaymentLink: false,
+            })
           }
           className="btn-primary btn-sm"
         >
@@ -114,6 +123,9 @@ export default function AgentsPage() {
                     </span>
                     {a.agentCanSetFinalPrice && (
                       <span className="badge bg-green-100 text-green-700">קובע מחיר סופי</span>
+                    )}
+                    {a.agentCanSendPaymentLink && (
+                      <span className="badge bg-violet-100 text-violet-700">שולח לינק תשלום</span>
                     )}
                   </div>
                 </div>
@@ -182,17 +194,31 @@ export default function AgentsPage() {
               </select>
             </Field>
 
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={editing.agentCanSetFinalPrice ?? false}
-                onChange={(e) =>
-                  setEditing({ ...editing, agentCanSetFinalPrice: e.target.checked })
-                }
-                className="h-4 w-4 accent-brand-rust"
-              />
-              מורשה לקבוע מחיר סופי ולשלוח לינק תשלום
-            </label>
+            <div className="space-y-2 border-t pt-3">
+              <p className="text-sm font-semibold text-zinc-600">הרשאות נוספות:</p>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={editing.agentCanSetFinalPrice ?? false}
+                  onChange={(e) =>
+                    setEditing({ ...editing, agentCanSetFinalPrice: e.target.checked })
+                  }
+                  className="h-4 w-4 accent-brand-rust"
+                />
+                מורשה לקבוע מחיר סופי (אחרי שקילה)
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={editing.agentCanSendPaymentLink ?? false}
+                  onChange={(e) =>
+                    setEditing({ ...editing, agentCanSendPaymentLink: e.target.checked })
+                  }
+                  className="h-4 w-4 accent-brand-rust"
+                />
+                מורשה לשלוח לינק תשלום ללקוח
+              </label>
+            </div>
 
             {error && <p className="text-red-600 text-sm">{error}</p>}
             <button onClick={save} disabled={saving} className="btn-primary w-full">

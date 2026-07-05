@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
-import { effectiveUnitPrice, lineEstimate, fmt } from "@/lib/pricing";
+import { effectiveUnitPrice, lineEstimate, smartLineEstimate, fmt } from "@/lib/pricing";
 
 type Point = {
   id: string;
@@ -27,6 +27,7 @@ type Product = {
   unit: string;
   saleType: string;
   priceType: string;
+  avgWeightPerUnit: number | null;
   packageWeight: string | null;
   isFrozen: boolean;
   limitedQty: boolean;
@@ -116,11 +117,18 @@ export function OrderFlow({
       .map(([id, l]) => {
         const p = products.find((x) => x.id === id)!;
         const unitPrice = effectiveUnitPrice(p.price, l.isSingle, pricelist.singleSurcharge);
-        return { product: p, ...l, unitPrice, lineTotal: lineEstimate(unitPrice, l.qty) };
+        return {
+          product: p,
+          ...l,
+          unitPrice,
+          lineTotal: smartLineEstimate(unitPrice, l.qty, p.saleType, p.priceType, p.avgWeightPerUnit),
+        };
       });
   }, [cart, products, pricelist.singleSurcharge]);
 
-  const estimatedTotal = cartLines.reduce((s, l) => s + l.lineTotal, 0);
+  const estimatedTotal = cartLines.reduce((s, l) => s + (l.lineTotal ?? 0), 0);
+  // האם יש מוצרים בעגלה שחסר להם משקל משוער (UNIT+PER_KG בלי avgWeight)
+  const hasMissingWeight = cartLines.some((l) => l.lineTotal === null);
   const itemCount = cartLines.length;
 
   function setQty(id: string, qty: number) {
@@ -442,7 +450,13 @@ export function OrderFlow({
                       {l.qty} {l.product.unit} × {fmt(l.unitPrice)}
                     </div>
                   </div>
-                  <div className="font-bold text-brand-rust">{fmt(l.lineTotal)}</div>
+                  <div className="font-bold text-brand-rust">
+                    {l.lineTotal === null ? (
+                      <span className="text-amber-600 text-xs">חסר משקל משוער</span>
+                    ) : (
+                      fmt(l.lineTotal)
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -450,6 +464,11 @@ export function OrderFlow({
               <span className="font-bold">סה"כ משוער</span>
               <span className="text-xl font-extrabold text-brand-rust">{fmt(estimatedTotal)}</span>
             </div>
+            {hasMissingWeight && (
+              <div className="card p-3 mt-2 bg-amber-50 border-amber-200 text-xs text-amber-800">
+                חלק מהמוצרים נמכרים לפי משקל ולכן המחיר ייקבע לאחר שקילה. הסכום המשוער אינו כולל אותם.
+              </div>
+            )}
             <BottomBar>
               <button onClick={() => setStep("products")} className="btn-ghost flex-1">
                 הוסף עוד
@@ -536,7 +555,13 @@ export function OrderFlow({
                     {l.product.name} — {l.qty} {l.product.unit}
                     {l.isSingle ? " (בודדים)" : ""}
                   </span>
-                  <span className="font-semibold">{fmt(l.lineTotal)}</span>
+                  <span className="font-semibold">
+                    {l.lineTotal === null ? (
+                      <span className="text-amber-600 text-xs">חסר משקל משוער</span>
+                    ) : (
+                      fmt(l.lineTotal)
+                    )}
+                  </span>
                 </div>
               ))}
               <div className="border-t pt-2 flex justify-between font-bold">

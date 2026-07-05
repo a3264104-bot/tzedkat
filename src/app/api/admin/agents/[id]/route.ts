@@ -26,6 +26,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if ("name" in b && b.name) data.name = String(b.name).trim();
   if ("agentPointId" in b) data.agentPointId = b.agentPointId || null;
   if ("agentCanSetFinalPrice" in b) data.agentCanSetFinalPrice = !!b.agentCanSetFinalPrice;
+  if ("agentCanSendPaymentLink" in b) data.agentCanSendPaymentLink = !!b.agentCanSendPaymentLink;
 
   // איפוס סיסמה (אופציונלי) - המנהל מזין סיסמה חדשה
   if (b.password) {
@@ -53,7 +54,12 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (orderCount > 0) {
     await prisma.customer.update({
       where: { id },
-      data: { role: "CUSTOMER", agentPointId: null, agentCanSetFinalPrice: false },
+      data: {
+        role: "CUSTOMER",
+        agentPointId: null,
+        agentCanSetFinalPrice: false,
+        agentCanSendPaymentLink: false,
+      },
     });
     return NextResponse.json({ ok: true, demoted: true });
   }

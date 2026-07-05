@@ -19,6 +19,11 @@ body {
   font-family: "Heebo", system-ui, sans-serif;
 }
 
+/* רקע גרדיאנט רך משותף - לשימוש חוזר בעמודים (במקום inline style) */
+.bg-soft-gradient {
+  background: linear-gradient(to bottom, #fff3a3, #fff8d8);
+}
+
 /* כפתורי המותג */
 .btn {
   @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold transition active:scale-[0.98] disabled:opacity-50;
@@ -66,6 +71,24 @@ table.admin td {
 }
 table.admin tr:hover td {
   @apply bg-amber-50/40;
+}
+
+/* נגישות: טבעת פוקוס ברורה לניווט במקלדת */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--brand-rust);
+  outline-offset: 2px;
+}
+
+/* נגישות: כיבוד העדפת משתמש להפחתת אנימציות */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @media print {
