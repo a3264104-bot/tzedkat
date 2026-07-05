@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
 
-const FROM_ADDRESS = "צדקת רבותינו <noreply@tzidkat.com>";
+const FROM_ADDRESS = "צדקת רבותינו <orders@tzidkat.com>";
 
 export async function POST(req: Request) {
   try {
