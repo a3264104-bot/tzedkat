@@ -31,6 +31,23 @@ export default function PricelistsPage() {
   }, []);
 
   async function setStatus(l: Pricelist, status: string) {
+    // אזהרה: הפעלת מכירה ריקה תציג ללקוחות מכירה בלי מוצרים
+    if (status === "ACTIVE" && (l._count.products === 0 || l._count.points === 0)) {
+      const missing = [
+        l._count.products === 0 ? "מוצרים" : null,
+        l._count.points === 0 ? "נקודות חלוקה" : null,
+      ]
+        .filter(Boolean)
+        .join(" ו");
+      if (
+        !confirm(
+          `למכירה "${l.name}" עדיין לא הוגדרו ${missing}.
+לקוחות שייכנסו יראו מכירה ריקה.
+להפעיל בכל זאת?`
+        )
+      )
+        return;
+    }
     await api(`/api/admin/pricelists/${l.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
     load();
   }
@@ -60,15 +77,34 @@ export default function PricelistsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold text-brand-slatedark">מחירונים / מכירות</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold text-brand-slatedark">מכירות</h1>
+          <p className="text-sm text-zinc-500 mt-1 max-w-xl">
+            כל מכירה היא אירוע הזמנות לתקופה מסוימת — למשל "מכירת ראש השנה" או "מכירת חודש אב".
+            במכירה בוחרים אילו מוצרים ובאיזה מחיר, ובאילו נקודות חלוקה. רק מכירה במצב{" "}
+            <b>פעיל</b> פתוחה ללקוחות להזמנות.
+          </p>
+        </div>
         <button onClick={() => setCreating(true)} className="btn-primary btn-sm">
-          + מחירון חדש
+          + מכירה חדשה
         </button>
       </div>
 
       {loading ? (
         <p className="text-zinc-500">טוען...</p>
+      ) : lists.length === 0 ? (
+        <div className="card p-8 text-center">
+          <div className="text-3xl mb-2">🗓️</div>
+          <p className="font-bold text-brand-slatedark">עדיין אין מכירות</p>
+          <p className="text-sm text-zinc-500 mt-1">
+            צור מכירה ראשונה (למשל לחג הקרוב), בחר בה מוצרים ונקודות חלוקה, והפוך אותה לפעילה —
+            ואז לקוחות יוכלו להזמין.
+          </p>
+          <button onClick={() => setCreating(true)} className="btn-primary btn-sm mt-4">
+            + מכירה חדשה
+          </button>
+        </div>
       ) : (
         <div className="space-y-3">
           {lists.map((l) => (
@@ -152,40 +188,76 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   const [surcharge, setSurcharge] = useState("3");
   const [dateText, setDateText] = useState("");
   const [notes, setNotes] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   async function create() {
-    if (!name.trim()) return;
-    await api("/api/admin/pricelists", {
-      method: "POST",
-      body: JSON.stringify({
-        name: name.trim(),
-        singleSurcharge: parseFloat(surcharge) || 3,
-        deliveryDateText: dateText || null,
-        notes: notes || null,
-      }),
-    });
-    onDone();
+    setError("");
+    // ולידציה עם הודעות ברורות - לא נכשלים בשקט
+    if (!name.trim()) {
+      setError("יש להזין שם למכירה (למשל: מכירת ראש השנה)");
+      return;
+    }
+    if (surcharge !== "" && isNaN(parseFloat(surcharge))) {
+      setError("תוספת הבודדים חייבת להיות מספר");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api("/api/admin/pricelists", {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.trim(),
+          singleSurcharge: parseFloat(surcharge) || 3,
+          deliveryDateText: dateText || null,
+          notes: notes || null,
+        }),
+      });
+      onDone();
+    } catch (e: any) {
+      setError(e.message || "שגיאה ביצירת המכירה");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
-    <Modal onClose={onClose} title="מחירון חדש">
+    <Modal onClose={onClose} title="מכירה חדשה">
       <div className="space-y-3">
-        <Field label="שם מחירון">
-          <input className="input" placeholder='מחירון אב תשפ"ו' value={name} onChange={(e) => setName(e.target.value)} />
+        <p className="text-xs text-zinc-500 bg-zinc-50 rounded-lg p-2">
+          יוצרים מכירה לתקופה/חג, ואחרי היצירה בוחרים בה מוצרים, מחירים ונקודות חלוקה דרך
+          "ערוך". כשהכל מוכן — "הפוך לפעיל" פותח אותה ללקוחות.
+        </p>
+        <Field label="שם המכירה *">
+          <input
+            className="input"
+            placeholder='למשל: מכירת ראש השנה תשפ"ז'
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </Field>
         <Field label='תוספת לבודדים לק"ג'>
           <input className="input" type="number" step="0.5" value={surcharge} onChange={(e) => setSurcharge(e.target.value)} />
         </Field>
-        <Field label="תאריך חלוקה (טקסט)">
-          <input className="input" value={dateText} onChange={(e) => setDateText(e.target.value)} />
+        <Field label="תאריך חלוקה (טקסט חופשי)">
+          <input
+            className="input"
+            placeholder='למשל: יום שלישי כ"ח אלול'
+            value={dateText}
+            onChange={(e) => setDateText(e.target.value)}
+          />
         </Field>
-        <Field label="הערות ללקוח">
+        <Field label="הערות ללקוח (אופציונלי)">
           <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
-        <button onClick={create} className="btn-primary w-full">
-          צור מחירון
+        {error && (
+          <p className="text-sm text-red-600 font-medium bg-red-50 border border-red-200 rounded-lg p-2">
+            {error}
+          </p>
+        )}
+        <button onClick={create} disabled={saving} className="btn-primary w-full">
+          {saving ? "יוצר..." : "צור מכירה"}
         </button>
-        <p className="text-xs text-zinc-400">לאחר היצירה ניתן לבחור מוצרים, מחירים ונקודות חלוקה דרך "ערוך".</p>
       </div>
     </Modal>
   );
@@ -227,33 +299,57 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
     })();
   }, [id]);
 
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
   async function save() {
+    setError("");
+    // ולידציה עם הודעות ברורות
+    if (!form.name.trim()) {
+      setError("יש להזין שם למכירה");
+      return;
+    }
     const products = Object.entries(selProducts)
       .filter(([, v]) => v.on)
       .map(([productId, v]) => ({ productId, price: v.price ? parseFloat(v.price) : null }));
     const pointIds = Object.entries(selPoints)
       .filter(([, v]) => v)
       .map(([id]) => id);
-    await api(`/api/admin/pricelists/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        name: form.name,
-        singleSurcharge: parseFloat(form.surcharge) || 3,
-        deliveryDateText: form.dateText || null,
-        notes: form.notes || null,
-        products,
-        pointIds,
-      }),
-    });
-    onDone();
+    if (products.length === 0) {
+      setError("יש לסמן לפחות מוצר אחד שישתתף במכירה");
+      return;
+    }
+    if (pointIds.length === 0) {
+      setError("יש לסמן לפחות נקודת חלוקה אחת");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api(`/api/admin/pricelists/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: form.name,
+          singleSurcharge: parseFloat(form.surcharge) || 3,
+          deliveryDateText: form.dateText || null,
+          notes: form.notes || null,
+          products,
+          pointIds,
+        }),
+      });
+      onDone();
+    } catch (e: any) {
+      setError(e.message || "שגיאה בשמירה");
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (!data) return <Modal onClose={onClose} title="טוען..."><p className="text-zinc-500">טוען...</p></Modal>;
 
   return (
-    <Modal onClose={onClose} title="עריכת מחירון">
+    <Modal onClose={onClose} title="עריכת מכירה">
       <div className="space-y-4">
-        <Field label="שם מחירון">
+        <Field label="שם המכירה *">
           <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
@@ -286,7 +382,7 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
         </div>
 
         <div>
-          <div className="label">מוצרים פעילים ומחיר למחירון (ריק = מחיר ברירת מחדל)</div>
+          <div className="label">מוצרים במכירה ומחיר מיוחד (ריק = המחיר הרגיל של המוצר)</div>
           <div className="max-h-64 overflow-y-auto border rounded-xl divide-y">
             {allProducts.map((p) => (
               <div key={p.id} className="flex items-center gap-2 p-2 text-sm">
@@ -321,8 +417,13 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
           </div>
         </div>
 
-        <button onClick={save} className="btn-primary w-full">
-          שמירה
+        {error && (
+          <p className="text-sm text-red-600 font-medium bg-red-50 border border-red-200 rounded-lg p-2">
+            {error}
+          </p>
+        )}
+        <button onClick={save} disabled={saving} className="btn-primary w-full">
+          {saving ? "שומר..." : "שמירה"}
         </button>
       </div>
     </Modal>
