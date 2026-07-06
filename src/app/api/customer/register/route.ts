@@ -29,7 +29,8 @@ export async function POST(req: Request) {
       if (existingByPhone) {
         return NextResponse.json(
           {
-            error: "כבר קיים חשבון עם מספר הטלפון הזה. נסה להתחבר, או לאפס סיסמה.",
+            error:
+              "כבר קיים חשבון עם מספר הטלפון הזה. נסה להתחבר עם הטלפון והסיסמה, או השתמש ב'שכחתי סיסמה' עם המייל שנרשמת איתו במקור.",
             code: "DUPLICATE_PHONE",
           },
           { status: 409 }
@@ -41,7 +42,8 @@ export async function POST(req: Request) {
       if (existingByEmail) {
         return NextResponse.json(
           {
-            error: "כבר קיים חשבון עם כתובת המייל הזו. נסה להתחבר, או לאפס סיסמה.",
+            error:
+              "כבר קיים חשבון עם כתובת המייל הזו. נסה להתחבר, או השתמש ב'שכחתי סיסמה' כדי לקבל קישור לאיפוס.",
             code: "DUPLICATE_EMAIL",
           },
           { status: 409 }

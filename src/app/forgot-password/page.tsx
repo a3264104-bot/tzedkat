@@ -59,6 +59,10 @@ export default function ForgotPasswordPage() {
                   אם קיים חשבון עם כתובת המייל הזו, נשלח אליו קישור לאיפוס סיסמה. הקישור תקף לשעה
                   אחת.
                 </p>
+                <p className="text-xs text-zinc-500 mt-3 leading-relaxed bg-amber-50 border border-amber-100 rounded-lg p-3">
+                  לא הגיע מייל תוך מספר דקות? בדוק בתיקיית הספאם, וודא שזו הכתובת שנרשמת
+                  איתה במקור. אם נרשמת עם טלפון בלבד — פנה אלינו ונאפס לך את הסיסמה.
+                </p>
               </div>
               <Link href="/login" className="btn-primary w-full block text-center">
                 חזרה לכניסה

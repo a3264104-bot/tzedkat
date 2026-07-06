@@ -11,6 +11,7 @@ const links = [
   { href: "/admin/products", label: "מוצרים", icon: "🍗" },
   { href: "/admin/pricelists", label: "מחירונים / מכירות", icon: "📋" },
   { href: "/admin/points", label: "נקודות חלוקה", icon: "📍" },
+  { href: "/admin/customers", label: "לקוחות", icon: "🧑‍🤝‍🧑" },
   { href: "/admin/sale-summary", label: "סיכום מכירה", icon: "📊" },
   { href: "/admin/debts", label: "חובות ותזכורות", icon: "💰" },
   { href: "/admin/reports", label: "דוחות", icon: "📈" },
