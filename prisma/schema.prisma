@@ -75,6 +75,10 @@ model Product {
   packageWeight String?  // 200 גרם / 400 גרם / 500 גרם / 900 גרם
   // משקל ממוצע משוער ליחידה/קרטון - משמש לחישוב מחיר משוער מדויק יותר ללקוח
   avgWeightPerUnit Decimal? @db.Decimal(10, 3)
+  imageUrl      String?  // תמונת המוצר (Supabase Storage)
+  kashrut       String?  // כשרות: לנדא / אגודת ישראל / בד"ץ העדה החרדית...
+  isFeatured    Boolean  @default(false) // מוצר מבצע - מודגש ללקוח
+  highlightNote String?  // הערת הדגשה ("בקרטונים בלבד - לא בבודדים")
   isFrozen      Boolean  @default(false)
   limitedQty    Boolean  @default(false)
   limitedQtyAmount Int?   // מגבלת כמות שהמנהל מגדיר (תצוגה/אזהרה בלבד, לא חוסם לקוח)

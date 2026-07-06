@@ -84,6 +84,10 @@ export default async function OrderPage() {
       saleType: pp.product.saleType,
       priceType: pp.product.priceType,
       avgWeightPerUnit: pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null,
+      imageUrl: pp.product.imageUrl,
+      kashrut: pp.product.kashrut,
+      isFeatured: pp.product.isFeatured,
+      highlightNote: pp.product.highlightNote,
       packageWeight: pp.product.packageWeight,
       isFrozen: pp.product.isFrozen,
       limitedQty: pp.product.limitedQty,
@@ -108,6 +112,8 @@ export default async function OrderPage() {
         email: customerRecord.email,
         defaultPointId: customerRecord.defaultPointId,
       }}
+      cardVerified={!!customerRecord.paymentToken}
+      customerId={customerRecord.id}
     />
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { effectiveUnitPrice, lineEstimate, smartLineEstimate, fmt } from "@/lib/pricing";
@@ -17,11 +17,29 @@ type Point = {
   notes: string | null;
 };
 
+// רינדור שם מוצר עם הדגשות: *מילה* הופכת למודגשת (סלמון *פילה*)
+function renderName(name: string) {
+  const parts = name.split(/\*([^*]+)\*/g);
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <strong key={i} className="text-brand-rust">
+        {part}
+      </strong>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  );
+}
+
 type Product = {
   id: string;
   name: string;
   category: string;
   categorySort: number;
+  imageUrl: string | null;
+  kashrut: string | null;
+  isFeatured: boolean;
+  highlightNote: string | null;
   price: number;
   allowSingles: boolean;
   unit: string;
@@ -61,6 +79,8 @@ export function OrderFlow({
   products,
   customer,
   onBehalfOfCustomerId,
+  cardVerified = true,
+  customerId = "",
 }: {
   pricelist: Pricelist;
   points: Point[];
@@ -68,6 +88,10 @@ export function OrderFlow({
   customer: LoggedInCustomer;
   // אם נציג מזמין בשם לקוח - מזהה הלקוח. undefined = הזמנה רגילה
   onBehalfOfCustomerId?: string;
+  // האם ללקוח כבר יש כרטיס מאומת. אם לא - יידרש אימות 1 ש"ח לפני שמירה
+  cardVerified?: boolean;
+  // מזהה הלקוח המחובר - נדרש לבניית iframe האימות
+  customerId?: string;
 }) {
   const [step, setStep] = useState<Step>("point");
   // אם ללקוח יש נקודה שמורה, בוחרים אותה כברירת מחדל - אבל הוא עדיין יכול לשנות
@@ -117,11 +141,17 @@ export function OrderFlow({
       .map(([id, l]) => {
         const p = products.find((x) => x.id === id)!;
         const unitPrice = effectiveUnitPrice(p.price, l.isSingle, pricelist.singleSurcharge);
+        // בודדים במוצר נשקל: הלקוח מזמין ק"ג ישירות (3, 5, 10 ק"ג) - ההערכה = ק"ג × מחיר,
+        // בלי הכפלה במשקל קרטון. קרטונים: כמות × משקל קרטון משוער × מחיר.
+        const lineTotal =
+          l.isSingle && p.priceType === "PER_KG"
+            ? Math.round(unitPrice * l.qty * 100) / 100
+            : smartLineEstimate(unitPrice, l.qty, p.saleType, p.priceType, p.avgWeightPerUnit);
         return {
           product: p,
           ...l,
           unitPrice,
-          lineTotal: smartLineEstimate(unitPrice, l.qty, p.saleType, p.priceType, p.avgWeightPerUnit),
+          lineTotal,
         };
       });
   }, [cart, products, pricelist.singleSurcharge]);
@@ -144,9 +174,55 @@ export function OrderFlow({
     });
   }
 
-  function stepFromQty(p: Product) {
+  function stepFromQty(p: Product, isSingle: boolean) {
+    // בודדים = הזמנה בק"ג (מאפשר חצאי ק"ג). קרטונים/יחידות = מספרים שלמים.
+    if (isSingle && p.priceType === "PER_KG") return 0.5;
     return p.saleType === "WEIGHT" ? 0.5 : 1;
   }
+
+  // מצב אימות כרטיס: idle=לא נדרש/הושלם, verifying=iframe מוצג, checking=polling
+  const [showVerification, setShowVerification] = useState(false);
+  const [isVerified, setIsVerified] = useState(cardVerified);
+
+  // iframe נדרים לאימות 1 ש"ח + שמירת טוקן (אותם פרמטרים כמו בהרשמה הישנה)
+  const verificationIframeUrl =
+    customerId &&
+    "https://www.matara.pro/nedarimplus/iframe?" +
+      new URLSearchParams({
+        language: "he",
+        Mosad: "7015318",
+        ApiValid: "NxhXRWeG5P",
+        Amount: "1",
+        AmountLock: "1",
+        PaymentType: "Ragil",
+        TransactionType: "Debit",
+        CreateToken: "1",
+        Tashlumim: "1",
+        CallBack: "https://tzidkat.com/api/webhooks/nedarim",
+        param1: customerId,
+        param2: "registration",
+      }).toString();
+
+  // polling: בזמן שה-iframe פתוח, בודקים כל 3 שניות אם הטוקן נשמר (דרך ה-webhook)
+  useEffect(() => {
+    if (!showVerification || isVerified) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/customer/verification-status");
+        const data = await res.json();
+        if (data.verified) {
+          setIsVerified(true);
+          setShowVerification(false);
+          // האימות הושלם - שולחים את ההזמנה אוטומטית
+          doSubmit();
+        }
+      } catch {
+        // מתעלמים - ננסה שוב בסיבוב הבא
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showVerification, isVerified]);
 
   async function submit() {
     setError("");
@@ -158,6 +234,17 @@ export function OrderFlow({
       setError("נא לאשר את תנאי ההזמנה");
       return;
     }
+    // לקוח חדש בלי כרטיס מאומת - קודם אימות 1 ש"ח, ואז ההזמנה תישלח אוטומטית
+    if (!isVerified && !onBehalfOfCustomerId) {
+      setShowVerification(true);
+      return;
+    }
+    await doSubmit();
+  }
+
+  // השליחה עצמה - נקראת ישירות (לקוח מאומת) או אוטומטית אחרי אימות
+  async function doSubmit() {
+    setError("");
     setSubmitting(true);
     try {
       const res = await fetch("/api/orders", {
@@ -351,8 +438,27 @@ export function OrderFlow({
               המחיר באתר הוא מחיר משוער. המחיר הסופי ייקבע לפי המשקל והאריזה בפועל.
             </p>
             <div className="space-y-6">
+              {/* ניווט קטגוריות דביק - קפיצה מהירה בלי לגלול רשימה ארוכה */}
+              <div className="sticky top-0 z-10 -mx-4 px-4 py-2 bg-[#faf6ec]/95 backdrop-blur-sm border-b border-zinc-200 overflow-x-auto no-scrollbar">
+                <div className="flex gap-2 w-max">
+                  {categories.map(([cat]) => (
+                    <button
+                      key={cat}
+                      onClick={() =>
+                        document
+                          .getElementById(`cat-${cat}`)
+                          ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                      }
+                      className="badge bg-white border border-zinc-300 text-brand-slatedark whitespace-nowrap px-3 py-1.5 hover:bg-brand-yellow/40 transition"
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {categories.map(([cat, items]) => (
-                <div key={cat}>
+                <div key={cat} id={`cat-${cat}`} className="scroll-mt-16">
                   <h3 className="font-extrabold text-brand-rust mb-2 border-b-2 border-brand-rust/20 pb-1">
                     {cat}
                   </h3>
@@ -365,26 +471,65 @@ export function OrderFlow({
                         pricelist.singleSurcharge
                       );
                       return (
-                        <div key={p.id} className="card p-3">
+                        <div
+                          key={p.id}
+                          className={`card p-3 ${
+                            p.isFeatured ? "border-2 border-red-300 bg-red-50/40" : ""
+                          }`}
+                        >
+                          {p.isFeatured && (
+                            <div className="badge bg-red-600 text-white mb-1.5">🔥 מבצע</div>
+                          )}
                           <div className="flex justify-between items-start gap-2">
+                            {p.imageUrl && (
+                              <img
+                                src={p.imageUrl}
+                                alt={p.name.replace(/\*/g, "")}
+                                className="w-14 h-14 rounded-xl object-cover border border-zinc-200 shrink-0"
+                                loading="lazy"
+                              />
+                            )}
                             <div className="flex-1">
                               <div className="font-semibold text-brand-slatedark text-[15px] leading-tight">
-                                {p.name}
+                                {renderName(p.name)}
+                                {p.kashrut && (
+                                  <span className="badge bg-sky-100 text-sky-700 mr-1.5 align-middle">
+                                    {p.kashrut}
+                                  </span>
+                                )}
                               </div>
+                              {p.highlightNote && (
+                                <div className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-0.5 mt-1 inline-block">
+                                  {p.highlightNote}
+                                </div>
+                              )}
                               <div className="text-sm text-zinc-500 mt-0.5">
-                                {p.saleType === "WEIGHT" && p.priceType === "CARTON" ? (
+                                {p.priceType === "PER_KG" ? (
+                                  /* מוצר קרטונים - נשקל */
                                   <>
                                     <span className="font-medium text-brand-slatedark">
-                                      מחיר קרטון: {fmt(p.price)} לק"ג
+                                      {fmt(line.isSingle ? unitPrice : p.price)} לק"ג
                                     </span>
-                                    {p.allowSingles && (
-                                      <span className="block text-xs text-zinc-400">
-                                        בודדים: {fmt(effectiveUnitPrice(p.price, true, pricelist.singleSurcharge))} לק"ג
+                                    {!line.isSingle && p.avgWeightPerUnit != null && (
+                                      <span className="block text-xs text-zinc-500">
+                                        קרטון ≈ {p.avgWeightPerUnit} ק"ג (~
+                                        {fmt(p.price * p.avgWeightPerUnit)} לקרטון)
+                                      </span>
+                                    )}
+                                    <span className="block text-xs text-amber-600">
+                                      המחיר הסופי לפי שקילה בפועל
+                                    </span>
+                                  </>
+                                ) : (
+                                  /* מוצר יחידות - מחיר קבוע */
+                                  <>
+                                    {fmt(unitPrice)} / {p.unit}
+                                    {p.packageWeight && (
+                                      <span className="block text-xs text-zinc-500">
+                                        אריזה: {p.packageWeight}
                                       </span>
                                     )}
                                   </>
-                                ) : (
-                                  <>{fmt(unitPrice)} / {p.unit}</>
                                 )}
                                 {p.limitedQty && (
                                   <span className="badge bg-amber-100 text-amber-700 mr-2">
@@ -395,20 +540,41 @@ export function OrderFlow({
                             </div>
                             <QtyControl
                               value={line.qty}
-                              step={stepFromQty(p)}
+                              step={stepFromQty(p, line.isSingle)}
                               onChange={(v) => setQty(p.id, v)}
                             />
                           </div>
-                          {p.allowSingles && line.qty > 0 && (
-                            <label className="flex items-center gap-2 mt-2 text-sm text-zinc-600">
-                              <input
-                                type="checkbox"
-                                checked={line.isSingle}
-                                onChange={(e) => setSingle(p.id, e.target.checked)}
-                                className="h-4 w-4 accent-brand-rust"
-                              />
-                              בבודדים (תוספת {fmt(pricelist.singleSurcharge)} לק"ג)
-                            </label>
+                          {/* בורר מצב הזמנה - רק במוצרים שמאפשרים בודדים (בשר/דגים) */}
+                          {p.allowSingles && (
+                            <div className="flex gap-1.5 mt-2">
+                              <button
+                                type="button"
+                                onClick={() => setSingle(p.id, false)}
+                                className={`flex-1 text-xs py-1.5 rounded-lg border font-medium transition ${
+                                  !line.isSingle
+                                    ? "bg-brand-rust text-white border-brand-rust"
+                                    : "bg-white text-zinc-500 border-zinc-300"
+                                }`}
+                              >
+                                קרטונים שלמים
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSingle(p.id, true)}
+                                className={`flex-1 text-xs py-1.5 rounded-lg border font-medium transition ${
+                                  line.isSingle
+                                    ? "bg-brand-rust text-white border-brand-rust"
+                                    : "bg-white text-zinc-500 border-zinc-300"
+                                }`}
+                              >
+                                בודדים בק"ג (+{fmt(pricelist.singleSurcharge)})
+                              </button>
+                            </div>
+                          )}
+                          {p.allowSingles && line.isSingle && line.qty > 0 && (
+                            <p className="text-xs text-zinc-400 mt-1 text-center">
+                              הכמות שהזנת = ק"ג ({line.qty} ק"ג × {fmt(effectiveUnitPrice(p.price, true, pricelist.singleSurcharge))})
+                            </p>
                           )}
                         </div>
                       );
@@ -632,6 +798,46 @@ export function OrderFlow({
           </section>
         )}
       </div>
+
+      {/* מודל אימות כרטיס - לקוח חדש בהזמנה ראשונה */}
+      {showVerification && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[92vh] overflow-y-auto">
+            <div className="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+              <div>
+                <h3 className="font-extrabold text-brand-slatedark">אימות כרטיס אשראי</h3>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  חיוב חד-פעמי של 1 ש"ח לאימות — יקוזז מההזמנה הראשונה
+                </p>
+              </div>
+              <button
+                onClick={() => setShowVerification(false)}
+                className="text-zinc-400 text-2xl leading-none px-2"
+                aria-label="סגירה"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-2">
+              {verificationIframeUrl ? (
+                <iframe
+                  src={verificationIframeUrl}
+                  className="w-full h-[430px] border-0 rounded-xl"
+                  title="אימות כרטיס אשראי"
+                />
+              ) : (
+                <p className="text-center text-red-600 p-6 text-sm">
+                  שגיאה בטעינת טופס האימות. רענן את הדף ונסה שוב.
+                </p>
+              )}
+              <p className="text-xs text-zinc-400 text-center pb-3 px-4">
+                לאחר השלמת האימות, ההזמנה תישלח אוטומטית. הכרטיס נשמר באופן מאובטח אצל חברת
+                הסליקה בלבד.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

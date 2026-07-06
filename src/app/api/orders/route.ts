@@ -79,6 +79,19 @@ export async function POST(req: Request) {
     if (!customer) {
       return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 401 });
     }
+
+    // אכיפת אימות כרטיס: לקוח שמזמין לעצמו חייב כרטיס מאומת (טוקן שמור)
+    // לפני שמירת הזמנה. זה סוגר את האפשרות לעקוף את אימות ה-1 ש"ח.
+    // נציג/מנהל שמזמין בשם לקוח - פטור (הוא לוקח אחריות על הגבייה).
+    if (!placedByAgentId && role === "CUSTOMER" && !customer.paymentToken) {
+      return NextResponse.json(
+        {
+          error: "נדרש אימות כרטיס אשראי לפני שמירת ההזמנה",
+          code: "CARD_VERIFICATION_REQUIRED",
+        },
+        { status: 403 }
+      );
+    }
     if (!customer.phone && !customer.email) {
       return NextResponse.json({ error: "חשבון לא תקין — חסר פרטי קשר" }, { status: 400 });
     }
@@ -142,19 +155,24 @@ export async function POST(req: Request) {
       // חישוב חכם - זהה לצד הלקוח: מוצר נשקל (PER_KG) מוכפל במשקל המשוער.
       // אם חסר משקל משוער - ההערכה לשורה היא null; שומרים 0 בהערכה
       // (המחיר האמיתי ייקבע ממילא בשקילה) אבל לא מנחשים סכום שגוי.
-      const est = smartLineEstimate(
-        unitPrice,
-        item.quantity,
-        pp.product.saleType,
-        pp.product.priceType,
-        avgWeight
-      );
+      // בודדים במוצר נשקל: הכמות היא ק"ג ישירות - הערכה = ק"ג × מחיר (כולל תוספת)
+      const isSinglesKg = isSingle && pp.product.priceType === "PER_KG";
+      const est = isSinglesKg
+        ? Math.round(unitPrice * item.quantity * 100) / 100
+        : smartLineEstimate(
+            unitPrice,
+            item.quantity,
+            pp.product.saleType,
+            pp.product.priceType,
+            avgWeight
+          );
       estimatedTotal += est ?? 0;
-      // משקל משוער לשורה - כמות × משקל ממוצע (רק למוצר נשקל עם משקל מוגדר)
-      const estimatedWeight =
-        (pp.product.saleType === "UNIT" || pp.product.saleType === "PACKAGE") &&
-        pp.product.priceType === "PER_KG" &&
-        avgWeight
+      // משקל משוער לשורה: בודדים = הכמות עצמה (ק"ג); קרטונים = כמות × משקל קרטון
+      const estimatedWeight = isSinglesKg
+        ? Math.round(item.quantity * 1000) / 1000
+        : (pp.product.saleType === "UNIT" || pp.product.saleType === "PACKAGE") &&
+            pp.product.priceType === "PER_KG" &&
+            avgWeight
           ? Math.round(avgWeight * item.quantity * 1000) / 1000
           : null;
       itemsData.push({

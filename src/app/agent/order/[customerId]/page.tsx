@@ -97,6 +97,10 @@ export default async function AgentOrderPage({
       saleType: pp.product.saleType,
       priceType: pp.product.priceType,
       avgWeightPerUnit: pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null,
+      imageUrl: pp.product.imageUrl,
+      kashrut: pp.product.kashrut,
+      isFeatured: pp.product.isFeatured,
+      highlightNote: pp.product.highlightNote,
       packageWeight: pp.product.packageWeight,
       isFrozen: pp.product.isFrozen,
       limitedQty: pp.product.limitedQty,
@@ -128,6 +132,7 @@ export default async function AgentOrderPage({
           defaultPointId: targetCustomer.defaultPointId,
         }}
         onBehalfOfCustomerId={targetCustomer.id}
+        cardVerified={true}
       />
     </div>
   );

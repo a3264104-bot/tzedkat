@@ -24,41 +24,45 @@ type Product = {
   limitedQtyAmount: number | null;
   isActive: boolean;
   sortOrder: number;
+  imageUrl: string | null;
+  kashrut: string | null;
+  isFeatured: boolean;
+  highlightNote: string | null;
 };
 
-const SALE_TYPES = [
-  { v: "WEIGHT", l: 'לפי ק"ג' },
-  { v: "UNIT", l: "לפי יחידה" },
-  { v: "PACKAGE", l: "מארז" },
+// ברירות מחדל מקובלות לכשרות - ניתן להקליד גם ערך אחר
+const KASHRUT_OPTIONS = ["לנדא", "אגודת ישראל", 'בד"ץ העדה החרדית', "הרב רובין", 'בד"ץ בית יוסף'];
+
+// שני סוגי מוצרים בעסק:
+// CARTON_MODE = קרטונים נשקלים (עופות/בשר/דגים): מזמינים קרטונים, החיוב לפי שקילה.
+//   בבשר/דגים אפשר לאפשר גם "בודדים" - הזמנה בק"ג עם תוספת לק"ג.
+// UNIT_MODE = יחידות במחיר קבוע (מוצרי עוף ארוזים): 400 גרם, מחיר קבוע, בלי שקילה.
+const SALE_MODES = [
+  { v: "CARTONS", l: "קרטונים (נשקל בסוף)" },
+  { v: "UNITS", l: "יחידות במחיר קבוע" },
 ];
 
+// גזירת המצב הפשוט מהשדות השמורים (תאימות לאחור למוצרים ישנים)
+function modeFromProduct(saleType: string | undefined, priceType: string | undefined): string {
+  if (saleType === "UNIT" && priceType !== "PER_KG") return "UNITS";
+  return "CARTONS";
+}
+
 // יחידת מידה נגזרת אוטומטית מאופן המכירה
-function unitForSaleType(saleType: string): string {
+function unitForSaleType(saleType: string, chosenUnit?: string | null): string {
   if (saleType === "UNIT") return "יחידה";
-  if (saleType === "PACKAGE") return "מארז";
+  // במארז - המנהל בוחר את הכינוי: מארז / מגש / קרטון
+  if (saleType === "PACKAGE") {
+    return chosenUnit && ["מארז", "מגש", "קרטון"].includes(chosenUnit) ? chosenUnit : "מארז";
+  }
   return 'ק"ג';
 }
 
 // תווית שדה המחיר לפי אופן מכירה + סוג מחיר
-function priceLabel(saleType: string, priceType: string): string {
-  if (saleType === "UNIT") {
-    // ביחידה - המחיר יכול להיות ליחידה או לק"ג
-    return priceType === "PER_KG" ? 'מחיר לק"ג' : "מחיר ליחידה";
-  }
-  if (saleType === "PACKAGE") return "מחיר למארז";
-  // WEIGHT
-  return priceType === "CARTON" ? 'מחיר קרטון לק"ג' : 'מחיר לק"ג';
+function priceLabel(mode: string): string {
+  return mode === "UNITS" ? "מחיר ליחידה" : 'מחיר לק"ג';
 }
 
-// האם צריך משקל ממוצע: רק במכירה לפי יחידה שהמחיר בה הוא לק"ג
-function needsAvgWeight(saleType: string, priceType: string): boolean {
-  return saleType === "UNIT" && priceType === "PER_KG";
-}
-
-// האם להציג אפשרות בודדים: רק במכירה לפי ק"ג עם סוג מחיר "קרטון"
-function canHaveSingles(saleType: string, priceType: string): boolean {
-  return saleType === "WEIGHT" && priceType === "CARTON";
-}
 
 // תווית קצרה לתצוגה בטבלה
 function priceTagForTable(p: Product): string {
@@ -70,6 +74,7 @@ function priceTagForTable(p: Product): string {
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cats, setCats] = useState<Cat[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState<Partial<Product> | null>(null);
   const [showCats, setShowCats] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -85,47 +90,50 @@ export default function ProductsPage() {
     load();
   }, []);
 
-  // כשמשנים אופן מכירה - מעדכנים אוטומטית יחידת מידה, ומכבים בודדים אם לא רלוונטי
-  function changeSaleType(saleType: string) {
+  // בחירת סוג המוצר: קרטונים (נשקל) או יחידות (קבוע).
+  // מאחורי הקלעים נקבעים saleType/priceType/unit אוטומטית.
+  function changeMode(mode: string) {
     if (!editing) return;
-    const newPriceType = editing.priceType ?? "REGULAR";
-    const stillSingles = canHaveSingles(saleType, newPriceType) ? editing.allowSingles : false;
-    setEditing({
-      ...editing,
-      saleType,
-      unit: unitForSaleType(saleType),
-      allowSingles: stillSingles,
-    });
-  }
-
-  // כשמשנים סוג מחיר - מכבים בודדים אם כבר לא רלוונטי
-  function changePriceType(priceType: string) {
-    if (!editing) return;
-    const saleType = editing.saleType ?? "WEIGHT";
-    const stillSingles = canHaveSingles(saleType, priceType) ? editing.allowSingles : false;
-    setEditing({ ...editing, priceType, allowSingles: stillSingles });
+    if (mode === "UNITS") {
+      setEditing({
+        ...editing,
+        saleType: "UNIT",
+        priceType: "REGULAR",
+        unit: "יחידה",
+        allowSingles: false, // ביחידות אין בודדים
+        avgWeightPerUnit: null,
+      });
+    } else {
+      setEditing({
+        ...editing,
+        saleType: "PACKAGE",
+        priceType: "PER_KG",
+        unit: "קרטון",
+        // allowSingles נשאר כפי שהוא - המנהל מחליט (עופות=לא, בשר/דגים=כן)
+      });
+    }
   }
 
   async function save() {
     if (!editing) return;
-    const saleType = editing.saleType ?? "WEIGHT";
-    const priceType = editing.priceType ?? "REGULAR";
+    const mode = modeFromProduct(editing.saleType, editing.priceType);
+    const isCartons = mode === "CARTONS";
     const payload = {
       name: editing.name,
       categoryId: editing.categoryId,
       cartonPrice: parseFloat(String(editing.cartonPrice ?? 0)),
-      // בודדים רק אם רלוונטי (WEIGHT+CARTON)
-      allowSingles: canHaveSingles(saleType, priceType) ? (editing.allowSingles ?? false) : false,
+      // בודדים - רק בקרטונים (בשר/דגים). ביחידות אין בודדים.
+      allowSingles: isCartons ? (editing.allowSingles ?? false) : false,
       singleSurcharge: editing.singleSurcharge ? parseFloat(String(editing.singleSurcharge)) : null,
-      // יחידת מידה תמיד נגזרת מאופן המכירה
-      unit: unitForSaleType(saleType),
-      saleType,
-      priceType,
-      // משקל מארז רק במכירת מארז
-      packageWeight: saleType === "PACKAGE" ? editing.packageWeight || null : null,
-      // משקל ממוצע ליחידה - רק כשמוכרים ביחידה ומתמחרים לק"ג
+      // קרטונים: PACKAGE+PER_KG+"קרטון". יחידות: UNIT+REGULAR+"יחידה".
+      unit: isCartons ? "קרטון" : "יחידה",
+      saleType: isCartons ? "PACKAGE" : "UNIT",
+      priceType: isCartons ? "PER_KG" : "REGULAR",
+      // משקל אריזה (400 גרם וכו') - רק ביחידות, לתצוגה ללקוח
+      packageWeight: !isCartons ? editing.packageWeight || null : null,
+      // משקל משוער לקרטון - רק בקרטונים, להערכת מחיר
       avgWeightPerUnit:
-        needsAvgWeight(saleType, priceType) && editing.avgWeightPerUnit
+        isCartons && editing.avgWeightPerUnit
           ? parseFloat(String(editing.avgWeightPerUnit))
           : null,
       isFrozen: editing.isFrozen ?? false,
@@ -136,6 +144,10 @@ export default function ProductsPage() {
           : null,
       isActive: editing.isActive ?? true,
       sortOrder: editing.sortOrder ?? 0,
+      imageUrl: editing.imageUrl || null,
+      kashrut: editing.kashrut || null,
+      isFeatured: editing.isFeatured ?? false,
+      highlightNote: editing.highlightNote || null,
     };
     if (editing.id) {
       await api(`/api/admin/products/${editing.id}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -143,6 +155,45 @@ export default function ProductsPage() {
       await api("/api/admin/products", { method: "POST", body: JSON.stringify(payload) });
     }
     setEditing(null);
+    load();
+  }
+
+  // העלאת תמונת מוצר ל-Supabase Storage
+  async function uploadImage(file: File | undefined) {
+    if (!file || !editing) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/admin/upload", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "ההעלאה נכשלה");
+      setEditing({ ...editing, imageUrl: data.url });
+    } catch (e: any) {
+      alert(e.message || "שגיאה בהעלאת התמונה");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // סידור: החלפת sortOrder עם המוצר השכן בקטגוריה ועדכון שניהם
+  async function moveProduct(catProducts: Product[], idx: number, dir: -1 | 1) {
+    const a = catProducts[idx];
+    const b = catProducts[idx + dir];
+    if (!a || !b) return;
+    // אם ה-sortOrder שווה (ברירת מחדל 0) - מקצים ערכים לפי המיקום הנוכחי
+    const aOrder = a.sortOrder === b.sortOrder ? idx : a.sortOrder;
+    const bOrder = a.sortOrder === b.sortOrder ? idx + dir : b.sortOrder;
+    await Promise.all([
+      api(`/api/admin/products/${a.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sortOrder: bOrder }),
+      }),
+      api(`/api/admin/products/${b.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sortOrder: aOrder }),
+      }),
+    ]);
     load();
   }
 
@@ -174,12 +225,11 @@ export default function ProductsPage() {
     load();
   }
 
-  const editSaleType = editing?.saleType ?? "WEIGHT";
-  const editPriceType = editing?.priceType ?? "REGULAR";
-  const showSingles = canHaveSingles(editSaleType, editPriceType);
-  // סוג מחיר רלוונטי ל-WEIGHT (רגיל/קרטון) ול-UNIT (ליחידה/לק"ג)
-  const showPriceTypeSelect = editSaleType === "WEIGHT" || editSaleType === "UNIT";
-  const showAvgWeight = editSaleType === "UNIT" && editPriceType === "PER_KG";
+  // המצב הפשוט: קרטונים (נשקל) או יחידות (קבוע)
+  const editMode = modeFromProduct(editing?.saleType, editing?.priceType);
+  const isCartonsMode = editMode === "CARTONS";
+  const showSingles = isCartonsMode; // בודדים רק בקרטונים (בשר/דגים)
+  const showAvgWeight = isCartonsMode; // משקל משוער לקרטון
 
   return (
     <div className="space-y-5">
@@ -218,59 +268,124 @@ export default function ProductsPage() {
       {loading ? (
         <p className="text-zinc-500">טוען...</p>
       ) : (
-        <div className="table-wrap">
-          <table className="admin">
-            <thead>
-              <tr>
-                <th>מוצר</th>
-                <th>קטגוריה</th>
-                <th>מחיר</th>
-                <th>יחידה</th>
-                <th>בודדים</th>
-                <th>פעיל</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((p) => (
-                <tr key={p.id} className={p.isActive ? "" : "opacity-50"}>
-                  <td className="font-medium">
-                    {p.name}
-                    {p.limitedQty && <span className="badge bg-amber-100 text-amber-700 mr-1">מוגבל</span>}
-                    {p.isFrozen && <span className="badge bg-blue-100 text-blue-700 mr-1">קפוא</span>}
-                  </td>
-                  <td className="text-zinc-500">{p.category.name}</td>
-                  <td>
-                    {fmt(p.cartonPrice)}
-                    <span className="text-zinc-400 text-xs mr-1">{priceTagForTable(p)}</span>
-                  </td>
-                  <td className="text-zinc-500">{p.unit}</td>
-                  <td>{p.allowSingles ? `+${fmt(p.singleSurcharge ?? 3)}` : "—"}</td>
-                  <td>
-                    <button
-                      onClick={() => toggleActive(p)}
-                      className={`badge ${p.isActive ? "bg-green-100 text-green-700" : "bg-zinc-200 text-zinc-600"}`}
-                    >
-                      {p.isActive ? "פעיל" : "מוסתר"}
-                    </button>
-                  </td>
-                  <td>
-                    <div className="flex gap-1 justify-end">
-                      <button onClick={() => setEditing(p)} className="btn-ghost btn-sm">
-                        ערוך
-                      </button>
-                      <button onClick={() => duplicate(p)} className="btn-ghost btn-sm">
-                        שכפל
-                      </button>
-                      <button onClick={() => remove(p)} className="btn-ghost btn-sm text-red-600">
-                        מחק
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        /* מוצרים מקובצים לפי קטגוריה - עם חוצץ לכל קטגוריה וחיצי סידור */
+        <div className="space-y-6">
+          {cats
+            .slice()
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+            .map((cat) => {
+              const catProducts = products
+                .filter((p) => p.categoryId === cat.id)
+                .sort((a, b) => a.sortOrder - b.sortOrder);
+              if (catProducts.length === 0) return null;
+              return (
+                <div key={cat.id}>
+                  {/* חוצץ קטגוריה */}
+                  <div className="flex items-center gap-3 mb-2">
+                    <h2 className="text-lg font-extrabold text-brand-slatedark">{cat.name}</h2>
+                    <span className="text-xs text-zinc-400">{catProducts.length} מוצרים</span>
+                    <div className="flex-1 border-b border-zinc-200" />
+                  </div>
+                  <div className="table-wrap">
+                    <table className="admin">
+                      <thead>
+                        <tr>
+                          <th className="w-16">סדר</th>
+                          <th>מוצר</th>
+                          <th>מחיר</th>
+                          <th>יחידה</th>
+                          <th>בודדים</th>
+                          <th>פעיל</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {catProducts.map((p, idx) => (
+                          <tr key={p.id} className={p.isActive ? "" : "opacity-50"}>
+                            <td>
+                              {/* חיצי סידור בתוך הקטגוריה */}
+                              <div className="flex gap-0.5">
+                                <button
+                                  onClick={() => moveProduct(catProducts, idx, -1)}
+                                  disabled={idx === 0}
+                                  className="btn-ghost btn-sm px-1.5 disabled:opacity-20"
+                                  title="הזז למעלה"
+                                >
+                                  ▲
+                                </button>
+                                <button
+                                  onClick={() => moveProduct(catProducts, idx, 1)}
+                                  disabled={idx === catProducts.length - 1}
+                                  className="btn-ghost btn-sm px-1.5 disabled:opacity-20"
+                                  title="הזז למטה"
+                                >
+                                  ▼
+                                </button>
+                              </div>
+                            </td>
+                            <td className="font-medium">
+                              <div className="flex items-center gap-2">
+                                {p.imageUrl && (
+                                  <img
+                                    src={p.imageUrl}
+                                    alt={p.name}
+                                    className="w-9 h-9 rounded-lg object-cover border border-zinc-200"
+                                  />
+                                )}
+                                <div>
+                                  {p.name}
+                                  <div className="flex flex-wrap gap-1 mt-0.5">
+                                    {p.isFeatured && (
+                                      <span className="badge bg-red-100 text-red-700">מבצע</span>
+                                    )}
+                                    {p.kashrut && (
+                                      <span className="badge bg-sky-100 text-sky-700">{p.kashrut}</span>
+                                    )}
+                                    {p.limitedQty && (
+                                      <span className="badge bg-amber-100 text-amber-700">מוגבל</span>
+                                    )}
+                                    {p.isFrozen && (
+                                      <span className="badge bg-blue-100 text-blue-700">קפוא</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              {fmt(p.cartonPrice)}
+                              <span className="text-zinc-400 text-xs mr-1">{priceTagForTable(p)}</span>
+                            </td>
+                            <td className="text-zinc-500">{p.unit}</td>
+                            <td>{p.allowSingles ? `+${fmt(p.singleSurcharge ?? 3)}` : "—"}</td>
+                            <td>
+                              <button
+                                onClick={() => toggleActive(p)}
+                                className={`badge ${p.isActive ? "bg-green-100 text-green-700" : "bg-zinc-200 text-zinc-600"}`}
+                              >
+                                {p.isActive ? "פעיל" : "מוסתר"}
+                              </button>
+                            </td>
+                            <td>
+                              <div className="flex gap-1 justify-end">
+                                <button onClick={() => setEditing(p)} className="btn-ghost btn-sm">
+                                  ערוך
+                                </button>
+                                <button onClick={() => duplicate(p)} className="btn-ghost btn-sm">
+                                  שכפל
+                                </button>
+                                <button onClick={() => remove(p)} className="btn-ghost btn-sm text-red-600">
+                                  מחק
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
         </div>
       )}
 
@@ -284,6 +399,64 @@ export default function ProductsPage() {
                 value={editing.name ?? ""}
                 onChange={(e) => setEditing({ ...editing, name: e.target.value })}
               />
+              <p className="text-xs text-zinc-400 mt-1">
+                טיפ: עטוף מילה בכוכביות להדגשה — סלמון *פילה* יוצג: סלמון <b>פילה</b>
+              </p>
+            </Field>
+
+            <Field label="כשרות">
+              <input
+                className="input"
+                list="kashrut-options"
+                placeholder='לנדא / אגודת ישראל / בד"ץ העדה החרדית...'
+                value={editing.kashrut ?? ""}
+                onChange={(e) => setEditing({ ...editing, kashrut: e.target.value })}
+              />
+              <datalist id="kashrut-options">
+                {KASHRUT_OPTIONS.map((k) => (
+                  <option key={k} value={k} />
+                ))}
+              </datalist>
+            </Field>
+
+            <Field label="הערת הדגשה (אופציונלי)">
+              <input
+                className="input"
+                placeholder='למשל: "בקרטונים בלבד — לא בבודדים" / "מחיר מיוחד!"'
+                value={editing.highlightNote ?? ""}
+                onChange={(e) => setEditing({ ...editing, highlightNote: e.target.value })}
+              />
+            </Field>
+
+            <Field label="תמונת מוצר (אופציונלי)">
+              <div className="flex items-center gap-3">
+                {editing.imageUrl && (
+                  <img
+                    src={editing.imageUrl}
+                    alt=""
+                    className="w-14 h-14 rounded-lg object-cover border border-zinc-200"
+                  />
+                )}
+                <label className="btn-ghost btn-sm cursor-pointer">
+                  {uploading ? "מעלה..." : editing.imageUrl ? "החלף תמונה" : "העלאת תמונה"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={uploading}
+                    onChange={(e) => uploadImage(e.target.files?.[0])}
+                  />
+                </label>
+                {editing.imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setEditing({ ...editing, imageUrl: null })}
+                    className="btn-ghost btn-sm text-red-600"
+                  >
+                    הסר
+                  </button>
+                )}
+              </div>
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="קטגוריה">
@@ -299,13 +472,13 @@ export default function ProductsPage() {
                   ))}
                 </select>
               </Field>
-              <Field label="אופן מכירה">
+              <Field label="סוג מוצר">
                 <select
                   className="input"
-                  value={editing.saleType}
-                  onChange={(e) => changeSaleType(e.target.value)}
+                  value={editMode}
+                  onChange={(e) => changeMode(e.target.value)}
                 >
-                  {SALE_TYPES.map((s) => (
+                  {SALE_MODES.map((s) => (
                     <option key={s.v} value={s.v}>
                       {s.l}
                     </option>
@@ -314,31 +487,15 @@ export default function ProductsPage() {
               </Field>
             </div>
 
-            {/* סוג מחיר - רק במכירה לפי ק"ג */}
-            {showPriceTypeSelect && (
-              <Field label={editSaleType === "UNIT" ? "בסיס התמחור" : "סוג מחיר"}>
-                <select
-                  className="input"
-                  value={editing.priceType ?? "REGULAR"}
-                  onChange={(e) => changePriceType(e.target.value)}
-                >
-                  {editSaleType === "WEIGHT" ? (
-                    <>
-                      <option value="REGULAR">מחיר רגיל</option>
-                      <option value="CARTON">מחיר קרטון</option>
-                    </>
-                  ) : (
-                    <>
-                      <option value="REGULAR">המחיר הוא ליחידה</option>
-                      <option value="PER_KG">המחיר הוא לק"ג (שקילה)</option>
-                    </>
-                  )}
-                </select>
-              </Field>
-            )}
+            {/* הסבר קצר על הסוג שנבחר */}
+            <p className="text-xs text-zinc-500 bg-zinc-50 rounded-lg p-2 -mt-1">
+              {isCartonsMode
+                ? "הלקוח מזמין קרטונים שלמים (1, 2, 3...). המחיר הסופי לפי שקילה בפועל - מדבקת המשקל מוזנת למערכת."
+                : "מוצר ארוז במשקל קבוע (למשל 400 גרם). מחיר קבוע ליחידה, בלי שקילה - כמות × מחיר."}
+            </p>
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label={priceLabel(editSaleType, editPriceType)}>
+              <Field label={priceLabel(editMode)}>
                 <input
                   className="input"
                   type="number"
@@ -347,18 +504,17 @@ export default function ProductsPage() {
                   onChange={(e) => setEditing({ ...editing, cartonPrice: e.target.value })}
                 />
               </Field>
-              {/* יחידת מידה - נגזרת אוטומטית, מוצגת לקריאה בלבד */}
-              <Field label="יחידת מידה">
+              <Field label="יחידת מכירה">
                 <input
-                  className="input bg-zinc-50 text-zinc-500"
-                  value={unitForSaleType(editSaleType)}
+                  className="input bg-zinc-50"
+                  value={isCartonsMode ? "קרטון" : "יחידה"}
                   readOnly
                 />
               </Field>
             </div>
 
-            {/* משקל מארז - רק במכירת מארז */}
-            {editSaleType === "PACKAGE" && (
+            {/* משקל אריזה - רק ביחידות (לתצוגה ללקוח: "400 גרם") */}
+            {!isCartonsMode && (
               <Field label="משקל מארז (גרם)">
                 <input
                   className="input"
@@ -369,19 +525,20 @@ export default function ProductsPage() {
               </Field>
             )}
 
-            {/* משקל ממוצע ליחידה - רק כשמוכרים ביחידה ומתמחרים לק"ג */}
+            {/* משקל משוער לקרטון - להערכת המחיר ללקוח לפני השקילה */}
             {showAvgWeight && (
-              <Field label='משקל ממוצע ליחידה (ק"ג)'>
+              <Field label='משקל משוער לקרטון (ק"ג)'>
                 <input
                   className="input"
                   type="number"
                   step="0.1"
-                  placeholder='לדוגמה: עוף שלם ≈ 2 ק"ג'
+                  placeholder='לדוגמה: קרטון חזה עוף ≈ 12 ק"ג'
                   value={editing.avgWeightPerUnit ?? ""}
                   onChange={(e) => setEditing({ ...editing, avgWeightPerUnit: e.target.value })}
                 />
                 <p className="text-xs text-zinc-400 mt-1">
-                  חובה למילוי — משמש להערכת מחיר מדויקת ללקוח (מחיר לק"ג × משקל ממוצע × כמות).
+                  חובה למילוי — להערכת מחיר ללקוח (מחיר לק"ג × משקל משוער × כמות). המחיר הסופי לפי
+                  שקילה בפועל.
                 </p>
                 {!editing.avgWeightPerUnit && (
                   <p className="text-xs text-amber-600 mt-1 font-medium">
@@ -391,7 +548,7 @@ export default function ProductsPage() {
               </Field>
             )}
 
-            {/* בודדים - רק ב-WEIGHT + CARTON */}
+            {/* בודדים - רק בקרטונים (בשר/דגים): הזמנה בק"ג במקום קרטון שלם */}
             {showSingles && (
               <>
                 <label className="flex items-center gap-2">
@@ -401,7 +558,7 @@ export default function ProductsPage() {
                     onChange={(e) => setEditing({ ...editing, allowSingles: e.target.checked })}
                     className="h-4 w-4 accent-brand-rust"
                   />
-                  אפשרות קנייה בבודדים (תוספת לק"ג)
+                  לאפשר קנייה בבודדים — הזמנה בק"ג במקום קרטון שלם (בשר/דגים)
                 </label>
                 {editing.allowSingles && (
                   <Field label='תוספת לבודדים לק"ג'>
@@ -427,6 +584,15 @@ export default function ProductsPage() {
                   className="h-4 w-4 accent-brand-rust"
                 />
                 קפוא
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={editing.isFeatured ?? false}
+                  onChange={(e) => setEditing({ ...editing, isFeatured: e.target.checked })}
+                  className="h-4 w-4 accent-brand-rust"
+                />
+                ⭐ מוצר מבצע (מודגש ללקוח)
               </label>
               <label className="flex items-center gap-2">
                 <input

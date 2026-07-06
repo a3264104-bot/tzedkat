@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { signIn } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
 
 type Point = { id: string; name: string; city: string | null };
-type RegStep = "details" | "station" | "payment";
+type RegStep = "details" | "station";
 
 function RegisterPageInner() {
   const params = useSearchParams();
@@ -28,11 +28,6 @@ function RegisterPageInner() {
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [defaultPointId, setDefaultPointId] = useState("");
 
-  const [registeredCustomerId, setRegisteredCustomerId] = useState<string | null>(null);
-  const [paymentDone, setPaymentDone] = useState(false);
-  // לוג דיבאג - כל הודעה שמגיעה מ-iframe של נדרים תוצג כאן כדי שנלמד את הפורמט האמיתי
-  const [debugLog, setDebugLog] = useState<string[]>([]);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
     fetch("/api/customer/points")
@@ -41,44 +36,6 @@ function RegisterPageInner() {
       .catch(() => null);
   }, []);
 
-  // מאזין להודעות postMessage מה-iframe של נדרים.
-  // נדרים פלוס מחזירים את תוצאת העסקה דרך postMessage - כאן אנחנו תופסים כל הודעה,
-  // רושמים אותה ללוג (Console + מסך) כדי לדעת בדיוק מה הפורמט, ומזהים הצלחה.
-  useEffect(() => {
-    function onMessage(e: MessageEvent) {
-      // מקבלים רק הודעות ממקור נדרים
-      if (typeof e.origin === "string" && !e.origin.includes("matara.pro")) return;
-
-      const raw = typeof e.data === "string" ? e.data : JSON.stringify(e.data);
-      console.log("=== NEDARIM postMessage ===", e.origin, e.data);
-      setDebugLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${raw}`]);
-
-      // ניסיון לזהות הצלחה - נדרים שולחים בדרך כלל אובייקט עם Status/Message
-      let d: any = e.data;
-      if (typeof d === "string") {
-        try {
-          d = JSON.parse(d);
-        } catch {
-          // ייתכן מחרוזת פשוטה כמו "Height:600"
-        }
-      }
-      const status = String(d?.Status ?? d?.status ?? "").toLowerCase();
-      const name2 = String(d?.Name ?? d?.name ?? "").toLowerCase();
-      // אותות הצלחה אפשריים
-      if (
-        status.includes("success") ||
-        status === "ok" ||
-        status === "0" ||
-        name2.includes("success") ||
-        raw.toLowerCase().includes("payment success") ||
-        raw.toLowerCase().includes("transactionresponse")
-      ) {
-        setPaymentDone(true);
-      }
-    }
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, []);
 
   const cities = useMemo(() => {
     const set = new Set<string>();
@@ -127,8 +84,15 @@ function RegisterPageInner() {
         }
         return;
       }
-      setRegisteredCustomerId(data.id);
-      setStep("payment");
+      // החשבון נוצר - מתחברים מיד וממשיכים. אימות הכרטיס (1 ש"ח)
+      // יתבקש בשמירת ההזמנה הראשונה, לא כאן.
+      const identifier = phone.trim() || email.trim().toLowerCase();
+      const signInRes = await signIn("login", { identifier, password, redirect: false });
+      if (signInRes?.error) {
+        router.replace(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
+      } else {
+        router.replace(callbackUrl);
+      }
     } catch {
       setError("שגיאת שרת. נסה שוב.");
     } finally {
@@ -136,45 +100,8 @@ function RegisterPageInner() {
     }
   }
 
-  async function finishRegistration() {
-    setError("");
-    if (!paymentDone) {
-      setError("יש להשלים את אימות הכרטיס לפני הסיום");
-      return;
-    }
-    setLoading(true);
-    const identifier = phone.trim() || email.trim().toLowerCase();
-    const signInRes = await signIn("login", {
-      identifier,
-      password,
-      redirect: false,
-    });
-    setLoading(false);
-    if (signInRes?.error) {
-      router.replace(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
-    } else {
-      router.replace(callbackUrl);
-    }
-  }
 
-  // URL של ה-iframe. הוספנו TransactionType=Token + Tokef כדי לבקש יצירת טוקן,
   // בנוסף לחיוב 1₪ לאימות. אם נדרים דורשים שמות אחרים - נראה זאת בלוג ונתקן.
-  const nedarimIframeUrl = registeredCustomerId
-    ? `https://www.matara.pro/nedarimplus/online/?` +
-      `mosad=7015318` +
-      `&ApiValid=NxhXRWeG5P` +
-      `&Amount=1` +
-      `&AmountLock=1` +
-      `&Zeout=` +
-      `&Tokef=` +
-      `&CreateToken=1` +
-      `&TransactionType=Debit` +
-      `&CallBack=${encodeURIComponent(`${process.env.NEXT_PUBLIC_APP_URL || "https://tzidkat.com"}/api/webhooks/nedarim`)}` +
-      `&param1=${encodeURIComponent(registeredCustomerId)}` +
-      `&param2=registration` +
-      `&Nota=${encodeURIComponent("אימות כרטיס אשראי - צדקת רבותינו")}` +
-      `&ClientName=${encodeURIComponent(name.trim())}`
-    : null;
 
   return (
     <main
@@ -188,13 +115,13 @@ function RegisterPageInner() {
         </div>
 
         <div className="flex justify-center gap-2 mb-6">
-          {(["details", "station", "payment"] as RegStep[]).map((s, i) => (
+          {(["details", "station"] as RegStep[]).map((s, i) => (
             <div
               key={s}
               className={`h-2 w-8 rounded-full transition-colors ${
                 step === s
                   ? "bg-brand-rust"
-                  : (["details", "station", "payment"] as RegStep[]).indexOf(step) > i
+                  : (["details", "station"] as RegStep[]).indexOf(step) > i
                     ? "bg-brand-rust/40"
                     : "bg-zinc-200"
               }`}
@@ -347,72 +274,6 @@ function RegisterPageInner() {
           </div>
         )}
 
-        {/* שלב 3: אימות כרטיס אשראי */}
-        {step === "payment" && (
-          <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 p-6 space-y-4">
-            <h2 className="text-lg font-extrabold text-brand-slatedark">אימות כרטיס אשראי</h2>
-
-            <div className="card p-3 bg-amber-50 border-amber-200 text-sm space-y-1">
-              <p className="font-semibold text-amber-900">
-                חיוב חד‑פעמי של <span className="text-brand-rust">1₪ בלבד</span> לאימות הכרטיס
-              </p>
-              <p className="text-amber-800">
-                הסכום יקוזז אוטומטית מהחשבון הראשון שלך — כך שלמעשה לא תשלם עליו.
-              </p>
-            </div>
-
-            {nedarimIframeUrl ? (
-              <div className="rounded-xl overflow-hidden border border-zinc-200">
-                <iframe
-                  ref={iframeRef}
-                  src={nedarimIframeUrl}
-                  className="w-full"
-                  style={{ height: "420px", border: "none" }}
-                  title="אימות כרטיס אשראי"
-                />
-              </div>
-            ) : (
-              <p className="text-sm text-zinc-500">טוען...</p>
-            )}
-
-            {/* לוג דיבאג - נראה כאן בדיוק מה נדרים שולחים חזרה */}
-            {debugLog.length > 0 && (
-              <div className="card p-3 bg-zinc-900 text-green-400 text-xs font-mono max-h-40 overflow-auto">
-                <div className="text-zinc-400 mb-1">תשובות מנדרים (דיבאג):</div>
-                {debugLog.map((l, i) => (
-                  <div key={i} className="break-all">{l}</div>
-                ))}
-              </div>
-            )}
-
-            {paymentDone && (
-              <div className="card p-3 bg-green-50 border-green-200 text-sm text-green-800 font-medium">
-                ✓ זוהתה תשובת הצלחה מנדרים
-              </div>
-            )}
-
-            <label className="flex items-start gap-3 card p-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={paymentDone}
-                onChange={(e) => setPaymentDone(e.target.checked)}
-                className="mt-1 h-5 w-5 accent-brand-rust"
-              />
-              <span className="text-sm font-medium text-zinc-700">
-                השלמתי את אימות הכרטיס (1₪)
-              </span>
-            </label>
-
-            {error && <p className="text-red-600 text-sm">{error}</p>}
-            <button
-              disabled={!paymentDone || loading}
-              onClick={finishRegistration}
-              className="btn-primary w-full"
-            >
-              {loading ? "מסיים הרשמה..." : "סיום הרשמה"}
-            </button>
-          </div>
-        )}
       </div>
     </main>
   );
