@@ -95,7 +95,13 @@ export function OrderFlow({
 }) {
   const [step, setStep] = useState<Step>("point");
   // אם ללקוח יש נקודה שמורה, בוחרים אותה כברירת מחדל - אבל הוא עדיין יכול לשנות
-  const [pointId, setPointId] = useState<string>(customer.defaultPointId ?? "");
+  // נקודת ברירת המחדל מההרשמה תקפה רק אם היא משתתפת במכירה הנוכחית.
+  // בלי הבדיקה: לקוח שנקודתו לא במכירה היה עובר לשלב הבא עם point=null - מסך ריק!
+  const [pointId, setPointId] = useState<string>(() =>
+    customer.defaultPointId && points.some((p) => p.id === customer.defaultPointId)
+      ? customer.defaultPointId
+      : ""
+  );
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [dateConfirmed, setDateConfirmed] = useState(false);
   const [cart, setCart] = useState<Record<string, CartLine>>({});
@@ -373,7 +379,7 @@ export function OrderFlow({
 
             <BottomBar>
               <button
-                disabled={!pointId}
+                disabled={!point}
                 onClick={() => setStep("date")}
                 className="btn-primary w-full"
               >
