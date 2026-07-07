@@ -74,7 +74,8 @@ export default function ForgotPasswordPage() {
                 איפוס סיסמה
               </h1>
               <p className="text-sm text-zinc-500 text-center">
-                הזן את כתובת המייל שלך ונשלח אליך קישור לאיפוס.
+                הזן את כתובת המייל שציינת בהרשמה ונשלח אליך קישור לאיפוס. אם נרשמת ללא
+                מייל — פנה אלינו טלפונית ונאפס לך את הסיסמה.
               </p>
               <div>
                 <label className="label">כתובת מייל</label>

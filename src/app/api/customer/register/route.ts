@@ -3,17 +3,15 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 
-const schema = z
-  .object({
-    name: z.string().min(1, "יש להזין שם"),
-    phone: z.string().trim().optional().nullable(),
-    email: z.string().trim().email("כתובת מייל לא תקינה").optional().nullable().or(z.literal("")),
-    password: z.string().min(6, "הסיסמה חייבת להכיל לפחות 6 תווים"),
-    defaultPointId: z.string().optional().nullable(),
-  })
-  .refine((d) => (d.phone && d.phone.length > 0) || (d.email && d.email.length > 0), {
-    message: "יש להזין טלפון או מייל (לפחות אחד מהשניים)",
-  });
+// מודל הזיהוי: טלפון = חובה (המזהה הראשי להתחברות, לכולם יש).
+// מייל = אופציונלי אך מומלץ (מאפשר איפוס סיסמה עצמאי + אישורי הזמנה).
+const schema = z.object({
+  name: z.string().min(1, "יש להזין שם"),
+  phone: z.string().trim().min(1, "יש להזין מספר טלפון"),
+  email: z.string().trim().email("כתובת מייל לא תקינה").optional().nullable().or(z.literal("")),
+  password: z.string().min(6, "הסיסמה חייבת להכיל לפחות 6 תווים"),
+  defaultPointId: z.string().optional().nullable(),
+});
 
 export async function POST(req: Request) {
   try {
@@ -22,13 +20,10 @@ export async function POST(req: Request) {
 
     // נירמול טלפון: שומרים תמיד ספרות בלבד בפורמט מקומי (0501234567),
     // כדי שההתחברות תמצא את המספר בלי תלות באיך המשתמש הקליד (מקפים/רווחים/+972)
-    let phone = data.phone?.trim() || null;
-    if (phone) {
-      const digits = phone.replace(/\D/g, "");
-      phone = digits.startsWith("972") ? "0" + digits.slice(3) : digits;
-      if (phone.length < 9) {
-        return NextResponse.json({ error: "מספר הטלפון קצר מדי" }, { status: 400 });
-      }
+    const digits = data.phone.replace(/\D/g, "");
+    const phone = digits.startsWith("972") ? "0" + digits.slice(3) : digits;
+    if (phone.length < 9 || phone.length > 10) {
+      return NextResponse.json({ error: "מספר טלפון לא תקין" }, { status: 400 });
     }
     const email = data.email?.trim().toLowerCase() || null;
 

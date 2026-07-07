@@ -35,14 +35,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     data.email = email;
   }
 
-  // עדכון טלפון - עם בדיקת כפילות
+  // עדכון טלפון - נירמול (כמו בהרשמה) + בדיקת כפילות.
+  // במודל טלפון-ראשי הטלפון הוא מזהה ההתחברות, לכן אסור למחוק אותו.
   if ("phone" in b) {
-    const phone = b.phone ? String(b.phone).trim() : null;
-    if (phone) {
-      const existing = await prisma.customer.findUnique({ where: { phone } });
-      if (existing && existing.id !== id) {
-        return NextResponse.json({ error: "הטלפון כבר שייך למשתמש אחר" }, { status: 409 });
-      }
+    const raw = b.phone ? String(b.phone).trim() : "";
+    if (!raw) {
+      return NextResponse.json(
+        { error: "לא ניתן למחוק את הטלפון — הוא משמש להתחברות הלקוח" },
+        { status: 400 }
+      );
+    }
+    const digits = raw.replace(/\D/g, "");
+    const phone = digits.startsWith("972") ? "0" + digits.slice(3) : digits;
+    if (phone.length < 9 || phone.length > 10) {
+      return NextResponse.json({ error: "מספר טלפון לא תקין" }, { status: 400 });
+    }
+    const existing = await prisma.customer.findUnique({ where: { phone } });
+    if (existing && existing.id !== id) {
+      return NextResponse.json({ error: "הטלפון כבר שייך למשתמש אחר" }, { status: 409 });
     }
     data.phone = phone;
   }

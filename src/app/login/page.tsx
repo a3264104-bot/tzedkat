@@ -19,7 +19,7 @@ function LoginPageInner() {
   async function handleLogin() {
     setError("");
     if (!identifier.trim() || !password) {
-      setError("נא למלא טלפון / מייל וסיסמה");
+      setError("נא למלא מספר טלפון וסיסמה");
       return;
     }
     setLoading(true);
@@ -78,13 +78,13 @@ function LoginPageInner() {
           </h1>
 
           <div>
-            <label className="label">טלפון או מייל</label>
+            <label className="label">מספר טלפון</label>
             <input
               className="input"
               type="text"
               inputMode="email"
               autoComplete="username"
-              placeholder="050-1234567 או user@example.com"
+              placeholder="0501234567"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleLogin()}

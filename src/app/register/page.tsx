@@ -52,7 +52,7 @@ function RegisterPageInner() {
   function validateDetails() {
     setError("");
     if (!name.trim()) return setError("נא להזין שם");
-    if (!phone.trim() && !email.trim()) return setError("יש להזין טלפון או מייל (לפחות אחד)");
+    if (!phone.trim()) return setError("יש להזין מספר טלפון — איתו תתחבר למערכת");
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError("כתובת מייל לא תקינה");
     if (password.length < 6) return setError("הסיסמה חייבת להכיל לפחות 6 תווים");
     if (password !== password2) return setError("הסיסמאות אינן תואמות");
@@ -138,7 +138,7 @@ function RegisterPageInner() {
               <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div>
-              <label className="label">טלפון</label>
+              <label className="label">טלפון *</label>
               <input
                 className="input"
                 type="tel"
@@ -149,7 +149,7 @@ function RegisterPageInner() {
               />
             </div>
             <div>
-              <label className="label">מייל</label>
+              <label className="label">מייל (מומלץ)</label>
               <input
                 className="input"
                 type="email"
@@ -159,7 +159,10 @@ function RegisterPageInner() {
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
-            <p className="text-xs text-zinc-400">יש למלא לפחות טלפון או מייל (אפשר שניהם)</p>
+            <p className="text-xs text-zinc-400">
+              ההתחברות למערכת מתבצעת עם מספר הטלפון. מומלץ להוסיף מייל — הוא מאפשר לאפס
+              סיסמה בעצמך ולקבל אישורי הזמנה.
+            </p>
             <div>
               <label className="label">סיסמה *</label>
               <input
