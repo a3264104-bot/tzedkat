@@ -35,9 +35,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
         }
 
-        // 2) אם לא מנהל - מנסים כלקוח (טבלת Customer, טלפון או מייל)
+        // 2) אם לא מנהל - מנסים כלקוח (טבלת Customer, טלפון או מייל).
+        // נירמול טלפון: מסירים מקפים/רווחים/סוגריים וממירים קידומת בינלאומית
+        // (+972-53...) לפורמט מקומי (053...). בלי זה - התחברות נכשלת למי
+        // שמקליד את המספר עם מקף או מעתיק אותו מוואטסאפ.
+        const digitsOnly = identifier.replace(/\D/g, "");
+        const localPhone = digitsOnly.startsWith("972")
+          ? "0" + digitsOnly.slice(3)
+          : digitsOnly;
+        const phoneCandidates = [...new Set([identifier, digitsOnly, localPhone])].filter(
+          (v) => v.length > 0
+        );
         const customer = await prisma.customer.findFirst({
-          where: { OR: [{ phone: identifier }, { email: identifier.toLowerCase() }] },
+          where: {
+            OR: [
+              ...phoneCandidates.map((p) => ({ phone: p })),
+              { email: identifier.toLowerCase() },
+            ],
+          },
         });
         if (customer) {
           const ok = await bcrypt.compare(password, customer.passwordHash);

@@ -20,7 +20,16 @@ export async function POST(req: Request) {
     const body = await req.json();
     const data = schema.parse(body);
 
-    const phone = data.phone?.trim() || null;
+    // נירמול טלפון: שומרים תמיד ספרות בלבד בפורמט מקומי (0501234567),
+    // כדי שההתחברות תמצא את המספר בלי תלות באיך המשתמש הקליד (מקפים/רווחים/+972)
+    let phone = data.phone?.trim() || null;
+    if (phone) {
+      const digits = phone.replace(/\D/g, "");
+      phone = digits.startsWith("972") ? "0" + digits.slice(3) : digits;
+      if (phone.length < 9) {
+        return NextResponse.json({ error: "מספר הטלפון קצר מדי" }, { status: 400 });
+      }
+    }
     const email = data.email?.trim().toLowerCase() || null;
 
     // בדיקת כפילות מפורשת - לפני יצירה - כדי להחזיר הודעה ידידותית ולא רק שגיאת unique מה-DB
