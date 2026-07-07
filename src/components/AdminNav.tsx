@@ -14,6 +14,8 @@ const links = [
   { href: "/admin/customers", label: "לקוחות", icon: "🧑‍🤝‍🧑" },
   { href: "/admin/sale-summary", label: "סיכום מכירה", icon: "📊" },
   { href: "/admin/debts", label: "חובות ותזכורות", icon: "💰" },
+  { href: "/admin/personal-products", label: "מוצרים אישיים", icon: "🎁" },
+  { href: "/admin/personal-requests", label: "בקשות אישיות", icon: "📨" },
   { href: "/admin/reports", label: "דוחות", icon: "📈" },
   { href: "/admin/agents", label: "נציגים", icon: "👥" },
   { href: "/admin/settings", label: "הגדרות", icon: "⚙️" },

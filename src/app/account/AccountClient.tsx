@@ -57,6 +57,58 @@ export function AccountClient({
   const [savingPoint, setSavingPoint] = useState(false);
   const [pointSaved, setPointSaved] = useState(false);
   const [showStationEdit, setShowStationEdit] = useState(false);
+  // ניהול מייל + איפוס סיסמה עצמאי
+  const [email, setEmail] = useState(customer.email ?? "");
+  const [showEmailEdit, setShowEmailEdit] = useState(false);
+  const [emailMsg, setEmailMsg] = useState("");
+  const [emailErr, setEmailErr] = useState("");
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [resetMsg, setResetMsg] = useState("");
+  const [resetErr, setResetErr] = useState("");
+  const [sendingReset, setSendingReset] = useState(false);
+  const [currentEmail, setCurrentEmail] = useState(customer.email ?? "");
+
+  async function saveEmail() {
+    setEmailErr("");
+    setEmailMsg("");
+    setSavingEmail(true);
+    try {
+      const res = await fetch("/api/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-email", email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+      setCurrentEmail(data.email);
+      setEmailMsg("המייל נשמר בהצלחה");
+      setShowEmailEdit(false);
+    } catch (e: any) {
+      setEmailErr(e.message);
+    } finally {
+      setSavingEmail(false);
+    }
+  }
+
+  async function sendPasswordReset() {
+    setResetErr("");
+    setResetMsg("");
+    setSendingReset(true);
+    try {
+      const res = await fetch("/api/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send-reset" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+      setResetMsg(`נשלח קישור לאיפוס סיסמה אל ${data.sentTo}. בדוק גם בתיקיית הספאם.`);
+    } catch (e: any) {
+      setResetErr(e.message);
+    } finally {
+      setSendingReset(false);
+    }
+  }
 
   async function saveStation() {
     setSavingPoint(true);
@@ -158,6 +210,83 @@ export function AccountClient({
             הזמנה חדשה ←
           </Link>
         )}
+
+        {/* הגדרות חשבון: מייל + סיסמה */}
+        <div className="card p-5 space-y-4">
+          <span className="font-bold text-brand-slatedark">הגדרות חשבון</span>
+
+          {/* ניהול מייל */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm text-zinc-600">כתובת מייל</span>
+              <button
+                onClick={() => {
+                  setShowEmailEdit(!showEmailEdit);
+                  setEmailErr("");
+                  setEmailMsg("");
+                }}
+                className="text-sm text-brand-rust font-medium"
+              >
+                {showEmailEdit ? "ביטול" : currentEmail ? "שינוי" : "הוספת מייל"}
+              </button>
+            </div>
+            {!showEmailEdit ? (
+              <div className="text-sm text-zinc-500">
+                {currentEmail || (
+                  <span className="text-amber-600">
+                    לא הוגדר מייל — הוסף כדי שתוכל לאפס סיסמה בעצמך
+                  </span>
+                )}
+                {emailMsg && <span className="text-green-600 mr-2">✓ {emailMsg}</span>}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <input
+                  className="input"
+                  type="email"
+                  dir="ltr"
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+                {emailErr && <p className="text-sm text-red-600">{emailErr}</p>}
+                <button
+                  onClick={saveEmail}
+                  disabled={savingEmail}
+                  className="btn-primary btn-sm w-full"
+                >
+                  {savingEmail ? "שומר..." : "שמירת מייל"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* איפוס סיסמה עצמאי */}
+          <div className="border-t pt-3">
+            <div className="text-sm text-zinc-600 mb-1">סיסמה</div>
+            {currentEmail ? (
+              <>
+                <button
+                  onClick={sendPasswordReset}
+                  disabled={sendingReset}
+                  className="btn-ghost btn-sm"
+                >
+                  {sendingReset ? "שולח..." : "שליחת קישור לאיפוס סיסמה למייל שלי"}
+                </button>
+                {resetMsg && (
+                  <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-2 mt-2">
+                    {resetMsg}
+                  </p>
+                )}
+                {resetErr && <p className="text-sm text-red-600 mt-2">{resetErr}</p>}
+              </>
+            ) : (
+              <p className="text-xs text-zinc-400">
+                כדי לאפס סיסמה בעצמך, הוסף תחילה כתובת מייל למעלה.
+              </p>
+            )}
+          </div>
+        </div>
 
         {/* היסטוריית הזמנות */}
         <div>

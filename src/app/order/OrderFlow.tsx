@@ -285,13 +285,20 @@ export function OrderFlow({
 
   return (
     <main className="min-h-screen bg-[#faf6ec] pb-28">
-      {/* header */}
+      {/* header - עם שם המשתמש המחובר וקישור לאזור אישי (זמין תמיד) */}
       <header className="bg-brand-yellow border-b-4 border-brand-rust/20 sticky top-0 z-20">
-        <div className="mx-auto max-w-md px-4 py-3 flex items-center justify-between">
-          <Link href="/" className="text-brand-slate text-sm font-medium">
-            דף הבית
-          </Link>
-          <span className="font-extrabold text-brand-rust">צדקת רבותינו</span>
+        <div className="mx-auto max-w-md px-4 py-2.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 text-sm">
+            <Link href="/" className="text-brand-slate font-medium">
+              דף הבית
+            </Link>
+            <Link href="/account" className="text-brand-slate font-medium">
+              האזור האישי
+            </Link>
+          </div>
+          <span className="text-sm text-brand-slate/80">
+            שלום, <span className="font-bold text-brand-rust">{customer.name}</span>
+          </span>
         </div>
       </header>
 
@@ -299,7 +306,20 @@ export function OrderFlow({
         <StepBar step={step} />
 
         {/* STEP: choose point - מקובץ לפי עיר אם יש יותר מעיר אחת */}
-        {step === "point" && (
+        {step === "point" && points.length === 0 && (
+          <section className="card p-6 text-center mt-4">
+            <div className="text-3xl mb-2">📍</div>
+            <p className="font-bold text-brand-slatedark">לא הוגדרו נקודות חלוקה למכירה זו</p>
+            <p className="text-sm text-zinc-500 mt-1">
+              המכירה פעילה אך טרם שויכו אליה נקודות חלוקה. לא ניתן להזמין כרגע — אנא פנה
+              למנהל שיוסיף נקודות חלוקה, ונסה שוב.
+            </p>
+            <Link href="/" className="btn-ghost btn-sm mt-4 inline-flex">
+              חזרה לדף הבית
+            </Link>
+          </section>
+        )}
+        {step === "point" && points.length > 0 && (
           <section>
             <h2 className="text-lg font-extrabold text-brand-slatedark mb-3">
               {showCityStep && !selectedCity ? "בחירת עיר" : "בחירת נקודת חלוקה"}
@@ -308,20 +328,30 @@ export function OrderFlow({
             {/* שלב עיר - רק אם יש כמה ערים ועדיין לא נבחרה אחת */}
             {showCityStep && !selectedCity && (
               <div className="space-y-2.5">
-                {cities.map((city) => (
-                  <button
-                    key={city}
-                    onClick={() => setSelectedCity(city)}
-                    className="w-full text-right card p-4 flex justify-between items-center"
-                  >
-                    <span className="font-bold text-brand-slatedark">{city}</span>
-                    <span className="text-zinc-400 text-sm">
-                      {points.filter((p) => p.city === city).length > 1
-                        ? `${points.filter((p) => p.city === city).length} נקודות`
-                        : ""}
-                    </span>
-                  </button>
-                ))}
+                {cities.map((city) => {
+                  const cityPoints = points.filter((p) => p.city === city);
+                  return (
+                    <button
+                      key={city}
+                      onClick={() => {
+                        // עיר עם נקודה אחת בלבד - בוחרים אותה מיד, בלי מסך בחירה מיותר.
+                        // עיר עם כמה נקודות - נכנסים לבחירה ביניהן.
+                        if (cityPoints.length === 1) {
+                          setPointId(cityPoints[0].id);
+                          setStep("date");
+                        } else {
+                          setSelectedCity(city);
+                        }
+                      }}
+                      className="w-full text-right card p-4 flex justify-between items-center"
+                    >
+                      <span className="font-bold text-brand-slatedark">{city}</span>
+                      <span className="text-zinc-400 text-sm">
+                        {cityPoints.length > 1 ? `${cityPoints.length} נקודות` : ""}
+                      </span>
+                    </button>
+                  );
+                })}
                 {pointsWithoutCity.length > 0 && (
                   <>
                     <div className="text-sm text-zinc-400 pt-2">נקודות נוספות</div>
@@ -748,7 +778,7 @@ export function OrderFlow({
                 המחיר המוצג הוא מחיר משוער בלבד. המחיר הסופי ייקבע לאחר שקילה בפועל על ידי הנציג.
               </p>
               <p className="text-sm font-bold text-amber-900 mt-2">
-                לאחר עדכון המחיר הסופי תקבל/י הודעה עם קישור לתשלום באתר.
+                לאחר עדכון המחיר הסופי, התשלום ייגבה אוטומטית מהכרטיס ששמרת, ותקבל/י הודעה על החיוב.
               </p>
             </div>
 
@@ -760,7 +790,7 @@ export function OrderFlow({
                 className="mt-1 h-5 w-5 accent-brand-rust"
               />
               <span className="text-sm font-medium text-zinc-700">
-                אני מאשר/ת שראיתי שהמחיר משוער, ושהתשלום הסופי יתבצע באתר לאחר קביעת מחיר סופי.
+                אני מאשר/ת שהמחיר משוער, ושהתשלום הסופי ייגבה מהכרטיס ששמרתי לאחר שקילה וקביעת מחיר סופי.
               </span>
             </label>
 
@@ -796,7 +826,7 @@ export function OrderFlow({
               <Row label="סה״כ משוער" value={fmt(estimatedTotal)} />
             </div>
             <p className="text-xs text-zinc-500 mt-4">
-              ההזמנה ממתינה לשקילה. לאחר קביעת מחיר סופי תקבל/י הודעה עם קישור לתשלום.
+              ההזמנה ממתינה לשקילה. לאחר קביעת המחיר הסופי, התשלום ייגבה אוטומטית מהכרטיס ששמרת ותקבל/י הודעה על החיוב.
             </p>
             <Link href="/" className="btn-primary mt-6 inline-flex">
               חזרה לדף הבית

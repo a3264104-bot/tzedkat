@@ -15,6 +15,10 @@ export default async function Home() {
     orderBy: { createdAt: "desc" },
   });
 
+  // האם מודול ההזמנות האישיות מופעל
+  const settings = await prisma.systemSettings.findUnique({ where: { id: "singleton" } });
+  const personalEnabled = settings?.personalOrdersEnabled ?? false;
+
   const now = new Date();
   const isOpen =
     !!active &&
@@ -58,15 +62,20 @@ export default async function Home() {
         {/* קישור התחברות / אזור אישי - תמיד זמין, גם כשאין מכירה פתוחה */}
         <div className="mt-8 flex flex-col items-center gap-3">
           {isLoggedIn ? (
-            isAdmin ? (
-              <Link href="/admin" className="btn-ghost">
-                לאזור הניהול ←
-              </Link>
-            ) : (
-              <Link href="/account" className="btn-ghost">
-                האזור האישי שלי ←
-              </Link>
-            )
+            <>
+              <p className="text-brand-slate">
+                שלום, <span className="font-bold text-brand-rust">{(session!.user as any).name}</span>!
+              </p>
+              {isAdmin ? (
+                <Link href="/admin" className="btn-ghost">
+                  לאזור הניהול ←
+                </Link>
+              ) : (
+                <Link href="/account" className="btn-ghost">
+                  האזור האישי שלי ←
+                </Link>
+              )}
+            </>
           ) : (
             <>
               <Link href="/login" className="btn-ghost">
@@ -79,8 +88,30 @@ export default async function Home() {
           )}
         </div>
 
+        {/* הזמנה אישית - רק אם המודול מופעל */}
+        {personalEnabled && (
+          <div className="mt-6 text-center">
+            <Link
+              href="/personal-order"
+              className="inline-flex items-center gap-2 btn-yellow"
+            >
+              🎁 הזמנה אישית — גם ללא מכירה פעילה
+            </Link>
+          </div>
+        )}
+
+        {/* יצירת קשר - בולט וברור */}
+        <div className="mt-8 text-center">
+          <a
+            href="mailto:m5402088@gmail.com"
+            className="inline-flex items-center gap-2 text-brand-rust font-medium hover:underline"
+          >
+            ✉️ ליצירת קשר: m5402088@gmail.com
+          </a>
+        </div>
+
         {/* footer - קישורי פרטיות ותנאים (חשוב לנגישות ולאמון) */}
-        <footer className="mt-10 pt-6 border-t border-brand-slate/10 text-center">
+        <footer className="mt-8 pt-6 border-t border-brand-slate/10 text-center">
           <div className="flex justify-center gap-4 text-xs text-brand-slate/60">
             <a href="/privacy" className="hover:text-brand-rust">מדיניות פרטיות</a>
             <span>·</span>
