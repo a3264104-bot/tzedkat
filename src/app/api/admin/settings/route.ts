@@ -24,6 +24,7 @@ export async function PATCH(req: Request) {
   if ("adminWhatsappPhone" in b) data.adminWhatsappPhone = b.adminWhatsappPhone?.trim() || null;
   if ("sendEmailToCustomer" in b) data.sendEmailToCustomer = !!b.sendEmailToCustomer;
   if ("sendEmailToAdmin" in b) data.sendEmailToAdmin = !!b.sendEmailToAdmin;
+  if ("personalOrdersEnabled" in b) data.personalOrdersEnabled = !!b.personalOrdersEnabled;
   if ("customerEmailTemplate" in b) data.customerEmailTemplate = b.customerEmailTemplate || null;
   if ("adminEmailTemplate" in b) data.adminEmailTemplate = b.adminEmailTemplate || null;
 

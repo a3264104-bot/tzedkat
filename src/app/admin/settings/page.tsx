@@ -29,6 +29,7 @@ export default function SettingsPage() {
         adminWhatsappPhone: settings.adminWhatsappPhone,
         sendEmailToCustomer: settings.sendEmailToCustomer,
         sendEmailToAdmin: settings.sendEmailToAdmin,
+        personalOrdersEnabled: settings.personalOrdersEnabled,
       }),
     });
     setSaving(false);
@@ -90,6 +91,21 @@ export default function SettingsPage() {
             type="checkbox"
             checked={settings.sendEmailToCustomer ?? true}
             onChange={(e) => set("sendEmailToCustomer", e.target.checked)}
+            className="h-5 w-5 accent-brand-rust"
+          />
+        </label>
+
+        <label className="flex items-center justify-between py-2 border-t">
+          <div>
+            <span className="font-medium text-zinc-700">אפשר הזמנות אישיות</span>
+            <p className="text-xs text-zinc-400">
+              כשמופעל — הלקוחות יכולים לשלוח בקשות הזמנה אישית גם ללא מכירה פעילה
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={settings.personalOrdersEnabled ?? false}
+            onChange={(e) => set("personalOrdersEnabled", e.target.checked)}
             className="h-5 w-5 accent-brand-rust"
           />
         </label>
