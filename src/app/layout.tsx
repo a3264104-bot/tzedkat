@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import InstallPrompt from "@/components/InstallPrompt";
 import "./globals.css";
 
 const SITE_URL = "https://tzidkat.com";
@@ -47,6 +48,17 @@ export const metadata: Metadata = {
       follow: true,
     },
   },
+  // ═══ §18 PWA ═══
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "צדקת רבותינו",
+  },
+  icons: {
+    icon: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 export const viewport: Viewport = {
@@ -66,7 +78,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <InstallPrompt />
+      </body>
     </html>
   );
 }
