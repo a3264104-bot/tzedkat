@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LogoutButton } from "@/components/LogoutButton";
 import { Logo } from "@/components/Logo";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -75,6 +76,7 @@ export default async function Home() {
                   האזור האישי שלי ←
                 </Link>
               )}
+              <LogoutButton />
             </>
           ) : (
             <>

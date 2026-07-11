@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, Suspense } from "react";
+import { PasswordInput } from "@/components/PasswordInput";
 import { signIn } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -165,22 +166,18 @@ function RegisterPageInner() {
             </p>
             <div>
               <label className="label">סיסמה *</label>
-              <input
-                className="input"
-                type="password"
-                autoComplete="new-password"
+              <PasswordInput
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={setPassword}
+                autoComplete="new-password"
               />
             </div>
             <div>
               <label className="label">אימות סיסמה *</label>
-              <input
-                className="input"
-                type="password"
-                autoComplete="new-password"
+              <PasswordInput
                 value={password2}
-                onChange={(e) => setPassword2(e.target.value)}
+                onChange={setPassword2}
+                autoComplete="new-password"
               />
             </div>
             {error && <p className="text-red-600 text-sm">{error}</p>}

@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import { Logo } from "@/components/Logo";
 import { effectiveUnitPrice, lineEstimate, smartLineEstimate, fmt } from "@/lib/pricing";
 
@@ -56,6 +57,7 @@ type Pricelist = {
   id: string;
   name: string;
   deliveryDateText: string | null;
+  closeDateText: string | null; // תאריך סיום הרשמה לתצוגה (סעיף 10)
   notes: string | null;
   singleSurcharge: number;
 };
@@ -176,15 +178,31 @@ export function OrderFlow({
   function setSingle(id: string, isSingle: boolean) {
     setCart((c) => {
       const prev = c[id] ?? { isSingle: false, qty: 0 };
-      return { ...c, [id]: { ...prev, isSingle } };
+      // מעבר לבודדים - אם כבר יש כמות, מוודאים מינימום 2 ק"ג
+      let qty = prev.qty;
+      if (isSingle && qty > 0 && qty < MIN_SINGLES_KG) qty = MIN_SINGLES_KG;
+      return { ...c, [id]: { ...prev, isSingle, qty } };
     });
   }
 
-  function stepFromQty(p: Product, isSingle: boolean) {
-    // בודדים = הזמנה בק"ג (מאפשר חצאי ק"ג). קרטונים/יחידות = מספרים שלמים.
-    if (isSingle && p.priceType === "PER_KG") return 0.5;
-    return p.saleType === "WEIGHT" ? 0.5 : 1;
+  // תווית כמות לתצוגה: "1 קרטון" / "2 קרטונים" / "3 ק"ג" (סעיף 1)
+  function qtyLabel(p: Product, line: { isSingle: boolean; qty: number }): string {
+    if (line.qty <= 0) return "";
+    if (line.isSingle && p.priceType === "PER_KG") return `${line.qty} ק"ג`;
+    if (p.saleType === "PACKAGE" || p.priceType === "PER_KG") {
+      return line.qty === 1 ? "1 קרטון" : `${line.qty} קרטונים`;
+    }
+    // יחידות
+    return line.qty === 1 ? "יחידה 1" : `${line.qty} יחידות`;
   }
+
+  function stepFromQty(_p: Product, _isSingle: boolean) {
+    // סעיף 1: אין חצאי ק"ג או חצאי קרטון - הכל בקפיצות של יחידה שלמה.
+    return 1;
+  }
+
+  // סעיף 1: מינימום הזמנה בבודדים (בשר/דגים) = 2 ק"ג
+  const MIN_SINGLES_KG = 2;
 
   // מצב אימות כרטיס: idle=לא נדרש/הושלם, verifying=iframe מוצג, checking=polling
   const [showVerification, setShowVerification] = useState(false);
@@ -296,9 +314,17 @@ export function OrderFlow({
               האזור האישי
             </Link>
           </div>
-          <span className="text-sm text-brand-slate/80">
-            שלום, <span className="font-bold text-brand-rust">{customer.name}</span>
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-brand-slate/80">
+              שלום, <span className="font-bold text-brand-rust">{customer.name}</span>
+            </span>
+            <button
+              onClick={() => signOut({ callbackUrl: "/" })}
+              className="text-xs text-brand-slate/60 underline hover:text-brand-rust"
+            >
+              התנתק
+            </button>
+          </div>
         </div>
       </header>
 
@@ -321,6 +347,13 @@ export function OrderFlow({
         )}
         {step === "point" && points.length > 0 && (
           <section>
+            {/* סעיף 1: הודעת עמלת טיפול. סעיף 10: תאריך סיום הרשמה */}
+            <div className="card p-3 mb-3 bg-amber-50 border-amber-200 text-sm text-amber-800 space-y-1">
+              <div>💳 לתשומת לבך: להזמנה תתווסף עמלת טיפול בסך 3₪.</div>
+              {pricelist.closeDateText && (
+                <div className="font-semibold">🗓️ ההרשמה נסגרת: {pricelist.closeDateText}</div>
+              )}
+            </div>
             <h2 className="text-lg font-extrabold text-brand-slatedark mb-3">
               {showCityStep && !selectedCity ? "בחירת עיר" : "בחירת נקודת חלוקה"}
             </h2>
@@ -338,7 +371,7 @@ export function OrderFlow({
                         // עיר עם כמה נקודות - נכנסים לבחירה ביניהן.
                         if (cityPoints.length === 1) {
                           setPointId(cityPoints[0].id);
-                          setStep("date");
+                          setStep("products");
                         } else {
                           setSelectedCity(city);
                         }
@@ -360,7 +393,7 @@ export function OrderFlow({
                         key={p.id}
                         onClick={() => {
                           setPointId(p.id);
-                          setStep("date");
+                          setStep("products");
                         }}
                         className="w-full text-right card p-4"
                       >
@@ -410,7 +443,7 @@ export function OrderFlow({
             <BottomBar>
               <button
                 disabled={!point}
-                onClick={() => setStep("date")}
+                onClick={() => setStep("products")}
                 className="btn-primary w-full"
               >
                 המשך ←
@@ -420,51 +453,8 @@ export function OrderFlow({
         )}
 
         {/* STEP: confirm date */}
-        {step === "date" && point && (
-          <section>
-            <h2 className="text-lg font-extrabold text-brand-slatedark mb-3">פרטי החלוקה</h2>
-            <div className="card p-5 space-y-3">
-              <Row label="נקודת חלוקה" value={point.name} />
-              {point.city && <Row label="עיר / אזור" value={point.city} />}
-              {point.address && <Row label="כתובת" value={point.address} />}
-              <Row
-                label="תאריך ושעת חלוקה"
-                value={pricelist.deliveryDateText || "יימסר ע\"י הנציג"}
-                highlight
-              />
-              {point.deliveryHours && <Row label="שעות חלוקה" value={point.deliveryHours} />}
-              {point.contactName && <Row label="נציג / איש קשר" value={point.contactName} />}
-              {point.phone && <Row label="טלפון" value={point.phone} />}
-              {point.email && <Row label="מייל" value={point.email} />}
-              {point.notes && <Row label="הערות" value={point.notes} />}
-            </div>
 
-            <label className="flex items-start gap-3 mt-4 card p-4 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={dateConfirmed}
-                onChange={(e) => setDateConfirmed(e.target.checked)}
-                className="mt-1 h-5 w-5 accent-brand-rust"
-              />
-              <span className="text-sm font-medium text-zinc-700">
-                אני מאשר/ת שראיתי את תאריך ושעת החלוקה
-              </span>
-            </label>
-
-            <BottomBar>
-              <button onClick={() => setStep("point")} className="btn-ghost flex-1">
-                חזרה
-              </button>
-              <button
-                disabled={!dateConfirmed}
-                onClick={() => setStep("products")}
-                className="btn-primary flex-1"
-              >
-                המשך ←
-              </button>
-            </BottomBar>
-          </section>
-        )}
+        {/* שלב אישור תאריך בוטל (סעיף 2) - פרטי החלוקה מוצגים בסיכום */}
 
         {/* STEP: products */}
         {step === "products" && (
@@ -577,6 +567,7 @@ export function OrderFlow({
                             <QtyControl
                               value={line.qty}
                               step={stepFromQty(p, line.isSingle)}
+                              min={line.isSingle && p.priceType === "PER_KG" ? MIN_SINGLES_KG : 0}
                               onChange={(v) => setQty(p.id, v)}
                             />
                           </div>
@@ -607,9 +598,11 @@ export function OrderFlow({
                               </button>
                             </div>
                           )}
-                          {p.allowSingles && line.isSingle && line.qty > 0 && (
-                            <p className="text-xs text-zinc-400 mt-1 text-center">
-                              הכמות שהזנת = ק"ג ({line.qty} ק"ג × {fmt(effectiveUnitPrice(p.price, true, pricelist.singleSurcharge))})
+                          {p.allowSingles && line.isSingle && (
+                            <p className="text-xs text-amber-600 mt-1 text-center">
+                              בבודדים: הזמנה בק"ג, מינימום {MIN_SINGLES_KG} ק"ג
+                              {line.qty > 0 &&
+                                ` · ${line.qty} ק"ג`}
                             </p>
                           )}
                         </div>
@@ -620,7 +613,7 @@ export function OrderFlow({
               ))}
             </div>
             <BottomBar>
-              <button onClick={() => setStep("date")} className="btn-ghost flex-1">
+              <button onClick={() => setStep("products")} className="btn-ghost flex-1">
                 חזרה
               </button>
               <button
@@ -639,38 +632,45 @@ export function OrderFlow({
           <section>
             <h2 className="text-lg font-extrabold text-brand-slatedark mb-3">סל ההזמנה</h2>
             <div className="space-y-2">
-              {cartLines.map((l) => (
-                <div key={l.product.id} className="card p-3 flex justify-between items-center">
-                  <div className="flex-1">
-                    <div className="font-semibold text-brand-slatedark">
-                      {l.product.name}
-                      {l.isSingle && (
-                        <span className="badge bg-amber-100 text-amber-700 mr-2">בודדים</span>
-                      )}
+              {cartLines.map((l) => {
+                // משקל משוער לתצוגה: קרטונים = כמות × משקל קרטון; בודדים = הכמות עצמה
+                const estWeight =
+                  l.isSingle && l.product.priceType === "PER_KG"
+                    ? l.qty
+                    : l.product.priceType === "PER_KG" && l.product.avgWeightPerUnit
+                      ? Math.round(l.product.avgWeightPerUnit * l.qty * 10) / 10
+                      : null;
+                return (
+                  <div key={l.product.id} className="card p-3 flex justify-between items-center">
+                    <div className="flex-1">
+                      <div className="font-semibold text-brand-slatedark">
+                        {l.product.name}
+                        {l.isSingle && (
+                          <span className="badge bg-amber-100 text-amber-700 mr-2">בודדים</span>
+                        )}
+                      </div>
+                      <div className="text-sm text-zinc-500">
+                        {qtyLabel(l.product, l)}
+                        {estWeight != null && (
+                          <span className="text-amber-600"> · משקל משוער ~{estWeight} ק"ג</span>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-sm text-zinc-500">
-                      {l.qty} {l.product.unit} × {fmt(l.unitPrice)}
-                    </div>
+                    <button
+                      onClick={() => setQty(l.product.id, 0)}
+                      className="text-zinc-300 hover:text-red-500 text-sm px-2"
+                      title="הסר"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <div className="font-bold text-brand-rust">
-                    {l.lineTotal === null ? (
-                      <span className="text-amber-600 text-xs">חסר משקל משוער</span>
-                    ) : (
-                      fmt(l.lineTotal)
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-            <div className="card p-4 mt-4 flex justify-between items-center">
-              <span className="font-bold">סה"כ משוער</span>
-              <span className="text-xl font-extrabold text-brand-rust">{fmt(estimatedTotal)}</span>
+            {/* סעיף 2: לא מציגים ללקוח סכום משוער - רק הבהרה שהמחיר לפי שקילה */}
+            <div className="card p-4 mt-4 bg-amber-50 border-amber-200 text-sm text-amber-800">
+              המחיר הסופי ייקבע לפי שקילה בפועל. בנוסף תיגבה עמלת טיפול בסך {fmt(pricelist.singleSurcharge ? 3 : 3)}₪.
             </div>
-            {hasMissingWeight && (
-              <div className="card p-3 mt-2 bg-amber-50 border-amber-200 text-xs text-amber-800">
-                חלק מהמוצרים נמכרים לפי משקל ולכן המחיר ייקבע לאחר שקילה. הסכום המשוער אינו כולל אותם.
-              </div>
-            )}
             <BottomBar>
               <button onClick={() => setStep("products")} className="btn-ghost flex-1">
                 הוסף עוד
@@ -751,25 +751,25 @@ export function OrderFlow({
             </div>
 
             <div className="card p-4 mt-3 space-y-2">
-              {cartLines.map((l) => (
-                <div key={l.product.id} className="flex justify-between text-sm">
-                  <span>
-                    {l.product.name} — {l.qty} {l.product.unit}
-                    {l.isSingle ? " (בודדים)" : ""}
-                  </span>
-                  <span className="font-semibold">
-                    {l.lineTotal === null ? (
-                      <span className="text-amber-600 text-xs">חסר משקל משוער</span>
-                    ) : (
-                      fmt(l.lineTotal)
+              <div className="font-bold text-brand-slatedark mb-1">רשימת מוצרים</div>
+              {cartLines.map((l) => {
+                const estWeight =
+                  l.isSingle && l.product.priceType === "PER_KG"
+                    ? l.qty
+                    : l.product.priceType === "PER_KG" && l.product.avgWeightPerUnit
+                      ? Math.round(l.product.avgWeightPerUnit * l.qty * 10) / 10
+                      : null;
+                return (
+                  <div key={l.product.id} className="flex justify-between text-sm">
+                    <span>
+                      {l.product.name} — {qtyLabel(l.product, l)}
+                    </span>
+                    {estWeight != null && (
+                      <span className="text-amber-600 text-xs">~{estWeight} ק"ג</span>
                     )}
-                  </span>
-                </div>
-              ))}
-              <div className="border-t pt-2 flex justify-between font-bold">
-                <span>סה"כ משוער</span>
-                <span className="text-brand-rust">{fmt(estimatedTotal)}</span>
-              </div>
+                  </div>
+                );
+              })}
             </div>
 
             {/* הודעת התשלום עודכנה: התשלום מתבצע באתר, ורק לאחר קביעת מחיר סופי לפי שקילה */}
@@ -822,8 +822,9 @@ export function OrderFlow({
               מספר הזמנה: <span className="font-bold">#{orderNumber}</span>
             </p>
             <div className="card p-4 mt-6 text-sm text-right space-y-2">
-              <Row label="נקודת חלוקה" value={point?.name || ""} />
-              <Row label="סה״כ משוער" value={fmt(estimatedTotal)} />
+              <Row label="נקודת החלוקה" value={point?.name || ""} />
+              {point?.city && <Row label="עיר" value={point.city} />}
+              <Row label="תאריך חלוקה" value={pricelist.deliveryDateText || "יימסר ע\"י הנציג"} />
             </div>
             <p className="text-xs text-zinc-500 mt-4">
               ההזמנה ממתינה לשקילה. לאחר קביעת המחיר הסופי, התשלום ייגבה אוטומטית מהכרטיס ששמרת ותקבל/י הודעה על החיוב.
@@ -879,7 +880,7 @@ export function OrderFlow({
 }
 
 function StepBar({ step }: { step: Step }) {
-  const steps: Step[] = ["point", "date", "products", "cart", "details", "summary"];
+  const steps: Step[] = ["point", "products", "cart", "details", "summary"];
   const idx = steps.indexOf(step);
   if (step === "done") return null;
   return (
@@ -909,16 +910,24 @@ function QtyControl({
   value,
   step,
   onChange,
+  min = 0,
 }: {
   value: number;
   step: number;
   onChange: (v: number) => void;
+  min?: number;
 }) {
   const round = (n: number) => Math.round(n * 100) / 100;
+  // ירידה מתחת למינימום (למשל 2 ק"ג בבודדים) - יורדים ל-0, לא לערך ביניים
+  function dec() {
+    const next = round(value - step);
+    if (min > 0 && next > 0 && next < min) onChange(0);
+    else onChange(round(Math.max(0, next)));
+  }
   return (
     <div className="flex items-center gap-1.5">
       <button
-        onClick={() => onChange(round(Math.max(0, value - step)))}
+        onClick={dec}
         className="w-8 h-8 rounded-lg bg-zinc-100 text-brand-slate font-bold text-lg leading-none active:scale-95"
         aria-label="הפחת"
       >
@@ -928,7 +937,10 @@ function QtyControl({
         type="number"
         inputMode="decimal"
         value={value || ""}
-        onChange={(e) => onChange(round(parseFloat(e.target.value) || 0))}
+        onChange={(e) => {
+          const v = round(parseFloat(e.target.value) || 0);
+          onChange(min > 0 && v > 0 && v < min ? min : v);
+        }}
         className="w-12 text-center rounded-lg border border-zinc-200 py-1.5 font-semibold"
         placeholder="0"
       />

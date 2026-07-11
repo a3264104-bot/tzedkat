@@ -37,6 +37,11 @@ model Customer {
   cardLast4            String?
   cardVerifiedAt       DateTime?
   creditVerificationCharged Boolean @default(false)
+  // תוקף כרטיס (MM/YY או YYMM כפי שנדרים מחזירים) - נשמר מ-webhook להצגה במסך המנהל
+  cardExpiry           String?
+  // הפך ל-true כשניסיון חיוב אחרון נכשל בגלל טוקן פסול/כרטיס פג-תוקף.
+  // מתאפס ל-false כשנשמר טוקן חדש (webhook רישום חוזר).
+  cardNeedsUpdate      Boolean   @default(false)
   // שדות נציג (רלוונטיים רק כאשר role=AGENT)
   // agentPointId: הנקודה שהנציג מוגבל אליה. null = רואה את כל הלקוחות
   agentPointId         String?
@@ -183,6 +188,10 @@ model Order {
   paidAt                DateTime?
   paymentTransactionId String?
   paymentProvider      String?   // למשל "nedarim_plus"
+  // מודול חיוב אוטומטי (§19) - מעקב אחרי ניסיונות חיוב עם הטוקן השמור של הלקוח
+  chargeAttempts       Int       @default(0)
+  lastChargeError      String?
+  lastChargeAt         DateTime?
   // תשלום מזומן - תיעוד חובה
   receivedByUserId     String?   // מזהה/מייל המנהל-נציג שקיבל את הכסף בפועל
   manualPaymentNote    String?

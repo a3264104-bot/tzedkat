@@ -101,6 +101,14 @@ export default async function OrderPage() {
         id: pricelist.id,
         name: pricelist.name,
         deliveryDateText: pricelist.deliveryDateText,
+        closeDateText: pricelist.closeDate
+          ? new Date(pricelist.closeDate).toLocaleDateString("he-IL", {
+              day: "numeric",
+              month: "long",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : null,
         notes: pricelist.notes,
         singleSurcharge: Number(pricelist.singleSurcharge),
       }}

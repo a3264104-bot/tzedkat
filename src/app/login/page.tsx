@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, Suspense } from "react";
+import { PasswordInput } from "@/components/PasswordInput";
 import { signIn, getSession } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -93,12 +94,10 @@ function LoginPageInner() {
 
           <div>
             <label className="label">סיסמה</label>
-            <input
-              className="input"
-              type="password"
-              autoComplete="current-password"
+            <PasswordInput
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={setPassword}
+              autoComplete="current-password"
               onKeyDown={(e) => e.key === "Enter" && handleLogin()}
             />
           </div>

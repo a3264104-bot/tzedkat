@@ -105,6 +105,33 @@ export default function PointsPage() {
     load();
   }
 
+  // סידור נקודה בתוך הרשימה - החלפת sortOrder עם השכן
+  async function move(list: Point[], idx: number, dir: -1 | 1) {
+    const a = list[idx];
+    const b = list[idx + dir];
+    if (!a || !b) return;
+    const aOrder = a.sortOrder === b.sortOrder ? idx : a.sortOrder;
+    const bOrder = a.sortOrder === b.sortOrder ? idx + dir : b.sortOrder;
+    await Promise.all([
+      api(`/api/admin/points/${a.id}`, { method: "PATCH", body: JSON.stringify({ sortOrder: bOrder }) }),
+      api(`/api/admin/points/${b.id}`, { method: "PATCH", body: JSON.stringify({ sortOrder: aOrder }) }),
+    ]);
+    load();
+  }
+
+  // רשימת ערים קיימות (ל-datalist) - עוזר לאחד ערים בקלות
+  const existingCities = Array.from(
+    new Set(points.map((p) => p.city).filter(Boolean))
+  ) as string[];
+
+  // קיבוץ הנקודות לפי עיר - כדי שהמנהל יראה בדיוק מה הלקוח יראה
+  const grouped = points.reduce((acc, p) => {
+    const city = p.city || "(ללא עיר)";
+    if (!acc[city]) acc[city] = [];
+    acc[city].push(p);
+    return acc;
+  }, {} as Record<string, Point[]>);
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -117,33 +144,77 @@ export default function PointsPage() {
         </button>
       </div>
 
+      {/* הסבר על קיבוץ ערים */}
+      <p className="text-sm text-zinc-500 bg-zinc-50 rounded-lg p-3">
+        נקודות מקובצות לפי עיר — הלקוח בוחר קודם עיר ואז נקודה. עיר עם נקודה אחת נבחרת
+        אוטומטית. כדי לאחד נקודות (למשל רמות תחת ירושלים) — תן להן אותו שם עיר בדיוק.
+      </p>
+
       {loading ? (
         <p className="text-zinc-500">טוען...</p>
       ) : (
-        <div className="grid md:grid-cols-2 gap-3">
-          {points.map((p) => (
-            <div key={p.id} className={`card p-4 ${p.isActive ? "" : "opacity-50"}`}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-bold text-brand-slatedark">{p.name}</div>
-                  {p.city && <div className="text-sm text-zinc-500">{p.city}</div>}
-                  {p.contactName && <div className="text-sm text-zinc-500">{p.contactName}</div>}
-                  {p.phone && <div className="text-sm text-zinc-500">{p.phone}</div>}
-                  {p.deliveryHours && (
-                    <div className="text-sm text-brand-rust mt-1">🕐 {p.deliveryHours}</div>
-                  )}
-                </div>
-                <span className={`badge ${p.isActive ? "bg-green-100 text-green-700" : "bg-zinc-200 text-zinc-600"}`}>
-                  {p.isActive ? "פעיל" : "מוסתר"}
+        <div className="space-y-5">
+          {Object.entries(grouped).map(([city, cityPoints]) => (
+            <div key={city}>
+              {/* כותרת עיר */}
+              <div className="flex items-center gap-2 mb-2">
+                <h2 className="text-lg font-extrabold text-brand-slatedark">{city}</h2>
+                <span className="text-xs text-zinc-400">
+                  {cityPoints.length} {cityPoints.length === 1 ? "נקודה" : "נקודות"}
                 </span>
+                {cityPoints.length === 1 && (
+                  <span className="badge bg-blue-100 text-blue-700">בחירה אוטומטית</span>
+                )}
+                <div className="flex-1 border-b border-zinc-200" />
               </div>
-              <div className="flex gap-2 mt-3">
-                <button onClick={() => openEditor(p)} className="btn-ghost btn-sm">
-                  ערוך
-                </button>
-                <button onClick={() => remove(p)} className="btn-ghost btn-sm text-red-600">
-                  מחק
-                </button>
+
+              <div className="grid md:grid-cols-2 gap-3">
+                {cityPoints.map((p, idx) => (
+                  <div key={p.id} className={`card p-4 ${p.isActive ? "" : "opacity-50"}`}>
+                    <div className="flex justify-between items-start">
+                      <div className="flex gap-2">
+                        {/* חיצי סדר בתוך העיר */}
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            onClick={() => move(cityPoints, idx, -1)}
+                            disabled={idx === 0}
+                            className="btn-ghost btn-sm px-1.5 py-0 disabled:opacity-20"
+                            title="הזז למעלה"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            onClick={() => move(cityPoints, idx, 1)}
+                            disabled={idx === cityPoints.length - 1}
+                            className="btn-ghost btn-sm px-1.5 py-0 disabled:opacity-20"
+                            title="הזז למטה"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                        <div>
+                          <div className="font-bold text-brand-slatedark">{p.name}</div>
+                          {p.contactName && <div className="text-sm text-zinc-500">{p.contactName}</div>}
+                          {p.phone && <div className="text-sm text-zinc-500">{p.phone}</div>}
+                          {p.deliveryHours && (
+                            <div className="text-sm text-brand-rust mt-1">🕐 {p.deliveryHours}</div>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`badge ${p.isActive ? "bg-green-100 text-green-700" : "bg-zinc-200 text-zinc-600"}`}>
+                        {p.isActive ? "פעיל" : "מוסתר"}
+                      </span>
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                      <button onClick={() => openEditor(p)} className="btn-ghost btn-sm">
+                        ערוך
+                      </button>
+                      <button onClick={() => remove(p)} className="btn-ghost btn-sm text-red-600">
+                        מחק
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ))}
@@ -158,7 +229,18 @@ export default function PointsPage() {
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="עיר / אזור">
-                <input className="input" value={editing.city ?? ""} onChange={(e) => setEditing({ ...editing, city: e.target.value })} />
+                <input
+                  className="input"
+                  list="cities-list"
+                  placeholder="בחר עיר קיימת או הקלד חדשה"
+                  value={editing.city ?? ""}
+                  onChange={(e) => setEditing({ ...editing, city: e.target.value })}
+                />
+                <datalist id="cities-list">
+                  {existingCities.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
               </Field>
               <Field label="כתובת">
                 <input className="input" value={editing.address ?? ""} onChange={(e) => setEditing({ ...editing, address: e.target.value })} />
