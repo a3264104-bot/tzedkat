@@ -261,7 +261,9 @@ export function OrderFlow({
   }, [showVerification, isVerified]);
 
   // ═══ postMessage listener מ-iframe של נדרים ═══
-  // נדרים שולחים {Name: 'TransactionResponse', Value: {...}} עם Status של OK/Error
+  // לפי התיעוד של נדרים:
+  //   {Name: 'Height', Value: <pixels>} - מציין גובה תוכן ה-iframe
+  //   {Name: 'TransactionResponse', Value: {Status, Message, ...}} - תוצאת חיוב
   useEffect(() => {
     if (!showVerification) return;
 
@@ -273,27 +275,38 @@ export function OrderFlow({
       const data = event.data;
       if (!data || typeof data !== "object") return;
 
-      const name = data.Name || data.name || "";
-      const value = data.Value || data.value || data;
+      const name = data.Name;
+      const value = data.Value;
 
+      // ── Height: התאמת גובה ה-iframe לתוכן ──
+      if (name === "Height") {
+        if (iframeRef.current && value !== undefined && value !== null) {
+          const h = parseInt(String(value), 10);
+          if (h > 0) {
+            iframeRef.current.style.height = h + 15 + "px";
+          }
+        }
+        return;
+      }
+
+      // ── TransactionResponse: תוצאת החיוב ──
       if (name === "TransactionResponse") {
-        const status = String(value.Status || value.status || "").toLowerCase();
-        const isSuccess = status === "ok" || status === "success" || status === "000";
+        const status = String(value?.Status || "").toLowerCase();
+        const isError = status === "error" || status === "err" || status === "fail";
 
-        if (isSuccess) {
-          // הצלחה - ה-polling יתפוס את זה מיד (דרך ה-webhook). נשארים במצב "מאמת..."
-          // עד שהשרת מאשר.
-          console.log("[nedarim iframe] transaction OK, waiting for webhook");
-        } else {
-          // כישלון - מציגים שגיאה, מחזירים למצב "ניתן ללחוץ שוב"
+        if (isError) {
           setIframeSubmitting(false);
-          const errorMsg =
-            value.Message ||
-            value.message ||
-            value.ErrorDescription ||
+          const msg =
+            value?.Message ||
+            value?.message ||
+            value?.Description ||
+            value?.ErrorMessage ||
             "שגיאה באימות הכרטיס. בדוק את הפרטים ונסה שוב.";
-          setIframeError(String(errorMsg));
+          setIframeError(String(msg));
           console.error("[nedarim iframe] transaction failed:", value);
+        } else {
+          // הצלחה - polling יזהה את זה מיד דרך ה-webhook
+          console.log("[nedarim iframe] transaction OK, waiting for webhook", value);
         }
       }
     };
@@ -302,9 +315,9 @@ export function OrderFlow({
     return () => window.removeEventListener("message", handleMessage);
   }, [showVerification]);
 
-  // לחיצה על "אמת ושלם 1 ש"ח" - שולחים postMessage ל-iframe להתחיל עיבוד
+  // לחיצה על "אמת ושלם 1 ש"ח" - שולחים postMessage ל-iframe עם כל פרטי החיוב ב-Value
   function submitVerificationIframe() {
-    if (!iframeRef.current?.contentWindow) {
+    if (!iframeRef.current?.contentWindow || !customerId) {
       setIframeError("ה-iframe לא נטען כראוי. רענן את הדף ונסה שוב.");
       return;
     }
@@ -312,8 +325,32 @@ export function OrderFlow({
     setIframeSubmitting(true);
     try {
       iframeRef.current.contentWindow.postMessage(
-        { Name: "FinishTransaction2" },
-        "https://www.matara.pro"
+        {
+          Name: "FinishTransaction2",
+          Value: {
+            Mosad: "7015318",
+            ApiValid: "NxhXRWeG5P",
+            PaymentType: "Ragil",
+            Currency: "1",
+            Amount: "1",
+            Tashlumim: "1",
+            CreateToken: "True",
+            CallBack: "https://tzidkat.com/api/webhooks/nedarim",
+            param1: customerId,
+            param2: "registration",
+            // שדות זיהוי אופציונליים (נדרים מצפים להם ריקים כברירת מחדל)
+            Zeout: "",
+            FirstName: "",
+            LastName: "",
+            Street: "",
+            City: "",
+            Phone: "",
+            Mail: "",
+            Groupe: "Registration",
+            Comment: `customer:${customerId}`,
+          },
+        },
+        "*"
       );
     } catch (e) {
       setIframeSubmitting(false);
