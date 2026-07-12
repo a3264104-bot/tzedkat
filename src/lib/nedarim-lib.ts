@@ -9,13 +9,21 @@
 //
 // דורש env:
 //   NEDARIM_MOSAD_ID=7015318
-//   NEDARIM_API_VALID=mj844
+//   NEDARIM_API_VALID=mj844 (או NEDARIM_API_PASSWORD - תמיכה כפולה)
 //   NEDARIM_CHARGE_ENDPOINT (אופציונלי - יש default hardcoded)
+//
+// ═══════════════════════════════════════════════════════════════════
+// שינוי בטיחות חשוב (Fix #3):
+// ═══════════════════════════════════════════════════════════════════
+// כאשר יש timeout או שגיאת רשת, אנחנו לא יודעים אם נדרים כן חייבו את הלקוח.
+// לפי תיעוד נדרים: "המערכת שולחת את ההודעה פעם אחת בלבד ואינה חוזרת".
+// לכן במקרים כאלה מוחזר requiresManualVerification=true, וה-caller
+// חייב להשאיר את ההזמנה במצב CHARGING (לא FAILED!) עד שאדם יבדוק ידנית
+// אצל נדרים. אחרת ניסיון חוזר יגרום לחיוב כפול.
 
 const DEFAULT_ENDPOINT = "https://matara.pro/nedarimplus/V6/Files/WebServices/DebitCard.aspx";
 const CHARGE_URL = process.env.NEDARIM_CHARGE_ENDPOINT || DEFAULT_ENDPOINT;
 const MOSAD_ID = process.env.NEDARIM_MOSAD_ID || "";
-// תמיכה בשני שמות: NEDARIM_API_VALID (שם רשמי) או NEDARIM_API_PASSWORD (השם הישן שהוגדר)
 const API_VALID = process.env.NEDARIM_API_VALID || process.env.NEDARIM_API_PASSWORD || "";
 
 const REQUEST_TIMEOUT_MS = 30000; // 30 שניות
@@ -35,12 +43,24 @@ export type ChargeParams = {
 
 export type ChargeResult =
   | { ok: true; transactionId: string; rawResponse?: unknown }
-  | { ok: false; error: string; cardProblem: boolean; rawResponse?: unknown };
+  | {
+      ok: false;
+      error: string;
+      cardProblem: boolean;
+      // ⚠️ אם true: לא ידוע אם נדרים חייבו. יש להשאיר את ההזמנה ב-CHARGING
+      // ולבצע בדיקה ידנית אצל נדרים לפני ניסיון חוזר!
+      requiresManualVerification?: boolean;
+      rawResponse?: unknown;
+    };
 
 /**
  * מחייב לקוח באמצעות Token שנשמר.
- * מחזיר {ok:true} אם החיוב הצליח, או {ok:false, cardProblem} אם נכשל.
- * cardProblem=true משמעו שהטוקן פסול/פג-תוקף - יש לבקש כרטיס חדש.
+ * מחזיר {ok:true} אם החיוב הצליח, או {ok:false, ...} אם נכשל.
+ *
+ * דגלי כישלון:
+ *   cardProblem=true → הטוקן פסול/פג-תוקף. הלקוח צריך להזין כרטיס חדש.
+ *   requiresManualVerification=true → timeout או שגיאת רשת. לא ידוע אם חויב.
+ *                                     חובה לבדוק אצל נדרים לפני ניסיון חוזר.
  */
 export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   const {
@@ -93,7 +113,7 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   if (address) body.set("Adresse", address);
   if (zeout) body.set("Zeout", zeout);
 
-  // ─── לוג בקשה (בלי לחשוף את הטוקן המלא) ────────────
+  // ─── לוג בקשה ────────────────────────────────────────
   const tokenPreview = token.length > 8 ? token.substring(0, 4) + "..." + token.slice(-4) : "***";
   console.log("[nedarim-lib] Charge request:", {
     endpoint: CHARGE_URL,
@@ -134,17 +154,29 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
     });
   } catch (e: any) {
     clearTimeout(timeoutId);
+    // ═══ Fix #3: timeout/network error → requiresManualVerification ═══
+    // אנחנו לא יודעים אם הבקשה הגיעה לנדרים ואם הם ביצעו את החיוב.
+    // חובה לבדוק ידנית באזור הניהול של נדרים לפני ניסיון חוזר.
     if (e?.name === "AbortError") {
-      return { ok: false, error: `timeout after ${REQUEST_TIMEOUT_MS / 1000}s`, cardProblem: false };
+      console.error(`[nedarim-lib] TIMEOUT after ${REQUEST_TIMEOUT_MS / 1000}s - manual verification required`);
+      return {
+        ok: false,
+        error: `timeout after ${REQUEST_TIMEOUT_MS / 1000}s - unknown if charged at Nedarim`,
+        cardProblem: false,
+        requiresManualVerification: true,
+      };
     }
+    console.error("[nedarim-lib] NETWORK ERROR - manual verification required:", e?.message || e);
     return {
       ok: false,
       error: `network error: ${String(e?.message || e).substring(0, 300)}`,
       cardProblem: false,
+      requiresManualVerification: true,
     };
   }
 
   // ─── HTTP-level failure ─────────────────────────────
+  // תשובה התקבלה - נדרים יודעים על המצב. לא דורש בדיקה ידנית.
   if (httpStatus < 200 || httpStatus >= 300) {
     return {
       ok: false,
@@ -155,7 +187,6 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   }
 
   // ─── פרסינג של התשובה ───────────────────────────────
-  // נסה JSON קודם (התיעוד אומר application/json)
   let data: Record<string, any> = {};
   let parsed = false;
   try {
@@ -179,10 +210,14 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   }
 
   if (!parsed) {
+    // ═══ Fix #3 (המשך): תשובה שאי-אפשר לפרסר גם דורשת בדיקה ידנית ═══
+    // כי אולי נדרים כן ביצעו את החיוב אבל התשובה מוזרה.
+    console.error("[nedarim-lib] UNPARSEABLE RESPONSE - manual verification required:", rawText.substring(0, 300));
     return {
       ok: false,
       error: `unparseable response: ${rawText.substring(0, 300)}`,
       cardProblem: false,
+      requiresManualVerification: true,
       rawResponse: rawText,
     };
   }
@@ -198,7 +233,6 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   ).trim();
 
   if (transactionId && transactionId !== "0") {
-    // ✓ הצלחה
     return {
       ok: true,
       transactionId,
