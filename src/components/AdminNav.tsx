@@ -8,6 +8,7 @@ import { useState } from "react";
 const links = [
   { href: "/admin", label: "דשבורד", icon: "📊" },
   { href: "/admin/orders", label: "הזמנות", icon: "📦" },
+  { href: "/admin/pending-weights", label: "משקלים ממתינים", icon: "⚖️" },
   { href: "/admin/payments", label: "תשלומים", icon: "💳" },
   { href: "/admin/products", label: "מוצרים", icon: "🍗" },
   { href: "/admin/pricelists", label: "מחירונים / מכירות", icon: "📋" },

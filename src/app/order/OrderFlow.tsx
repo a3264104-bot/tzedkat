@@ -43,6 +43,8 @@ type Product = {
   highlightNote: string | null;
   price: number;
   allowSingles: boolean;
+  singlesMode: string; // "KG" (default) | "UNITS" - בודדים לפי ק"ג או לפי יחידה
+  singleUnitPrice: number | null; // מחיר קבוע ליחידה בבודדים (כשsinglesMode=UNITS)
   unit: string;
   saleType: string;
   priceType: string;
@@ -148,9 +150,16 @@ export function OrderFlow({
       .filter(([, l]) => l.qty > 0)
       .map(([id, l]) => {
         const p = products.find((x) => x.id === id)!;
-        const unitPrice = effectiveUnitPrice(p.price, l.isSingle, pricelist.singleSurcharge);
-        // בודדים במוצר נשקל: הלקוח מזמין ק"ג ישירות (3, 5, 10 ק"ג) - ההערכה = ק"ג × מחיר,
-        // בלי הכפלה במשקל קרטון. קרטונים: כמות × משקל קרטון משוער × מחיר.
+        const unitPrice = effectiveUnitPrice(
+          p.price,
+          l.isSingle,
+          pricelist.singleSurcharge,
+          p.singlesMode,
+          p.singleUnitPrice
+        );
+        // חישוב סה"כ שורה - 2 מצבים (unitPrice כבר לוקח בחשבון UNITS מול KG):
+        //   1. בודדים במוצר PER_KG: unitPrice × qty (qty היא ק"ג או יחידות)
+        //   2. קרטון/יחידות רגילות: לפי smartLineEstimate
         const lineTotal =
           l.isSingle && p.priceType === "PER_KG"
             ? Math.round(unitPrice * l.qty * 100) / 100
@@ -178,17 +187,30 @@ export function OrderFlow({
   function setSingle(id: string, isSingle: boolean) {
     setCart((c) => {
       const prev = c[id] ?? { isSingle: false, qty: 0 };
-      // מעבר לבודדים - אם כבר יש כמות, מוודאים מינימום 2 ק"ג
+      // מעבר לבודדים - וידוא מינימום לפי סוג המוצר:
+      //   UNITS (סלומון): מינימום 1 יחידה
+      //   KG (בשר):     מינימום 2 ק"ג
       let qty = prev.qty;
-      if (isSingle && qty > 0 && qty < MIN_SINGLES_KG) qty = MIN_SINGLES_KG;
+      if (isSingle && qty > 0) {
+        const p = products.find((x) => x.id === id);
+        const min = p?.singlesMode === "UNITS" ? 1 : MIN_SINGLES_KG;
+        if (qty < min) qty = min;
+      }
       return { ...c, [id]: { ...prev, isSingle, qty } };
     });
   }
 
-  // תווית כמות לתצוגה: "1 קרטון" / "2 קרטונים" / "3 ק"ג" (סעיף 1)
+  // תווית כמות לתצוגה: "1 קרטון" / "2 קרטונים" / "3 ק"ג" / "2 יחידות" (סעיפים 1, סלומון)
   function qtyLabel(p: Product, line: { isSingle: boolean; qty: number }): string {
     if (line.qty <= 0) return "";
-    if (line.isSingle && p.priceType === "PER_KG") return `${line.qty} ק"ג`;
+    if (line.isSingle && p.priceType === "PER_KG") {
+      // סלומון וכד': בודדים = יחידות, לא ק"ג
+      if (p.singlesMode === "UNITS") {
+        return line.qty === 1 ? "יחידה 1" : `${line.qty} יחידות`;
+      }
+      // בשר: בודדים = ק"ג
+      return `${line.qty} ק"ג`;
+    }
     if (p.saleType === "PACKAGE" || p.priceType === "PER_KG") {
       return line.qty === 1 ? "1 קרטון" : `${line.qty} קרטונים`;
     }
@@ -272,6 +294,9 @@ export function OrderFlow({
       const origin = String(event.origin || "").toLowerCase();
       if (!origin.includes("matara.pro")) return;
 
+      // DEBUG: לוג של כל הודעה כדי לראות מה נדרים שולחים
+      console.log("[nedarim iframe] MESSAGE:", event.data);
+
       const data = event.data;
       if (!data || typeof data !== "object") return;
 
@@ -291,8 +316,10 @@ export function OrderFlow({
 
       // ── TransactionResponse: תוצאת החיוב ──
       if (name === "TransactionResponse") {
+        console.log("[nedarim iframe] TransactionResponse Value:", value);
         const status = String(value?.Status || "").toLowerCase();
         const isError = status === "error" || status === "err" || status === "fail";
+        const isOk = status === "ok" || status === "success";
 
         if (isError) {
           setIframeSubmitting(false);
@@ -304,16 +331,40 @@ export function OrderFlow({
             "שגיאה באימות הכרטיס. בדוק את הפרטים ונסה שוב.";
           setIframeError(String(msg));
           console.error("[nedarim iframe] transaction failed:", value);
-        } else {
-          // הצלחה - polling יזהה את זה מיד דרך ה-webhook
+        } else if (isOk) {
           console.log("[nedarim iframe] transaction OK, waiting for webhook", value);
+          // polling יזהה את זה מיד
+        } else {
+          // סטטוס לא מזוהה - לוג ואל תיתקע
+          console.warn("[nedarim iframe] unknown status:", status, value);
+          setIframeSubmitting(false);
+          setIframeError(
+            `סטטוס לא מזוהה מנדרים: ${status || "(ריק)"}. ${value?.Message || ""}`
+          );
         }
       }
     };
 
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [showVerification]);
+
+    // Safety timeout: אם אחרי 60 שניות לא קיבלנו תשובה מנדרים, פותחים את הכפתור
+    // ומציגים הודעה. זה מונע תקיעה נצחית במצב "מאמת..."
+    const safetyTimer = setTimeout(() => {
+      if (iframeSubmitting) {
+        setIframeSubmitting(false);
+        setIframeError(
+          "לא התקבלה תשובה מנדרים אחרי 60 שניות. בדוק את פרטי הכרטיס ונסה שוב, או פנה לתמיכה."
+        );
+        console.warn("[nedarim iframe] safety timeout - no response after 60s");
+      }
+    }, 60000);
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      clearTimeout(safetyTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showVerification, iframeSubmitting]);
 
   // לחיצה על "אמת ושלם 1 ש"ח" - שולחים postMessage ל-iframe עם כל פרטי החיוב ב-Value
   function submitVerificationIframe() {
@@ -606,7 +657,9 @@ export function OrderFlow({
                       const unitPrice = effectiveUnitPrice(
                         p.price,
                         line.isSingle,
-                        pricelist.singleSurcharge
+                        pricelist.singleSurcharge,
+                        p.singlesMode,
+                        p.singleUnitPrice
                       );
                       return (
                         <div
@@ -645,18 +698,27 @@ export function OrderFlow({
                                 {p.priceType === "PER_KG" ? (
                                   /* מוצר קרטונים - נשקל */
                                   <>
-                                    <span className="font-medium text-brand-slatedark">
-                                      {fmt(line.isSingle ? unitPrice : p.price)} לק"ג
-                                    </span>
-                                    {!line.isSingle && p.avgWeightPerUnit != null && (
-                                      <span className="block text-xs text-zinc-500">
-                                        קרטון ≈ {p.avgWeightPerUnit} ק"ג (~
-                                        {fmt(p.price * p.avgWeightPerUnit)} לקרטון)
+                                    {line.isSingle && p.singlesMode === "UNITS" && p.singleUnitPrice != null ? (
+                                      /* סלומון בבודדים - מחיר קבוע ליחידה */
+                                      <span className="font-medium text-brand-slatedark">
+                                        {fmt(Number(p.singleUnitPrice))} ליחידה
                                       </span>
+                                    ) : (
+                                      <>
+                                        <span className="font-medium text-brand-slatedark">
+                                          {fmt(line.isSingle ? unitPrice : p.price)} לק"ג
+                                        </span>
+                                        {!line.isSingle && p.avgWeightPerUnit != null && (
+                                          <span className="block text-xs text-zinc-500">
+                                            קרטון ≈ {p.avgWeightPerUnit} ק"ג (~
+                                            {fmt(p.price * p.avgWeightPerUnit)} לקרטון)
+                                          </span>
+                                        )}
+                                        <span className="block text-xs text-amber-600">
+                                          המחיר הסופי לפי שקילה בפועל
+                                        </span>
+                                      </>
                                     )}
-                                    <span className="block text-xs text-amber-600">
-                                      המחיר הסופי לפי שקילה בפועל
-                                    </span>
                                   </>
                                 ) : (
                                   /* מוצר יחידות - מחיר קבוע */
@@ -679,7 +741,13 @@ export function OrderFlow({
                             <QtyControl
                               value={line.qty}
                               step={stepFromQty(p, line.isSingle)}
-                              min={line.isSingle && p.priceType === "PER_KG" ? MIN_SINGLES_KG : 0}
+                              min={
+                                line.isSingle && p.priceType === "PER_KG"
+                                  ? p.singlesMode === "UNITS"
+                                    ? 1
+                                    : MIN_SINGLES_KG
+                                  : 0
+                              }
                               onChange={(v) => setQty(p.id, v)}
                             />
                           </div>
@@ -1077,7 +1145,11 @@ function QtyControl({
         placeholder="0"
       />
       <button
-        onClick={() => onChange(round(value + step))}
+        onClick={() => {
+          const next = round(value + step);
+          // אם למינימום יש ערך והמעבר מ-0/מתחת-למינימום ל-next עדיין מתחת - קפוץ למינימום
+          onChange(min > 0 && next > 0 && next < min ? min : next);
+        }}
         className="w-8 h-8 rounded-lg bg-brand-rust text-white font-bold text-lg leading-none active:scale-95"
         aria-label="הוסף"
       >

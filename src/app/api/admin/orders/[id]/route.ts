@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { STATUSES_REQUIRING_PAYMENT } from "@/lib/pricing";
 import { sendFinalPriceEmail } from "@/lib/email";
+import { sendOrderUpdatedEmail } from "@/lib/order-update-email";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireAdmin();
@@ -138,12 +139,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   if ("finalTotal" in b) data.finalTotal = b.finalTotal;
 
+  // §17: זיהוי שינויים גלויים ללקוח - נשלח מייל עדכון רק אם אלה השתנו,
+  // וגם רק אם לא היה justSetFinalTotal (כי אז נשלח sendFinalPriceEmail במקום).
+  const contentChanged =
+    Array.isArray(b.items) ||
+    "pointId" in b ||
+    "notes" in b ||
+    "customerName" in b ||
+    "phone" in b ||
+    "phone2" in b;
+
   const order = await prisma.order.update({
     where: { id },
     data,
     include: { point: true, items: true },
   });
   // אם נקבע מחיר סופי עכשיו - שולחים ללקוח מייל עם קישור תשלום (לא חוסם)
+  // אחרת - אם היה שינוי גלוי ללקוח, שולחים מייל עדכון הזמנה (§17)
   if (justSetFinalTotal) {
     const fullOrder = await prisma.order.findUnique({
       where: { id },
@@ -157,6 +169,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           ? { customerNotifiedAt: new Date() }
           : { customerNotifyError: res.error },
       }).catch(() => null);
+    }
+  } else if (contentChanged) {
+    // §17: הזמנה עודכנה - נשלח סיכום מעודכן ללקוח
+    const fullOrder = await prisma.order.findUnique({
+      where: { id },
+      include: { items: true, customer: true },
+    });
+    if (fullOrder?.customer?.email) {
+      const res = await sendOrderUpdatedEmail(fullOrder as any, fullOrder.customer.email);
+      if (!res.ok) {
+        console.error("sendOrderUpdatedEmail failed:", res.error);
+      }
     }
   }
 

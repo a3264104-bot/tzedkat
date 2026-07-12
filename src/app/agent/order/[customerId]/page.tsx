@@ -93,6 +93,8 @@ export default async function AgentOrderPage({
       categorySort: pp.product.category.sortOrder,
       price: Number(pp.price ?? pp.product.cartonPrice),
       allowSingles: pp.product.allowSingles,
+      singlesMode: pp.product.singlesMode || "KG",
+      singleUnitPrice: pp.product.singleUnitPrice != null ? Number(pp.product.singleUnitPrice) : null,
       unit: pp.product.unit,
       saleType: pp.product.saleType,
       priceType: pp.product.priceType,

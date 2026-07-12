@@ -64,11 +64,20 @@ export const PRICELIST_STATUS: Record<string, string> = {
 };
 
 // מחיר ליחידה בהתחשב בבודדים
+// singlesMode + singleUnitPrice: תמיכה בסלומון וכד' - בודדים במצב UNITS מקבלים מחיר קבוע ליחידה
+// (לא לק"ג עם תוספת). Backward compatible - קוראים ישנים לא צריכים לעדכן.
 export function effectiveUnitPrice(
   basePrice: number,
   isSingle: boolean,
-  singleSurcharge: number
+  singleSurcharge: number,
+  singlesMode?: string | null,
+  singleUnitPrice?: number | null
 ): number {
+  // בודדים במצב UNITS (סלומון וכד') - מחיר קבוע ליחידה, בלי תוספת לק"ג
+  if (isSingle && singlesMode === "UNITS" && singleUnitPrice != null) {
+    return Math.round(Number(singleUnitPrice) * 100) / 100;
+  }
+  // בודדים במצב KG (בשר) - מחיר בסיס + תוספת לק"ג
   const p = isSingle ? basePrice + singleSurcharge : basePrice;
   return Math.round(p * 100) / 100;
 }

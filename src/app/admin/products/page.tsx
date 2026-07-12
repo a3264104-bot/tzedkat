@@ -14,6 +14,8 @@ type Product = {
   cartonPrice: string;
   allowSingles: boolean;
   singleSurcharge: string | null;
+  singlesMode: string; // "KG" (default) | "UNITS" - מצב בודדים (סלומון = UNITS)
+  singleUnitPrice: string | null; // מחיר קבוע ליחידה בבודדים (רק ב-UNITS)
   unit: string;
   saleType: string;
   priceType: string;
@@ -125,6 +127,12 @@ export default function ProductsPage() {
       // בודדים - רק בקרטונים (בשר/דגים). ביחידות אין בודדים.
       allowSingles: isCartons ? (editing.allowSingles ?? false) : false,
       singleSurcharge: editing.singleSurcharge ? parseFloat(String(editing.singleSurcharge)) : null,
+      // מצב בודדים: KG (בשר, ברירת מחדל) / UNITS (סלומון וכד' - יחידות במחיר קבוע)
+      singlesMode: isCartons ? (editing.singlesMode || "KG") : "KG",
+      singleUnitPrice:
+        isCartons && editing.singlesMode === "UNITS" && editing.singleUnitPrice
+          ? parseFloat(String(editing.singleUnitPrice))
+          : null,
       // קרטונים: PACKAGE+PER_KG+"קרטון". יחידות: UNIT+REGULAR+"יחידה".
       unit: isCartons ? "קרטון" : "יחידה",
       saleType: isCartons ? "PACKAGE" : "UNIT",
@@ -561,16 +569,42 @@ export default function ProductsPage() {
                   לאפשר קנייה בבודדים — הזמנה בק"ג במקום קרטון שלם (בשר/דגים)
                 </label>
                 {editing.allowSingles && (
-                  <Field label='תוספת לבודדים לק"ג'>
-                    <input
-                      className="input"
-                      type="number"
-                      step="0.5"
-                      placeholder="ברירת מחדל 3"
-                      value={String(editing.singleSurcharge ?? "")}
-                      onChange={(e) => setEditing({ ...editing, singleSurcharge: e.target.value })}
-                    />
-                  </Field>
+                  <>
+                    <Field label="מצב בודדים">
+                      <select
+                        className="input"
+                        value={editing.singlesMode || "KG"}
+                        onChange={(e) => setEditing({ ...editing, singlesMode: e.target.value })}
+                      >
+                        <option value="KG">לפי ק"ג (בשר) — מחיר לק"ג + תוספת</option>
+                        <option value="UNITS">לפי יחידה (סלומון) — מחיר קבוע ליחידה</option>
+                      </select>
+                    </Field>
+                    {(!editing.singlesMode || editing.singlesMode === "KG") && (
+                      <Field label='תוספת לבודדים לק"ג'>
+                        <input
+                          className="input"
+                          type="number"
+                          step="0.5"
+                          placeholder="ברירת מחדל 3"
+                          value={String(editing.singleSurcharge ?? "")}
+                          onChange={(e) => setEditing({ ...editing, singleSurcharge: e.target.value })}
+                        />
+                      </Field>
+                    )}
+                    {editing.singlesMode === "UNITS" && (
+                      <Field label="מחיר קבוע ליחידה בבודדים">
+                        <input
+                          className="input"
+                          type="number"
+                          step="0.5"
+                          placeholder="למשל: 25"
+                          value={String(editing.singleUnitPrice ?? "")}
+                          onChange={(e) => setEditing({ ...editing, singleUnitPrice: e.target.value })}
+                        />
+                      </Field>
+                    )}
+                  </>
                 )}
               </>
             )}

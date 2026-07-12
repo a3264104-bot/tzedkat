@@ -74,6 +74,10 @@ model Product {
   allowSingles  Boolean  @default(false)
   // תוספת מחיר לבודדים לק"ג (ברירת מחדל 3 ש"ח, ניתן לעריכה גלובלית/למוצר)
   singleSurcharge Decimal? @db.Decimal(10, 2)
+  // מצב בודדים: KG = לפי ק"ג (בשר, ברירת מחדל) / UNITS = לפי יחידות (סלומון וכד')
+  singlesMode      String   @default("KG")
+  // מחיר קבוע ליחידה בבודדים - נדרש כאשר singlesMode="UNITS"
+  singleUnitPrice  Decimal? @db.Decimal(10, 2)
   unit          String   @default("ק\"ג") // ק"ג / יחידה / מארז
   saleType      String   @default("WEIGHT") // WEIGHT / UNIT / PACKAGE
   // סוג המחיר: REGULAR (מחיר רגיל לק"ג/יחידה/מארז) / CARTON (מחיר קרטון, בודדים בתוספת)
