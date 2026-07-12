@@ -859,7 +859,7 @@ export function OrderFlow({
               {verificationIframeUrl ? (
                 <iframe
                   src={verificationIframeUrl}
-                  className="w-full h-[430px] border-0 rounded-xl"
+                  className="w-full h-[620px] max-h-[calc(92vh-140px)] min-h-[500px] border-0 rounded-xl"
                   title="אימות כרטיס אשראי"
                 />
               ) : (
