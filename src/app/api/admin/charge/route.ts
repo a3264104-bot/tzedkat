@@ -10,24 +10,19 @@ import { sendChargeSucceededEmail, sendCardUpdateNeededEmail } from "@/lib/nedar
 // זרימה (§19):
 //   1. בדיקת admin
 //   2. טעינת הזמנה + לקוח, בדיקות שלמות:
-//      - ההזמנה לא כבר PAID
+//      - ההזמנה לא כבר PAID / לא כבר בתהליך CHARGING
 //      - יש finalTotal (אסור לחייב בלי מחיר סופי)
 //      - ללקוח יש paymentToken
+//      - ללקוח יש cardExpiry (Tokef) - חובה לנדרים
 //      - הלקוח לא במצב cardNeedsUpdate
 //   3. חישוב סכום החיוב: finalTotal פחות 1₪ אם עדיין לא קוזז אימות ההרשמה
 //   4. סימון ההזמנה כ-CHARGING (מונע חיוב כפול במקביל) + הגדלת chargeAttempts
 //   5. קריאה ל-chargeToken() של נדרים
-//   6. עדכון סופי:
-//      - הצלחה → PAID + transaction + amountPaid + paidAt + מייל אישור
-//      - כישלון "רגיל" → FAILED + lastChargeError (מנהל יכול לנסות שוב)
-//      - כישלון כרטיס → CARD_UPDATE_NEEDED + סימון הלקוח + מייל ללקוח
-//
-// חשוב: לא מסמנים creditVerificationCharged=true אלא אם החיוב הצליח בפועל.
-// חשוב: כל שינוי סטטוס נכתב לפני כל דבר אחר, כדי שאם השרת נופל באמצע נוכל לחזור מהמצב.
+//   6. עדכון סופי לפי התוצאה + מיילים ללקוח
 
 export async function POST(req: Request) {
   try {
-    // 1. אימות admin (אותו pattern כמו admin/payments)
+    // 1. אימות admin
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -59,7 +54,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "order not found" }, { status: 404 });
     }
 
-    // בדיקות שלמות - כל אחת מחזירה שגיאה ברורה
+    // בדיקות שלמות
     if (order.paymentStatus === "PAID") {
       return NextResponse.json({ error: "already paid", paymentStatus: "PAID" }, { status: 409 });
     }
@@ -72,13 +67,21 @@ export async function POST(req: Request) {
     if (!order.customer.paymentToken) {
       return NextResponse.json({ error: "customer has no saved card" }, { status: 400 });
     }
+    if (!order.customer.cardExpiry) {
+      return NextResponse.json(
+        {
+          error:
+            "אין תוקף כרטיס שמור (Tokef). יש לבקש מהלקוח להזין כרטיס מחדש כדי לשמור את התוקף.",
+        },
+        { status: 400 }
+      );
+    }
     if (order.customer.cardNeedsUpdate) {
       return NextResponse.json({ error: "customer needs to update card first" }, { status: 400 });
     }
 
     // 3. חישוב סכום החיוב
     const finalTotalNum = Number(order.finalTotal);
-    // אם עדיין לא קיזזנו את 1₪ של האימות ההתחלתי - נקזז עכשיו (רק אם הסכום מספיק גדול)
     const shouldDeductVerification =
       !order.customer.creditVerificationCharged && finalTotalNum > 1;
     const chargeAmount = shouldDeductVerification ? finalTotalNum - 1 : finalTotalNum;
@@ -87,7 +90,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "computed charge amount is not positive" }, { status: 400 });
     }
 
-    // 4. סימון ההזמנה כ-CHARGING (מנעול אופטימי - מונע חיוב כפול)
+    // 4. סימון ההזמנה כ-CHARGING
     await prisma.order.update({
       where: { id: orderId },
       data: {
@@ -98,11 +101,18 @@ export async function POST(req: Request) {
       },
     });
 
-    // 5. קריאה בפועל לנדרים (PLACEHOLDER כרגע)
-    const orderRef = String(order.orderNumber);
-    const result = await chargeToken(order.customer.paymentToken, chargeAmount, orderRef);
+    // 5. קריאה בפועל לנדרים - כולל פרטי לקוח לתיעוד אצלם
+    const result = await chargeToken({
+      token: order.customer.paymentToken,
+      tokef: order.customer.cardExpiry,
+      amount: chargeAmount,
+      orderRef: String(order.orderNumber),
+      clientName: order.customer.name || order.customerName,
+      phone: order.customer.phone || order.phone,
+      email: order.customer.email || undefined,
+    });
 
-    // 6. עדכון סופי לפי התוצאה
+    // 6. עדכון סופי
     if (result.ok) {
       // הצלחה
       await prisma.$transaction([
@@ -118,7 +128,6 @@ export async function POST(req: Request) {
             lastChargeError: null,
           },
         }),
-        // אם קיזזנו את 1₪ בחיוב הזה - מסמנים שהאימות "שולם"
         ...(shouldDeductVerification
           ? [
               prisma.customer.update({
@@ -129,7 +138,7 @@ export async function POST(req: Request) {
           : []),
       ]);
 
-      // מייל ללקוח (לא חוסם על כשלון - מחזיר {ok, error?})
+      // מייל ללקוח (לא חוסם על כשלון)
       if (order.customer.email) {
         const mailResult = await sendChargeSucceededEmail({
           to: order.customer.email,
@@ -210,8 +219,7 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     console.error("POST /api/admin/charge exception:", e);
-    // במקרה של חריגה בלתי-צפויה, לא משאירים את ההזמנה תקועה ב-CHARGING.
-    // במידת האפשר, מנסים להחזיר ל-READY_TO_CHARGE כדי לאפשר ניסיון חוזר.
+    // recovery: אם ההזמנה נשארה תקועה ב-CHARGING בגלל exception, נחזיר ל-READY_TO_CHARGE
     try {
       const body = await req.json().catch(() => ({}));
       const orderId = String(body?.orderId || "").trim();
@@ -231,7 +239,7 @@ export async function POST(req: Request) {
         }
       }
     } catch {
-      // מתעלמים - זה recovery best-effort
+      // best-effort - מתעלמים משגיאה כאן
     }
     return NextResponse.json({ error: "server error" }, { status: 500 });
   }

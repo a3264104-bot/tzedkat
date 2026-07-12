@@ -8,12 +8,10 @@ import { PAYMENT_METHOD_LABELS } from "@/lib/pricing";
 // param1 = customerId (אימות הרשמה) או orderId (תשלום הזמנה).
 // param2 = "registration" | "order"
 //
-// גל 2 (§19): בענף הרשמה - שומרים גם cardExpiry, מאפסים cardNeedsUpdate,
-// מקדמים הזמנות של הלקוח בסטטוס PENDING/PAYMENT_PENDING/CARD_UPDATE_NEEDED
-// ל-TOKEN_CREATED (או READY_TO_CHARGE אם finalTotal כבר קיים), ושולחים מייל §19.
-//
-// ⚠️ שמות השדות של נדרים לא אומתו רשמית - לכן יש כאן לוגים מפורטים
-// שמדפיסים את כל ה-payload הגולמי כדי שנראה ב-Vercel Logs בדיוק מה נדרים שולחים.
+// חשוב (לפי תיעוד DebitCard.aspx): נדרים משתמשים בשם השדה "Tokef" לתוקף כרטיס
+// בפורמט MMYY (למשל "1228" = דצמבר 2028). לכן Tokef מופיע ראשון ברשימת ה-fallbacks
+// לחיפוש cardExpiry.
+
 export async function POST(req: Request) {
   try {
     // קוראים את הגוף הגולמי פעם אחת, ומנתחים לפי סוג התוכן
@@ -51,12 +49,13 @@ export async function POST(req: Request) {
       data["token"] ||
       data["CardToken"] ||
       data["cardToken"] ||
-      data["Tokef"] ||
       data["TransactionToken"] ||
       "";
 
     // חיפוש גמיש של 4 ספרות אחרונות
+    // נדרים משתמשים ב-"LastNum" לפי התיעוד של DebitCard
     const last4 =
+      data["LastNum"] ||
       data["Last4Digits"] ||
       data["last4"] ||
       data["Last4"] ||
@@ -64,10 +63,11 @@ export async function POST(req: Request) {
       (data["CardNumber"] ? String(data["CardNumber"]).slice(-4) : "") ||
       "";
 
-    // חיפוש גמיש של תוקף כרטיס - נדרים לא תיעדו רשמית, ננסה שמות סבירים.
-    // אם נדרים ישלחו בפורמט YYMM (למשל 2712 = דצמבר 2027), אנחנו שומרים כמו-שהוא.
-    // המסך למנהל יציג את הערך הגולמי; אם צריך פורמט אחר - נטפל אחרי שנראה מה מגיע.
+    // חיפוש תוקף כרטיס - "Tokef" הוא השם הרשמי לפי תיעוד DebitCard
+    // פורמט: MMYY (למשל "1228" = דצמבר 2028)
     const cardExpiry =
+      data["Tokef"] ||
+      data["tokef"] ||
       data["CardValidity"] ||
       data["Validity"] ||
       data["CardExpiry"] ||
@@ -100,12 +100,10 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "customer not found" }, { status: 404 });
       }
 
-      // האם זה עדכון כרטיס (טוקן כבר היה קיים) או הרשמה ראשונה?
       const isCardUpdate = !!customer.paymentToken;
 
       // עדכון פרטי הכרטיס אצל הלקוח.
-      // cardNeedsUpdate מתאפס תמיד כאשר נשמר טוקן חדש (בין אם זו הרשמה ראשונה
-      // ובין אם זה עדכון אחרי כישלון חיוב).
+      // cardNeedsUpdate מתאפס תמיד כאשר נשמר טוקן חדש.
       await prisma.customer.update({
         where: { id: param1 },
         data: {
@@ -118,11 +116,8 @@ export async function POST(req: Request) {
       });
 
       // §19: קידום הזמנות של הלקוח שממתינות לטוקן.
-      // רק אם באמת התקבל טוקן (אחרת אין מה לקדם).
       let promotedCount = 0;
       if (token) {
-        // מוצאים הזמנות רלוונטיות: כאלה שנתקעו בסטטוסי pre-payment,
-        // או שכבר סומנו CARD_UPDATE_NEEDED וממתינות לכרטיס חדש.
         const pendingOrders = await prisma.order.findMany({
           where: {
             customerId: param1,
@@ -132,11 +127,10 @@ export async function POST(req: Request) {
         });
 
         for (const o of pendingOrders) {
-          // אם finalTotal כבר נקבע (מקרה עדכון כרטיס אחרי כישלון) - מוכן לחיוב מיד.
-          // אחרת - ממתין לשקילה: נכנס ל-TOKEN_CREATED.
-          const nextStatus = o.finalTotal !== null && o.finalTotal !== undefined
-            ? "READY_TO_CHARGE"
-            : "TOKEN_CREATED";
+          const nextStatus =
+            o.finalTotal !== null && o.finalTotal !== undefined
+              ? "READY_TO_CHARGE"
+              : "TOKEN_CREATED";
           await prisma.order.update({
             where: { id: o.id },
             data: { paymentStatus: nextStatus },
@@ -146,10 +140,10 @@ export async function POST(req: Request) {
       }
 
       console.log(
-        `WEBHOOK OK (registration): customer=${param1} tokenSaved=${!!token} last4=${last4 || "none"} expiry=${cardExpiry || "none"} cardUpdate=${isCardUpdate} promotedOrders=${promotedCount}`
+        `WEBHOOK OK (registration): customer=${param1} tokenSaved=${!!token} last4=${last4 || "none"} tokef=${cardExpiry || "none"} cardUpdate=${isCardUpdate} promotedOrders=${promotedCount}`
       );
 
-      // מייל §19 ללקוח - "פרטי האשראי נשמרו". לא חוסם על כשלון.
+      // מייל §19 ללקוח
       if (customer.email && token) {
         const mailResult = await sendTokenSavedEmail({
           to: customer.email,
@@ -166,13 +160,14 @@ export async function POST(req: Request) {
         ok: true,
         type: "registration",
         tokenSaved: !!token,
+        tokefSaved: !!cardExpiry,
         cardUpdate: isCardUpdate,
         promotedOrders: promotedCount,
       });
     }
 
     // === תשלום הזמנה ===
-    // ענף זה נשאר תואם למה שהיה - חיוב מיידי מלא (לא flow §19 של טוקן+חיוב-מאוחר).
+    // ענף זה נשאר תואם למה שהיה - חיוב מיידי מלא (לא flow §19).
     // ל-flow החדש של §19, החיוב מתבצע ב-charge-route.ts, לא כאן.
     if (param2 === "order") {
       const order = await prisma.order.findUnique({
