@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { Logo } from "@/components/Logo";
@@ -208,6 +208,16 @@ export function OrderFlow({
   const [showVerification, setShowVerification] = useState(false);
   const [isVerified, setIsVerified] = useState(cardVerified);
 
+  // ═══ אינטגרציית postMessage מול iframe של נדרים ═══
+  // נדרים לא מציגים כפתור submit בתוך ה-iframe. הפרוטוקול שלהם:
+  //   1. אתר האם יש כפתור משלו ("אמת ושלם 1 ש"ח")
+  //   2. בלחיצה שולחים postMessage({Name:'FinishTransaction2'}) ל-iframe
+  //   3. ה-iframe מעבד ומחזיר postMessage עם Status
+  //   4. במקביל הוא קורא ל-webhook שלנו
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [iframeSubmitting, setIframeSubmitting] = useState(false);
+  const [iframeError, setIframeError] = useState<string | null>(null);
+
   // iframe נדרים לאימות 1 ש"ח + שמירת טוקן (אותם פרמטרים כמו בהרשמה הישנה)
   const verificationIframeUrl =
     customerId &&
@@ -237,6 +247,8 @@ export function OrderFlow({
         if (data.verified) {
           setIsVerified(true);
           setShowVerification(false);
+          setIframeSubmitting(false);
+          setIframeError(null);
           // האימות הושלם - שולחים את ההזמנה אוטומטית
           doSubmit();
         }
@@ -247,6 +259,68 @@ export function OrderFlow({
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showVerification, isVerified]);
+
+  // ═══ postMessage listener מ-iframe של נדרים ═══
+  // נדרים שולחים {Name: 'TransactionResponse', Value: {...}} עם Status של OK/Error
+  useEffect(() => {
+    if (!showVerification) return;
+
+    const handleMessage = (event: MessageEvent) => {
+      // אבטחה: מקבלים רק הודעות מ-matara.pro
+      const origin = String(event.origin || "").toLowerCase();
+      if (!origin.includes("matara.pro")) return;
+
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+
+      const name = data.Name || data.name || "";
+      const value = data.Value || data.value || data;
+
+      if (name === "TransactionResponse") {
+        const status = String(value.Status || value.status || "").toLowerCase();
+        const isSuccess = status === "ok" || status === "success" || status === "000";
+
+        if (isSuccess) {
+          // הצלחה - ה-polling יתפוס את זה מיד (דרך ה-webhook). נשארים במצב "מאמת..."
+          // עד שהשרת מאשר.
+          console.log("[nedarim iframe] transaction OK, waiting for webhook");
+        } else {
+          // כישלון - מציגים שגיאה, מחזירים למצב "ניתן ללחוץ שוב"
+          setIframeSubmitting(false);
+          const errorMsg =
+            value.Message ||
+            value.message ||
+            value.ErrorDescription ||
+            "שגיאה באימות הכרטיס. בדוק את הפרטים ונסה שוב.";
+          setIframeError(String(errorMsg));
+          console.error("[nedarim iframe] transaction failed:", value);
+        }
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [showVerification]);
+
+  // לחיצה על "אמת ושלם 1 ש"ח" - שולחים postMessage ל-iframe להתחיל עיבוד
+  function submitVerificationIframe() {
+    if (!iframeRef.current?.contentWindow) {
+      setIframeError("ה-iframe לא נטען כראוי. רענן את הדף ונסה שוב.");
+      return;
+    }
+    setIframeError(null);
+    setIframeSubmitting(true);
+    try {
+      iframeRef.current.contentWindow.postMessage(
+        { Name: "FinishTransaction2" },
+        "https://www.matara.pro"
+      );
+    } catch (e) {
+      setIframeSubmitting(false);
+      setIframeError("שגיאה בשליחת הבקשה ל-iframe. רענן ונסה שוב.");
+      console.error("[nedarim iframe] postMessage failed:", e);
+    }
+  }
 
   async function submit() {
     setError("");
@@ -848,7 +922,11 @@ export function OrderFlow({
                 </p>
               </div>
               <button
-                onClick={() => setShowVerification(false)}
+                onClick={() => {
+                  setShowVerification(false);
+                  setIframeSubmitting(false);
+                  setIframeError(null);
+                }}
                 className="text-zinc-400 text-2xl leading-none px-2"
                 aria-label="סגירה"
               >
@@ -857,17 +935,33 @@ export function OrderFlow({
             </div>
             <div className="p-2">
               {verificationIframeUrl ? (
-                <iframe
-                  src={verificationIframeUrl}
-                  className="w-full h-[620px] max-h-[calc(92vh-140px)] min-h-[500px] border-0 rounded-xl"
-                  title="אימות כרטיס אשראי"
-                />
+                <>
+                  <iframe
+                    ref={iframeRef}
+                    src={verificationIframeUrl}
+                    className="w-full h-[620px] max-h-[calc(92vh-140px)] min-h-[500px] border-0 rounded-xl"
+                    title="אימות כרטיס אשראי"
+                  />
+                  {iframeError && (
+                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm text-center">
+                      {iframeError}
+                    </div>
+                  )}
+                  <button
+                    onClick={submitVerificationIframe}
+                    disabled={iframeSubmitting}
+                    className="btn-primary w-full mt-3 text-base"
+                    type="button"
+                  >
+                    {iframeSubmitting ? "מאמת..." : "אמת ושלם 1 ש\"ח"}
+                  </button>
+                </>
               ) : (
                 <p className="text-center text-red-600 p-6 text-sm">
                   שגיאה בטעינת טופס האימות. רענן את הדף ונסה שוב.
                 </p>
               )}
-              <p className="text-xs text-zinc-400 text-center pb-3 px-4">
+              <p className="text-xs text-zinc-400 text-center pb-3 px-4 mt-3">
                 לאחר השלמת האימות, ההזמנה תישלח אוטומטית. הכרטיס נשמר באופן מאובטח אצל חברת
                 הסליקה בלבד.
               </p>
