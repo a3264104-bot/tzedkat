@@ -76,8 +76,31 @@ export async function POST(req: Request) {
       data["ExpiryDate"] ||
       "";
 
-    const param1 = data["param1"] || data["Param1"] || "";
-    const param2 = data["param2"] || data["Param2"] || "";
+    // ניסיון ראשוני: param1/param2 כפי שאמורים לחזור מנדרים
+    let param1 = data["param1"] || data["Param1"] || "";
+    let param2 = data["param2"] || data["Param2"] || "";
+
+    // Fallback: לפעמים נדרים לא מחזירים את Param1/Param2, אבל כן מחזירים את
+    // Comments שהוגדר על ידינו בפורמט "customer:<id>" או "customer:<id>|type:<type>".
+    // חיפוש customerId מ-Comments אם param1 ריק.
+    if (!param1) {
+      const comments = String(data["Comments"] || data["comments"] || data["Comment"] || "");
+      const customerMatch = comments.match(/customer:([A-Za-z0-9]+)/);
+      if (customerMatch) {
+        param1 = customerMatch[1];
+        console.log(`[webhook] param1 recovered from Comments: ${param1}`);
+      }
+      // Fallback ל-param2: אם יש Groupe שקבענו, ניקח ממנו
+      if (!param2) {
+        const groupe = String(data["Groupe"] || data["groupe"] || "").toLowerCase();
+        if (groupe === "registration") {
+          param2 = "registration";
+        } else if (groupe === "order") {
+          param2 = "order";
+        }
+      }
+    }
+
     const amount = parseFloat(data["Amount"] || data["amount"] || data["Sum"] || "0");
     const transactionId =
       data["TransactionId"] ||

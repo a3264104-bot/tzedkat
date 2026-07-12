@@ -336,8 +336,10 @@ export function OrderFlow({
             Tashlumim: "1",
             CreateToken: "True",
             CallBack: "https://tzidkat.com/api/webhooks/nedarim",
-            param1: customerId,
-            param2: "registration",
+            Param1: customerId,
+            Param2: "registration",
+            // גיבוי: גם ב-Comment (במידה ש-Param1/Param2 לא עוברים ב-response)
+            Comment: `customer:${customerId}|type:registration`,
             // שדות זיהוי אופציונליים (נדרים מצפים להם ריקים כברירת מחדל)
             Zeout: "",
             FirstName: "",
@@ -347,7 +349,6 @@ export function OrderFlow({
             Phone: "",
             Mail: "",
             Groupe: "Registration",
-            Comment: `customer:${customerId}`,
           },
         },
         "*"
