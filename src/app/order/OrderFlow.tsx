@@ -239,8 +239,11 @@ export function OrderFlow({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [iframeSubmitting, setIframeSubmitting] = useState(false);
   const [iframeError, setIframeError] = useState<string | null>(null);
+  // מעקב אחר "נדרים אישרו את החיוב אבל עדיין ממתינים ל-webhook לשמור את הטוקן"
+  const [nedarimConfirmedOk, setNedarimConfirmedOk] = useState(false);
 
-  // iframe נדרים לאימות 1 ש"ח + שמירת טוקן (אותם פרמטרים כמו בהרשמה הישנה)
+  // iframe נדרים לאימות + יצירת Token (לפי תיעוד: PaymentType=CreateToken)
+  // Tokef=Hide, CVV=Hide - לפי הנחיית נדרים ליצירת טוקן
   const verificationIframeUrl =
     customerId &&
     "https://www.matara.pro/nedarimplus/iframe?" +
@@ -250,10 +253,11 @@ export function OrderFlow({
         ApiValid: "NxhXRWeG5P",
         Amount: "1",
         AmountLock: "1",
-        PaymentType: "Ragil",
+        PaymentType: "CreateToken",
         TransactionType: "Debit",
-        CreateToken: "1",
         Tashlumim: "1",
+        Tokef: "Hide",
+        CVV: "Hide",
         CallBack: "https://tzidkat.com/api/webhooks/nedarim",
         param1: customerId,
         param2: "registration",
@@ -271,6 +275,7 @@ export function OrderFlow({
           setShowVerification(false);
           setIframeSubmitting(false);
           setIframeError(null);
+          setNedarimConfirmedOk(false);
           // האימות הושלם - שולחים את ההזמנה אוטומטית
           doSubmit();
         }
@@ -316,7 +321,54 @@ export function OrderFlow({
 
       // ── TransactionResponse: תוצאת החיוב ──
       if (name === "TransactionResponse") {
-        console.log("[nedarim iframe] TransactionResponse Value:", value);
+        // ═══════════════════════════════════════════════════════════
+        // === RAW DUMP: כל מה שנדרים שלחו, בלי הנחות ===
+        // ═══════════════════════════════════════════════════════════
+        console.log("[nedarim iframe] ╔══════════════════════════════════════════════");
+        console.log("[nedarim iframe] ║ TransactionResponse FULL RAW DUMP");
+        console.log("[nedarim iframe] ╚══════════════════════════════════════════════");
+        console.log("[nedarim iframe] Origin:", event.origin);
+        console.log("[nedarim iframe] Raw event.data (JSON):");
+        console.log(JSON.stringify(data, null, 2));
+
+        // כל שדה top-level
+        console.log("[nedarim iframe] ─── Top-level keys ───");
+        for (const [k, v] of Object.entries(data)) {
+          const type = Array.isArray(v) ? "array" : typeof v;
+          const preview =
+            typeof v === "object" && v !== null ? JSON.stringify(v).substring(0, 100) : String(v);
+          console.log(`[nedarim iframe]   ${k}: (${type}) ${preview}`);
+        }
+
+        // אם יש Value - נסרוק לעומק
+        if (value && typeof value === "object") {
+          console.log("[nedarim iframe] ─── Value contents (JSON) ───");
+          console.log(JSON.stringify(value, null, 2));
+          console.log("[nedarim iframe] ─── Value keys with types ───");
+          for (const [k, v] of Object.entries(value)) {
+            const type = Array.isArray(v) ? "array" : typeof v;
+            console.log(`[nedarim iframe]   Value.${k}: (${type}) ${String(v)}`);
+          }
+
+          // ═══ חיפוש חכם של מזהי כרטיס - לפי דפוסי שם ═══
+          console.log("[nedarim iframe] ─── Potential identifier fields (heuristic) ───");
+          for (const [k, v] of Object.entries(value)) {
+            const kLower = k.toLowerCase();
+            const isIdCandidate =
+              kLower.includes("token") ||
+              kLower.includes("uid") ||
+              (kLower.includes("id") && !kLower.includes("mid") && !kLower.includes("void")) ||
+              kLower.includes("saved") ||
+              kLower.includes("keva") ||
+              kLower.includes("card");
+            if (isIdCandidate && v !== null && v !== undefined && String(v).trim() !== "") {
+              console.log(`[nedarim iframe]   🔑 CANDIDATE: ${k} = "${String(v)}"`);
+            }
+          }
+        }
+        console.log("[nedarim iframe] ╚══════════════════════════════════════════════");
+        // ═══════════════════════════════════════════════════════════
+
         const status = String(value?.Status || "").toLowerCase();
         const isError = status === "error" || status === "err" || status === "fail";
         const isOk = status === "ok" || status === "success";
@@ -333,7 +385,8 @@ export function OrderFlow({
           console.error("[nedarim iframe] transaction failed:", value);
         } else if (isOk) {
           console.log("[nedarim iframe] transaction OK, waiting for webhook", value);
-          // polling יזהה את זה מיד
+          setNedarimConfirmedOk(true);
+          // polling יזהה טוקן שנשמר בפועל דרך ה-webhook
         } else {
           // סטטוס לא מזוהה - לוג ואל תיתקע
           console.warn("[nedarim iframe] unknown status:", status, value);
@@ -347,24 +400,38 @@ export function OrderFlow({
 
     window.addEventListener("message", handleMessage);
 
-    // Safety timeout: אם אחרי 60 שניות לא קיבלנו תשובה מנדרים, פותחים את הכפתור
-    // ומציגים הודעה. זה מונע תקיעה נצחית במצב "מאמת..."
+    // Safety timeout: אם אחרי 30 שניות לא קיבלנו טוקן שמור, מציגים הודעה
+    // ופותחים את הכפתור. מבדיל בין 2 מצבים:
+    //   - nedarimConfirmedOk=true: החיוב עבר אבל טוקן לא נוצר → בעיית API של נדרים
+    //   - nedarimConfirmedOk=false: לא קיבלנו תשובה כלל → בעיית תקשורת/כרטיס
     const safetyTimer = setTimeout(() => {
       if (iframeSubmitting) {
         setIframeSubmitting(false);
-        setIframeError(
-          "לא התקבלה תשובה מנדרים אחרי 60 שניות. בדוק את פרטי הכרטיס ונסה שוב, או פנה לתמיכה."
-        );
-        console.warn("[nedarim iframe] safety timeout - no response after 60s");
+        if (nedarimConfirmedOk) {
+          setIframeError(
+            'החיוב של 1 ש"ח בוצע אצל נדרים בהצלחה, אבל לא נוצר טוקן לחיובים עתידיים. ' +
+              "אין אפשרות להשלים את ההרשמה עד שהבעיה תיפתר. יש לפנות לתמיכה. " +
+              "(ראה קונסולה + Vercel Logs לפרטים)"
+          );
+          console.error(
+            "[nedarim iframe] TOKEN CREATION FAILURE: charge succeeded but no paymentToken saved. " +
+              "Check Vercel logs for token candidates in webhook payload."
+          );
+        } else {
+          setIframeError(
+            "לא התקבלה תשובה מנדרים אחרי 30 שניות. בדוק את פרטי הכרטיס ונסה שוב, או פנה לתמיכה."
+          );
+          console.warn("[nedarim iframe] safety timeout - no response after 30s");
+        }
       }
-    }, 60000);
+    }, 30000);
 
     return () => {
       window.removeEventListener("message", handleMessage);
       clearTimeout(safetyTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showVerification, iframeSubmitting]);
+  }, [showVerification, iframeSubmitting, nedarimConfirmedOk]);
 
   // לחיצה על "אמת ושלם 1 ש"ח" - שולחים postMessage ל-iframe עם כל פרטי החיוב ב-Value
   function submitVerificationIframe() {
@@ -381,11 +448,10 @@ export function OrderFlow({
           Value: {
             Mosad: "7015318",
             ApiValid: "NxhXRWeG5P",
-            PaymentType: "Ragil",
+            PaymentType: "CreateToken",
             Currency: "1",
             Amount: "1",
             Tashlumim: "1",
-            CreateToken: "True",
             CallBack: "https://tzidkat.com/api/webhooks/nedarim",
             Param1: customerId,
             Param2: "registration",
@@ -1032,6 +1098,7 @@ export function OrderFlow({
                   setShowVerification(false);
                   setIframeSubmitting(false);
                   setIframeError(null);
+                  setNedarimConfirmedOk(false);
                 }}
                 className="text-zinc-400 text-2xl leading-none px-2"
                 aria-label="סגירה"

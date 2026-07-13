@@ -43,14 +43,58 @@ export async function POST(req: Request) {
     console.log("parsed data:", JSON.stringify(data));
     console.log("================================");
 
-    // חיפוש גמיש של הטוקן - מנסים המון שמות אפשריים
-    const token =
-      data["Token"] ||
-      data["token"] ||
-      data["CardToken"] ||
-      data["cardToken"] ||
-      data["TransactionToken"] ||
-      "";
+    // ═══════════════════════════════════════════════════════════════
+    // === RAW DUMP: כל מה שנדרים שלחו, בלי הנחות ===
+    // ═══════════════════════════════════════════════════════════════
+    console.log("[webhook] ╔══════════════════════════════════════════════");
+    console.log("[webhook] ║ FULL PAYLOAD RAW DUMP");
+    console.log("[webhook] ╚══════════════════════════════════════════════");
+    console.log("[webhook] Full JSON:", JSON.stringify(data, null, 2));
+    console.log("[webhook] ─── All keys with types & values ───");
+    for (const [k, v] of Object.entries(data)) {
+      const type = typeof v;
+      console.log(`[webhook]   ${k}: (${type}) "${String(v)}"`);
+    }
+
+    // ═══ חיפוש חכם של מזהי כרטיס - לפי דפוסי שם ═══
+    console.log("[webhook] ─── Potential identifier fields (heuristic) ───");
+    const identifierCandidates: Record<string, string> = {};
+    for (const [k, v] of Object.entries(data)) {
+      const kLower = k.toLowerCase();
+      const isIdCandidate =
+        kLower.includes("token") ||
+        kLower.includes("uid") ||
+        (kLower.includes("id") && !kLower.includes("mid") && !kLower.includes("void")) ||
+        kLower.includes("saved") ||
+        kLower.includes("keva") ||
+        (kLower.includes("card") && !kLower.includes("compagny"));
+      if (isIdCandidate && v !== null && v !== undefined && String(v).trim() !== "" && String(v).trim() !== "0") {
+        identifierCandidates[k] = String(v);
+        console.log(`[webhook]   🔑 CANDIDATE: ${k} = "${String(v)}"`);
+      }
+    }
+    console.log("[webhook] Total identifier candidates:", Object.keys(identifierCandidates).length);
+    console.log("[webhook] ╚══════════════════════════════════════════════");
+    // ═══════════════════════════════════════════════════════════════
+
+    // חיפוש הטוקן - קפדני: רק שדות ששמם מכיל "token" נשמרים כטוקן לחיובים עתידיים.
+    // TransactionId, UID, KevaId, ClientId וכד' אינם טוקן אלא אם התיעוד מאשר במפורש.
+    // עדיף להיתקע ולגלות שנדרים לא מחזירים טוקן, מאשר לשמור מזהה שאי אפשר להשתמש בו לחיוב.
+    const explicitTokenFields = Object.keys(identifierCandidates).filter((k) =>
+      k.toLowerCase().includes("token")
+    );
+
+    let token = "";
+    let tokenSource = "";
+    if (explicitTokenFields.length > 0) {
+      const chosen = explicitTokenFields[0];
+      token = identifierCandidates[chosen];
+      tokenSource = chosen;
+      console.log(`[webhook] ✅ Explicit token found: ${chosen} = ${token.substring(0, 6)}...`);
+    } else {
+      console.log(`[webhook] ⚠️ No explicit token field (name containing "token") found in response.`);
+      console.log(`[webhook] ⚠️ Customer will NOT be marked as verified.`);
+    }
 
     // חיפוש גמיש של 4 ספרות אחרונות
     // נדרים משתמשים ב-"LastNum" לפי התיעוד של DebitCard
@@ -163,7 +207,7 @@ export async function POST(req: Request) {
       }
 
       console.log(
-        `WEBHOOK OK (registration): customer=${param1} tokenSaved=${!!token} last4=${last4 || "none"} tokef=${cardExpiry || "none"} cardUpdate=${isCardUpdate} promotedOrders=${promotedCount}`
+        `WEBHOOK OK (registration): customer=${param1} tokenSaved=${!!token} tokenSource=${tokenSource || "none"} last4=${last4 || "none"} tokef=${cardExpiry || "none"} cardUpdate=${isCardUpdate} promotedOrders=${promotedCount}`
       );
 
       // מייל §19 ללקוח
