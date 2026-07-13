@@ -174,3 +174,55 @@ export async function sendOrderUpdatedEmail(
     return { ok: false, error: String(e?.message || e).slice(0, 500) };
   }
 }
+
+/**
+ * מייל ביטול הזמנה - נשלח ללקוח כאשר הוא (או מנהל) ביטל את הזמנתו.
+ */
+export async function sendOrderCancelledEmail(
+  order: OrderLike,
+  customerEmail: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+    if (!settings.sendEmailToCustomer) return { ok: true };
+
+    const body = `
+      <p>שלום ${escapeHtml(order.customerName)},</p>
+      <div style="background:#fef2f2;border-radius:10px;padding:14px;margin:16px 0;border-right:4px solid #dc2626;">
+        <p style="margin:0;color:#991b1b;font-weight:600;font-size:16px;">
+          הזמנה <strong>#${order.orderNumber}</strong> בוטלה
+        </p>
+        <p style="margin:6px 0 0 0;color:#7f1d1d;font-size:14px;">
+          לא יבוצע חיוב על ההזמנה. אם כבר בוצע חיוב אימות (₪1), הוא ייקוזז מהזמנתך הבאה.
+        </p>
+      </div>
+
+      ${
+        order.pointNameSnapshot
+          ? `<p style="color:#666;font-size:14px;">נקודת חלוקה שנבחרה: ${escapeHtml(order.pointNameSnapshot)}</p>`
+          : ""
+      }
+      ${
+        order.deliveryDateSnapshot
+          ? `<p style="color:#666;font-size:14px;">תאריך חלוקה שנבחר: ${escapeHtml(order.deliveryDateSnapshot)}</p>`
+          : ""
+      }
+
+      <p style="margin-top:20px;font-size:15px;">
+        אם ברצונך לבצע הזמנה חדשה, אפשר להיכנס לאתר בכל עת.
+      </p>
+      <p style="color:#888;font-size:12px;margin-top:16px;">
+        אם ההזמנה בוטלה בטעות, ניתן להשיב למייל זה או לפנות אלינו.
+      </p>`;
+
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: customerEmail,
+      subject: `הזמנה #${order.orderNumber} בוטלה - צדקת רבותינו`,
+      html: baseTemplate(`הזמנה #${order.orderNumber} בוטלה`, body),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}

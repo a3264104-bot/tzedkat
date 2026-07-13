@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { Logo } from "@/components/Logo";
+import { CustomerOrderActions } from "@/components/CustomerOrderActions";
 import { STATUS_LABELS, PAYMENT_METHOD_LABELS, fmt } from "@/lib/pricing";
 
 type Order = {
@@ -19,6 +20,13 @@ type Order = {
   finalTotal: number | null;
   createdAt: string;
   itemCount: number;
+  // שדות ל-§16: עריכה/ביטול
+  customerName: string;
+  phone: string;
+  phone2: string | null;
+  pointId: string;
+  notes: string | null;
+  pricelistCloseDate: string | null;
 };
 
 type Point = { id: string; name: string; city: string | null };
@@ -344,6 +352,30 @@ export function AccountClient({
                       {o.paymentMethod && ` (${PAYMENT_METHOD_LABELS[o.paymentMethod] ?? ""})`}
                     </div>
                   )}
+
+                  {/* §16: כפתורי עריכה/ביטול לפני חתימת המכירה */}
+                  <CustomerOrderActions
+                    orderId={o.id}
+                    orderNumber={o.orderNumber}
+                    isEditable={computeIsEditable(o)}
+                    editableUntil={
+                      o.pricelistCloseDate
+                        ? new Date(o.pricelistCloseDate).toLocaleDateString("he-IL", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                          })
+                        : null
+                    }
+                    currentValues={{
+                      customerName: o.customerName,
+                      phone: o.phone,
+                      phone2: o.phone2,
+                      pointId: o.pointId,
+                      notes: o.notes,
+                    }}
+                    points={points}
+                  />
                 </div>
               ))}
             </div>
@@ -352,4 +384,19 @@ export function AccountClient({
       </div>
     </main>
   );
+}
+
+// חישוב אם הזמנה ניתנת לעריכה/ביטול על ידי הלקוח.
+// חוקים (זהים לחוקי הבדיקה בשרת ב-/api/customer/orders/[id]):
+//   1. סטטוס לא CANCELLED / COMPLETED
+//   2. finalTotal עדיין null (עוד לא נשקלה)
+//   3. closeDate של המחירון בעתיד (או null)
+function computeIsEditable(o: Order): boolean {
+  if (o.status === "CANCELLED" || o.status === "COMPLETED") return false;
+  if (o.finalTotal !== null) return false;
+  if (o.pricelistCloseDate) {
+    const closeDate = new Date(o.pricelistCloseDate);
+    if (closeDate < new Date()) return false;
+  }
+  return true;
 }

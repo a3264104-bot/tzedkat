@@ -29,6 +29,7 @@ export default async function AccountPage() {
         include: {
           point: { select: { name: true, city: true } },
           items: true,
+          pricelist: { select: { closeDate: true } },
         },
       },
     },
@@ -64,6 +65,13 @@ export default async function AccountPage() {
     finalTotal: o.finalTotal != null ? Number(o.finalTotal) : null,
     createdAt: o.createdAt.toISOString(),
     itemCount: o.items.length,
+    // שדות ל-§16: עריכה/ביטול הזמנה
+    customerName: o.customerName,
+    phone: o.phone,
+    phone2: o.phone2,
+    pointId: o.pointId,
+    notes: o.notes,
+    pricelistCloseDate: o.pricelist?.closeDate?.toISOString() ?? null,
   }));
 
   return (
