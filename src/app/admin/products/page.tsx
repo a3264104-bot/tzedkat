@@ -184,7 +184,9 @@ export default function ProductsPage() {
     }
   }
 
-  // סידור: החלפת sortOrder עם המוצר השכן בקטגוריה ועדכון שניהם
+  // סידור: החלפת sortOrder עם המוצר השכן בקטגוריה ועדכון שניהם.
+  // §8: Optimistic update - העדכון מיידי ב-state לפני שהשרת עונה.
+  // אם השרת נכשל, ה-state חוזר למצב הקודם ומופיעה הודעה.
   async function moveProduct(catProducts: Product[], idx: number, dir: -1 | 1) {
     const a = catProducts[idx];
     const b = catProducts[idx + dir];
@@ -192,25 +194,50 @@ export default function ProductsPage() {
     // אם ה-sortOrder שווה (ברירת מחדל 0) - מקצים ערכים לפי המיקום הנוכחי
     const aOrder = a.sortOrder === b.sortOrder ? idx : a.sortOrder;
     const bOrder = a.sortOrder === b.sortOrder ? idx + dir : b.sortOrder;
-    await Promise.all([
-      api(`/api/admin/products/${a.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ sortOrder: bOrder }),
-      }),
-      api(`/api/admin/products/${b.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ sortOrder: aOrder }),
-      }),
-    ]);
-    load();
+
+    // === Optimistic update: עדכון מיידי של state ===
+    const oldProducts = products;
+    setProducts(
+      products.map((p) => {
+        if (p.id === a.id) return { ...p, sortOrder: bOrder };
+        if (p.id === b.id) return { ...p, sortOrder: aOrder };
+        return p;
+      })
+    );
+
+    // === שליחה לשרת ברקע ===
+    try {
+      await Promise.all([
+        api(`/api/admin/products/${a.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ sortOrder: bOrder }),
+        }),
+        api(`/api/admin/products/${b.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ sortOrder: aOrder }),
+        }),
+      ]);
+      // הצליח - state כבר מעודכן, אין צורך ברענון
+    } catch (e) {
+      // נכשל - שחזור state ומודעה
+      setProducts(oldProducts);
+      alert("שגיאה בשינוי סדר המוצרים. נסה שוב.");
+    }
   }
 
+  // §8: Optimistic toggle - עדכון מיידי, שחזור על כישלון
   async function toggleActive(p: Product) {
-    await api(`/api/admin/products/${p.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ isActive: !p.isActive }),
-    });
-    load();
+    const oldProducts = products;
+    setProducts(products.map((x) => (x.id === p.id ? { ...x, isActive: !x.isActive } : x)));
+    try {
+      await api(`/api/admin/products/${p.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: !p.isActive }),
+      });
+    } catch (e) {
+      setProducts(oldProducts);
+      alert("שגיאה בהחלפת סטטוס המוצר. נסה שוב.");
+    }
   }
 
   async function remove(p: Product) {
