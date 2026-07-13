@@ -100,15 +100,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const customerForLink = await prisma.customer.findUnique({
       where: { id: current.customerId },
     });
-    const deductOneNow =
-      customerForLink && !customerForLink.creditVerificationCharged && Number(current.finalTotal) > 1;
-    const chargeAmountNow = deductOneNow
-      ? Math.round((Number(current.finalTotal) - 1) * 100) / 100
-      : Number(current.finalTotal);
+    const chargeAmountNow = Number(current.finalTotal);
 
-    data.paymentLink = buildNedarimPaymentLink(id, chargeAmountNow, current.customerName);
-    data.paymentStatus = "PAYMENT_PENDING";
-    justSetFinalTotal = true; // מפעיל את שליחת מייל המחיר הסופי עם הלינק
+    if (customerForLink?.paymentToken) {
+      // מסלול חדש: יש טוקן → מסמנים כמוכן לחיוב אוטומטי, בלי לינק
+      data.paymentStatus = "READY_TO_CHARGE";
+    } else {
+      // Fallback: אין טוקן (לקוח ישן?) → לינק תשלום ידני
+      data.paymentLink = buildNedarimPaymentLink(id, chargeAmountNow, current.customerName);
+      data.paymentStatus = "PAYMENT_PENDING";
+    }
+    justSetFinalTotal = true; // מפעיל את שליחת מייל המחיר הסופי
   }
   if ("recomputeFinal" in b || Array.isArray(b.items)) {
     const items = await prisma.orderItem.findMany({ where: { orderId: id } });
@@ -125,12 +127,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         data.finalPriceSetAt = new Date();
         data.finalPriceSetBy = g.session?.user?.email ?? null;
         justSetFinalTotal = true;
-        // קיזוז 1₪ בהזמנה הראשונה (אימות כרטיס שנגבה בהרשמה) - creditVerificationCharged מסמן שכבר קוזז
-        const customerForDeduction = await prisma.customer.findUnique({ where: { id: current.customerId } });
-        const deductOne = customerForDeduction && !customerForDeduction.creditVerificationCharged && newFinalTotal > 1;
-        const chargeAmount = deductOne ? Math.round((newFinalTotal - 1) * 100) / 100 : newFinalTotal;
-        data.paymentLink = buildNedarimPaymentLink(id, chargeAmount, current.customerName);
-        data.paymentStatus = "PAYMENT_PENDING";
+        // מסלול חדש: אין יותר קיזוז 1₪ - הלקוח יחויב את הסכום המלא
+        const customerForCharge = await prisma.customer.findUnique({ where: { id: current.customerId } });
+        if (customerForCharge?.paymentToken) {
+          // יש טוקן → מוכן לחיוב אוטומטי דרך /admin/payments
+          data.paymentStatus = "READY_TO_CHARGE";
+        } else {
+          // Fallback: אין טוקן (לקוח ישן?) → לינק תשלום ידני
+          data.paymentLink = buildNedarimPaymentLink(id, newFinalTotal, current.customerName);
+          data.paymentStatus = "PAYMENT_PENDING";
+        }
       }
       data.finalTotal = newFinalTotal;
     }
@@ -190,7 +196,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 // יוצר לינק תשלום נעול לנדרים פלוס עבור הזמנה ספציפית.
 // הסכום נעול (AmountLock=1) - הלקוח לא יכול לשנות אותו.
 // ה-webhook של נדרים יפנה ל-/api/webhooks/nedarim עם orderId ב-param1.
-// בהזמנה ראשונה מקזזים 1₪ (אימות כרטיס שנגבה בהרשמה) - creditVerificationCharged מסמן זאת.
+// שימוש: נקרא כ-fallback רק כאשר ללקוח אין paymentToken (מסלול ישן).
 function buildNedarimPaymentLink(orderId: string, amount: number, customerName: string): string {
   const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://tzidkat.com";
   const params = new URLSearchParams({

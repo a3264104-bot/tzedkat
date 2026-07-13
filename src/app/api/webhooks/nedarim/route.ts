@@ -251,8 +251,6 @@ export async function POST(req: Request) {
       }
 
       const customer = order.customer;
-      const verificationDeduction =
-        !customer.creditVerificationCharged && amount > 0 && Number(order.finalTotal) > 1 ? 1 : 0;
 
       await prisma.$transaction([
         prisma.order.update({
@@ -266,14 +264,6 @@ export async function POST(req: Request) {
             paymentProvider: "nedarim_plus",
           },
         }),
-        ...(verificationDeduction > 0
-          ? [
-              prisma.customer.update({
-                where: { id: customer.id },
-                data: { creditVerificationCharged: true },
-              }),
-            ]
-          : []),
         ...(token && !customer.paymentToken
           ? [
               prisma.customer.update({
@@ -288,7 +278,7 @@ export async function POST(req: Request) {
           : []),
       ]);
 
-      console.log(`WEBHOOK OK (order): order=${param1} amount=${amount} deducted1nis=${verificationDeduction > 0}`);
+      console.log(`WEBHOOK OK (order): order=${param1} amount=${amount}`);
 
       // מייל אישור תשלום ללקוח (לא חוסם)
       if (customer.email) {
@@ -305,7 +295,7 @@ export async function POST(req: Request) {
         }
       }
 
-      return NextResponse.json({ ok: true, type: "order", deducted1nis: verificationDeduction > 0 });
+      return NextResponse.json({ ok: true, type: "order" });
     }
 
     console.log("WEBHOOK ERROR: unknown param2:", param2);

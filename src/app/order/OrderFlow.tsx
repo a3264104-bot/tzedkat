@@ -92,7 +92,7 @@ export function OrderFlow({
   customer: LoggedInCustomer;
   // אם נציג מזמין בשם לקוח - מזהה הלקוח. undefined = הזמנה רגילה
   onBehalfOfCustomerId?: string;
-  // האם ללקוח כבר יש כרטיס מאומת. אם לא - יידרש אימות 1 ש"ח לפני שמירה
+  // האם ללקוח כבר יש כרטיס שמור. אם לא - יידרש שמירת כרטיס (יצירת טוקן) לפני שההזמנה מתקבלת
   cardVerified?: boolean;
   // מזהה הלקוח המחובר - נדרש לבניית iframe האימות
   customerId?: string;
@@ -243,8 +243,8 @@ export function OrderFlow({
   const [nedarimConfirmedOk, setNedarimConfirmedOk] = useState(false);
 
   // iframe נדרים לאימות + יצירת Token (לפי תיעוד: PaymentType=CreateToken)
-  // הערה: הסרנו Tokef=Hide / CVV=Hide - הלקוח חייב להזין אותם ליצירת טוקן חדש.
-  // אלה פרמטרים למקרה שכבר יש טוקן שמור, לא ליצירתו הראשונה.
+  // Tokef=Hide נדרש רשמית לפי תיעוד נדרים במצב יצירת טוקן:
+  // "במצב יצירת טוקן, אין לשלוח תוקף. יש להסתיר שדה זה ע"י שימוש בפרמטר Tokef=Hide בעת יצירת האייפרם"
   const verificationIframeUrl =
     customerId &&
     "https://www.matara.pro/nedarimplus/iframe?" +
@@ -257,6 +257,7 @@ export function OrderFlow({
         PaymentType: "CreateToken",
         TransactionType: "Debit",
         Tashlumim: "1",
+        Tokef: "Hide",
         CallBack: "https://tzidkat.com/api/webhooks/nedarim",
         param1: customerId,
         param2: "registration",
@@ -408,12 +409,12 @@ export function OrderFlow({
         setIframeSubmitting(false);
         if (nedarimConfirmedOk) {
           setIframeError(
-            'החיוב של 1 ש"ח בוצע אצל נדרים בהצלחה, אבל לא נוצר טוקן לחיובים עתידיים. ' +
+            "נדרים אישרו את הבקשה בהצלחה, אבל לא נוצר טוקן לחיובים עתידיים. " +
               "אין אפשרות להשלים את ההרשמה עד שהבעיה תיפתר. יש לפנות לתמיכה. " +
               "(ראה קונסולה + Vercel Logs לפרטים)"
           );
           console.error(
-            "[nedarim iframe] TOKEN CREATION FAILURE: charge succeeded but no paymentToken saved. " +
+            "[nedarim iframe] TOKEN CREATION FAILURE: Nedarim confirmed OK but no paymentToken saved. " +
               "Check Vercel logs for token candidates in webhook payload."
           );
         } else {
@@ -486,7 +487,7 @@ export function OrderFlow({
       setError("נא לאשר את תנאי ההזמנה");
       return;
     }
-    // לקוח חדש בלי כרטיס מאומת - קודם אימות 1 ש"ח, ואז ההזמנה תישלח אוטומטית
+    // לקוח חדש בלי כרטיס שמור - קודם שמירת כרטיס (יצירת טוקן), ואז ההזמנה תישלח אוטומטית
     if (!isVerified && !onBehalfOfCustomerId) {
       setShowVerification(true);
       return;
@@ -1087,9 +1088,9 @@ export function OrderFlow({
           <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[92vh] overflow-y-auto">
             <div className="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
               <div>
-                <h3 className="font-extrabold text-brand-slatedark">אימות כרטיס אשראי</h3>
+                <h3 className="font-extrabold text-brand-slatedark">שמירת כרטיס אשראי</h3>
                 <p className="text-xs text-zinc-500 mt-0.5">
-                  חיוב חד-פעמי של 1 ש"ח לאימות — יקוזז מההזמנה הראשונה
+                  שמירת כרטיס לחיובים עתידיים — ללא חיוב כרגע
                 </p>
               </div>
               <button
@@ -1125,7 +1126,7 @@ export function OrderFlow({
                     className="btn-primary w-full mt-3 text-base"
                     type="button"
                   >
-                    {iframeSubmitting ? "מאמת..." : "אמת ושלם 1 ש\"ח"}
+                    {iframeSubmitting ? "שומר..." : "שמור כרטיס"}
                   </button>
                 </>
               ) : (

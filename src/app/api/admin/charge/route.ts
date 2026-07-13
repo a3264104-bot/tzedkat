@@ -105,17 +105,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "customer needs to update card first" }, { status: 400 });
     }
 
-    // 4. חישוב סכום החיוב (Fix #2)
-    // אם חיוב האימות (1₪) עדיין לא "נוצל" - קיזוז 1 מ-finalTotal
-    // תיקון: התנאי הוא finalTotal >= 1 (לא > 1), אחרת יהיה חיוב כפול על הזמנות של 1₪ בדיוק
+    // 4. חישוב סכום החיוב
+    // מסלול טוקן חדש: לא מקזזים 1₪ כי לא חייבנו 1₪ באימות (CreateToken לא מחייב)
+    // הלקוח משלם את המחיר הסופי המלא של ההזמנה
     const finalTotalNum = Number(preOrder.finalTotal);
-    const shouldDeductVerification =
-      !preOrder.customer.creditVerificationCharged && finalTotalNum >= 1;
-    const chargeAmount = shouldDeductVerification
-      ? Math.max(finalTotalNum - 1, 0)
-      : finalTotalNum;
+    const chargeAmount = finalTotalNum;
 
-    if (chargeAmount < 0) {
+    if (chargeAmount <= 0) {
       return NextResponse.json(
         { error: `invalid charge amount ${chargeAmount}` },
         { status: 400 }
@@ -162,67 +158,6 @@ export async function POST(req: Request) {
     // ═══════════════════════════════════════════════════════════════
 
     // ═══════════════════════════════════════════════════════════════
-    // Phase C: אם chargeAmount = 0 - הלקוח כבר שילם מלא ב-1₪ אימות (Fix #2)
-    // ═══════════════════════════════════════════════════════════════
-    if (chargeAmount === 0) {
-      console.log(
-        `[charge-route] Order ${orderId} finalTotal=${finalTotalNum} - fully paid via ₪1 verification, skipping Nedarim call`
-      );
-      try {
-        await prisma.$transaction([
-          prisma.order.update({
-            where: { id: orderId },
-            data: {
-              paymentStatus: "PAID",
-              paymentMethod: "ONLINE",
-              paymentProvider: "nedarim_plus",
-              paymentTransactionId: "verification-only",
-              amountPaid: finalTotalNum,
-              paidAt: new Date(),
-              lastChargeError: null,
-            },
-          }),
-          prisma.customer.update({
-            where: { id: preOrder.customer.id },
-            data: { creditVerificationCharged: true },
-          }),
-        ]);
-      } catch (dbError) {
-        // DB failed - החזרה בטוחה כי לא חייבנו כלום מעבר לאימות המקורי
-        console.error("[charge-route] DB write failed for zero-charge order:", dbError);
-        await recoverFromCharging(orderId, "zero-charge DB write failed - retry OK").catch(() => {});
-        return NextResponse.json(
-          { error: "server error saving zero-charge order" },
-          { status: 500 }
-        );
-      }
-
-      // מייל ללקוח
-      if (preOrder.customer.email) {
-        const mailResult = await sendChargeSucceededEmail({
-          to: preOrder.customer.email,
-          customerName: preOrder.customer.name,
-          orderNumber: preOrder.orderNumber,
-          amountCharged: finalTotalNum,
-          transactionId: "verification-only",
-          pointName: preOrder.pointNameSnapshot || undefined,
-          deliveryDate: preOrder.deliveryDateSnapshot || undefined,
-        });
-        if (!mailResult.ok) {
-          console.error("sendChargeSucceededEmail failed:", mailResult.error);
-        }
-      }
-
-      return NextResponse.json({
-        ok: true,
-        paymentStatus: "PAID",
-        transactionId: "verification-only",
-        amountCharged: finalTotalNum,
-        note: "customer paid full amount via ₪1 verification",
-      });
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     // Phase D: קריאה לנדרים
     // ═══════════════════════════════════════════════════════════════
     const result = await chargeToken({
@@ -245,28 +180,18 @@ export async function POST(req: Request) {
 
       // Fix #4: DB update נפרד בtry/catch כדי לא לאבד את הצלחת החיוב
       try {
-        await prisma.$transaction([
-          prisma.order.update({
-            where: { id: orderId },
-            data: {
-              paymentStatus: "PAID",
-              paymentMethod: "ONLINE",
-              paymentProvider: "nedarim_plus",
-              paymentTransactionId: successfulTransactionId,
-              amountPaid: chargeAmount,
-              paidAt: new Date(),
-              lastChargeError: null,
-            },
-          }),
-          ...(shouldDeductVerification
-            ? [
-                prisma.customer.update({
-                  where: { id: preOrder.customer.id },
-                  data: { creditVerificationCharged: true },
-                }),
-              ]
-            : []),
-        ]);
+        await prisma.order.update({
+          where: { id: orderId },
+          data: {
+            paymentStatus: "PAID",
+            paymentMethod: "ONLINE",
+            paymentProvider: "nedarim_plus",
+            paymentTransactionId: successfulTransactionId,
+            amountPaid: chargeAmount,
+            paidAt: new Date(),
+            lastChargeError: null,
+          },
+        });
       } catch (dbError) {
         // ⚠️ מצב קריטי: נדרים חייבו בהצלחה, אבל ה-DB שלנו לא הצליח להתעדכן
         // חייבים להשאיר את ההזמנה ב-CHARGING - אסור להחזירה ל-READY_TO_CHARGE
@@ -326,7 +251,6 @@ export async function POST(req: Request) {
         paymentStatus: "PAID",
         transactionId: successfulTransactionId,
         amountCharged: chargeAmount,
-        deductedVerification: shouldDeductVerification,
       });
     }
 
