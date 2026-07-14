@@ -109,6 +109,10 @@ model DeliveryPoint {
   phone        String?
   email        String?
   deliveryHours String?
+  // §6: תאריך חלוקה חריג לנקודה זו (עדיף על deliveryDateText של המחירון)
+  // אם null - משתמשים בתאריך של המחירון. אם קיים - הנקודה מקבלת בתאריך שונה.
+  // שימושי לחגים, לנקודות עם מועד קבלה שונה, וכד'.
+  customDeliveryDateText String?
   notes        String?
   isActive     Boolean  @default(true)
   sortOrder    Int      @default(0)

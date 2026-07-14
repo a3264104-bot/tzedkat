@@ -16,6 +16,8 @@ type Point = {
   email: string | null;
   deliveryHours: string | null;
   notes: string | null;
+  // §6: תאריך חלוקה חריג לנקודה - עדיף על deliveryDateText של המחירון
+  customDeliveryDateText: string | null;
 };
 
 // רינדור שם מוצר עם הדגשות: *מילה* הופכת למודגשת (סלמון *פילה*)
@@ -661,6 +663,12 @@ export function OrderFlow({
                         {p.contactName && (
                           <div className="text-sm text-zinc-500 mt-0.5">{p.contactName}</div>
                         )}
+                        {/* §6: מציג תאריך חריג לנקודה בבירור אם הוגדר */}
+                        {p.customDeliveryDateText && (
+                          <div className="text-xs text-brand-rust font-medium mt-1">
+                            📅 חלוקה: {p.customDeliveryDateText}
+                          </div>
+                        )}
                       </div>
                       {customer.defaultPointId === p.id && (
                         <span className="badge bg-amber-100 text-amber-700">נקודה שמורה</span>
@@ -991,7 +999,10 @@ export function OrderFlow({
 
             <div className="card p-4 space-y-2 text-sm">
               <Row label="נקודת חלוקה" value={point.name} />
-              <Row label="תאריך חלוקה" value={pricelist.deliveryDateText || "—"} />
+              <Row
+                label="תאריך חלוקה"
+                value={point.customDeliveryDateText || pricelist.deliveryDateText || "—"}
+              />
               <Row label="שם" value={customer.name} />
               <Row label="טלפון" value={phone || customer.phone || "—"} />
               {phone2 && <Row label="טלפון נוסף" value={phone2} />}
@@ -1072,7 +1083,12 @@ export function OrderFlow({
             <div className="card p-4 mt-6 text-sm text-right space-y-2">
               <Row label="נקודת החלוקה" value={point?.name || ""} />
               {point?.city && <Row label="עיר" value={point.city} />}
-              <Row label="תאריך חלוקה" value={pricelist.deliveryDateText || "יימסר ע\"י הנציג"} />
+              <Row
+                label="תאריך חלוקה"
+                value={
+                  point?.customDeliveryDateText || pricelist.deliveryDateText || "יימסר ע\"י הנציג"
+                }
+              />
             </div>
             <p className="text-xs text-zinc-500 mt-4">
               ההזמנה ממתינה לשקילה. לאחר קביעת המחיר הסופי, התשלום ייגבה אוטומטית מהכרטיס ששמרת ותקבל/י הודעה על החיוב.

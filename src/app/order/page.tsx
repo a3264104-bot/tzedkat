@@ -69,6 +69,7 @@ export default async function OrderPage() {
       email: p.email,
       deliveryHours: p.deliveryHours,
       notes: p.notes,
+      customDeliveryDateText: p.customDeliveryDateText,
     }));
 
   const products = pricelist.products
