@@ -23,6 +23,7 @@ export async function POST(req: Request) {
       email: b.email ?? null,
       deliveryHours: b.deliveryHours ?? null,
       notes: b.notes ?? null,
+      customDeliveryDateText: b.customDeliveryDateText || null,
       isActive: b.isActive ?? true,
       sortOrder: b.sortOrder ?? 0,
     },

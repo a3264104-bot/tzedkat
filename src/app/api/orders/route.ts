@@ -149,14 +149,21 @@ export async function POST(req: Request) {
         );
       const base = Number(pp.price ?? pp.product.cartonPrice);
       const isSingle = item.isSingle && pp.product.allowSingles;
-      const unitPrice = effectiveUnitPrice(base, isSingle, surcharge);
+      const unitPrice = effectiveUnitPrice(
+        base,
+        isSingle,
+        surcharge,
+        pp.product.singlesMode,
+        pp.product.singleUnitPrice != null ? Number(pp.product.singleUnitPrice) : null
+      );
       const avgWeight =
         pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null;
       // חישוב חכם - זהה לצד הלקוח: מוצר נשקל (PER_KG) מוכפל במשקל המשוער.
-      // אם חסר משקל משוער - ההערכה לשורה היא null; שומרים 0 בהערכה
-      // (המחיר האמיתי ייקבע ממילא בשקילה) אבל לא מנחשים סכום שגוי.
-      // בודדים במוצר נשקל: הכמות היא ק"ג ישירות - הערכה = ק"ג × מחיר (כולל תוספת)
+      // בודדים במוצר נשקל: 2 מצבים:
+      //   UNITS (סלומון): מחיר קבוע ליחידה, הכמות היא יחידות → הערכה = unitPrice × qty
+      //   KG (בשר): הכמות היא ק"ג ישירות → הערכה = unitPrice × qty
       const isSinglesKg = isSingle && pp.product.priceType === "PER_KG";
+      const isSinglesUnits = isSingle && pp.product.singlesMode === "UNITS";
       const est = isSinglesKg
         ? Math.round(unitPrice * item.quantity * 100) / 100
         : smartLineEstimate(
@@ -167,14 +174,19 @@ export async function POST(req: Request) {
             avgWeight
           );
       estimatedTotal += est ?? 0;
-      // משקל משוער לשורה: בודדים = הכמות עצמה (ק"ג); קרטונים = כמות × משקל קרטון
-      const estimatedWeight = isSinglesKg
-        ? Math.round(item.quantity * 1000) / 1000
-        : (pp.product.saleType === "UNIT" || pp.product.saleType === "PACKAGE") &&
-            pp.product.priceType === "PER_KG" &&
-            avgWeight
-          ? Math.round(avgWeight * item.quantity * 1000) / 1000
-          : null;
+      // משקל משוער לשורה:
+      //   בודדים UNITS (סלומון): null (אין משקל רלוונטי - מחיר קבוע ליחידה)
+      //   בודדים KG: הכמות עצמה (ק"ג)
+      //   קרטונים: כמות × משקל קרטון
+      const estimatedWeight = isSinglesUnits
+        ? null
+        : isSinglesKg
+          ? Math.round(item.quantity * 1000) / 1000
+          : (pp.product.saleType === "UNIT" || pp.product.saleType === "PACKAGE") &&
+              pp.product.priceType === "PER_KG" &&
+              avgWeight
+            ? Math.round(avgWeight * item.quantity * 1000) / 1000
+            : null;
       itemsData.push({
         productId: pp.product.id,
         productName: pp.product.name,
@@ -200,7 +212,9 @@ export async function POST(req: Request) {
         placedByAgentId,
         // snapshot של מה שהלקוח ראה בזמן ההזמנה
         pointNameSnapshot: plPoint.point.name,
-        deliveryDateSnapshot: pricelist.deliveryDateText ?? null,
+        // §6: תאריך חלוקה חריג של הנקודה עדיף על תאריך המחירון
+        deliveryDateSnapshot:
+          plPoint.point.customDeliveryDateText || pricelist.deliveryDateText || null,
         pricelistNameSnapshot: pricelist.name,
         // snapshot של פרטי הלקוח מהחשבון
         customerName: customer.name,

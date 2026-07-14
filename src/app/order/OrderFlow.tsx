@@ -298,7 +298,7 @@ export function OrderFlow({
   useEffect(() => {
     if (!showVerification) return;
 
-    const handleMessage = (event: MessageEvent) => {
+    const handleMessage = async (event: MessageEvent) => {
       // אבטחה: מקבלים רק הודעות מ-matara.pro
       const origin = String(event.origin || "").toLowerCase();
       if (!origin.includes("matara.pro")) return;
@@ -388,9 +388,49 @@ export function OrderFlow({
           setIframeError(String(msg));
           console.error("[nedarim iframe] transaction failed:", value);
         } else if (isOk) {
-          console.log("[nedarim iframe] transaction OK, waiting for webhook", value);
-          setNedarimConfirmedOk(true);
-          // polling יזהה טוקן שנשמר בפועל דרך ה-webhook
+          // ═══ הצלחה! ═══
+          // במצב CreateToken, נדרים מחזירים את הטוקן ישירות ב-TransactionResponse.
+          // אין webhook במצב CreateToken (כי אין חיוב).
+          // שומרים את הטוקן מיד דרך API call.
+          const receivedToken = String(value?.Token || value?.token || "").trim();
+          const receivedLast4 = String(value?.LastNum || value?.lastNum || "").trim();
+
+          if (receivedToken) {
+            console.log(`[nedarim iframe] ✅ Token received: ${receivedToken}, saving...`);
+            try {
+              const saveRes = await fetch("/api/customer/save-token", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ token: receivedToken, lastNum: receivedLast4 }),
+              });
+              const saveData = await saveRes.json().catch(() => ({}));
+              if (saveRes.ok) {
+                console.log("[nedarim iframe] Token saved successfully:", saveData);
+                // הטוקן נשמר — סוגרים את המודל ושולחים את ההזמנה
+                setIsVerified(true);
+                setShowVerification(false);
+                setIframeSubmitting(false);
+                setIframeError(null);
+                setNedarimConfirmedOk(false);
+                doSubmit();
+              } else {
+                console.error("[nedarim iframe] Failed to save token:", saveData);
+                setIframeSubmitting(false);
+                setIframeError(
+                  `הטוקן התקבל מנדרים אבל שמירתו נכשלה: ${saveData.error || "שגיאה לא ידועה"}. נסה שוב.`
+                );
+              }
+            } catch (fetchErr: any) {
+              console.error("[nedarim iframe] Network error saving token:", fetchErr);
+              setIframeSubmitting(false);
+              setIframeError("שגיאת רשת בשמירת הטוקן. בדוק את החיבור ונסה שוב.");
+            }
+          } else {
+            // Status=OK אבל אין Token — מצב בלתי צפוי
+            console.warn("[nedarim iframe] Status OK but no Token in response:", value);
+            setNedarimConfirmedOk(true);
+            // ממשיכים לחכות — polling יבדוק אם ה-webhook שמר את הטוקן
+          }
         } else {
           // סטטוס לא מזוהה - לוג ואל תיתקע
           console.warn("[nedarim iframe] unknown status:", status, value);

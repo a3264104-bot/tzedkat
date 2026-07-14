@@ -30,7 +30,7 @@ const REQUEST_TIMEOUT_MS = 30000; // 30 שניות
 
 export type ChargeParams = {
   token: string;
-  tokef: string; // תוקף הכרטיס בפורמט MMYY (למשל "1228")
+  tokef?: string | null; // תוקף הכרטיס בפורמט MMYY - אופציונלי כי במצב CreateToken נדרים שומרים אותו
   amount: number;
   orderRef: string; // מספר הזמנה שלנו לתיעוד אצל נדרים
   clientName?: string;
@@ -80,7 +80,9 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   if (!token) {
     return { ok: false, error: "missing token", cardProblem: true };
   }
-  if (!tokef || !/^\d{4}$/.test(tokef)) {
+  // Tokef אופציונלי: במצב CreateToken נדרים שומרים את התוקף אצלם.
+  // אם סופק — בודקים פורמט. אם לא — שולחים בלי Tokef.
+  if (tokef && !/^\d{4}$/.test(tokef)) {
     return {
       ok: false,
       error: `invalid Tokef format (expected MMYY, got "${tokef}")`,
@@ -100,7 +102,7 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   body.set("Mosad", MOSAD_ID);
   body.set("ApiValid", API_VALID);
   body.set("Token", token);
-  body.set("Tokef", tokef);
+  if (tokef) body.set("Tokef", tokef); // אופציונלי - במצב CreateToken נדרים כבר יודעים את התוקף
   body.set("Amount", amount.toFixed(2));
   body.set("Tashloumim", String(tashloumim));
   body.set("Currency", "1"); // 1 = ש"ח

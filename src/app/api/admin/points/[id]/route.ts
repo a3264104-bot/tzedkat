@@ -17,6 +17,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     "email",
     "deliveryHours",
     "notes",
+    "customDeliveryDateText",
     "isActive",
     "sortOrder",
   ]) {

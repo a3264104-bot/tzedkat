@@ -14,6 +14,7 @@ type Point = {
   email: string | null;
   deliveryHours: string | null;
   notes: string | null;
+  customDeliveryDateText: string | null;
   isActive: boolean;
   sortOrder: number;
 };
@@ -87,6 +88,7 @@ export default function PointsPage() {
       email: editing.email || null,
       deliveryHours: computeDeliveryHours(),
       notes: editing.notes || null,
+      customDeliveryDateText: editing.customDeliveryDateText || null,
       isActive: editing.isActive ?? true,
       sortOrder: editing.sortOrder ?? points.length,
     };
@@ -198,6 +200,9 @@ export default function PointsPage() {
                           {p.phone && <div className="text-sm text-zinc-500">{p.phone}</div>}
                           {p.deliveryHours && (
                             <div className="text-sm text-brand-rust mt-1">🕐 {p.deliveryHours}</div>
+                          )}
+                          {p.customDeliveryDateText && (
+                            <div className="text-sm text-blue-600 mt-1">📅 {p.customDeliveryDateText}</div>
                           )}
                         </div>
                       </div>
@@ -312,6 +317,17 @@ export default function PointsPage() {
 
             <Field label="הערות ללקוח">
               <textarea className="input" value={editing.notes ?? ""} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} />
+            </Field>
+            <Field label="תאריך חלוקה חריג (אופציונלי)">
+              <input
+                className="input"
+                placeholder="למשל: יום ראשון כ׳ תמוז - 15:00"
+                value={editing.customDeliveryDateText ?? ""}
+                onChange={(e) => setEditing({ ...editing, customDeliveryDateText: e.target.value })}
+              />
+              <p className="text-xs text-zinc-400 mt-1">
+                אם הנקודה מקבלת בתאריך שונה מהמחירון הכללי. השאר ריק לתאריך הרגיל.
+              </p>
             </Field>
             <label className="flex items-center gap-2">
               <input

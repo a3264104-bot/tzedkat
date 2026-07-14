@@ -92,15 +92,8 @@ export async function POST(req: Request) {
     if (!preOrder.customer.paymentToken) {
       return NextResponse.json({ error: "customer has no saved card" }, { status: 400 });
     }
-    if (!preOrder.customer.cardExpiry) {
-      return NextResponse.json(
-        {
-          error:
-            "אין תוקף כרטיס שמור (Tokef). יש לבקש מהלקוח להזין כרטיס מחדש כדי לשמור את התוקף.",
-        },
-        { status: 400 }
-      );
-    }
+    // cardExpiry אופציונלי: במצב CreateToken נדרים שומרים את התוקף אצלם.
+    // אם חסר - נשלח חיוב בלי Tokef ונראה אם נדרים מקבלים.
     if (preOrder.customer.cardNeedsUpdate) {
       return NextResponse.json({ error: "customer needs to update card first" }, { status: 400 });
     }
@@ -162,7 +155,7 @@ export async function POST(req: Request) {
     // ═══════════════════════════════════════════════════════════════
     const result = await chargeToken({
       token: preOrder.customer.paymentToken,
-      tokef: preOrder.customer.cardExpiry,
+      tokef: preOrder.customer.cardExpiry || undefined, // אופציונלי - CreateToken לא מספק
       amount: chargeAmount,
       orderRef: String(preOrder.orderNumber),
       clientName: preOrder.customer.name || preOrder.customerName,
