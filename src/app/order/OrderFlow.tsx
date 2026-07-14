@@ -76,8 +76,8 @@ type LoggedInCustomer = {
 
 type CartLine = { isSingle: boolean; qty: number };
 
-// "details" נשאר רק כדי להשלים טלפון אם חסר בחשבון, ולקלוט פרטים פר-הזמנה (טלפון נוסף/הערות)
-type Step = "point" | "date" | "products" | "cart" | "details" | "summary" | "done";
+// שלב ההזמנה הוסר (§5 מאפיון 2): phone2 והערות הוסרו — הלקוח יכול לעדכן באזור האישי
+type Step = "point" | "date" | "products" | "cart" | "summary" | "done";
 
 export function OrderFlow({
   pricelist,
@@ -92,35 +92,29 @@ export function OrderFlow({
   points: Point[];
   products: Product[];
   customer: LoggedInCustomer;
-  // אם נציג מזמין בשם לקוח - מזהה הלקוח. undefined = הזמנה רגילה
   onBehalfOfCustomerId?: string;
-  // האם ללקוח כבר יש כרטיס שמור. אם לא - יידרש שמירת כרטיס (יצירת טוקן) לפני שההזמנה מתקבלת
   cardVerified?: boolean;
-  // מזהה הלקוח המחובר - נדרש לבניית iframe האימות
   customerId?: string;
 }) {
-  const [step, setStep] = useState<Step>("point");
-  // אם ללקוח יש נקודה שמורה, בוחרים אותה כברירת מחדל - אבל הוא עדיין יכול לשנות
-  // נקודת ברירת המחדל מההרשמה תקפה רק אם היא משתתפת במכירה הנוכחית.
-  // בלי הבדיקה: לקוח שנקודתו לא במכירה היה עובר לשלב הבא עם point=null - מסך ריק!
-  const [pointId, setPointId] = useState<string>(() =>
-    customer.defaultPointId && points.some((p) => p.id === customer.defaultPointId)
-      ? customer.defaultPointId
-      : ""
+  // §11: אם ללקוח יש נקודה שמורה ופעילה במכירה — דילוג ישירות למוצרים
+  const hasValidDefault =
+    !!customer.defaultPointId && points.some((p) => p.id === customer.defaultPointId);
+  const [step, setStep] = useState<Step>(hasValidDefault ? "products" : "point");
+  const [pointId, setPointId] = useState<string>(
+    hasValidDefault ? customer.defaultPointId! : ""
   );
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [dateConfirmed, setDateConfirmed] = useState(false);
   const [cart, setCart] = useState<Record<string, CartLine>>({});
-  // טלפון נוסף והערות הם פר-הזמנה ונשארים כשדות חופשיים. הטלפון הראשי מגיע מהחשבון,
-  // ואם הוא חסר שם (לקוח שנרשם עם מייל בלבד) - משלימים אותו כאן פעם אחת.
+  // טלפון ראשי מהחשבון. אם חסר — משלים בסיכום.
   const [phone, setPhone] = useState(customer.phone ?? "");
-  const [phone2, setPhone2] = useState("");
-  const [notes, setNotes] = useState("");
-  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [orderNumber, setOrderNumber] = useState<number | null>(null);
   const [error, setError] = useState("");
+  // §4: הודעת תנאים לפני תחילת ההזמנה
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
+  // §11: אם ללקוח יש נקודה שמורה — דילוג אוטומטי על בחירת נקודה
   const point = points.find((p) => p.id === pointId) || null;
   const needsPhoneInput = !customer.phone;
 
@@ -527,7 +521,7 @@ export function OrderFlow({
       setError("נא להזין מספר טלפון");
       return;
     }
-    if (!paymentConfirmed) {
+    if (needsPhoneInput && !phone.trim()) {
       setError("נא לאשר את תנאי ההזמנה");
       return;
     }
@@ -553,8 +547,8 @@ export function OrderFlow({
           // השם תמיד מגיע מהחשבון המחובר - לא ניתן לעריכה כאן
           customerName: customer.name,
           phone: (phone || customer.phone || "").trim(),
-          phone2: phone2.trim() || null,
-          notes: notes.trim() || null,
+          phone2: null,
+          notes: null,
           onBehalfOfCustomerId: onBehalfOfCustomerId || null,
           items: cartLines.map((l) => ({
             productId: l.product.id,
@@ -736,7 +730,41 @@ export function OrderFlow({
         {/* שלב אישור תאריך בוטל (סעיף 2) - פרטי החלוקה מוצגים בסיכום */}
 
         {/* STEP: products */}
-        {step === "products" && (
+        {step === "products" && !termsAccepted && (
+          <section>
+            <div className="card p-6 text-center">
+              <h2 className="text-xl font-extrabold text-brand-slatedark mb-4">
+                ברוכים הבאים למערכת הזמנות עופות בשר ודגים
+              </h2>
+              <div className="text-right text-sm text-zinc-700 space-y-3 leading-relaxed">
+                <p>
+                  <span className="font-bold text-brand-rust">*</span>{" "}
+                  בהזמנתכם תחויבו בתוספת {fmt(pricelist.singleSurcharge || 3)} דמי הזמנה.
+                </p>
+                <p>
+                  <span className="font-bold text-brand-rust">*</span>{" "}
+                  עם קבלת הודעה על הגעת הסחורה, האחריות על המזמין, יש לבוא בהקדם לאסוף את ההזמנה.
+                </p>
+                <p>
+                  <span className="font-bold text-brand-rust">*</span>{" "}
+                  המחיר בעופות בשר ודגים הם לק&quot;ג בהזמנת קרטון שלם, בבשר ודגים תתאפשר הזמנה בבודדים
+                  בתוספת {fmt(pricelist.singleSurcharge || 3)} לקילו. במוצרים הארוזים במשקל שווה (נקניק, טחון וכו&apos;) המחיר הוא ליחידה.
+                </p>
+                <p>
+                  <span className="font-bold text-brand-rust">*</span>{" "}
+                  הגבייה תבוצע אחרי אספקת ההזמנה לפי המשקל המופיע על הקרטון.
+                </p>
+              </div>
+              <button
+                onClick={() => setTermsAccepted(true)}
+                className="btn-primary w-full mt-6 text-base font-bold"
+              >
+                קראתי ומאשר/ת — להמשך ביצוע ההזמנה
+              </button>
+            </div>
+          </section>
+        )}
+        {step === "products" && termsAccepted && (
           <section>
             <h2 className="text-lg font-extrabold text-brand-slatedark mb-1">בחירת מוצרים</h2>
             <p className="text-xs text-zinc-500 mb-4 leading-relaxed">
@@ -971,61 +999,7 @@ export function OrderFlow({
               <button onClick={() => setStep("products")} className="btn-ghost flex-1">
                 הוסף עוד
               </button>
-              <button onClick={() => setStep("details")} className="btn-primary flex-1">
-                המשך ←
-              </button>
-            </BottomBar>
-          </section>
-        )}
-
-        {/* STEP: details - מוצג רק כדי להשלים טלפון אם חסר בחשבון, ולקלוט פרטים פר-הזמנה (טלפון נוסף/הערות) */}
-        {step === "details" && (
-          <section>
-            <h2 className="text-lg font-extrabold text-brand-slatedark mb-1">פרטי ההזמנה</h2>
-            <p className="text-sm text-zinc-500 mb-4">
-              מזמין/ה בתור <span className="font-semibold text-brand-slatedark">{customer.name}</span>
-            </p>
-            <div className="space-y-3">
-              {needsPhoneInput && (
-                <div>
-                  <label className="label">טלפון *</label>
-                  <input
-                    className="input"
-                    type="tel"
-                    inputMode="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                  />
-                </div>
-              )}
-              <div>
-                <label className="label">טלפון נוסף</label>
-                <input
-                  className="input"
-                  type="tel"
-                  inputMode="tel"
-                  value={phone2}
-                  onChange={(e) => setPhone2(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="label">הערות להזמנה</label>
-                <textarea
-                  className="input min-h-[80px]"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </div>
-            </div>
-            <BottomBar>
-              <button onClick={() => setStep("cart")} className="btn-ghost flex-1">
-                חזרה
-              </button>
-              <button
-                disabled={needsPhoneInput && !phone.trim()}
-                onClick={() => setStep("summary")}
-                className="btn-primary flex-1"
-              >
+              <button onClick={() => setStep("summary")} className="btn-primary flex-1">
                 לסיכום ←
               </button>
             </BottomBar>
@@ -1045,62 +1019,29 @@ export function OrderFlow({
               />
               <Row label="שם" value={customer.name} />
               <Row label="טלפון" value={phone || customer.phone || "—"} />
-              {phone2 && <Row label="טלפון נוסף" value={phone2} />}
-              {notes && <Row label="הערות" value={notes} />}
             </div>
 
             <div className="card p-4 mt-3 space-y-2">
               <div className="font-bold text-brand-slatedark mb-1">רשימת מוצרים</div>
               {cartLines.map((l) => {
-                const estWeight =
-                  l.isSingle && l.product.priceType === "PER_KG"
-                    ? l.qty
-                    : l.product.priceType === "PER_KG" && l.product.avgWeightPerUnit
-                      ? Math.round(l.product.avgWeightPerUnit * l.qty * 10) / 10
-                      : null;
                 return (
                   <div key={l.product.id} className="flex justify-between text-sm">
                     <span>
                       {l.product.name} — {qtyLabel(l.product, l)}
                     </span>
-                    {estWeight != null && (
-                      <span className="text-amber-600 text-xs">~{estWeight} ק"ג</span>
-                    )}
                   </div>
                 );
               })}
             </div>
 
-            {/* הודעת התשלום עודכנה: התשלום מתבצע באתר, ורק לאחר קביעת מחיר סופי לפי שקילה */}
-            <div className="card p-4 mt-3 bg-amber-50 border-amber-200">
-              <p className="text-sm font-semibold text-amber-900">
-                המחיר המוצג הוא מחיר משוער בלבד. המחיר הסופי ייקבע לאחר שקילה בפועל על ידי הנציג.
-              </p>
-              <p className="text-sm font-bold text-amber-900 mt-2">
-                לאחר עדכון המחיר הסופי, התשלום ייגבה אוטומטית מהכרטיס ששמרת, ותקבל/י הודעה על החיוב.
-              </p>
-            </div>
-
-            <label className="flex items-start gap-3 mt-3 card p-4 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={paymentConfirmed}
-                onChange={(e) => setPaymentConfirmed(e.target.checked)}
-                className="mt-1 h-5 w-5 accent-brand-rust"
-              />
-              <span className="text-sm font-medium text-zinc-700">
-                אני מאשר/ת שהמחיר משוער, ושהתשלום הסופי ייגבה מהכרטיס ששמרתי לאחר שקילה וקביעת מחיר סופי.
-              </span>
-            </label>
-
             {error && <p className="text-red-600 text-sm mt-3 font-medium">{error}</p>}
 
             <BottomBar>
-              <button onClick={() => setStep("details")} className="btn-ghost flex-1">
+              <button onClick={() => setStep("cart")} className="btn-ghost flex-1">
                 חזרה
               </button>
               <button
-                disabled={!paymentConfirmed || submitting}
+                disabled={submitting}
                 onClick={submit}
                 className="btn-primary flex-1"
               >
@@ -1205,7 +1146,7 @@ export function OrderFlow({
 }
 
 function StepBar({ step }: { step: Step }) {
-  const steps: Step[] = ["point", "products", "cart", "details", "summary"];
+  const steps: Step[] = ["point", "products", "cart", "summary"];
   const idx = steps.indexOf(step);
   if (step === "done") return null;
   return (

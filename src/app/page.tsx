@@ -6,14 +6,17 @@ import { auth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-// פורמט תאריך קצר בעברית
+// פורמט תאריך לועזי+עברי (§6/§10)
 function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "";
   try {
     return new Date(d).toLocaleDateString("he-IL", {
+      weekday: "long",
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   } catch {
     return "";
@@ -40,20 +43,17 @@ export default async function Home() {
     (!active.closeDate || now <= new Date(active.closeDate)) &&
     (!active.openDate || now >= new Date(active.openDate));
 
-  // הכרטיס הראשי - איזה משלושת הכרטיסים מקבל הדגשה
-  // אם מכירה פתוחה → מכירה; אחרת אם הזמנות אישיות מופעלות → אישית; אחרת אף אחד.
-  const primary: "sale" | "personal" | null = isOpen
-    ? "sale"
-    : personalEnabled
-    ? "personal"
-    : null;
-
   return (
     <main dir="rtl" className="min-h-screen bg-soft-gradient">
       {/* h1 סמנטי לנגישות ו-SEO - נסתר ויזואלית */}
       <h1 className="sr-only">צדקת רבותינו — הזמנת עופות, בשר ודגים</h1>
 
       <div className="mx-auto max-w-lg px-4 pt-8 md:pt-12 pb-10">
+        {/* §8: כיתוב מעל הלוגו */}
+        <p className="text-center text-brand-rust font-extrabold text-lg mb-3">
+          המכירה המוזלת עופות בשר ודגים
+        </p>
+
         {/* לוגו */}
         <div className="flex justify-center mb-6 md:mb-8">
           <Logo size={180} />
@@ -66,65 +66,62 @@ export default async function Home() {
           </p>
         )}
 
-        {/* שלושת הכרטיסים - מכירה, הזמנה אישית, אזור אישי/כניסה */}
         <div className="space-y-4">
-          {/* ═════ כרטיס 1: מכירה ═════ */}
-          <section
-            aria-labelledby="sale-heading"
-            className={`card p-6 transition ${
-              primary === "sale" ? "ring-2 ring-brand-rust shadow-md" : ""
-            }`}
-          >
-            <div className="flex items-center gap-3 mb-3">
-              <div className="text-3xl" aria-hidden="true">🛒</div>
-              <h2 id="sale-heading" className="text-lg font-extrabold text-brand-slatedark">
-                {isOpen ? "מכירה פעילה" : "הזמנה מהמכירה"}
-              </h2>
-            </div>
+          {/* ═════ כרטיס מכירה ═════ */}
+          {isOpen ? (
+            <section
+              aria-labelledby="sale-heading"
+              className="card p-6 ring-2 ring-brand-rust shadow-md"
+            >
+              <div className="text-center mb-4">
+                {/* §10: כותרת חדשה */}
+                <h2 id="sale-heading" className="text-xl font-extrabold text-brand-slatedark">
+                  מכירת עופות בשר ודגים
+                </h2>
+                <p className="text-brand-rust font-bold mt-1">
+                  המערכת פתוחה להזמנות
+                </p>
+              </div>
 
-            {isOpen ? (
-              <>
-                <div className="text-brand-rust font-bold text-lg">{active!.name}</div>
-
-                <div className="mt-3 space-y-1.5 text-sm text-zinc-600">
-                  {active!.deliveryDateText && (
-                    <div className="flex items-start gap-2">
-                      <span aria-hidden="true">📅</span>
-                      <span>חלוקה: {active!.deliveryDateText}</span>
-                    </div>
-                  )}
-                  {active!.closeDate && (
-                    <div className="flex items-start gap-2">
-                      <span aria-hidden="true">⏰</span>
-                      <span>ההרשמה נסגרת: {fmtDate(active!.closeDate)}</span>
-                    </div>
-                  )}
-                </div>
-
-                {active!.notes && (
-                  <p className="mt-3 text-sm text-zinc-500 leading-relaxed border-t border-zinc-100 pt-3">
-                    {active!.notes}
-                  </p>
+              <div className="space-y-2 text-sm text-zinc-600">
+                {active!.closeDate && (
+                  <div className="flex items-start gap-2">
+                    <span aria-hidden="true">⏰</span>
+                    <span>
+                      המערכת תיסגר להזמנות ביום {fmtDate(active!.closeDate)}
+                    </span>
+                  </div>
                 )}
+                {active!.deliveryDateText && (
+                  <div className="flex items-start gap-2">
+                    <span aria-hidden="true">📦</span>
+                    <span>
+                      החלוקה תתקיים בע&quot;ה ב{active!.deliveryDateText}
+                    </span>
+                  </div>
+                )}
+              </div>
 
-                <Link href="/order" className="btn-primary w-full mt-5 text-base">
-                  להזמנה ←
-                </Link>
-              </>
-            ) : (
-              <p className="text-zinc-500 text-sm mt-1">
-                כרגע אין מכירה פתוחה. ההרשמה תיפתח אי"ה בקרוב.
+              <Link href="/order" className="btn-primary w-full mt-5 text-base">
+                להזמנה ←
+              </Link>
+            </section>
+          ) : (
+            <section className="card p-6 text-center">
+              <h2 className="text-lg font-extrabold text-brand-slatedark">
+                כרגע אין מכירה פתוחה
+              </h2>
+              <p className="text-zinc-500 text-sm mt-2">
+                ההרשמה תיפתח אי&quot;ה בקרוב.
               </p>
-            )}
-          </section>
+            </section>
+          )}
 
-          {/* ═════ כרטיס 2: הזמנה אישית ═════ */}
-          {personalEnabled && (
+          {/* ═════ §9: הזמנה אישית — מוצגת רק כשאין מכירה פעילה ═════ */}
+          {personalEnabled && !isOpen && (
             <section
               aria-labelledby="personal-heading"
-              className={`card p-6 transition ${
-                primary === "personal" ? "ring-2 ring-brand-yellow shadow-md" : ""
-              }`}
+              className="card p-6 ring-2 ring-brand-yellow shadow-md"
             >
               <div className="flex items-center gap-3 mb-3">
                 <div className="text-3xl" aria-hidden="true">🎁</div>
@@ -133,7 +130,7 @@ export default async function Home() {
                 </h2>
               </div>
               <p className="text-zinc-600 text-sm mb-4">
-                להזמנת מוצרים מיוחדים — זמין גם כאשר אין מכירה פעילה.
+                להזמנת מוצרים מיוחדים — זמין כאשר אין מכירה פעילה.
               </p>
               <Link href="/personal-order" className="btn-yellow w-full text-base">
                 להזמנה אישית ←
@@ -141,7 +138,7 @@ export default async function Home() {
             </section>
           )}
 
-          {/* ═════ כרטיס 3: אזור אישי / כניסה ═════ */}
+          {/* ═════ אזור אישי / כניסה ═════ */}
           <section aria-labelledby="account-heading" className="card p-6">
             <div className="flex items-center gap-3 mb-3">
               <div className="text-3xl" aria-hidden="true">
