@@ -243,8 +243,9 @@ export function OrderFlow({
   const [nedarimConfirmedOk, setNedarimConfirmedOk] = useState(false);
 
   // iframe נדרים לאימות + יצירת Token (לפי תיעוד: PaymentType=CreateToken)
-  // Tokef=Hide נדרש רשמית לפי תיעוד נדרים במצב יצירת טוקן:
-  // "במצב יצירת טוקן, אין לשלוח תוקף. יש להסתיר שדה זה ע"י שימוש בפרמטר Tokef=Hide בעת יצירת האייפרם"
+  // הוראות נדרים במפורש למצב יצירת טוקן:
+  //   Tokef=Hide - "במצב יצירת טוקן, אין לשלוח תוקף. יש להסתיר שדה זה"
+  //   CVV=Hide   - "במצב יצירת טוקן, אין לשלוח CVV. יש להסתיר שדה זה"
   const verificationIframeUrl =
     customerId &&
     "https://www.matara.pro/nedarimplus/iframe?" +
@@ -258,6 +259,7 @@ export function OrderFlow({
         TransactionType: "Debit",
         Tashlumim: "1",
         Tokef: "Hide",
+        CVV: "Hide",
         CallBack: "https://tzidkat.com/api/webhooks/nedarim",
         param1: customerId,
         param2: "registration",
