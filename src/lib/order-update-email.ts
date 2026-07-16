@@ -72,23 +72,22 @@ type OrderLike = {
 };
 
 function itemsTable(items: OrderItemLike[]): string {
-  const useFinal = items.some((i) => i.finalPrice != null);
   const rows = items
     .map((it) => {
-      const price = useFinal && it.finalPrice != null ? it.finalPrice : it.estimatedPrice;
+      // ח3: תצוגה נכונה — ק"ג או יחידות לפי סוג המוצר
+      const qtyDisplay = it.isSingle
+        ? `${it.quantity} ${it.unit === "ק\"ג" ? "ק\"ג" : "יח'"}`
+        : `${it.quantity} ${it.unit}`;
       return `<tr style="border-bottom:1px solid #eee;">
         <td style="padding:8px;text-align:right;">${escapeHtml(it.productName)}${it.isSingle ? " (בודדים)" : ""}</td>
-        <td style="padding:8px;text-align:center;">${it.quantity} ${escapeHtml(it.unit)}</td>
-        <td style="padding:8px;text-align:left;">${fmt(Number(price))}</td>
+        <td style="padding:8px;text-align:center;">${qtyDisplay}</td>
       </tr>`;
     })
     .join("");
-  const priceHeader = useFinal ? "מחיר" : "משוער";
   return `<table style="width:100%;border-collapse:collapse;font-size:14px;margin:12px 0;">
     <thead><tr style="background:#FFE000;">
       <th style="padding:8px;text-align:right;">מוצר</th>
       <th style="padding:8px;text-align:center;">כמות</th>
-      <th style="padding:8px;text-align:left;">${priceHeader}</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
@@ -128,10 +127,6 @@ export async function sendOrderUpdatedEmail(
 
       ${itemsTable(order.items)}
 
-      <p style="font-size:16px;text-align:left;">
-        <strong>${totalLabel}: ${fmt(Number(displayTotal))}</strong>
-      </p>
-
       ${
         order.pointNameSnapshot
           ? `<p>📍 נקודת חלוקה: <strong>${escapeHtml(order.pointNameSnapshot)}</strong></p>`
@@ -142,25 +137,9 @@ export async function sendOrderUpdatedEmail(
           ? `<p>🗓 תאריך חלוקה: <strong>${escapeHtml(order.deliveryDateSnapshot)}</strong></p>`
           : ""
       }
-      ${
-        order.notes
-          ? `<p style="color:#666;font-size:13px;">הערות: ${escapeHtml(order.notes)}</p>`
-          : ""
-      }
-
-      ${
-        !useFinal
-          ? `<div style="background:#fff8d8;border-radius:10px;padding:14px;margin-top:16px;">
-               <p style="color:#9A3412;font-size:13px;margin:0;">
-                 <strong>שים לב:</strong> המחיר המוצג הוא מחיר משוער בלבד. 
-                 המחיר הסופי ייקבע לאחר שקילה בפועל, ותקבל/י מייל אישור נפרד.
-               </p>
-             </div>`
-          : ""
-      }
 
       <p style="color:#888;font-size:12px;margin-top:20px;">
-        אם יש שאלות לגבי העדכון, ניתן להשיב למייל זה או לפנות אלינו.
+        הגבייה תבוצע אחרי אספקת ההזמנה ועדכון המשקלים במערכת.
       </p>`;
 
     await getResend().emails.send({

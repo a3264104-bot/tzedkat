@@ -7,6 +7,14 @@ import { Logo } from "@/components/Logo";
 import { CustomerOrderActions } from "@/components/CustomerOrderActions";
 import { STATUS_LABELS, PAYMENT_METHOD_LABELS, fmt } from "@/lib/pricing";
 
+type OrderItem = {
+  productName: string;
+  unit: string;
+  quantity: number;
+  isSingle: boolean;
+  imageUrl: string | null;
+};
+
 type Order = {
   id: string;
   orderNumber: number;
@@ -15,11 +23,14 @@ type Order = {
   paymentMethod: string | null;
   paymentLink: string | null;
   pointName: string;
+  pointAddress: string | null;
+  pointDeliveryHours: string | null;
   deliveryDate: string | null;
   estimatedTotal: number;
   finalTotal: number | null;
   createdAt: string;
   itemCount: number;
+  items: OrderItem[];
   // שדות ל-§16: עריכה/ביטול
   customerName: string;
   phone: string;
@@ -313,7 +324,7 @@ export function AccountClient({
                         הזמנה #{o.orderNumber}
                       </div>
                       <div className="text-xs text-zinc-400 mt-0.5">
-                        {new Date(o.createdAt).toLocaleDateString("he-IL")} · {o.pointName}
+                        {new Date(o.createdAt).toLocaleDateString("he-IL")}
                       </div>
                     </div>
                     <span
@@ -323,14 +334,34 @@ export function AccountClient({
                     </span>
                   </div>
 
-                  <div className="mt-3 flex justify-between items-center text-sm">
-                    <span className="text-zinc-500">
-                      {o.itemCount} פריטים
-                      {o.deliveryDate && ` · חלוקה: ${o.deliveryDate}`}
-                    </span>
-                    <span className="font-bold text-brand-slatedark">
-                      {o.finalTotal != null ? fmt(o.finalTotal) : `~${fmt(o.estimatedTotal)}`}
-                    </span>
+                  {/* §7: רשימת מוצרים עם תמונות */}
+                  {o.items.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {o.items.map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-3 text-sm">
+                          {item.imageUrl && (
+                            <img
+                              src={item.imageUrl}
+                              alt={item.productName}
+                              className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                            />
+                          )}
+                          <div>
+                            <span className="text-brand-slatedark font-medium">{item.productName}</span>
+                            <span className="text-zinc-500 mr-2">
+                              {item.quantity} {item.isSingle ? (item.unit === "ק\"ג" ? "ק\"ג" : "יח'") : item.unit}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* §7: פרטי איסוף — נקודה, תאריך, שעות */}
+                  <div className="mt-3 pt-3 border-t border-zinc-100 text-sm text-zinc-600 space-y-1">
+                    <div>📍 {o.pointName}{o.pointAddress ? ` — ${o.pointAddress}` : ""}</div>
+                    {o.deliveryDate && <div>📦 חלוקה: {o.deliveryDate}</div>}
+                    {o.pointDeliveryHours && <div>🕐 שעות: {o.pointDeliveryHours}</div>}
                   </div>
 
                   {/* כפתור תשלום - רק אם ממתין לתשלום ויש לינק */}
@@ -341,7 +372,7 @@ export function AccountClient({
                       rel="noopener noreferrer"
                       className="btn-primary w-full block text-center mt-3 btn-sm"
                     >
-                      לתשלום {o.finalTotal != null ? fmt(o.finalTotal) : ""} ←
+                      לתשלום ←
                     </a>
                   )}
 

@@ -155,12 +155,14 @@ export async function POST(req: Request) {
     // ═══════════════════════════════════════════════════════════════
     const result = await chargeToken({
       token: preOrder.customer.paymentToken,
-      tokef: preOrder.customer.cardExpiry || undefined, // אופציונלי - CreateToken לא מספק
+      tokef: preOrder.customer.cardExpiry || undefined,
       amount: chargeAmount,
       orderRef: String(preOrder.orderNumber),
       clientName: preOrder.customer.name || preOrder.customerName,
       phone: preOrder.customer.phone || preOrder.phone,
       email: preOrder.customer.email || undefined,
+      // §13: מספר תשלומים שהלקוח ביקש
+      tashloumim: (preOrder as any).requestedInstallments || 1,
     });
 
     // ═══════════════════════════════════════════════════════════════

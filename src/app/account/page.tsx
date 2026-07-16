@@ -27,8 +27,8 @@ export default async function AccountPage() {
       orders: {
         orderBy: { createdAt: "desc" },
         include: {
-          point: { select: { name: true, city: true } },
-          items: true,
+          point: { select: { name: true, city: true, address: true, deliveryHours: true } },
+          items: { include: { product: { select: { imageUrl: true } } } },
           pricelist: { select: { closeDate: true } },
         },
       },
@@ -60,11 +60,21 @@ export default async function AccountPage() {
     paymentMethod: o.paymentMethod,
     paymentLink: o.paymentLink,
     pointName: o.point?.name ?? o.pointNameSnapshot ?? "",
+    pointAddress: o.point?.address ?? null,
+    pointDeliveryHours: o.point?.deliveryHours ?? null,
     deliveryDate: o.deliveryDateSnapshot,
     estimatedTotal: Number(o.estimatedTotal),
     finalTotal: o.finalTotal != null ? Number(o.finalTotal) : null,
     createdAt: o.createdAt.toISOString(),
     itemCount: o.items.length,
+    // §7: רשימת מוצרים עם תמונות
+    items: o.items.map((item) => ({
+      productName: item.productName,
+      unit: item.unit,
+      quantity: Number(item.quantity),
+      isSingle: item.isSingle,
+      imageUrl: (item as any).product?.imageUrl ?? null,
+    })),
     // שדות ל-§16: עריכה/ביטול הזמנה
     customerName: o.customerName,
     phone: o.phone,

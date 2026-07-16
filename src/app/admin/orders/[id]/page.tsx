@@ -38,7 +38,20 @@ export default function OrderDetail() {
   function updateItem(itemId: string, field: string, value: string) {
     setOrder((o: any) => ({
       ...o,
-      items: o.items.map((it: any) => (it.id === itemId ? { ...it, [field]: value } : it)),
+      items: o.items.map((it: any) => {
+        if (it.id !== itemId) return it;
+        const updated = { ...it, [field]: value };
+        // ח2: חישוב אוטומטי של מחיר סופי לפי משקל × מחיר לק"ג
+        // רק אם המוצר נשקל (יש unitPrice ומזינים משקל בפועל)
+        if (field === "actualWeight" && value) {
+          const weight = parseFloat(value);
+          const unitPrice = parseFloat(it.unitPrice);
+          if (!isNaN(weight) && !isNaN(unitPrice) && weight > 0) {
+            updated.finalPrice = (Math.round(weight * unitPrice * 100) / 100).toString();
+          }
+        }
+        return updated;
+      }),
     }));
   }
 
@@ -297,10 +310,11 @@ export default function OrderDetail() {
                   </td>
                   <td>
                     <input
-                      className="w-20 rounded-lg border border-zinc-200 px-2 py-1"
+                      className="w-20 rounded-lg border border-zinc-200 px-2 py-1 bg-zinc-50 text-zinc-700"
                       placeholder="—"
                       value={it.finalPrice ?? ""}
-                      onChange={(e) => updateItem(it.id, "finalPrice", e.target.value)}
+                      readOnly
+                      title="מחושב אוטומטית: משקל × מחיר לק״ג"
                     />
                   </td>
                   <td className="no-print">

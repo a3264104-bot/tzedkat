@@ -184,6 +184,8 @@ model Order {
   status          String   @default("PENDING_REVIEW")
 
   estimatedTotal  Decimal  @db.Decimal(10, 2) // מחיר משוער בזמן ההזמנה
+  // §13: מספר תשלומים שהלקוח ביקש (1 = רגיל, 2 = שני תשלומים מעל 800₪)
+  requestedInstallments Int @default(1)
   finalTotal      Decimal? @db.Decimal(10, 2) // מחיר סופי אחרי שקילה ע"י נציג/מנהל
 
   // תשלום - משתנים אך ורק מהשרת (admin API מאומת עם תפקיד מורשה, או webhook חתום מהסולק). אף פעם לא מהדפדפן.

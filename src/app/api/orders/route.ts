@@ -12,6 +12,8 @@ const schema = z.object({
   // phone2/notes הם פר-הזמנה ונשארים כשדות אופציונליים מהלקוח
   phone2: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  // §13: מספר תשלומים (1 או 2)
+  requestedInstallments: z.number().min(1).max(2).optional(),
   // אם נציג מזמין בשם לקוח - מזהה הלקוח שעבורו מזמינים
   onBehalfOfCustomerId: z.string().optional().nullable(),
   items: z
@@ -221,6 +223,7 @@ export async function POST(req: Request) {
         phone: customer.phone ?? "",
         phone2: data.phone2 || null,
         notes: data.notes || null,
+        requestedInstallments: data.requestedInstallments ?? 1,
         estimatedTotal,
         status: "PENDING_REVIEW",
         items: { create: itemsData },

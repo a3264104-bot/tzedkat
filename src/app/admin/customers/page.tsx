@@ -9,11 +9,15 @@ type Customer = {
   name: string;
   phone: string | null;
   email: string | null;
+  city: string | null;
   pointName: string | null;
   orderCount: number;
   hasPaymentToken: boolean;
   createdAt: string;
 };
+
+type SortKey = "name" | "phone" | "city" | "orderCount" | "createdAt";
+type SortDir = "asc" | "desc";
 
 export default function AdminCustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -28,13 +32,26 @@ export default function AdminCustomersPage() {
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
+  // סידור ושדה מיון
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  // סינון לפי עיר
+  const [cityFilter, setCityFilter] = useState<string>("");
+  // מצב תצוגה: table / grouped
+  const [viewMode, setViewMode] = useState<"table" | "grouped">("grouped");
+
   // חיפוש עם debounce
   useEffect(() => {
     const t = setTimeout(async () => {
       setLoading(true);
       try {
         const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
-        setCustomers(Array.isArray(data) ? data : []);
+        // city מגיע מה-API אם יש, אחרת מנסים לחלץ מ-pointName
+        const enriched = (Array.isArray(data) ? data : []).map((c: any) => ({
+          ...c,
+          city: c.city || c.pointCity || null,
+        }));
+        setCustomers(enriched);
       } catch {
         setCustomers([]);
       } finally {
@@ -82,7 +99,6 @@ export default function AdminCustomersPage() {
           : "הפרטים עודכנו בהצלחה"
       );
       setNewPassword("");
-      // רענון הרשימה
       const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
       setCustomers(Array.isArray(data) ? data : []);
     } catch (e: any) {
@@ -92,61 +108,169 @@ export default function AdminCustomersPage() {
     }
   }
 
+  // מיון
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+  const sortArrow = (key: SortKey) =>
+    sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+
+  // סינון + מיון
+  const filtered = customers
+    .filter((c) => !cityFilter || (c.city || "(ללא עיר)") === cityFilter)
+    .sort((a, b) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      const av = a[sortKey] ?? "";
+      const bv = b[sortKey] ?? "";
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+      return String(av).localeCompare(String(bv), "he") * dir;
+    });
+
+  // רשימת ערים ייחודיות לסינון
+  const cities = Array.from(
+    new Set(customers.map((c) => c.city || "(ללא עיר)"))
+  ).sort((a, b) => a.localeCompare(b, "he"));
+
+  // קיבוץ לפי עיר
+  const grouped = filtered.reduce((acc, c) => {
+    const city = c.city || "(ללא עיר)";
+    if (!acc[city]) acc[city] = [];
+    acc[city].push(c);
+    return acc;
+  }, {} as Record<string, Customer[]>);
+
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold text-brand-slatedark">ניהול לקוחות</h1>
-        <p className="text-sm text-zinc-500">
-          חיפוש לקוחות, איפוס סיסמה ועדכון פרטים — ללקוחות שנתקעו בכניסה
-        </p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold text-brand-slatedark">לקוחות</h1>
+          <p className="text-sm text-zinc-500">
+            {customers.length} לקוחות{cityFilter ? ` · ${cityFilter}` : ""}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setViewMode(viewMode === "table" ? "grouped" : "table")}
+            className="btn-ghost btn-sm"
+          >
+            {viewMode === "table" ? "👥 לפי ערים" : "📋 טבלה"}
+          </button>
+        </div>
       </div>
 
-      <div className="card p-4">
+      {/* חיפוש + סינון עיר */}
+      <div className="flex gap-2">
         <input
-          className="input"
+          className="input flex-1"
           placeholder="חיפוש לפי שם, טלפון או מייל..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoFocus
         />
+        <select
+          className="input w-auto min-w-[140px]"
+          value={cityFilter}
+          onChange={(e) => setCityFilter(e.target.value)}
+        >
+          <option value="">כל הערים</option>
+          {cities.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
       </div>
 
       {loading ? (
-        <p className="text-zinc-500">טוען...</p>
-      ) : customers.length === 0 ? (
-        <div className="card p-6 text-center text-zinc-500">
-          {query ? "לא נמצאו לקוחות" : "אין עדיין לקוחות רשומים"}
+        <p className="text-zinc-500 text-center py-8">טוען...</p>
+      ) : filtered.length === 0 ? (
+        <div className="card p-8 text-center text-zinc-500">
+          {query || cityFilter ? "לא נמצאו לקוחות" : "אין עדיין לקוחות רשומים"}
+        </div>
+      ) : viewMode === "table" ? (
+        /* ═══ תצוגת טבלה ═══ */
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-zinc-50 border-b text-right">
+                <th className="p-3 cursor-pointer hover:bg-zinc-100" onClick={() => toggleSort("name")}>
+                  שם{sortArrow("name")}
+                </th>
+                <th className="p-3 cursor-pointer hover:bg-zinc-100" onClick={() => toggleSort("phone")}>
+                  טלפון{sortArrow("phone")}
+                </th>
+                <th className="p-3 hidden md:table-cell">מייל</th>
+                <th className="p-3 cursor-pointer hover:bg-zinc-100" onClick={() => toggleSort("city")}>
+                  עיר{sortArrow("city")}
+                </th>
+                <th className="p-3 cursor-pointer hover:bg-zinc-100 text-center" onClick={() => toggleSort("orderCount")}>
+                  הזמנות{sortArrow("orderCount")}
+                </th>
+                <th className="p-3 text-center">כרטיס</th>
+                <th className="p-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => (
+                <tr key={c.id} className="border-b hover:bg-zinc-50 transition">
+                  <td className="p-3 font-medium text-brand-slatedark">{c.name}</td>
+                  <td className="p-3 text-zinc-600" dir="ltr">{c.phone || "—"}</td>
+                  <td className="p-3 text-zinc-500 hidden md:table-cell text-xs">{c.email || "—"}</td>
+                  <td className="p-3 text-zinc-600">{c.city || "—"}</td>
+                  <td className="p-3 text-center">{c.orderCount}</td>
+                  <td className="p-3 text-center">
+                    {c.hasPaymentToken ? (
+                      <span className="text-green-600">✓</span>
+                    ) : (
+                      <span className="text-zinc-300">—</span>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    <button onClick={() => openEdit(c)} className="text-brand-rust text-xs font-medium hover:underline">
+                      עריכה
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 gap-3">
-          {customers.map((c) => (
-            <div key={c.id} className="card p-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-bold text-brand-slatedark">{c.name}</div>
-                  {c.phone && (
-                    <div className="text-sm text-zinc-500" dir="ltr">
-                      {c.phone}
-                    </div>
-                  )}
-                  <div className="text-sm text-zinc-500">
-                    {c.email || <span className="text-amber-600">אין מייל — לא יכול לאפס סיסמה לבד</span>}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {c.pointName && (
-                      <span className="badge bg-blue-100 text-blue-700">{c.pointName}</span>
-                    )}
-                    <span className="badge bg-zinc-100 text-zinc-600">{c.orderCount} הזמנות</span>
-                    {c.hasPaymentToken && (
-                      <span className="badge bg-green-100 text-green-700">כרטיס שמור</span>
-                    )}
-                  </div>
-                </div>
+        /* ═══ תצוגה מקובצת לפי ערים ═══ */
+        <div className="space-y-4">
+          {Object.entries(grouped)
+            .sort(([a], [b]) => a.localeCompare(b, "he"))
+            .map(([city, cityCustomers]) => (
+            <div key={city}>
+              <div className="flex items-center gap-2 mb-2">
+                <h2 className="text-base font-bold text-brand-slatedark">{city}</h2>
+                <span className="text-xs text-zinc-400">{cityCustomers.length} לקוחות</span>
+                <div className="flex-1 border-b border-zinc-200" />
               </div>
-              <div className="mt-3">
-                <button onClick={() => openEdit(c)} className="btn-ghost btn-sm">
-                  עריכה / איפוס סיסמה
-                </button>
+              <div className="card overflow-x-auto">
+                <table className="w-full text-sm">
+                  <tbody>
+                    {cityCustomers.map((c) => (
+                      <tr key={c.id} className="border-b last:border-b-0 hover:bg-zinc-50 transition">
+                        <td className="p-2.5 font-medium text-brand-slatedark">{c.name}</td>
+                        <td className="p-2.5 text-zinc-600 text-xs" dir="ltr">{c.phone || "—"}</td>
+                        <td className="p-2.5 text-zinc-500 text-xs hidden md:table-cell">{c.email || "—"}</td>
+                        <td className="p-2.5 text-center text-xs">{c.orderCount} הזמנות</td>
+                        <td className="p-2.5 text-center">
+                          {c.hasPaymentToken && <span className="text-green-600 text-xs">💳</span>}
+                        </td>
+                        <td className="p-2.5">
+                          <button onClick={() => openEdit(c)} className="text-brand-rust text-xs font-medium hover:underline">
+                            עריכה
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           ))}
@@ -183,8 +307,7 @@ export default function AdminCustomersPage() {
                   onChange={(e) => setNewPassword(e.target.value)}
                 />
                 <p className="text-xs text-zinc-400 mt-1">
-                  הסיסמה מוצגת כטקסט כדי שתוכל למסור אותה ללקוח בטלפון. מומלץ שהלקוח יחליף אותה
-                  אחר כך.
+                  הסיסמה מוצגת כטקסט כדי שתוכל למסור אותה ללקוח בטלפון.
                 </p>
               </Field>
             </div>
