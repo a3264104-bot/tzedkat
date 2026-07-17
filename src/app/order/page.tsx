@@ -55,6 +55,20 @@ export default async function OrderPage() {
     );
   }
 
+  // §12: אם ללקוח כבר יש הזמנה פעילה למכירה הזו — מפנים לאזור אישי לצפייה/עריכה
+  const existingOrder = await prisma.order.findFirst({
+    where: {
+      customerId,
+      pricelistId: pricelist.id,
+      status: { notIn: ["CANCELLED"] },
+    },
+    select: { id: true, orderNumber: true },
+  });
+
+  if (existingOrder) {
+    redirect(`/account?highlight=${existingOrder.id}`);
+  }
+
   const points = pricelist.points
     .map((pp) => pp.point)
     .filter((p) => p.isActive)

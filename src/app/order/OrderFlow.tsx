@@ -74,7 +74,8 @@ type LoggedInCustomer = {
   defaultPointId: string | null;
 };
 
-type CartLine = { isSingle: boolean; qty: number };
+// ח4: עגלה תומכת גם בקרטונים וגם בבודדים לאותו מוצר
+type CartLine = { cartonQty: number; singlesQty: number };
 
 // שלב ההזמנה הוסר (§5 מאפיון 2): phone2 והערות הוסרו — הלקוח יכול לעדכן באזור האישי
 type Step = "point" | "date" | "products" | "summary" | "done";
@@ -143,58 +144,60 @@ export function OrderFlow({
     return Array.from(map.entries());
   }, [products]);
 
-  const cartLines = useMemo(() => {
-    return Object.entries(cart)
-      .filter(([, l]) => l.qty > 0)
-      .map(([id, l]) => {
-        const p = products.find((x) => x.id === id)!;
-        const unitPrice = effectiveUnitPrice(
-          p.price,
-          l.isSingle,
-          pricelist.singleSurcharge,
-          p.singlesMode,
-          p.singleUnitPrice
-        );
-        // חישוב סה"כ שורה - 2 מצבים (unitPrice כבר לוקח בחשבון UNITS מול KG):
-        //   1. בודדים במוצר PER_KG: unitPrice × qty (qty היא ק"ג או יחידות)
-        //   2. קרטון/יחידות רגילות: לפי smartLineEstimate
-        const lineTotal =
-          l.isSingle && p.priceType === "PER_KG"
-            ? Math.round(unitPrice * l.qty * 100) / 100
-            : smartLineEstimate(unitPrice, l.qty, p.saleType, p.priceType, p.avgWeightPerUnit);
-        return {
-          product: p,
-          ...l,
-          unitPrice,
-          lineTotal,
-        };
-      });
+  // ח4: cartLines — מפרק כל entry לשורה/שתיים (קרטונים + בודדים)
+  type ComputedLine = {
+    product: Product;
+    isSingle: boolean;
+    qty: number;
+    unitPrice: number;
+    lineTotal: number | null;
+  };
+  const cartLines: ComputedLine[] = useMemo(() => {
+    const lines: ComputedLine[] = [];
+    for (const [id, entry] of Object.entries(cart)) {
+      const p = products.find((x) => x.id === id);
+      if (!p) continue;
+      // שורת קרטונים
+      if (entry.cartonQty > 0) {
+        const up = effectiveUnitPrice(p.price, false, pricelist.singleSurcharge, p.singlesMode, p.singleUnitPrice);
+        const lt = smartLineEstimate(up, entry.cartonQty, p.saleType, p.priceType, p.avgWeightPerUnit);
+        lines.push({ product: p, isSingle: false, qty: entry.cartonQty, unitPrice: up, lineTotal: lt });
+      }
+      // שורת בודדים
+      if (entry.singlesQty > 0) {
+        const up = effectiveUnitPrice(p.price, true, pricelist.singleSurcharge, p.singlesMode, p.singleUnitPrice);
+        const lt = Math.round(up * entry.singlesQty * 100) / 100;
+        lines.push({ product: p, isSingle: true, qty: entry.singlesQty, unitPrice: up, lineTotal: lt });
+      }
+    }
+    return lines;
   }, [cart, products, pricelist.singleSurcharge]);
 
   const estimatedTotal = cartLines.reduce((s, l) => s + (l.lineTotal ?? 0), 0);
-  // האם יש מוצרים בעגלה שחסר להם משקל משוער (UNIT+PER_KG בלי avgWeight)
   const hasMissingWeight = cartLines.some((l) => l.lineTotal === null);
   const itemCount = cartLines.length;
 
-  function setQty(id: string, qty: number) {
+  // ח4: פונקציות עדכון כמות — נפרדות לקרטונים ולבודדים
+  function setCartonQty(id: string, qty: number) {
     setCart((c) => {
-      const prev = c[id] ?? { isSingle: false, qty: 0 };
-      return { ...c, [id]: { ...prev, qty: Math.max(0, qty) } };
+      const prev = c[id] ?? { cartonQty: 0, singlesQty: 0 };
+      return { ...c, [id]: { ...prev, cartonQty: Math.max(0, qty) } };
     });
   }
-  function setSingle(id: string, isSingle: boolean) {
+  function setSinglesQty(id: string, qty: number) {
     setCart((c) => {
-      const prev = c[id] ?? { isSingle: false, qty: 0 };
-      // ח4: איפוס כמות במעבר בין מצבים (קרטון ↔ בודדים)
-      // כי 6 קרטונים ≠ 6 ק"ג — לא הגיוני לשמר את הכמות
-      if (prev.isSingle !== isSingle) {
-        const p = products.find((x) => x.id === id);
-        const min = isSingle
-          ? (p?.singlesMode === "UNITS" ? 1 : MIN_SINGLES_KG)
-          : 0;
-        return { ...c, [id]: { isSingle, qty: min } };
+      const prev = c[id] ?? { cartonQty: 0, singlesQty: 0 };
+      return { ...c, [id]: { ...prev, singlesQty: Math.max(0, qty) } };
+    });
+  }
+  // ח4: הסרת מוצר מהעגלה לגמרי
+  function removeFromCart(productId: string, isSingle: boolean) {
+    setCart((c) => {
+      const prev = c[productId] ?? { cartonQty: 0, singlesQty: 0 };
+      if (isSingle) {
+        return { ...c, [productId]: { ...prev, singlesQty: 0 } };
       }
-      return { ...c, [id]: { ...prev, isSingle } };
+      return { ...c, [productId]: { ...prev, cartonQty: 0 } };
     });
   }
 
@@ -804,14 +807,7 @@ export function OrderFlow({
                   </h3>
                   <div className="space-y-2">
                     {items.map((p) => {
-                      const line = cart[p.id] ?? { isSingle: false, qty: 0 };
-                      const unitPrice = effectiveUnitPrice(
-                        p.price,
-                        line.isSingle,
-                        pricelist.singleSurcharge,
-                        p.singlesMode,
-                        p.singleUnitPrice
-                      );
+                      const entry = cart[p.id] ?? { cartonQty: 0, singlesQty: 0 };
                       return (
                         <div
                           key={p.id}
@@ -822,7 +818,8 @@ export function OrderFlow({
                           {p.isFeatured && (
                             <div className="badge bg-red-600 text-white mb-1.5">🔥 מבצע</div>
                           )}
-                          <div className="flex justify-between items-start gap-2">
+                          {/* שם + תמונה + מחיר בסיסי */}
+                          <div className="flex gap-2 items-start">
                             {p.imageUrl && (
                               <img
                                 src={p.imageUrl}
@@ -847,39 +844,22 @@ export function OrderFlow({
                               )}
                               <div className="text-sm text-zinc-500 mt-0.5">
                                 {p.priceType === "PER_KG" ? (
-                                  /* מוצר קרטונים - נשקל */
                                   <>
-                                    {line.isSingle && p.singlesMode === "UNITS" && p.singleUnitPrice != null ? (
-                                      /* סלומון בבודדים - מחיר קבוע ליחידה */
-                                      <span className="font-medium text-brand-slatedark">
-                                        {fmt(Number(p.singleUnitPrice))} ליחידה
+                                    <span className="font-medium text-brand-slatedark">
+                                      {fmt(p.price)} לק"ג
+                                    </span>
+                                    {p.avgWeightPerUnit != null && (
+                                      <span className="block text-xs text-zinc-500">
+                                        קרטון ≈ {p.avgWeightPerUnit} ק"ג
                                       </span>
-                                    ) : (
-                                      <>
-                                        <span className="font-medium text-brand-slatedark">
-                                          {fmt(p.price)} לק"ג
-                                        </span>
-                                        {line.isSingle && pricelist.singleSurcharge > 0 && (
-                                          <span className="block text-xs text-brand-rust font-medium">
-                                            + {fmt(pricelist.singleSurcharge)} תוספת בודדים
-                                          </span>
-                                        )}
-                                        {!line.isSingle && p.avgWeightPerUnit != null && (
-                                          <span className="block text-xs text-zinc-500">
-                                            קרטון ≈ {p.avgWeightPerUnit} ק"ג (~
-                                            {fmt(p.price * p.avgWeightPerUnit)} לקרטון)
-                                          </span>
-                                        )}
-                                        <span className="block text-xs text-amber-600">
-                                          המחיר הסופי לפי שקילה בפועל
-                                        </span>
-                                      </>
                                     )}
+                                    <span className="block text-xs text-amber-600">
+                                      המחיר הסופי לפי שקילה בפועל
+                                    </span>
                                   </>
                                 ) : (
-                                  /* מוצר יחידות - מחיר קבוע */
                                   <>
-                                    {fmt(unitPrice)} / {p.unit}
+                                    {fmt(p.price)} / {p.unit}
                                     {p.packageWeight && (
                                       <span className="block text-xs text-zinc-500">
                                         אריזה: {p.packageWeight}
@@ -894,53 +874,50 @@ export function OrderFlow({
                                 )}
                               </div>
                             </div>
-                            <QtyControl
-                              value={line.qty}
-                              step={stepFromQty(p, line.isSingle)}
-                              min={
-                                line.isSingle && p.priceType === "PER_KG"
-                                  ? p.singlesMode === "UNITS"
-                                    ? 1
-                                    : MIN_SINGLES_KG
-                                  : 0
-                              }
-                              onChange={(v) => setQty(p.id, v)}
-                            />
                           </div>
-                          {/* בורר מצב הזמנה - רק במוצרים שמאפשרים בודדים (בשר/דגים) */}
-                          {p.allowSingles && (
-                            <div className="flex gap-1.5 mt-2">
-                              <button
-                                type="button"
-                                onClick={() => setSingle(p.id, false)}
-                                className={`flex-1 text-xs py-1.5 rounded-lg border font-medium transition ${
-                                  !line.isSingle
-                                    ? "bg-brand-rust text-white border-brand-rust"
-                                    : "bg-white text-zinc-500 border-zinc-300"
-                                }`}
-                              >
-                                קרטונים שלמים
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setSingle(p.id, true)}
-                                className={`flex-1 text-xs py-1.5 rounded-lg border font-medium transition ${
-                                  line.isSingle
-                                    ? "bg-brand-rust text-white border-brand-rust"
-                                    : "bg-white text-zinc-500 border-zinc-300"
-                                }`}
-                              >
-                                בודדים בק"ג (+{fmt(pricelist.singleSurcharge)})
-                              </button>
+
+                          {/* ח4: שורות כמות — קרטונים + בודדים בנפרד */}
+                          <div className="mt-2 space-y-2">
+                            {/* שורת קרטונים — תמיד מוצגת */}
+                            <div className="flex items-center justify-between bg-zinc-50 rounded-lg px-3 py-2">
+                              <span className="text-sm text-brand-slatedark font-medium">
+                                {p.priceType === "PER_KG" ? "קרטונים" : p.unit}
+                              </span>
+                              <QtyControl
+                                value={entry.cartonQty}
+                                step={1}
+                                min={0}
+                                onChange={(v) => setCartonQty(p.id, v)}
+                              />
                             </div>
-                          )}
-                          {p.allowSingles && line.isSingle && (
-                            <p className="text-xs text-amber-600 mt-1 text-center">
-                              בבודדים: הזמנה בק"ג, מינימום {MIN_SINGLES_KG} ק"ג
-                              {line.qty > 0 &&
-                                ` · ${line.qty} ק"ג`}
-                            </p>
-                          )}
+
+                            {/* שורת בודדים — רק למוצרים שמאפשרים */}
+                            {p.allowSingles && (
+                              <div className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2">
+                                <div>
+                                  <span className="text-sm text-amber-900 font-medium">
+                                    {p.singlesMode === "UNITS" ? "יחידות" : 'בודדים (ק"ג)'}
+                                  </span>
+                                  {p.singlesMode !== "UNITS" && pricelist.singleSurcharge > 0 && (
+                                    <span className="text-xs text-brand-rust mr-1">
+                                      +{fmt(pricelist.singleSurcharge)}
+                                    </span>
+                                  )}
+                                  {p.singlesMode === "UNITS" && p.singleUnitPrice != null && (
+                                    <span className="text-xs text-amber-700 mr-1">
+                                      {fmt(Number(p.singleUnitPrice))} ליח'
+                                    </span>
+                                  )}
+                                </div>
+                                <QtyControl
+                                  value={entry.singlesQty}
+                                  step={1}
+                                  min={p.singlesMode === "UNITS" ? 1 : MIN_SINGLES_KG}
+                                  onChange={(v) => setSinglesQty(p.id, v)}
+                                />
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1002,7 +979,7 @@ export function OrderFlow({
                     </span>
                   </div>
                   <button
-                    onClick={() => setQty(l.product.id, 0)}
+                    onClick={() => removeFromCart(l.product.id, l.isSingle)}
                     className="text-zinc-300 hover:text-red-500 text-sm px-2"
                     title="הסר מוצר"
                   >

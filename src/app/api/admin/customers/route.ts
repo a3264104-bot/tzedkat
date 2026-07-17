@@ -23,7 +23,7 @@ export async function GET(req: Request) {
   const customers = await prisma.customer.findMany({
     where: { role: "CUSTOMER", ...searchFilter },
     include: {
-      defaultPoint: { select: { name: true } },
+      defaultPoint: { select: { name: true, city: true } },
       _count: { select: { orders: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -37,6 +37,7 @@ export async function GET(req: Request) {
       phone: c.phone,
       email: c.email,
       pointName: c.defaultPoint?.name ?? null,
+      city: c.defaultPoint?.city ?? null,
       orderCount: c._count.orders,
       hasPaymentToken: !!c.paymentToken,
       createdAt: c.createdAt,
