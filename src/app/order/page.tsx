@@ -55,7 +55,7 @@ export default async function OrderPage() {
     );
   }
 
-  // §12: אם ללקוח כבר יש הזמנה פעילה למכירה הזו — מפנים לאזור אישי לצפייה/עריכה
+  // §12: בדיקה אם ללקוח יש הזמנה קיימת למכירה הזו — מציגים הודעה, לא חוסמים
   const existingOrder = await prisma.order.findFirst({
     where: {
       customerId,
@@ -64,10 +64,6 @@ export default async function OrderPage() {
     },
     select: { id: true, orderNumber: true },
   });
-
-  if (existingOrder) {
-    redirect(`/account?highlight=${existingOrder.id}`);
-  }
 
   const points = pricelist.points
     .map((pp) => pp.point)
@@ -139,6 +135,7 @@ export default async function OrderPage() {
       }}
       cardVerified={!!customerRecord.paymentToken}
       customerId={customerRecord.id}
+      existingOrder={existingOrder ? { id: existingOrder.id, orderNumber: existingOrder.orderNumber } : null}
     />
   );
 }

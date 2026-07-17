@@ -88,6 +88,7 @@ export function OrderFlow({
   onBehalfOfCustomerId,
   cardVerified = true,
   customerId = "",
+  existingOrder = null,
 }: {
   pricelist: Pricelist;
   points: Point[];
@@ -96,6 +97,7 @@ export function OrderFlow({
   onBehalfOfCustomerId?: string;
   cardVerified?: boolean;
   customerId?: string;
+  existingOrder?: { id: string; orderNumber: number } | null;
 }) {
   // §11: אם ללקוח יש נקודה שמורה ופעילה במכירה — דילוג ישירות למוצרים
   const hasValidDefault =
@@ -776,6 +778,22 @@ export function OrderFlow({
         )}
         {step === "products" && termsAccepted && (
           <section>
+            {/* §12: הודעה על הזמנה קיימת */}
+            {existingOrder && (
+              <div className="card p-4 mb-4 bg-blue-50 border-blue-200">
+                <p className="text-sm text-blue-900 font-medium">
+                  שים לב: כבר יש לך הזמנה #{existingOrder.orderNumber} למכירה הזו.
+                </p>
+                <div className="flex gap-2 mt-2">
+                  <a
+                    href="/account"
+                    className="text-xs text-blue-700 font-medium underline"
+                  >
+                    צפייה/עריכה באזור האישי
+                  </a>
+                </div>
+              </div>
+            )}
             <h2 className="text-lg font-extrabold text-brand-slatedark mb-1">בחירת מוצרים</h2>
             <p className="text-xs text-zinc-500 mb-4 leading-relaxed">
               המחיר באתר הוא מחיר משוער. המחיר הסופי ייקבע לפי המשקל והאריזה בפועל.
