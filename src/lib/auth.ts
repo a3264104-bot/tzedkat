@@ -17,7 +17,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       async authorize(creds) {
         const identifier = String(creds?.identifier ?? "").trim();
         const password = String(creds?.password ?? "");
-        if (!identifier || !password) return null;
+        if (!identifier || !password) {
+          console.warn(`[auth] missing credentials: identifier=${!!identifier} password=${!!password}`);
+          return null;
+        }
 
         // 1) מנסים קודם כמנהל (טבלת Admin, לפי מייל)
         const admin = await prisma.admin.findUnique({
@@ -26,6 +29,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (admin) {
           const ok = await bcrypt.compare(password, admin.password);
           if (ok) {
+            console.log(`[auth] admin login SUCCESS: ${identifier}`);
             return {
               id: admin.id,
               email: admin.email,
@@ -33,6 +37,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               role: "ADMIN",
             };
           }
+          console.warn(`[auth] admin login FAILED (wrong password): ${identifier}`);
         }
 
         // 2) אם לא מנהל - מנסים כלקוח (טבלת Customer, טלפון או מייל).
@@ -46,7 +51,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const phoneCandidates = [...new Set([identifier, digitsOnly, localPhone])].filter(
           (v) => v.length > 0
         );
-        const customer = await prisma.customer.findFirst({
+
+        // שינוי מ-findFirst ל-findMany לזיהוי כפילויות
+        const customers = await prisma.customer.findMany({
           where: {
             OR: [
               ...phoneCandidates.map((p) => ({ phone: p })),
@@ -54,9 +61,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             ],
           },
         });
-        if (customer) {
+
+        if (customers.length === 0) {
+          console.warn(`[auth] customer NOT FOUND: identifier=${identifier} phoneTries=${JSON.stringify(phoneCandidates)}`);
+          return null;
+        }
+
+        // אזהרה אם יש כפילויות - זה יכול לגרום להתחברות לא עקבית
+        if (customers.length > 1) {
+          console.error(
+            `[auth] ⚠️ DUPLICATE CUSTOMERS FOUND (${customers.length}) for identifier=${identifier}:`,
+            customers.map((c) => ({ id: c.id, name: c.name, phone: c.phone, email: c.email }))
+          );
+        }
+
+        // מנסים כל אחד עד שאחד עובר עם הסיסמה
+        for (const customer of customers) {
           const ok = await bcrypt.compare(password, customer.passwordHash);
           if (ok) {
+            console.log(`[auth] customer login SUCCESS: id=${customer.id} name=${customer.name} identifier=${identifier}`);
             return {
               id: customer.id,
               email: customer.email ?? undefined,
@@ -66,7 +89,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
         }
 
-        // לא נמצא אף אחד תואם
+        console.warn(
+          `[auth] customer login FAILED (wrong password): identifier=${identifier} tried=${customers.length} customer(s) [${customers.map((c) => c.id).join(", ")}]`
+        );
         return null;
       },
     }),

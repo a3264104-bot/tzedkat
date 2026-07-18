@@ -203,22 +203,30 @@ export function OrderFlow({
     });
   }
 
-  // תווית כמות לתצוגה: "1 קרטון" / "2 קרטונים" / "3 ק"ג" / "2 יחידות" (סעיפים 1, סלומון)
+  // תווית כמות לתצוגה: "1 קרטון (~10 ק"ג)" / "3 ק"ג" / "2 יחידות"
+  // הזיהוי של קרטון הוא avgWeightPerUnit != null (יש משקל ממוצע = זה קרטון)
   function qtyLabel(p: Product, line: { isSingle: boolean; qty: number }): string {
     if (line.qty <= 0) return "";
     if (line.isSingle && p.priceType === "PER_KG") {
       // סלומון וכד': בודדים = יחידות, לא ק"ג
       if (p.singlesMode === "UNITS") {
-        return line.qty === 1 ? "יחידה 1" : `${line.qty} יחידות`;
+        return line.qty === 1 ? "1 יחידה" : `${line.qty} יחידות`;
       }
       // בשר: בודדים = ק"ג
-      return `${line.qty} ק"ג`;
+      return line.qty === 1 ? '1 ק"ג' : `${line.qty} ק"ג`;
     }
+    // אם יש משקל ממוצע - זה קרטון
+    if (p.avgWeightPerUnit != null && p.avgWeightPerUnit > 0) {
+      const totalWeight = Math.round(p.avgWeightPerUnit * line.qty * 10) / 10;
+      const label = line.qty === 1 ? "1 קרטון" : `${line.qty} קרטונים`;
+      return `${label} (~${totalWeight} ק"ג)`;
+    }
+    // אם saleType=PACKAGE אבל אין avgWeight - עדיין קרטון (בלי משקל)
     if (p.saleType === "PACKAGE" || p.priceType === "PER_KG") {
       return line.qty === 1 ? "1 קרטון" : `${line.qty} קרטונים`;
     }
-    // יחידות
-    return line.qty === 1 ? "יחידה 1" : `${line.qty} יחידות`;
+    // יחידות במחיר קבוע
+    return line.qty === 1 ? "1 יחידה" : `${line.qty} יחידות`;
   }
 
   function stepFromQty(_p: Product, _isSingle: boolean) {
@@ -868,7 +876,7 @@ export function OrderFlow({
                                     </span>
                                     {p.avgWeightPerUnit != null && (
                                       <span className="block text-xs text-zinc-500">
-                                        קרטון ≈ {p.avgWeightPerUnit} ק"ג
+                                        קרטון ≈ {p.avgWeightPerUnit} ק"ג (~{fmt(p.price * p.avgWeightPerUnit)} לקרטון)
                                       </span>
                                     )}
                                     <span className="block text-xs text-amber-600">
