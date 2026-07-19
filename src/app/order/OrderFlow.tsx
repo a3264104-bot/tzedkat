@@ -62,6 +62,7 @@ type Pricelist = {
   name: string;
   deliveryDateText: string | null;
   closeDateText: string | null; // תאריך סיום הרשמה לתצוגה (סעיף 10)
+  editDeadlineText?: string | null; // §16: תאריך נעילת שינויים ללקוח (אופציונלי - fallback ל-null)
   notes: string | null;
   singleSurcharge: number;
 };
@@ -89,6 +90,7 @@ export function OrderFlow({
   cardVerified = true,
   customerId = "",
   existingOrder = null,
+  editMode = null,
 }: {
   pricelist: Pricelist;
   points: Point[];
@@ -98,24 +100,46 @@ export function OrderFlow({
   cardVerified?: boolean;
   customerId?: string;
   existingOrder?: { id: string; orderNumber: number } | null;
+  editMode?: {
+    orderId: string;
+    orderNumber: number;
+    initialCart: Record<string, { cartonQty: number; singlesQty: number }>;
+  } | null;
 }) {
   // §11: אם ללקוח יש נקודה שמורה ופעילה במכירה — דילוג ישירות למוצרים
+  // §16: במצב עריכה — מדלגים תמיד ישירות למוצרים
   const hasValidDefault =
     !!customer.defaultPointId && points.some((p) => p.id === customer.defaultPointId);
-  const [step, setStep] = useState<Step>(hasValidDefault ? "products" : "point");
+  const [step, setStep] = useState<Step>(
+    editMode || hasValidDefault ? "products" : "point"
+  );
   const [pointId, setPointId] = useState<string>(
     hasValidDefault ? customer.defaultPointId! : ""
   );
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [dateConfirmed, setDateConfirmed] = useState(false);
-  const [cart, setCart] = useState<Record<string, CartLine>>({});
+  const [cart, setCart] = useState<Record<string, CartLine>>(
+    editMode?.initialCart || {}
+  );
   // טלפון ראשי מהחשבון. אם חסר — משלים בסיכום.
   const [phone, setPhone] = useState(customer.phone ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [orderNumber, setOrderNumber] = useState<number | null>(null);
   const [error, setError] = useState("");
-  // §4: הודעת תנאים לפני תחילת ההזמנה
-  const [termsAccepted, setTermsAccepted] = useState(false);
+  // §4: הודעת תנאים לפני תחילת ההזמנה (במצב עריכה - מדלגים)
+  // נשמר ב-localStorage כדי שהלקוח יראה רק פעם אחת, לא בכל כניסה
+  const [termsAccepted, setTermsAccepted] = useState<boolean>(() => {
+    if (editMode) return true;
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("tzidkat_terms_accepted") === "1";
+  });
+
+  function acceptTerms() {
+    setTermsAccepted(true);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("tzidkat_terms_accepted", "1");
+    }
+  }
   // §13: מספר תשלומים (1 או 2 — מוצג ללקוח רק מעל 800₪)
   const [installments, setInstallments] = useState(1);
 
@@ -254,9 +278,9 @@ export function OrderFlow({
   const [nedarimConfirmedOk, setNedarimConfirmedOk] = useState(false);
 
   // iframe נדרים לאימות + יצירת Token (לפי תיעוד: PaymentType=CreateToken)
-  // הוראות נדרים במפורש למצב יצירת טוקן:
-  //   Tokef=Hide - "במצב יצירת טוקן, אין לשלוח תוקף. יש להסתיר שדה זה"
-  //   CVV=Hide   - "במצב יצירת טוקן, אין לשלוח CVV. יש להסתיר שדה זה"
+  // Tokef=Hide נדרש רשמית לפי תיעוד נדרים.
+  // CVV: השארנו אותו לתצוגה — הלקוח יזין CVV כדי שנדרים ישמרו אותו לחיובים עתידיים.
+  // (אם CVV=Hide, נדרים אמנם יוצרים טוקן אבל DebitCard.aspx מחזיר "CVV ERROR" בחיוב).
   const verificationIframeUrl =
     customerId &&
     "https://www.matara.pro/nedarimplus/iframe?" +
@@ -270,7 +294,6 @@ export function OrderFlow({
         TransactionType: "Debit",
         Tashlumim: "1",
         Tokef: "Hide",
-        CVV: "Hide",
         CallBack: "https://tzidkat.com/api/webhooks/nedarim",
         param1: customerId,
         param2: "registration",
@@ -553,28 +576,48 @@ export function OrderFlow({
     setError("");
     setSubmitting(true);
     try {
-      const res = await fetch("/api/orders", {
-        method: "POST",
+      // §16 פאזה 2: במצב עריכה קוראים ל-PATCH על ההזמנה הקיימת
+      const isEdit = !!editMode;
+      const url = isEdit ? `/api/customer/orders/${editMode!.orderId}` : "/api/orders";
+      const method = isEdit ? "PATCH" : "POST";
+      const body: any = isEdit
+        ? {
+            pointId,
+            customerName: customer.name,
+            phone: (phone || customer.phone || "").trim(),
+            items: cartLines.map((l) => ({
+              productId: l.product.id,
+              isSingle: l.isSingle,
+              quantity: l.qty,
+            })),
+          }
+        : {
+            pricelistId: pricelist.id,
+            pointId,
+            customerName: customer.name,
+            phone: (phone || customer.phone || "").trim(),
+            phone2: null,
+            notes: null,
+            requestedInstallments: estimatedTotal > 800 ? installments : 1,
+            onBehalfOfCustomerId: onBehalfOfCustomerId || null,
+            items: cartLines.map((l) => ({
+              productId: l.product.id,
+              isSingle: l.isSingle,
+              quantity: l.qty,
+            })),
+          };
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pricelistId: pricelist.id,
-          pointId,
-          // השם תמיד מגיע מהחשבון המחובר - לא ניתן לעריכה כאן
-          customerName: customer.name,
-          phone: (phone || customer.phone || "").trim(),
-          phone2: null,
-          notes: null,
-          requestedInstallments: estimatedTotal > 800 ? installments : 1,
-          onBehalfOfCustomerId: onBehalfOfCustomerId || null,
-          items: cartLines.map((l) => ({
-            productId: l.product.id,
-            isSingle: l.isSingle,
-            quantity: l.qty,
-          })),
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "שגיאה בשליחת ההזמנה");
+      // במצב עריכה - מפנים חזרה לאזור אישי
+      if (isEdit) {
+        window.location.href = "/account";
+        return;
+      }
       setOrderNumber(data.orderNumber);
       setStep("done");
     } catch (e: any) {
@@ -588,7 +631,7 @@ export function OrderFlow({
     <main className="min-h-screen bg-[#faf6ec] pb-28">
       {/* header - עם שם המשתמש המחובר וקישור לאזור אישי (זמין תמיד) */}
       <header className="bg-brand-yellow border-b-4 border-brand-rust/20 sticky top-0 z-20">
-        <div className="mx-auto max-w-md px-4 py-2.5 flex items-center justify-between gap-2">
+        <div className="mx-auto max-w-md md:max-w-4xl px-4 py-2.5 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 text-sm">
             <Link href="/" className="text-brand-slate font-medium">
               דף הבית
@@ -611,7 +654,7 @@ export function OrderFlow({
         </div>
       </header>
 
-      <div className="mx-auto max-w-md px-4 pt-5">
+      <div className="mx-auto max-w-md md:max-w-4xl px-4 pt-5">
         <StepBar step={step} />
 
         {/* STEP: choose point - מקובץ לפי עיר אם יש יותר מעיר אחת */}
@@ -776,7 +819,7 @@ export function OrderFlow({
                 </p>
               </div>
               <button
-                onClick={() => setTermsAccepted(true)}
+                onClick={acceptTerms}
                 className="btn-primary w-full mt-6 text-base font-bold"
               >
                 קראתי ומאשר/ת — להמשך ביצוע ההזמנה
@@ -786,6 +829,14 @@ export function OrderFlow({
         )}
         {step === "products" && termsAccepted && (
           <section>
+            {/* §16 פאזה 2: הודעה במצב עריכה */}
+            {editMode && (
+              <div className="card p-4 mb-4 bg-amber-50 border-amber-300">
+                <p className="text-sm text-amber-900 font-medium">
+                  ✏️ אתה עורך את הזמנה #{editMode.orderNumber}. השינויים יתעדכנו בהזמנה הקיימת.
+                </p>
+              </div>
+            )}
             {/* §12: הודעה על הזמנה קיימת */}
             {existingOrder && (
               <div className="card p-4 mb-4 bg-blue-50 border-blue-200">
@@ -831,7 +882,7 @@ export function OrderFlow({
                   <h3 className="font-extrabold text-brand-rust mb-2 border-b-2 border-brand-rust/20 pb-1">
                     {cat}
                   </h3>
-                  <div className="space-y-2">
+                  <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
                     {items.map((p) => {
                       const entry = cart[p.id] ?? { cartonQty: 0, singlesQty: 0 };
                       return (
@@ -879,9 +930,6 @@ export function OrderFlow({
                                         קרטון ≈ {p.avgWeightPerUnit} ק"ג (~{fmt(p.price * p.avgWeightPerUnit)} לקרטון)
                                       </span>
                                     )}
-                                    <span className="block text-xs text-amber-600">
-                                      המחיר הסופי לפי שקילה בפועל
-                                    </span>
                                   </>
                                 ) : (
                                   <>
@@ -992,25 +1040,27 @@ export function OrderFlow({
 
             {/* רשימת מוצרים עם אפשרות הסרה */}
             <div className="card p-4 mt-3 space-y-2">
-              <div className="font-bold text-brand-slatedark mb-1">המוצרים שלך</div>
+              <div className="font-bold text-brand-slatedark mb-2">המוצרים שלך</div>
               {cartLines.map((l) => (
-                <div key={l.product.id} className="flex justify-between items-center text-sm">
-                  <div>
-                    <span className="text-brand-slatedark font-medium">{l.product.name}</span>
+                <div key={l.product.id} className="flex justify-between items-center text-sm py-1.5 border-b border-zinc-100 last:border-b-0">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-brand-slatedark font-medium truncate">{l.product.name}</span>
                     {l.isSingle && (
-                      <span className="badge bg-amber-100 text-amber-700 mr-1 text-xs">בודדים</span>
+                      <span className="badge bg-amber-100 text-amber-700 text-xs shrink-0">בודדים</span>
                     )}
-                    <span className="text-zinc-500 mr-2">
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="bg-brand-yellow/30 border border-brand-yellow text-brand-slatedark px-2.5 py-1 rounded-md text-xs font-bold whitespace-nowrap">
                       {qtyLabel(l.product, l)}
                     </span>
+                    <button
+                      onClick={() => removeFromCart(l.product.id, l.isSingle)}
+                      className="text-zinc-300 hover:text-red-500 text-sm px-1"
+                      title="הסר מוצר"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <button
-                    onClick={() => removeFromCart(l.product.id, l.isSingle)}
-                    className="text-zinc-300 hover:text-red-500 text-sm px-2"
-                    title="הסר מוצר"
-                  >
-                    ✕
-                  </button>
                 </div>
               ))}
             </div>
@@ -1051,6 +1101,15 @@ export function OrderFlow({
               הגבייה תבוצע אחרי אספקת ההזמנה ועדכון המשקלים במערכת ע&quot;י הנציג.
             </div>
 
+            {/* §16: הודעת נעילת שינויים */}
+            {pricelist.editDeadlineText && (
+              <div className="card p-3 mt-3 bg-blue-50 border-blue-200 text-sm text-blue-900 text-center">
+                🔒 בתאריך <strong>{pricelist.editDeadlineText}</strong> המערכת תיסגר לשינויים.
+                <br />
+                עד אז תוכל/י לערוך או לבטל את ההזמנה באזור האישי.
+              </div>
+            )}
+
             {error && <p className="text-red-600 text-sm mt-3 font-medium">{error}</p>}
 
             <BottomBar>
@@ -1062,7 +1121,7 @@ export function OrderFlow({
                 onClick={submit}
                 className="btn-primary flex-1"
               >
-                {submitting ? "שולח..." : "שליחת הזמנה"}
+                {submitting ? "שולח..." : editMode ? "עדכן הזמנה" : "שליחת הזמנה"}
               </button>
             </BottomBar>
           </section>
@@ -1245,7 +1304,7 @@ function QtyControl({
 function BottomBar({ children }: { children: React.ReactNode }) {
   return (
     <div className="fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-zinc-200 no-print">
-      <div className="mx-auto max-w-md px-4 py-3 flex gap-2">{children}</div>
+      <div className="mx-auto max-w-md md:max-w-4xl px-4 py-3 flex gap-2">{children}</div>
     </div>
   );
 }

@@ -6,7 +6,14 @@ import { OrderFlow } from "./OrderFlow";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrderPage() {
+export default async function OrderPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ editOrderId?: string }>;
+}) {
+  const sp = await searchParams;
+  const editOrderId = sp?.editOrderId || null;
+
   // התחברות נדרשת לפני כל דבר אחר - אין יותר הזמנת אורח.
   // אם אין session, מפנים ל-login עם callbackUrl כדי שהלקוח יחזור לכאן בדיוק אחרי שהתחבר/נרשם.
   const session = await auth();
@@ -55,8 +62,36 @@ export default async function OrderPage() {
     );
   }
 
+  // §16 פאזה 2: אם יש editOrderId — טוענים את ההזמנה הקיימת ופריטיה
+  let editOrder = null;
+  let initialCart: Record<string, { cartonQty: number; singlesQty: number }> = {};
+  if (editOrderId) {
+    editOrder = await prisma.order.findFirst({
+      where: {
+        id: editOrderId,
+        customerId,
+        pricelistId: pricelist.id,
+      },
+      include: { items: true },
+    });
+    if (editOrder) {
+      // בונים cart מהפריטים הקיימים - איחוד קרטונים/בודדים לאותו מוצר
+      for (const it of editOrder.items) {
+        if (!initialCart[it.productId]) {
+          initialCart[it.productId] = { cartonQty: 0, singlesQty: 0 };
+        }
+        if (it.isSingle) {
+          initialCart[it.productId].singlesQty = Number(it.quantity);
+        } else {
+          initialCart[it.productId].cartonQty = Number(it.quantity);
+        }
+      }
+    }
+  }
+
   // §12: בדיקה אם ללקוח יש הזמנה קיימת למכירה הזו — מציגים הודעה, לא חוסמים
-  const existingOrder = await prisma.order.findFirst({
+  // (מדלגים על הבדיקה אם אנחנו במצב עריכה)
+  const existingOrder = editOrderId ? null : await prisma.order.findFirst({
     where: {
       customerId,
       pricelistId: pricelist.id,
@@ -122,6 +157,23 @@ export default async function OrderPage() {
               minute: "2-digit",
             })
           : null,
+        editDeadlineText: pricelist.editDeadline
+          ? new Date(pricelist.editDeadline).toLocaleDateString("he-IL", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : (pricelist.closeDate
+              ? new Date(pricelist.closeDate).toLocaleDateString("he-IL", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : null),
         notes: pricelist.notes,
         singleSurcharge: Number(pricelist.singleSurcharge),
       }}
@@ -136,6 +188,11 @@ export default async function OrderPage() {
       cardVerified={!!customerRecord.paymentToken}
       customerId={customerRecord.id}
       existingOrder={existingOrder ? { id: existingOrder.id, orderNumber: existingOrder.orderNumber } : null}
+      editMode={
+        editOrder
+          ? { orderId: editOrder.id, orderNumber: editOrder.orderNumber, initialCart }
+          : null
+      }
     />
   );
 }

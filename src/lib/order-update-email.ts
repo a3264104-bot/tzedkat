@@ -94,8 +94,8 @@ function itemsTable(items: OrderItemLike[]): string {
 }
 
 /**
- * מייל עדכון הזמנה - נשלח ללקוח כשההזמנה שלו עודכנה.
- * ה-updateReason הוא טקסט קצר שמתאר מה השתנה (למשל "המנהל שינה את רשימת המוצרים").
+ * מייל אישור עדכון הזמנה - נשלח ללקוח רק כשהוא עצמו עדכן את ההזמנה שלו באזור האישי.
+ * מייל קצר וממוקד - רק אישור שהשינוי בוצע, בלי סיכום מפורט (הלקוח יראה את הסיכום באזור אישי).
  */
 export async function sendOrderUpdatedEmail(
   order: OrderLike,
@@ -106,47 +106,27 @@ export async function sendOrderUpdatedEmail(
     const settings = await getSettings();
     if (!settings.sendEmailToCustomer) return { ok: true };
 
-    const useFinal = order.finalTotal != null;
-    const displayTotal = useFinal ? order.finalTotal : order.estimatedTotal;
-    const totalLabel = useFinal ? "לתשלום" : 'סה"כ משוער';
-
     const body = `
       <p>שלום ${escapeHtml(order.customerName)},</p>
       <div style="background:#eff6ff;border-radius:10px;padding:14px;margin:16px 0;border-right:4px solid #2563eb;">
         <p style="margin:0;color:#1e40af;font-weight:600;">
-          ההזמנה שלך <strong>#${order.orderNumber}</strong> עודכנה
+          ✓ השינויים בהזמנה <strong>#${order.orderNumber}</strong> נשמרו בהצלחה
         </p>
-        ${
-          updateReason
-            ? `<p style="margin:6px 0 0 0;color:#1e40af;font-size:14px;">${escapeHtml(updateReason)}</p>`
-            : ""
-        }
       </div>
 
-      <p style="font-size:15px;">להלן הסיכום המעודכן של ההזמנה:</p>
-
-      ${itemsTable(order.items)}
-
-      ${
-        order.pointNameSnapshot
-          ? `<p>📍 נקודת חלוקה: <strong>${escapeHtml(order.pointNameSnapshot)}</strong></p>`
-          : ""
-      }
-      ${
-        order.deliveryDateSnapshot
-          ? `<p>🗓 תאריך חלוקה: <strong>${escapeHtml(order.deliveryDateSnapshot)}</strong></p>`
-          : ""
-      }
+      <p style="font-size:14px;color:#555;">
+        אפשר לצפות בפרטים המלאים של ההזמנה באזור האישי שלך באתר.
+      </p>
 
       <p style="color:#888;font-size:12px;margin-top:20px;">
-        הגבייה תבוצע אחרי אספקת ההזמנה ועדכון המשקלים במערכת.
+        אם לא ביצעת שינויים אלה, יש לפנות אלינו בהקדם.
       </p>`;
 
     await getResend().emails.send({
       from: FROM_ADDRESS,
       to: customerEmail,
       subject: `הזמנה #${order.orderNumber} עודכנה - צדקת רבותינו`,
-      html: baseTemplate(`הזמנה #${order.orderNumber} עודכנה`, body),
+      html: baseTemplate(`השינויים נשמרו - הזמנה #${order.orderNumber}`, body),
     });
     return { ok: true };
   } catch (e: any) {

@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { STATUSES_REQUIRING_PAYMENT } from "@/lib/pricing";
 import { sendFinalPriceEmail } from "@/lib/email";
-import { sendOrderUpdatedEmail } from "@/lib/order-update-email";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireAdmin();
@@ -176,19 +175,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           : { customerNotifyError: res.error },
       }).catch(() => null);
     }
-  } else if (contentChanged) {
-    // §17: הזמנה עודכנה - נשלח סיכום מעודכן ללקוח
-    const fullOrder = await prisma.order.findUnique({
-      where: { id },
-      include: { items: true, customer: true },
-    });
-    if (fullOrder?.customer?.email) {
-      const res = await sendOrderUpdatedEmail(fullOrder as any, fullOrder.customer.email);
-      if (!res.ok) {
-        console.error("sendOrderUpdatedEmail failed:", res.error);
-      }
-    }
   }
+  // הערה: הוסר מייל עדכון כשמנהל עורך - לא צריך להטריח את הלקוח בהודעות
+  // על שינויים שהוא לא ביצע. הלקוח יראה את הסטטוס המעודכן באזור אישי.
+  // מיילים ללקוח: 1) הזמנה חדשה 2) שינוי שהוא עשה 3) מחיר סופי 4) חיוב
 
   return NextResponse.json({ ...order, _finalPriceJustSet: justSetFinalTotal });
 }

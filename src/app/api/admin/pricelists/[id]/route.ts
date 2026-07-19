@@ -37,7 +37,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if ("singleSurcharge" in b) data.singleSurcharge = b.singleSurcharge;
   if ("openDate" in b) data.openDate = b.openDate ? new Date(b.openDate) : null;
   if ("closeDate" in b) data.closeDate = b.closeDate ? new Date(b.closeDate) : null;
+  if ("editDeadline" in b) data.editDeadline = b.editDeadline ? new Date(b.editDeadline) : null;
   if ("deliveryDate" in b) data.deliveryDate = b.deliveryDate ? new Date(b.deliveryDate) : null;
+  if ("deliveryDateEnd" in b) data.deliveryDateEnd = b.deliveryDateEnd ? new Date(b.deliveryDateEnd) : null;
 
   const list = await prisma.pricelist.update({ where: { id }, data });
 

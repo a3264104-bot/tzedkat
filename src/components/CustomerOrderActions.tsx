@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 type Point = {
   id: string;
   name: string;
+  city: string | null;
 };
 
 type Props = {
@@ -89,6 +90,12 @@ export function CustomerOrderActions({
       )}
 
       <div className="flex gap-2 flex-wrap">
+        <a
+          href={`/order?editOrderId=${orderId}`}
+          className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-200"
+        >
+          🛒 עריכת פריטים
+        </a>
         <button
           onClick={() => setShowEdit(true)}
           disabled={busy}
@@ -234,20 +241,11 @@ function EditModal({
             />
           </label>
 
-          <label className="block text-sm">
-            <span className="text-zinc-700 font-medium">נקודת חלוקה</span>
-            <select
-              value={values.pointId}
-              onChange={(e) => setValues({ ...values, pointId: e.target.value })}
-              className="w-full mt-1 px-3 py-2 border border-zinc-300 rounded-lg"
-            >
-              {points.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <PointPicker
+            points={points}
+            value={values.pointId}
+            onChange={(id) => setValues({ ...values, pointId: id })}
+          />
 
           <label className="block text-sm">
             <span className="text-zinc-700 font-medium">הערות (אופציונלי)</span>
@@ -283,6 +281,131 @@ function EditModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// PointPicker — בחירת נקודת חלוקה בשני שלבים: קודם עיר, אחר כך נקודה בעיר
+function PointPicker({
+  points,
+  value,
+  onChange,
+}: {
+  points: Point[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  // מוצא את העיר של הנקודה הנבחרת כדי לפתוח על העיר הנכונה
+  const currentPoint = points.find((p) => p.id === value);
+  const [selectedCity, setSelectedCity] = useState<string | null>(
+    currentPoint?.city ?? null
+  );
+
+  // מקבץ נקודות לפי ערים
+  const cities = Array.from(
+    new Set(points.map((p) => p.city).filter((c): c is string => !!c))
+  ).sort((a, b) => a.localeCompare(b, "he"));
+
+  const pointsWithoutCity = points.filter((p) => !p.city);
+  const pointsInCity = selectedCity
+    ? points.filter((p) => p.city === selectedCity)
+    : [];
+
+  // אם יש רק עיר אחת (או אף עיר), מציגים רשימה שטוחה — אין צורך בשלב עיר
+  if (cities.length <= 1) {
+    return (
+      <label className="block text-sm">
+        <span className="text-zinc-700 font-medium">נקודת חלוקה</span>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full mt-1 px-3 py-2 border border-zinc-300 rounded-lg"
+        >
+          {points.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}{p.city ? ` — ${p.city}` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  return (
+    <div>
+      <div className="text-zinc-700 font-medium text-sm mb-2">נקודת חלוקה</div>
+
+      {/* שלב עיר */}
+      {!selectedCity && (
+        <div className="space-y-1.5 max-h-64 overflow-y-auto border border-zinc-200 rounded-lg p-2">
+          {cities.map((city) => {
+            const count = points.filter((p) => p.city === city).length;
+            return (
+              <button
+                key={city}
+                type="button"
+                onClick={() => setSelectedCity(city)}
+                className="w-full text-right px-3 py-2.5 rounded-lg hover:bg-zinc-50 border border-zinc-100 flex justify-between items-center"
+              >
+                <span className="font-medium text-brand-slatedark">🏙️ {city}</span>
+                <span className="text-xs text-zinc-400">
+                  {count === 1 ? "נקודה 1" : `${count} נקודות`}
+                </span>
+              </button>
+            );
+          })}
+          {pointsWithoutCity.length > 0 && (
+            <>
+              <div className="text-xs text-zinc-400 px-2 pt-1">נקודות ללא עיר</div>
+              {pointsWithoutCity.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onChange(p.id)}
+                  className={`w-full text-right px-3 py-2 rounded-lg hover:bg-zinc-50 border ${
+                    value === p.id ? "border-brand-rust bg-brand-rust/5" : "border-zinc-100"
+                  }`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* שלב נקודה בתוך עיר */}
+      {selectedCity && (
+        <div className="border border-zinc-200 rounded-lg p-2">
+          <button
+            type="button"
+            onClick={() => setSelectedCity(null)}
+            className="text-xs text-brand-rust font-medium mb-2 flex items-center gap-1"
+          >
+            ← חזרה לרשימת הערים
+          </button>
+          <div className="text-xs text-zinc-500 mb-2 px-1">
+            נקודות ב<strong>{selectedCity}</strong>:
+          </div>
+          <div className="space-y-1.5 max-h-56 overflow-y-auto">
+            {pointsInCity.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onChange(p.id)}
+                className={`w-full text-right px-3 py-2 rounded-lg hover:bg-zinc-50 border ${
+                  value === p.id
+                    ? "border-brand-rust bg-brand-rust/5 font-medium"
+                    : "border-zinc-100"
+                }`}
+              >
+                <span className="text-brand-slatedark">{p.name}</span>
+                {value === p.id && <span className="text-brand-rust mr-2">✓</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

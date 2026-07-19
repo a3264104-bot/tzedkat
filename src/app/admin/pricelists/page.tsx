@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, download } from "@/lib/client";
 import { PRICELIST_STATUS, fmt } from "@/lib/pricing";
 import { Modal, Field } from "@/components/AdminModal";
+import { HebrewDate } from "@/components/HebrewDate";
 
 type Pricelist = {
   id: string;
@@ -188,6 +189,12 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   const [surcharge, setSurcharge] = useState("3");
   const [dateText, setDateText] = useState("");
   const [notes, setNotes] = useState("");
+  // §16/#6: תאריכים למכירה
+  const [openDate, setOpenDate] = useState("");
+  const [closeDate, setCloseDate] = useState("");
+  const [editDeadline, setEditDeadline] = useState("");
+  const [deliveryStart, setDeliveryStart] = useState("");
+  const [deliveryEnd, setDeliveryEnd] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -211,6 +218,11 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
           singleSurcharge: parseFloat(surcharge) || 3,
           deliveryDateText: dateText || null,
           notes: notes || null,
+          openDate: openDate ? new Date(openDate).toISOString() : null,
+          closeDate: closeDate ? new Date(closeDate).toISOString() : null,
+          editDeadline: editDeadline ? new Date(editDeadline).toISOString() : null,
+          deliveryDate: deliveryStart ? new Date(deliveryStart).toISOString() : null,
+          deliveryDateEnd: deliveryEnd ? new Date(deliveryEnd).toISOString() : null,
         }),
       });
       onDone();
@@ -247,6 +259,85 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
             onChange={(e) => setDateText(e.target.value)}
           />
         </Field>
+
+        {/* §16/#6: שדות תאריכים עם תצוגת תאריך עברי */}
+        <div className="bg-zinc-50 rounded-lg p-3 space-y-3">
+          <p className="text-xs font-bold text-brand-slatedark">תאריכי מכירה</p>
+
+          <Field label="פתיחת ההרשמה">
+            <input
+              className="input"
+              type="datetime-local"
+              value={openDate}
+              onChange={(e) => setOpenDate(e.target.value)}
+            />
+            {openDate && (
+              <p className="text-xs text-brand-rust mt-1">
+                📅 <HebrewDate date={openDate} />
+              </p>
+            )}
+          </Field>
+
+          <Field label="סגירת ההרשמה (הזמנות חדשות)">
+            <input
+              className="input"
+              type="datetime-local"
+              value={closeDate}
+              onChange={(e) => setCloseDate(e.target.value)}
+            />
+            {closeDate && (
+              <p className="text-xs text-brand-rust mt-1">
+                📅 <HebrewDate date={closeDate} />
+              </p>
+            )}
+          </Field>
+
+          <Field label="נעילת שינויים (הלקוח לא יכול לערוך אחרי)">
+            <input
+              className="input"
+              type="datetime-local"
+              value={editDeadline}
+              onChange={(e) => setEditDeadline(e.target.value)}
+            />
+            {editDeadline && (
+              <p className="text-xs text-brand-rust mt-1">
+                📅 <HebrewDate date={editDeadline} />
+              </p>
+            )}
+            <p className="text-xs text-zinc-500 mt-1">
+              אם ריק — הלקוח יכול לערוך עד סגירת ההרשמה.
+            </p>
+          </Field>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="תחילת חלוקה">
+              <input
+                className="input"
+                type="datetime-local"
+                value={deliveryStart}
+                onChange={(e) => setDeliveryStart(e.target.value)}
+              />
+              {deliveryStart && (
+                <p className="text-xs text-brand-rust mt-1">
+                  <HebrewDate date={deliveryStart} />
+                </p>
+              )}
+            </Field>
+            <Field label="סוף חלוקה">
+              <input
+                className="input"
+                type="datetime-local"
+                value={deliveryEnd}
+                onChange={(e) => setDeliveryEnd(e.target.value)}
+              />
+              {deliveryEnd && (
+                <p className="text-xs text-brand-rust mt-1">
+                  <HebrewDate date={deliveryEnd} />
+                </p>
+              )}
+            </Field>
+          </div>
+        </div>
         <Field label="הערות ללקוח (אופציונלי)">
           <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
@@ -269,7 +360,17 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
   const [allPoints, setAllPoints] = useState<any[]>([]);
   const [selProducts, setSelProducts] = useState<Record<string, { on: boolean; price: string }>>({});
   const [selPoints, setSelPoints] = useState<Record<string, boolean>>({});
-  const [form, setForm] = useState({ name: "", surcharge: "3", dateText: "", notes: "" });
+  const [form, setForm] = useState({
+    name: "",
+    surcharge: "3",
+    dateText: "",
+    notes: "",
+    openDate: "",
+    closeDate: "",
+    editDeadline: "",
+    deliveryDate: "",
+    deliveryDateEnd: "",
+  });
 
   useEffect(() => {
     (async () => {
@@ -286,6 +387,11 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
         surcharge: String(pl.singleSurcharge),
         dateText: pl.deliveryDateText ?? "",
         notes: pl.notes ?? "",
+        openDate: pl.openDate ? pl.openDate.slice(0, 16) : "",
+        closeDate: pl.closeDate ? pl.closeDate.slice(0, 16) : "",
+        editDeadline: pl.editDeadline ? pl.editDeadline.slice(0, 16) : "",
+        deliveryDate: pl.deliveryDate ? pl.deliveryDate.slice(0, 16) : "",
+        deliveryDateEnd: pl.deliveryDateEnd ? pl.deliveryDateEnd.slice(0, 16) : "",
       });
       const sp: Record<string, { on: boolean; price: string }> = {};
       for (const p of products) {
@@ -332,6 +438,11 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
           singleSurcharge: parseFloat(form.surcharge) || 3,
           deliveryDateText: form.dateText || null,
           notes: form.notes || null,
+          openDate: form.openDate ? new Date(form.openDate).toISOString() : null,
+          closeDate: form.closeDate ? new Date(form.closeDate).toISOString() : null,
+          editDeadline: form.editDeadline ? new Date(form.editDeadline).toISOString() : null,
+          deliveryDate: form.deliveryDate ? new Date(form.deliveryDate).toISOString() : null,
+          deliveryDateEnd: form.deliveryDateEnd ? new Date(form.deliveryDateEnd).toISOString() : null,
           products,
           pointIds,
         }),
@@ -363,6 +474,75 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
         <Field label="הערות ללקוח">
           <textarea className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
         </Field>
+
+        {/* §16/#6: שדות תאריכים עם תצוגת תאריך עברי */}
+        <div className="bg-zinc-50 rounded-lg p-3 space-y-3">
+          <p className="text-xs font-bold text-brand-slatedark">תאריכי מכירה</p>
+
+          <Field label="פתיחת ההרשמה">
+            <input
+              className="input"
+              type="datetime-local"
+              value={form.openDate}
+              onChange={(e) => setForm({ ...form, openDate: e.target.value })}
+            />
+            {form.openDate && (
+              <p className="text-xs text-brand-rust mt-1">📅 <HebrewDate date={form.openDate} /></p>
+            )}
+          </Field>
+
+          <Field label="סגירת ההרשמה (הזמנות חדשות)">
+            <input
+              className="input"
+              type="datetime-local"
+              value={form.closeDate}
+              onChange={(e) => setForm({ ...form, closeDate: e.target.value })}
+            />
+            {form.closeDate && (
+              <p className="text-xs text-brand-rust mt-1">📅 <HebrewDate date={form.closeDate} /></p>
+            )}
+          </Field>
+
+          <Field label="נעילת שינויים (הלקוח לא יכול לערוך אחרי)">
+            <input
+              className="input"
+              type="datetime-local"
+              value={form.editDeadline}
+              onChange={(e) => setForm({ ...form, editDeadline: e.target.value })}
+            />
+            {form.editDeadline && (
+              <p className="text-xs text-brand-rust mt-1">📅 <HebrewDate date={form.editDeadline} /></p>
+            )}
+            <p className="text-xs text-zinc-500 mt-1">
+              אם ריק — הלקוח יכול לערוך עד סגירת ההרשמה.
+            </p>
+          </Field>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="תחילת חלוקה">
+              <input
+                className="input"
+                type="datetime-local"
+                value={form.deliveryDate}
+                onChange={(e) => setForm({ ...form, deliveryDate: e.target.value })}
+              />
+              {form.deliveryDate && (
+                <p className="text-xs text-brand-rust mt-1"><HebrewDate date={form.deliveryDate} /></p>
+              )}
+            </Field>
+            <Field label="סוף חלוקה">
+              <input
+                className="input"
+                type="datetime-local"
+                value={form.deliveryDateEnd}
+                onChange={(e) => setForm({ ...form, deliveryDateEnd: e.target.value })}
+              />
+              {form.deliveryDateEnd && (
+                <p className="text-xs text-brand-rust mt-1"><HebrewDate date={form.deliveryDateEnd} /></p>
+              )}
+            </Field>
+          </div>
+        </div>
 
         <div>
           <div className="label">נקודות חלוקה משתתפות</div>

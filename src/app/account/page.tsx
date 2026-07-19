@@ -29,7 +29,7 @@ export default async function AccountPage() {
         include: {
           point: { select: { name: true, city: true, address: true, deliveryHours: true } },
           items: { include: { product: { select: { imageUrl: true } } } },
-          pricelist: { select: { closeDate: true } },
+          pricelist: { select: { closeDate: true, editDeadline: true } },
         },
       },
     },
@@ -82,6 +82,7 @@ export default async function AccountPage() {
     pointId: o.pointId,
     notes: o.notes,
     pricelistCloseDate: o.pricelist?.closeDate?.toISOString() ?? null,
+    pricelistEditDeadline: o.pricelist?.editDeadline?.toISOString() ?? null,
   }));
 
   return (

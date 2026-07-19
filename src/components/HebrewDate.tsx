@@ -3,41 +3,8 @@
 import { useEffect, useState } from "react";
 
 // §6: תצוגת תאריך עברי+לועזי משולב.
-// משתמש ב-@hebcal/core דרך CDN (esm.sh) כדי לא להוסיף תלות לbundle.
-// מחזיר למשל: "יום חמישי פ' דברים - ב' אב תשפ"ו - 16/07/2026"
-
-// שמות חודשים עבריים
-const MONTH_HE: Record<string, string> = {
-  Nisan: "ניסן", Iyyar: "אייר", Sivan: "סיוון", Tamuz: "תמוז", Tammuz: "תמוז",
-  Av: "אב", Elul: "אלול", Tishrei: "תשרי", Cheshvan: "חשוון", Kislev: "כסלו",
-  Tevet: "טבת", Shvat: "שבט", Shevat: "שבט", Adar: "אדר",
-  "Adar I": "אדר א׳", "Adar II": "אדר ב׳", "Adar 1": "אדר א׳", "Adar 2": "אדר ב׳",
-};
-
-// המרת שנה עברית לגימטריה
-function toHebYear(year: number): string {
-  const map: Record<number, string> = {
-    100: "ק", 200: "ר", 300: "ש", 400: "ת",
-    500: "תק", 600: "תר", 700: "תש", 800: "תת", 900: "תתק",
-  };
-  const tens = ["", "י", "כ", "ל", "מ", "נ", "ס", "ע", "פ", "צ"];
-  const units = ["", "א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט"];
-  const rem = year % 1000;
-  const h = Math.floor(rem / 100) * 100;
-  const t = Math.floor((rem % 100) / 10);
-  const u = rem % 10;
-  let str = map[h] || "";
-  const tu = t * 10 + u;
-  if (tu === 15) str += "טו";
-  else if (tu === 16) str += "טז";
-  else {
-    if (t) str += tens[t];
-    if (u) str += units[u];
-  }
-  if (str.length === 1) str += "׳";
-  else if (str.length > 1) str = str.slice(0, -1) + "״" + str.slice(-1);
-  return "ה׳" + str;
-}
+// שני מנגנוני fallback: Intl.DateTimeFormat (מובנה בדפדפנים) + @hebcal/core (npm).
+// מחזיר למשל: "ב׳ אב ה׳תשפ״ו - 16/07/2026"
 
 // פורמט לועזי
 function fmtGreg(d: Date): string {
@@ -96,15 +63,13 @@ export function HebrewDate({ date, className, hebrewOnly }: Props) {
       return;
     }
 
-    // Fallback: @hebcal/core דרך CDN
+    // Fallback: @hebcal/core (מותקן ב-npm)
+    // renderGematriya() מחזיר את התאריך המלא בגמטריה, למשל: "ה׳ אָב תשפ״ו"
     (async () => {
       try {
-        const { HDate } = await import("https://esm.sh/@hebcal/core@6.3.0" as any);
+        const { HDate } = await import("@hebcal/core");
         const hd = new HDate(d);
-        const dayGematriya = hd.renderGematriya();
-        const monthName = MONTH_HE[hd.getMonthName("he")] || hd.getMonthName("he");
-        const yearStr = toHebYear(hd.getFullYear());
-        setHebDate(`${dayGematriya} ${monthName} ${yearStr}`);
+        setHebDate(hd.renderGematriya());
       } catch {
         // לא הצלחנו — מציגים רק לועזי
       }

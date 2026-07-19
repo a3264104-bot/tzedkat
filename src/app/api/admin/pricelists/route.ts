@@ -49,7 +49,9 @@ export async function POST(req: Request) {
       deliveryDateText: b.deliveryDateText ?? null,
       openDate: b.openDate ? new Date(b.openDate) : null,
       closeDate: b.closeDate ? new Date(b.closeDate) : null,
+      editDeadline: b.editDeadline ? new Date(b.editDeadline) : null,
       deliveryDate: b.deliveryDate ? new Date(b.deliveryDate) : null,
+      deliveryDateEnd: b.deliveryDateEnd ? new Date(b.deliveryDateEnd) : null,
       products: b.productIds?.length
         ? { create: b.productIds.map((id: string) => ({ productId: id })) }
         : undefined,

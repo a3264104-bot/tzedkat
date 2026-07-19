@@ -38,6 +38,7 @@ type Order = {
   pointId: string;
   notes: string | null;
   pricelistCloseDate: string | null;
+  pricelistEditDeadline: string | null;
 };
 
 type Point = { id: string; name: string; city: string | null };
@@ -151,7 +152,7 @@ export function AccountClient({
     <main dir="rtl" className="min-h-screen bg-[#faf6ec] pb-16">
       {/* header */}
       <header className="bg-brand-yellow border-b-4 border-brand-rust/20">
-        <div className="mx-auto max-w-md px-4 py-3 flex items-center justify-between">
+        <div className="mx-auto max-w-md md:max-w-4xl px-4 py-3 flex items-center justify-between">
           <Link href="/" className="text-brand-slate text-sm font-medium">
             דף הבית
           </Link>
@@ -159,7 +160,7 @@ export function AccountClient({
         </div>
       </header>
 
-      <div className="mx-auto max-w-md px-4 pt-6 space-y-5">
+      <div className="mx-auto max-w-md md:max-w-4xl px-4 pt-6 space-y-5">
         {/* פרטי לקוח */}
         <div className="card p-5">
           <div className="flex items-center justify-between">
@@ -315,7 +316,7 @@ export function AccountClient({
               עדיין אין הזמנות
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
               {orders.map((o) => (
                 <div key={o.id} className="card p-4">
                   <div className="flex justify-between items-start">
@@ -390,11 +391,13 @@ export function AccountClient({
                     orderNumber={o.orderNumber}
                     isEditable={computeIsEditable(o)}
                     editableUntil={
-                      o.pricelistCloseDate
-                        ? new Date(o.pricelistCloseDate).toLocaleDateString("he-IL", {
+                      (o.pricelistEditDeadline || o.pricelistCloseDate)
+                        ? new Date((o.pricelistEditDeadline || o.pricelistCloseDate)!).toLocaleDateString("he-IL", {
                             day: "2-digit",
                             month: "2-digit",
                             year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
                           })
                         : null
                     }
@@ -418,16 +421,13 @@ export function AccountClient({
 }
 
 // חישוב אם הזמנה ניתנת לעריכה/ביטול על ידי הלקוח.
-// חוקים (זהים לחוקי הבדיקה בשרת ב-/api/customer/orders/[id]):
-//   1. סטטוס לא CANCELLED / COMPLETED
-//   2. finalTotal עדיין null (עוד לא נשקלה)
-//   3. closeDate של המחירון בעתיד (או null)
+// עדיפות: editDeadline > closeDate (זהה לחוקי הבדיקה בשרת ב-/api/customer/orders/[id]):
 function computeIsEditable(o: Order): boolean {
   if (o.status === "CANCELLED" || o.status === "COMPLETED") return false;
   if (o.finalTotal !== null) return false;
-  if (o.pricelistCloseDate) {
-    const closeDate = new Date(o.pricelistCloseDate);
-    if (closeDate < new Date()) return false;
+  const deadline = o.pricelistEditDeadline || o.pricelistCloseDate;
+  if (deadline) {
+    if (new Date(deadline) < new Date()) return false;
   }
   return true;
 }

@@ -20,7 +20,7 @@ async function checkEditable(orderId: string, customerId: string) {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     include: {
-      pricelist: { select: { closeDate: true } },
+      pricelist: { select: { closeDate: true, editDeadline: true } },
     },
   });
 
@@ -41,12 +41,13 @@ async function checkEditable(orderId: string, customerId: string) {
       error: "ההזמנה כבר נשקלה - לא ניתן לערוך/לבטל. פנה לתמיכה.",
     };
   }
-  const closeDate = order.pricelist?.closeDate;
-  if (closeDate && new Date(closeDate) < new Date()) {
+  // §16: editDeadline קודם, אם ריק — fallback ל-closeDate
+  const deadline = order.pricelist?.editDeadline || order.pricelist?.closeDate;
+  if (deadline && new Date(deadline) < new Date()) {
     return {
       ok: false as const,
       status: 409,
-      error: "המכירה נסגרה - לא ניתן יותר לערוך/לבטל",
+      error: "המערכת נסגרה לשינויים - לא ניתן יותר לערוך/לבטל",
     };
   }
   return { ok: true as const, order };
@@ -97,29 +98,126 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       data.notes = n.length > 0 ? n : null;
     }
 
-    if (Object.keys(data).length === 0) {
+    // §16 פאזה 2: עריכת פריטים בהזמנה
+    // Body: items?: [{ productId, isSingle, quantity }]
+    // אם עוברים items, מוחקים את כל הפריטים הקיימים ומחליפים בחדשים
+    // + מחשבים estimatedTotal מחדש
+    let itemsChanged = false;
+    if (Array.isArray(body.items) && body.items.length > 0) {
+      itemsChanged = true;
+    }
+
+    if (Object.keys(data).length === 0 && !itemsChanged) {
       return NextResponse.json({ error: "אין שדות לעדכון" }, { status: 400 });
     }
 
-    const updated = await prisma.order.update({
+    // אם יש עדכון פריטים - מעדכנים בטרנזקציה
+    if (itemsChanged) {
+      // טוענים מחירון + מוצרים כדי לחשב estimatedTotal
+      const orderInfo = await prisma.order.findUnique({
+        where: { id },
+        select: {
+          pricelistId: true,
+          pricelist: { select: { singleSurcharge: true } },
+        },
+      });
+      if (!orderInfo) {
+        return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
+      }
+      if (!orderInfo.pricelistId) {
+        return NextResponse.json({ error: "להזמנה אין מחירון משויך" }, { status: 400 });
+      }
+      const orderPricelistId: string = orderInfo.pricelistId;
+
+      const productIds = body.items.map((i: any) => String(i.productId));
+      const pricelistProducts = await prisma.pricelistProduct.findMany({
+        where: { pricelistId: orderPricelistId, productId: { in: productIds } },
+        include: { product: true },
+      });
+      const ppMap = new Map(pricelistProducts.map((pp) => [pp.productId, pp]));
+
+      const surcharge = Number(orderInfo.pricelist?.singleSurcharge ?? 3);
+      let estimatedTotal = 0;
+      const newItems = [];
+
+      for (const item of body.items) {
+        const pp = ppMap.get(String(item.productId));
+        if (!pp) continue;
+        const base = Number(pp.price ?? pp.product.cartonPrice);
+        const isSingle = !!item.isSingle && pp.product.allowSingles;
+        const qty = Number(item.quantity);
+        if (qty <= 0) continue;
+
+        // חישוב מחיר יחידה
+        let unitPrice = base;
+        if (isSingle && pp.product.singlesMode === "UNITS" && pp.product.singleUnitPrice) {
+          unitPrice = Number(pp.product.singleUnitPrice);
+        } else if (isSingle) {
+          unitPrice = Math.round((base + surcharge) * 100) / 100;
+        }
+
+        // חישוב סה"כ שורה + משקל משוער
+        const avgWeight = pp.product.avgWeightPerUnit ? Number(pp.product.avgWeightPerUnit) : null;
+        const isSinglesKg = isSingle && pp.product.priceType === "PER_KG" && pp.product.singlesMode !== "UNITS";
+        const isSinglesUnits = isSingle && pp.product.singlesMode === "UNITS";
+
+        let estPrice: number;
+        let estWeight: number | null = null;
+        if (isSinglesKg) {
+          estPrice = Math.round(unitPrice * qty * 100) / 100;
+          estWeight = qty;
+        } else if (isSinglesUnits) {
+          estPrice = Math.round(unitPrice * qty * 100) / 100;
+        } else if ((pp.product.saleType === "UNIT" || pp.product.saleType === "PACKAGE") && pp.product.priceType === "PER_KG" && avgWeight) {
+          estPrice = Math.round(unitPrice * avgWeight * qty * 100) / 100;
+          estWeight = Math.round(avgWeight * qty * 1000) / 1000;
+        } else {
+          estPrice = Math.round(unitPrice * qty * 100) / 100;
+        }
+        estimatedTotal += estPrice;
+
+        newItems.push({
+          productId: pp.product.id,
+          productName: pp.product.name,
+          unit: pp.product.unit,
+          isSingle,
+          quantity: qty,
+          estimatedWeight: estWeight,
+          estimatedPrice: estPrice,
+          unitPrice,
+        });
+      }
+
+      // עדכון בטרנזקציה: מחיקת פריטים ישנים + יצירת חדשים + עדכון סה"כ + שדות בסיס
+      data.estimatedTotal = estimatedTotal;
+      await prisma.$transaction([
+        prisma.orderItem.deleteMany({ where: { orderId: id } }),
+        prisma.orderItem.createMany({
+          data: newItems.map((it) => ({ orderId: id, ...it })),
+        }),
+        prisma.order.update({ where: { id }, data }),
+      ]);
+    } else {
+      // רק עדכון שדות בסיס
+      await prisma.order.update({ where: { id }, data });
+    }
+
+    // טעינה מחודשת לצורך המייל
+    const updated = await prisma.order.findUnique({
       where: { id },
-      data,
       include: { items: true, customer: true, point: true },
     });
 
-    // מייל עדכון ללקוח (§17)
-    if (updated.customer?.email) {
-      const res = await sendOrderUpdatedEmail(
-        updated as any,
-        updated.customer.email,
-        "עדכנת את פרטי ההזמנה באזור האישי"
-      );
+    // מייל אישור קצר ללקוח - "השינויים נשמרו"
+    // רק כשהלקוח עצמו עדכן (מ-customer route), לא כשמנהל עדכן
+    if (updated?.customer?.email) {
+      const res = await sendOrderUpdatedEmail(updated as any, updated.customer.email);
       if (!res.ok) {
         console.error("sendOrderUpdatedEmail failed:", res.error);
       }
     }
 
-    return NextResponse.json({ ok: true, id: updated.id });
+    return NextResponse.json({ ok: true, id });
   } catch (e: any) {
     console.error("PATCH /api/customer/orders/[id] exception:", e);
     return NextResponse.json({ error: "שגיאת שרת" }, { status: 500 });
