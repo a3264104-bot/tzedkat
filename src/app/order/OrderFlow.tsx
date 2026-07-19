@@ -127,12 +127,21 @@ export function OrderFlow({
   const [orderNumber, setOrderNumber] = useState<number | null>(null);
   const [error, setError] = useState("");
   // §4: הודעת תנאים לפני תחילת ההזמנה (במצב עריכה - מדלגים)
-  // נשמר ב-localStorage כדי שהלקוח יראה רק פעם אחת, לא בכל כניסה
-  const [termsAccepted, setTermsAccepted] = useState<boolean>(() => {
-    if (editMode) return true;
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("tzidkat_terms_accepted") === "1";
-  });
+  // חשוב: מתחילים ב-true כדי להסתיר את התקנון עד ש-useEffect בודק את localStorage.
+  // אחרת יש SSR mismatch (שרת=false, לקוח=true) והתקנון מופיע גם אחרי אישור.
+  const [termsAccepted, setTermsAccepted] = useState<boolean>(true);
+  const [termsChecked, setTermsChecked] = useState(false); // האם כבר בדקנו את localStorage
+
+  useEffect(() => {
+    if (editMode) {
+      setTermsAccepted(true);
+      setTermsChecked(true);
+      return;
+    }
+    const accepted = localStorage.getItem("tzidkat_terms_accepted") === "1";
+    setTermsAccepted(accepted);
+    setTermsChecked(true);
+  }, [editMode]);
 
   function acceptTerms() {
     setTermsAccepted(true);
@@ -789,7 +798,7 @@ export function OrderFlow({
         {/* שלב אישור תאריך בוטל (סעיף 2) - פרטי החלוקה מוצגים בסיכום */}
 
         {/* STEP: products */}
-        {step === "products" && !termsAccepted && (
+        {step === "products" && termsChecked && !termsAccepted && (
           <section>
             <div className="card p-6 text-center">
               <h2 className="text-xl font-extrabold text-brand-slatedark mb-4">
@@ -927,7 +936,7 @@ export function OrderFlow({
                                     </span>
                                     {p.avgWeightPerUnit != null && (
                                       <span className="block text-xs text-zinc-500">
-                                        קרטון ≈ {p.avgWeightPerUnit} ק"ג (~{fmt(p.price * p.avgWeightPerUnit)} לקרטון)
+                                        קרטון ≈ {p.avgWeightPerUnit} ק"ג
                                       </span>
                                     )}
                                   </>

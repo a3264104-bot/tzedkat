@@ -3,101 +3,155 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { Resend } from "resend";
 
-// GET: מוצרים פעילים למודול + האם המודול מופעל בכלל
-export async function GET() {
-  const settings = await prisma.systemSettings.findUnique({ where: { id: "singleton" } });
-  const enabled = settings?.personalOrdersEnabled ?? false;
-  if (!enabled) {
-    return NextResponse.json({ enabled: false, products: [] });
-  }
-  const products = await prisma.personalProduct.findMany({
-    where: { isActive: true },
-    orderBy: { sortOrder: "asc" },
-  });
-  return NextResponse.json({ enabled: true, products });
+// §9: יצירת בקשה אישית - עם עגלה (מספר פריטים)
+// POST /api/personal-request
+// Body: { customerName, phone, notes?, items: [{ productId, quantity }] }
+
+const FROM_ADDRESS = "צדקת רבותינו <orders@tzidkat.com>";
+const ADMIN_EMAIL = "m5402088@gmail.com";
+
+function getResend() {
+  return new Resend(process.env.RESEND_API_KEY);
 }
 
-// POST: שליחת בקשת הזמנה אישית (לקוחות מחוברים בלבד)
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "יש להתחבר כדי לשלוח בקשה" }, { status: 401 });
-  }
-
-  const settings = await prisma.systemSettings.findUnique({ where: { id: "singleton" } });
-  if (!settings?.personalOrdersEnabled) {
-    return NextResponse.json({ error: "שירות ההזמנות האישיות אינו פעיל כרגע" }, { status: 403 });
-  }
-
-  const customerId = (session.user as any).id as string;
-  const customer = await prisma.customer.findUnique({ where: { id: customerId } });
-  if (!customer) {
-    return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 404 });
-  }
-
-  const b = await req.json();
-  const items: { productId: string; quantity: number }[] = Array.isArray(b.items) ? b.items : [];
-  const valid = items.filter((it) => it.productId && Number(it.quantity) > 0);
-  if (valid.length === 0) {
-    return NextResponse.json({ error: "יש לבחור לפחות מוצר אחד עם כמות" }, { status: 400 });
-  }
-
-  // שליפת שמות המוצרים ל-snapshot
-  const products = await prisma.personalProduct.findMany({
-    where: { id: { in: valid.map((v) => v.productId) } },
-  });
-  const productMap = new Map(products.map((p) => [p.id, p]));
-
-  const itemsData = valid
-    .filter((v) => productMap.has(v.productId))
-    .map((v) => {
-      const product = productMap.get(v.productId)!;
-      // אכיפת כמות מקסימלית בשרת (הגנה מפני עקיפת ה-client)
-      let quantity = Number(v.quantity);
-      if (product.maxQuantity != null && quantity > product.maxQuantity) {
-        quantity = product.maxQuantity;
-      }
-      return {
-        productId: v.productId,
-        productName: product.name,
-        quantity,
-      };
-    });
-
-  const request = await prisma.personalRequest.create({
-    data: {
-      customerId,
-      customerName: customer.name,
-      phone: customer.phone || "",
-      notes: b.notes || null,
-      items: { create: itemsData },
-    },
-    include: { items: true },
-  });
-
-  // התראה למנהל (לא חוסמת)
   try {
-    const adminEmail = settings.adminEmail;
-    if (adminEmail && process.env.RESEND_API_KEY) {
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      const itemsList = itemsData.map((it) => `${it.productName} × ${it.quantity}`).join("<br>");
-      await resend.emails.send({
-        from: "צדקת רבותינו <orders@tzidkat.com>",
-        to: adminEmail,
-        subject: `בקשת הזמנה אישית חדשה #${request.requestNumber}`,
-        html: `
-          <div dir="rtl" lang="he" style="font-family:Arial,sans-serif;padding:16px;">
-            <h2>בקשת הזמנה אישית חדשה #${request.requestNumber}</h2>
-            <p><b>לקוח:</b> ${customer.name} · ${customer.phone || "ללא טלפון"}</p>
-            <p><b>מוצרים:</b><br>${itemsList}</p>
-            ${b.notes ? `<p><b>הערות:</b> ${b.notes}</p>` : ""}
-            <p style="color:#888;">יש ליצור קשר עם הלקוח לתיאום.</p>
-          </div>`,
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "יש להתחבר" }, { status: 401 });
+    }
+    const customerId = (session.user as any).id as string;
+
+    const body = await req.json().catch(() => ({}));
+    const customerName = String(body.customerName || "").trim();
+    const phone = String(body.phone || "").trim();
+    const notes = body.notes ? String(body.notes).trim() : null;
+    const items = Array.isArray(body.items) ? body.items : [];
+
+    if (!customerName) {
+      return NextResponse.json({ error: "יש להזין שם" }, { status: 400 });
+    }
+    if (!phone) {
+      return NextResponse.json({ error: "יש להזין טלפון" }, { status: 400 });
+    }
+    if (items.length === 0) {
+      return NextResponse.json({ error: "יש לבחור לפחות מוצר אחד" }, { status: 400 });
+    }
+
+    // וידוא שכל המוצרים קיימים ופעילים + הגבלות כמות
+    const productIds = items.map((it: any) => String(it.productId));
+    const products = await prisma.personalProduct.findMany({
+      where: { id: { in: productIds }, isActive: true },
+    });
+    const pMap = new Map(products.map((p) => [p.id, p]));
+
+    const validItems: {
+      productId: string;
+      productName: string;
+      quantity: number;
+    }[] = [];
+
+    for (const item of items) {
+      const p = pMap.get(String(item.productId));
+      if (!p) continue;
+      const qty = Number(item.quantity);
+      if (!qty || qty < 1) continue;
+      const maxQty = p.maxQuantity || 99;
+      const finalQty = Math.min(qty, maxQty);
+      validItems.push({
+        productId: p.id,
+        productName: p.name,
+        quantity: finalQty,
       });
     }
-  } catch (e) {
-    console.error("personal request admin notification failed:", e);
-  }
 
-  return NextResponse.json({ ok: true, requestNumber: request.requestNumber });
+    if (validItems.length === 0) {
+      return NextResponse.json({ error: "אין מוצרים תקינים בבקשה" }, { status: 400 });
+    }
+
+    // יצירת הבקשה
+    const request = await prisma.personalRequest.create({
+      data: {
+        customerId,
+        customerName,
+        phone,
+        notes,
+        status: "NEW",
+        hasUnreadForAdmin: true,
+        hasUnreadForCustomer: false,
+        items: {
+          create: validItems,
+        },
+      },
+      select: {
+        id: true,
+        requestNumber: true,
+      },
+    });
+
+    // מייל למנהל
+    try {
+      const itemsList = validItems.map((it) => `• ${it.productName} × ${it.quantity}`).join("<br>");
+      await getResend().emails.send({
+        from: FROM_ADDRESS,
+        to: ADMIN_EMAIL,
+        subject: `בקשה אישית חדשה #${request.requestNumber}`,
+        html: `<div dir="rtl" style="font-family:Arial,sans-serif;padding:16px;">
+          <h2 style="color:#C0461E;">בקשה אישית חדשה #${request.requestNumber}</h2>
+          <p><strong>לקוח:</strong> ${customerName}</p>
+          <p><strong>טלפון:</strong> ${phone}</p>
+          ${notes ? `<p><strong>הערות:</strong> ${notes}</p>` : ""}
+          <h3>פריטים:</h3>
+          <p>${itemsList}</p>
+          <p style="margin-top:20px;color:#666;">
+            <a href="https://tzidkat.com/admin/personal-requests">לניהול בקשות אישיות</a>
+          </p>
+        </div>`,
+      });
+    } catch (e) {
+      console.error("Failed to send admin notification email:", e);
+    }
+
+    // מייל אישור ללקוח
+    try {
+      const customer = await prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { email: true },
+      });
+      if (customer?.email) {
+        const itemsList = validItems.map((it) => `• ${it.productName} × ${it.quantity}`).join("<br>");
+        await getResend().emails.send({
+          from: FROM_ADDRESS,
+          to: customer.email,
+          subject: `הבקשה שלך #${request.requestNumber} התקבלה`,
+          html: `<div dir="rtl" style="font-family:Arial,sans-serif;padding:16px;background:#fff8d8;">
+            <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:24px;">
+              <h2 style="color:#C0461E;">הבקשה שלך התקבלה!</h2>
+              <p>שלום ${customerName},</p>
+              <p>קיבלנו את בקשתך למוצרים אישיים. מספר הבקשה: <strong>#${request.requestNumber}</strong></p>
+              <div style="background:#eff6ff;padding:12px;border-radius:8px;border-right:4px solid #2563eb;">
+                <h3 style="margin-top:0;">פריטים מבוקשים:</h3>
+                <p>${itemsList}</p>
+              </div>
+              <p>ניצור איתך קשר בהקדם לתיאום. תוכל לעקוב אחר סטטוס הבקשה באזור האישי.</p>
+              <p style="color:#888;font-size:12px;margin-top:20px;">
+                צדקת רבותינו — עופות, בשר ודגים
+              </p>
+            </div>
+          </div>`,
+        });
+      }
+    } catch (e) {
+      console.error("Failed to send customer confirmation email:", e);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      id: request.id,
+      requestNumber: request.requestNumber,
+    });
+  } catch (e: any) {
+    console.error("POST /api/personal-request error:", e);
+    return NextResponse.json({ error: "שגיאת שרת" }, { status: 500 });
+  }
 }

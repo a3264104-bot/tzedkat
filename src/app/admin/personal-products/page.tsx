@@ -13,10 +13,15 @@ type Product = {
   sortOrder: number;
   maxQuantity: number | null;
   stock: number | null;
+  pointId: string | null;
+  point: { id: string; name: string; city: string | null } | null;
 };
+
+type Point = { id: string; name: string; city: string | null; isActive: boolean };
 
 export default function PersonalProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [points, setPoints] = useState<Point[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Partial<Product> | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -24,7 +29,12 @@ export default function PersonalProductsPage() {
 
   async function load() {
     setLoading(true);
-    setProducts(await api("/api/admin/personal-products"));
+    const [productsData, pointsData] = await Promise.all([
+      api("/api/admin/personal-products"),
+      api("/api/admin/points"),
+    ]);
+    setProducts(productsData);
+    setPoints((pointsData || []).filter((p: any) => p.isActive));
     setLoading(false);
   }
   useEffect(() => {
@@ -154,9 +164,15 @@ export default function PersonalProductsPage() {
                   {p.description && (
                     <div className="text-xs text-zinc-500">{p.description}</div>
                   )}
-                  <div className="flex gap-1 mt-1">
+                  <div className="flex gap-1 mt-1 flex-wrap">
                     {!p.isActive && (
                       <span className="badge bg-zinc-200 text-zinc-600">מוסתר</span>
+                    )}
+                    {p.point && (
+                      <span className="badge bg-emerald-100 text-emerald-700">
+                        📍 {p.point.name}
+                        {p.point.city && ` — ${p.point.city}`}
+                      </span>
                     )}
                     {p.stock != null && (
                       <span className="badge bg-blue-100 text-blue-700">מלאי: {p.stock}</span>
@@ -228,6 +244,26 @@ export default function PersonalProductsPage() {
                 )}
               </div>
             </Field>
+            <Field label="נקודת חלוקה ייעודית (אופציונלי)">
+              <select
+                className="input"
+                value={editing.pointId ?? ""}
+                onChange={(e) =>
+                  setEditing({ ...editing, pointId: e.target.value || null })
+                }
+              >
+                <option value="">— ללא נקודה ייעודית (מוצג לכולם) —</option>
+                {points.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.city ? ` — ${p.city}` : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-zinc-500 mt-1">
+                אם נבחרה נקודה — המוצר יוצג ללקוחות תחת קטגוריה של הנקודה. אחרת יופיע ב"מוצרים כלליים".
+              </p>
+            </Field>
+
             <div className="grid grid-cols-2 gap-3">
               <Field label="כמות מקסימלית (אופציונלי)">
                 <input

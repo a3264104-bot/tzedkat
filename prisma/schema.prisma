@@ -120,6 +120,7 @@ model DeliveryPoint {
   pricelists   PricelistPoint[]
   customers    Customer[] // לקוחות שבחרו נקודה זו כברירת מחדל
   agents       Customer[] @relation("AgentPoint") // נציגים המוגבלים לנקודה זו
+  personalProducts PersonalProduct[] @relation("PersonalProductPoint") // §9: מוצרים אישיים בנקודה זו
   createdAt    DateTime @default(now())
 }
 
@@ -285,6 +286,9 @@ model PersonalProduct {
   sortOrder   Int      @default(0)
   maxQuantity Int?     // כמות מקסימלית להזמנה (אופציונלי)
   stock       Int?     // מלאי זמין (אופציונלי)
+  // §9: נקודת חלוקה ייעודית למוצר האישי (אופציונלי)
+  pointId     String?
+  point       DeliveryPoint? @relation("PersonalProductPoint", fields: [pointId], references: [id])
   createdAt   DateTime @default(now())
   requestItems PersonalRequestItem[]
 }
@@ -299,9 +303,13 @@ model PersonalRequest {
   phone        String   // snapshot
   notes        String?
   status       String   @default("NEW") // NEW/IN_PROGRESS/CONTACTED/WAITING/DONE/CANCELLED
+  // §9: מסמן שיש הודעה חדשה שלא נקראה (מנהל / לקוח)
+  hasUnreadForAdmin    Boolean @default(true)
+  hasUnreadForCustomer Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   items        PersonalRequestItem[]
+  messages     PersonalRequestMessage[]
 }
 
 model PersonalRequestItem {
@@ -312,4 +320,17 @@ model PersonalRequestItem {
   product    PersonalProduct @relation(fields: [productId], references: [id])
   productName String         // snapshot
   quantity   Int
+}
+
+// §9: הודעות בין לקוח למנהל בבקשה אישית
+model PersonalRequestMessage {
+  id         String   @id @default(cuid())
+  requestId  String
+  request    PersonalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  senderType String   // "CUSTOMER" / "ADMIN"
+  senderName String   // snapshot של שם השולח
+  message    String   @db.Text
+  createdAt  DateTime @default(now())
+
+  @@index([requestId])
 }
