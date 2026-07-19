@@ -103,6 +103,9 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   body.set("ApiValid", API_VALID);
   body.set("Token", token);
   if (tokef) body.set("Tokef", tokef); // אופציונלי - במצב CreateToken נדרים כבר יודעים את התוקף
+  // ניסיון: לשלוח CVV=Hide בבקשת החיוב (כמו שנשלח ב-CreateToken).
+  // אם נדרים מפרשים את החוסר של CVV כ"חסר מידע", זה יגיד להם: "אל תדרוש CVV".
+  body.set("CVV", "Hide");
   body.set("Amount", amount.toFixed(2));
   body.set("Tashloumim", String(tashloumim));
   body.set("Currency", "1"); // 1 = ש"ח
