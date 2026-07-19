@@ -84,19 +84,27 @@ export default async function Home() {
               </div>
 
               <div className="space-y-2 text-sm text-zinc-600">
+                {active!.openDate && (
+                  <div className="flex items-start gap-2">
+                    <span aria-hidden="true">🔓</span>
+                    <span>
+                      נפתחה להזמנות ב{fmtDate(active!.openDate)}
+                    </span>
+                  </div>
+                )}
                 {active!.closeDate && (
                   <div className="flex items-start gap-2">
                     <span aria-hidden="true">⏰</span>
                     <span>
-                      המערכת תיסגר להזמנות ביום {fmtDate(active!.closeDate)}
+                      תיסגר להזמנות ב{fmtDate(active!.closeDate)}
                     </span>
                   </div>
                 )}
-                {active!.deliveryDateText && (
+                {active!.editDeadline && (
                   <div className="flex items-start gap-2">
-                    <span aria-hidden="true">📦</span>
+                    <span aria-hidden="true">🔒</span>
                     <span>
-                      החלוקה תתקיים בע&quot;ה ב{active!.deliveryDateText}
+                      תיסגר לשינויים ב{fmtDate(active!.editDeadline)}
                     </span>
                   </div>
                 )}
