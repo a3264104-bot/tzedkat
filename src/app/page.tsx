@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LogoutButton } from "@/components/LogoutButton";
 import { Logo } from "@/components/Logo";
+import { CountdownTimer } from "@/components/CountdownTimer";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 
@@ -44,24 +45,24 @@ export default async function Home() {
     (!active.openDate || now >= new Date(active.openDate));
 
   return (
-    <main dir="rtl" className="min-h-screen bg-soft-gradient">
+    <main dir="rtl" className="min-h-screen bg-brand-cream">
       {/* h1 סמנטי לנגישות ו-SEO - נסתר ויזואלית */}
       <h1 className="sr-only">צדקת רבותינו — הזמנת עופות, בשר ודגים</h1>
 
-      <div className="mx-auto max-w-lg px-4 pt-8 md:pt-12 pb-10">
+      <div className="mx-auto max-w-lg md:max-w-2xl px-4 pt-6 md:pt-10 pb-10">
         {/* §8: כיתוב מעל הלוגו */}
-        <p className="text-center text-brand-rust font-extrabold text-lg mb-3">
+        <p className="text-center text-brand-rust font-extrabold text-lg mb-3 tracking-tight">
           המכירה המוזלת עופות בשר ודגים
         </p>
 
         {/* לוגו */}
-        <div className="flex justify-center mb-6 md:mb-8">
-          <Logo size={180} />
+        <div className="flex justify-center mb-5 md:mb-6">
+          <Logo size={160} />
         </div>
 
         {/* ברכת שלום ללקוח מחובר */}
         {isLoggedIn && userName && (
-          <p className="text-center text-brand-slate mb-6">
+          <p className="text-center text-brand-slate mb-5 text-sm">
             שלום, <span className="font-bold text-brand-rust">{userName}</span>
           </p>
         )}
@@ -71,56 +72,78 @@ export default async function Home() {
           {isOpen ? (
             <section
               aria-labelledby="sale-heading"
-              className="card p-6 ring-2 ring-brand-rust shadow-md"
+              className="relative bg-white rounded-2xl shadow-lg border border-brand-rust/20 overflow-hidden"
             >
-              <div className="text-center mb-4">
-                {/* §10: כותרת חדשה */}
-                <h2 id="sale-heading" className="text-xl font-extrabold text-brand-slatedark">
-                  מכירת עופות בשר ודגים
-                </h2>
-                <p className="text-brand-rust font-bold mt-1">
-                  המערכת פתוחה להזמנות
-                </p>
+              {/* Header עם רקע צבעוני עדין */}
+              <div className="bg-gradient-to-l from-brand-rust to-[#a83a15] text-white px-6 py-5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h2 id="sale-heading" className="text-xl md:text-2xl font-extrabold">
+                      מכירה פעילה
+                    </h2>
+                    <p className="text-white/90 text-sm mt-0.5">
+                      המערכת פתוחה לקבלת הזמנות
+                    </p>
+                  </div>
+                  <div className="bg-white/20 backdrop-blur-sm rounded-full w-14 h-14 flex items-center justify-center border border-white/30">
+                    <div className="w-3 h-3 bg-white rounded-full animate-pulse" aria-hidden="true"></div>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-2 text-sm text-zinc-600">
+              {/* Countdown timer - אם יש closeDate */}
+              {active!.closeDate && (
+                <CountdownTimer targetDate={active!.closeDate.toISOString()} />
+              )}
+
+              {/* פרטי תאריכים */}
+              <div className="px-6 py-5 space-y-3">
                 {active!.openDate && (
-                  <div className="flex items-start gap-2">
-                    <span aria-hidden="true">🔓</span>
-                    <span>
-                      נפתחה להזמנות ב{fmtDate(active!.openDate)}
-                    </span>
-                  </div>
+                  <DateRow
+                    icon="open"
+                    label="נפתחה"
+                    value={fmtDate(active!.openDate)}
+                  />
                 )}
                 {active!.closeDate && (
-                  <div className="flex items-start gap-2">
-                    <span aria-hidden="true">⏰</span>
-                    <span>
-                      תיסגר להזמנות ב{fmtDate(active!.closeDate)}
-                    </span>
-                  </div>
+                  <DateRow
+                    icon="close"
+                    label="סגירת הזמנות"
+                    value={fmtDate(active!.closeDate)}
+                    highlight
+                  />
                 )}
                 {active!.editDeadline && (
-                  <div className="flex items-start gap-2">
-                    <span aria-hidden="true">🔒</span>
-                    <span>
-                      תיסגר לשינויים ב{fmtDate(active!.editDeadline)}
-                    </span>
-                  </div>
+                  <DateRow
+                    icon="lock"
+                    label="נעילת שינויים"
+                    value={fmtDate(active!.editDeadline)}
+                  />
                 )}
               </div>
 
-              <Link href="/order" className="btn-primary w-full mt-5 text-base">
-                להזמנה ←
-              </Link>
+              {/* CTA button - בולט */}
+              <div className="px-6 pb-6">
+                <Link
+                  href="/order"
+                  className="block w-full bg-brand-rust hover:bg-[#a83a15] text-white text-center py-3.5 rounded-xl font-bold text-base transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                >
+                  להתחלת ההזמנה
+                </Link>
+              </div>
             </section>
           ) : (
-            <section className="card p-6 text-center">
-              <h2 className="text-lg font-extrabold text-brand-slatedark">
-                כרגע אין מכירה פתוחה
+            <section className="bg-white rounded-2xl shadow-lg border border-zinc-200 p-8 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-100 flex items-center justify-center">
+                <svg className="w-8 h-8 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-extrabold text-brand-slatedark">
+                אין מכירה פתוחה כעת
               </h2>
               <p className="text-zinc-500 text-sm mt-2">
-                ההרשמה תיפתח אי&quot;ה בקרוב.
+                ההרשמה למכירה הבאה תיפתח בקרוב, בע&quot;ה
               </p>
             </section>
           )}
@@ -223,5 +246,43 @@ export default async function Home() {
         </footer>
       </div>
     </main>
+  );
+}
+
+// קומפוננט עזר - שורת תאריך עם אייקון SVG (לא אימוג'י)
+function DateRow({
+  icon,
+  label,
+  value,
+  highlight,
+}: {
+  icon: "open" | "close" | "lock";
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
+  const iconPaths: Record<string, string> = {
+    open: "M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z",
+    close: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
+    lock: "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z",
+  };
+  return (
+    <div className={`flex items-start gap-3 ${highlight ? "" : ""}`}>
+      <div
+        className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
+          highlight ? "bg-brand-rust/10 text-brand-rust" : "bg-zinc-100 text-zinc-500"
+        }`}
+      >
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d={iconPaths[icon]} />
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-zinc-500 font-medium">{label}</div>
+        <div className={`text-sm font-semibold ${highlight ? "text-brand-rust" : "text-brand-slatedark"}`}>
+          {value}
+        </div>
+      </div>
+    </div>
   );
 }

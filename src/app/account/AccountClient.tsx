@@ -310,16 +310,32 @@ export function AccountClient({
 
         {/* היסטוריית הזמנות */}
         <div>
-          <h2 className="font-extrabold text-brand-slatedark mb-3">ההזמנות שלי</h2>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-1 h-6 bg-brand-rust rounded-full"></div>
+            <h2 className="font-extrabold text-brand-slatedark text-lg">ההזמנות שלי</h2>
+            <div className="flex-1 h-px bg-zinc-200"></div>
+            {orders.length > 0 && (
+              <span className="text-xs text-zinc-400 font-medium">{orders.length}</span>
+            )}
+          </div>
           {orders.length === 0 ? (
-            <div className="card p-6 text-center text-zinc-500">
-              עדיין אין הזמנות
+            <div className="bg-white rounded-2xl border border-zinc-200 p-8 text-center">
+              <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-zinc-100 flex items-center justify-center">
+                <svg className="w-7 h-7 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <p className="text-brand-slatedark font-semibold">אין הזמנות עדיין</p>
+              <p className="text-sm text-zinc-500 mt-1">
+                כשתבצע הזמנה, היא תוצג כאן.
+              </p>
             </div>
           ) : (
             <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
               {orders.map((o) => (
-                <div key={o.id} className="card p-4">
-                  <div className="flex justify-between items-start">
+                <div key={o.id} className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+                  {/* Header with status */}
+                  <div className="px-4 py-3 border-b border-zinc-100 flex justify-between items-center">
                     <div>
                       <div className="font-bold text-brand-slatedark">
                         הזמנה #{o.orderNumber}
@@ -329,11 +345,16 @@ export function AccountClient({
                       </div>
                     </div>
                     <span
-                      className={`badge ${statusColors[o.status] ?? "bg-zinc-100 text-zinc-600"}`}
+                      className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[o.status] ?? "bg-zinc-100 text-zinc-600"}`}
                     >
                       {STATUS_LABELS[o.status] ?? o.status}
                     </span>
                   </div>
+
+                  {/* Timeline של סטטוס */}
+                  <OrderTimeline status={o.status} paymentStatus={o.paymentStatus} />
+
+                  <div className="px-4 py-3">
 
                   {/* §7: רשימת מוצרים עם תמונות */}
                   {o.items.length > 0 && (
@@ -410,6 +431,7 @@ export function AccountClient({
                     }}
                     points={points}
                   />
+                  </div>
                 </div>
               ))}
             </div>
@@ -430,4 +452,72 @@ function computeIsEditable(o: Order): boolean {
     if (new Date(deadline) < new Date()) return false;
   }
   return true;
+}
+
+// Timeline של סטטוס הזמנה - 4 שלבים חזותיים
+function OrderTimeline({ status, paymentStatus }: { status: string; paymentStatus?: string | null }) {
+  if (status === "CANCELLED") return null;
+
+  const steps = [
+    { key: "received", label: "התקבלה", done: true },
+    {
+      key: "processing",
+      label: "בטיפול",
+      done: ["IN_PROGRESS", "READY", "COMPLETED"].includes(status) || paymentStatus === "PAID",
+    },
+    {
+      key: "ready",
+      label: "מוכן לאיסוף",
+      done: ["READY", "COMPLETED"].includes(status),
+    },
+    {
+      key: "paid",
+      label: "חויב",
+      done: paymentStatus === "PAID",
+    },
+  ];
+
+  return (
+    <div className="px-4 py-3 bg-zinc-50/50 border-b border-zinc-100">
+      <div className="flex items-center">
+        {steps.map((step, idx) => (
+          <div key={step.key} className="flex items-center flex-1 last:flex-none">
+            {/* Circle */}
+            <div className="flex flex-col items-center">
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
+                  step.done
+                    ? "bg-emerald-500 text-white shadow-sm"
+                    : "bg-zinc-200 text-zinc-400"
+                }`}
+              >
+                {step.done ? (
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <span className="text-[9px] font-bold">{idx + 1}</span>
+                )}
+              </div>
+              <span
+                className={`text-[10px] mt-1 font-medium whitespace-nowrap ${
+                  step.done ? "text-brand-slatedark" : "text-zinc-400"
+                }`}
+              >
+                {step.label}
+              </span>
+            </div>
+            {/* Connector line */}
+            {idx < steps.length - 1 && (
+              <div
+                className={`flex-1 h-0.5 mx-1 -mt-4 ${
+                  steps[idx + 1].done ? "bg-emerald-500" : "bg-zinc-200"
+                }`}
+              ></div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

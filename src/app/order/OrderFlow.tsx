@@ -867,8 +867,8 @@ export function OrderFlow({
               המחיר באתר הוא מחיר משוער. המחיר הסופי ייקבע לפי המשקל והאריזה בפועל.
             </p>
             <div className="space-y-6">
-              {/* ניווט קטגוריות דביק - קפיצה מהירה בלי לגלול רשימה ארוכה */}
-              <div className="sticky top-0 z-10 -mx-4 px-4 py-2 bg-[#faf6ec]/95 backdrop-blur-sm border-b border-zinc-200 overflow-x-auto no-scrollbar">
+              {/* ניווט קטגוריות דביק - עיצוב מוקפץ */}
+              <div className="sticky top-0 z-10 -mx-4 px-4 py-2.5 bg-brand-cream/95 backdrop-blur-md border-b border-zinc-200/70 overflow-x-auto no-scrollbar">
                 <div className="flex gap-2 w-max">
                   {categories.map(([cat]) => (
                     <button
@@ -878,7 +878,7 @@ export function OrderFlow({
                           .getElementById(`cat-${cat}`)
                           ?.scrollIntoView({ behavior: "smooth", block: "start" })
                       }
-                      className="badge bg-white border border-zinc-300 text-brand-slatedark whitespace-nowrap px-3 py-1.5 hover:bg-brand-yellow/40 transition"
+                      className="bg-white border border-zinc-200 text-brand-slatedark whitespace-nowrap px-4 py-1.5 rounded-full text-sm font-medium shadow-sm hover:bg-brand-rust hover:text-white hover:border-brand-rust transition-all"
                     >
                       {cat}
                     </button>
@@ -887,22 +887,36 @@ export function OrderFlow({
               </div>
 
               {categories.map(([cat, items]) => (
-                <div key={cat} id={`cat-${cat}`} className="scroll-mt-16">
-                  <h3 className="font-extrabold text-brand-rust mb-2 border-b-2 border-brand-rust/20 pb-1">
-                    {cat}
-                  </h3>
+                <div key={cat} id={`cat-${cat}`} className="scroll-mt-20">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-1 h-6 bg-brand-rust rounded-full"></div>
+                    <h3 className="font-extrabold text-brand-slatedark text-lg">
+                      {cat}
+                    </h3>
+                    <div className="flex-1 h-px bg-zinc-200"></div>
+                    <span className="text-xs text-zinc-400 font-medium">{items.length} מוצרים</span>
+                  </div>
                   <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
                     {items.map((p) => {
                       const entry = cart[p.id] ?? { cartonQty: 0, singlesQty: 0 };
                       return (
                         <div
                           key={p.id}
-                          className={`card p-3 ${
-                            p.isFeatured ? "border-2 border-red-300 bg-red-50/40" : ""
+                          className={`bg-white rounded-xl border p-3 transition-all hover:shadow-md ${
+                            p.isFeatured
+                              ? "border-brand-rust/30 ring-2 ring-brand-rust/10 bg-gradient-to-l from-red-50/50 to-white"
+                              : "border-zinc-200/70 shadow-sm"
+                          } ${
+                            (entry.cartonQty > 0 || entry.singlesQty > 0)
+                              ? "ring-2 ring-brand-yellow/60 border-brand-yellow"
+                              : ""
                           }`}
                         >
                           {p.isFeatured && (
-                            <div className="badge bg-red-600 text-white mb-1.5">🔥 מבצע</div>
+                            <div className="inline-flex items-center gap-1.5 bg-brand-rust text-white text-[10px] font-bold px-2.5 py-1 rounded-full mb-2 uppercase tracking-wider">
+                              <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
+                              מבצע חם
+                            </div>
                           )}
                           {/* שם + תמונה + מחיר בסיסי */}
                           <div className="flex gap-2 items-start">
@@ -1138,30 +1152,73 @@ export function OrderFlow({
 
         {/* STEP: done */}
         {step === "done" && (
-          <section className="text-center pt-10">
-            <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-3xl">
-              ✓
+          <section className="pt-8 md:pt-14">
+            {/* Success circle with subtle animation */}
+            <div className="text-center">
+              <div className="relative inline-block mb-6">
+                <div className="absolute inset-0 bg-emerald-100 rounded-full animate-ping opacity-40"></div>
+                <div className="relative w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg">
+                  <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              </div>
+              <h2 className="text-2xl md:text-3xl font-extrabold text-brand-slatedark">
+                ההזמנה שלך נקלטה
+              </h2>
+              <div className="mt-3 inline-flex items-center gap-2 bg-brand-yellow/30 border border-brand-yellow px-4 py-1.5 rounded-full">
+                <span className="text-xs text-brand-slatedark">מספר הזמנה</span>
+                <span className="font-extrabold text-brand-slatedark">#{orderNumber}</span>
+              </div>
             </div>
-            <h2 className="text-2xl font-extrabold text-brand-slatedark mt-4">ההזמנה התקבלה!</h2>
-            <p className="text-zinc-600 mt-2">
-              מספר הזמנה: <span className="font-bold">#{orderNumber}</span>
-            </p>
-            <div className="card p-4 mt-6 text-sm text-right space-y-2">
-              <Row label="נקודת החלוקה" value={point?.name || ""} />
-              {point?.city && <Row label="עיר" value={point.city} />}
-              <Row
-                label="תאריך חלוקה"
-                value={
-                  point?.customDeliveryDateText || pricelist.deliveryDateText || "יימסר ע\"י הנציג"
-                }
-              />
+
+            {/* פרטי איסוף */}
+            <div className="mt-8 bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+              <div className="bg-zinc-50 px-4 py-2.5 text-xs font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-200">
+                פרטי האיסוף
+              </div>
+              <div className="p-4 space-y-3 text-sm">
+                <DetailRow label="נקודת חלוקה" value={point?.name || ""} />
+                {point?.city && <DetailRow label="עיר" value={point.city} />}
+                <DetailRow
+                  label="תאריך חלוקה"
+                  value={
+                    point?.customDeliveryDateText || pricelist.deliveryDateText || "יימסר ע״י הנציג"
+                  }
+                />
+              </div>
             </div>
-            <p className="text-xs text-zinc-500 mt-4">
-              ההזמנה ממתינה לשקילה. לאחר קביעת המחיר הסופי, התשלום ייגבה אוטומטית מהכרטיס ששמרת ותקבל/י הודעה על החיוב.
-            </p>
-            <Link href="/" className="btn-primary mt-6 inline-flex">
-              חזרה לדף הבית
-            </Link>
+
+            {/* הסבר על הבא */}
+            <div className="mt-4 bg-blue-50/50 border border-blue-200/50 rounded-xl p-4">
+              <div className="flex gap-3">
+                <div className="shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                  <svg className="w-4 h-4 text-blue-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="text-xs text-blue-900 leading-relaxed">
+                  <strong>מה קורה עכשיו?</strong>
+                  <br />
+                  ההזמנה ממתינה לשקילה. לאחר קביעת המחיר הסופי, התשלום ייגבה אוטומטית מהכרטיס ששמרת ותקבל/י הודעה על החיוב.
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-2">
+              <Link
+                href="/account"
+                className="flex-1 bg-white border-2 border-brand-rust text-brand-rust text-center py-3 rounded-xl font-bold hover:bg-brand-rust hover:text-white transition-all"
+              >
+                לאזור אישי
+              </Link>
+              <Link
+                href="/"
+                className="flex-1 bg-brand-rust text-white text-center py-3 rounded-xl font-bold hover:bg-[#a83a15] transition-all shadow-md"
+              >
+                חזרה לדף הבית
+              </Link>
+            </div>
           </section>
         )}
       </div>
@@ -1253,6 +1310,16 @@ function Row({ label, value, highlight }: { label: string; value: string; highli
       <span className={`text-sm font-semibold text-left ${highlight ? "text-brand-rust" : "text-brand-slatedark"}`}>
         {value}
       </span>
+    </div>
+  );
+}
+
+// DetailRow: variant יוקרתי יותר של Row - עם עמודות מיושרות והפרדה עדינה
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start gap-3 border-b border-zinc-100 last:border-0 pb-2.5 last:pb-0">
+      <span className="text-zinc-500 text-xs font-medium min-w-[90px]">{label}</span>
+      <span className="text-brand-slatedark font-semibold flex-1 text-left">{value}</span>
     </div>
   );
 }
