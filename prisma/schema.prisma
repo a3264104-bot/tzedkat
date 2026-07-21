@@ -92,6 +92,8 @@ model Product {
   isFrozen      Boolean  @default(false)
   limitedQty    Boolean  @default(false)
   limitedQtyAmount Int?   // מגבלת כמות שהמנהל מגדיר (תצוגה/אזהרה בלבד, לא חוסם לקוח)
+  // §9: האם המוצר זמין להזמנה אישית (מלבד מכירות רגילות)
+  allowPersonalOrder Boolean @default(true)
   isActive      Boolean  @default(true)
   sortOrder     Int      @default(0)
   orderItems    OrderItem[]
@@ -276,7 +278,9 @@ model PaymentAuditLog {
 // מודול הזמנות אישיות - נפרד לחלוטין ממערכת המכירות
 // ═══════════════════════════════════════════════════════════
 
-// מוצר במודול ההזמנות האישיות (לא קשור למחירון/מכירה/נקודות)
+// §9 מיושן: המודל הישן של מוצרים אישיים.
+// היום מוצרי המחירון (Product) עם `allowPersonalOrder=true` משמשים גם להזמנות אישיות.
+// הטבלה נשמרת כרגע ליישום המנהל, אבל לא בשימוש חדש.
 model PersonalProduct {
   id          String   @id @default(cuid())
   name        String
@@ -284,13 +288,11 @@ model PersonalProduct {
   description String?
   isActive    Boolean  @default(true)
   sortOrder   Int      @default(0)
-  maxQuantity Int?     // כמות מקסימלית להזמנה (אופציונלי)
-  stock       Int?     // מלאי זמין (אופציונלי)
-  // §9: נקודת חלוקה ייעודית למוצר האישי (אופציונלי)
+  maxQuantity Int?
+  stock       Int?
   pointId     String?
   point       DeliveryPoint? @relation("PersonalProductPoint", fields: [pointId], references: [id])
   createdAt   DateTime @default(now())
-  requestItems PersonalRequestItem[]
 }
 
 // בקשת הזמנה אישית של לקוח
@@ -316,9 +318,11 @@ model PersonalRequestItem {
   id         String          @id @default(cuid())
   requestId  String
   request    PersonalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  // §9: productId כמחרוזת ללא FK - יכול להצביע ל-Product רגיל.
+  // אין FK כדי לאפשר migration בטוח מ-PersonalProduct הישן ל-Product החדש.
+  // ה-productName נשמר כ-snapshot ומספיק לתצוגה.
   productId  String
-  product    PersonalProduct @relation(fields: [productId], references: [id])
-  productName String         // snapshot
+  productName String
   quantity   Int
 }
 

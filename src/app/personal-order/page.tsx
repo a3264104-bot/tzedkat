@@ -8,20 +8,20 @@ export const dynamic = "force-dynamic";
 export default async function PersonalOrderPage() {
   const session = await auth();
 
-  // הזמנה אישית דורשת התחברות (כדי לתמוך בצ'אט ובקשות קיימות)
   if (!session?.user) {
     redirect("/login?callbackUrl=/personal-order");
   }
 
   const customerId = (session.user as any).id as string;
 
-  // טעינת נתונים במקביל
+  // §9: טעינת מוצרים מהטבלה הרגילה - מקור אמת אחד
+  // סינון: isActive + allowPersonalOrder
   const [products, customer, existingRequests] = await Promise.all([
-    prisma.personalProduct.findMany({
-      where: { isActive: true },
-      orderBy: [{ pointId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
+    prisma.product.findMany({
+      where: { isActive: true, allowPersonalOrder: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       include: {
-        point: { select: { id: true, name: true, city: true } },
+        category: { select: { name: true } },
       },
     }),
     prisma.customer.findUnique({
@@ -44,10 +44,8 @@ export default async function PersonalOrderPage() {
         id: p.id,
         name: p.name,
         imageUrl: p.imageUrl,
-        description: p.description,
-        maxQuantity: p.maxQuantity,
-        pointId: p.pointId,
-        point: p.point,
+        category: p.category?.name ?? null,
+        kashrut: p.kashrut,
       }))}
       customer={customer}
       existingRequests={existingRequests.map((r) => ({

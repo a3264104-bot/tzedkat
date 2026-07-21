@@ -14,10 +14,8 @@ type PersonalProduct = {
   id: string;
   name: string;
   imageUrl: string | null;
-  description: string | null;
-  maxQuantity: number | null;
-  pointId: string | null;
-  point: { id: string; name: string; city: string | null } | null;
+  category: string | null; // §9: לקיבוץ במקום נקודה
+  kashrut: string | null;
 };
 
 type Customer = {
@@ -61,26 +59,19 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
   const [successNumber, setSuccessNumber] = useState<number | null>(null);
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
 
-  // קיבוץ מוצרים לפי נקודה
+  // קיבוץ מוצרים לפי קטגוריה (כמו במכירה רגילה)
   const groupedProducts = useMemo(() => {
-    const groups = new Map<string, { pointName: string; city: string | null; products: PersonalProduct[] }>();
-    const noPoint: PersonalProduct[] = [];
+    const groups = new Map<string, PersonalProduct[]>();
+    const noCat: PersonalProduct[] = [];
     for (const p of products) {
-      if (p.point) {
-        const key = p.point.id;
-        if (!groups.has(key)) {
-          groups.set(key, {
-            pointName: p.point.name,
-            city: p.point.city,
-            products: [],
-          });
-        }
-        groups.get(key)!.products.push(p);
+      if (p.category) {
+        if (!groups.has(p.category)) groups.set(p.category, []);
+        groups.get(p.category)!.push(p);
       } else {
-        noPoint.push(p);
+        noCat.push(p);
       }
     }
-    return { groups: Array.from(groups.entries()), noPoint };
+    return { groups: Array.from(groups.entries()), noCat };
   }, [products]);
 
   function setQty(id: string, qty: number) {
@@ -275,30 +266,38 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
               אין מוצרים זמינים כרגע להזמנה אישית.
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* מוצרים מקובצים לפי נקודה */}
-              {groupedProducts.groups.map(([pointId, group]) => (
-                <div key={pointId}>
-                  <div className="text-sm font-bold text-brand-rust mb-2 pb-1 border-b border-brand-rust/20">
-                    📍 {group.pointName}
-                    {group.city && <span className="text-zinc-500 font-normal"> — {group.city}</span>}
+            <div className="space-y-6">
+              {/* מוצרים מקובצים לפי קטגוריה - זהה למכירה רגילה */}
+              {groupedProducts.groups.map(([cat, items]) => (
+                <div key={cat}>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-1 h-6 bg-brand-rust rounded-full"></div>
+                    <h3 className="font-extrabold text-brand-slatedark text-lg">
+                      {cat}
+                    </h3>
+                    <div className="flex-1 h-px bg-zinc-200"></div>
+                    <span className="text-xs text-zinc-400 font-medium">{items.length} מוצרים</span>
                   </div>
                   <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
-                    {group.products.map((p) => (
+                    {items.map((p) => (
                       <ProductRow key={p.id} product={p} qty={cart[p.id] || 0} onChange={(v) => setQty(p.id, v)} />
                     ))}
                   </div>
                 </div>
               ))}
-              {groupedProducts.noPoint.length > 0 && (
+              {groupedProducts.noCat.length > 0 && (
                 <div>
                   {groupedProducts.groups.length > 0 && (
-                    <div className="text-sm font-bold text-brand-slatedark mb-2 pb-1 border-b border-zinc-200">
-                      מוצרים כלליים
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-1 h-6 bg-zinc-300 rounded-full"></div>
+                      <h3 className="font-extrabold text-brand-slatedark text-lg">
+                        אחרים
+                      </h3>
+                      <div className="flex-1 h-px bg-zinc-200"></div>
                     </div>
                   )}
                   <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
-                    {groupedProducts.noPoint.map((p) => (
+                    {groupedProducts.noCat.map((p) => (
                       <ProductRow key={p.id} product={p} qty={cart[p.id] || 0} onChange={(v) => setQty(p.id, v)} />
                     ))}
                   </div>
@@ -392,9 +391,15 @@ function ProductRow({
   qty: number;
   onChange: (v: number) => void;
 }) {
-  const max = product.maxQuantity || 99;
+  const max = 99;
   return (
-    <div className="flex items-center gap-3 p-2 bg-zinc-50 rounded-lg border border-zinc-100">
+    <div
+      className={`flex items-center gap-3 p-2.5 bg-white rounded-xl border transition-all ${
+        qty > 0
+          ? "border-brand-yellow ring-2 ring-brand-yellow/60"
+          : "border-zinc-200/70 shadow-sm"
+      }`}
+    >
       {product.imageUrl && (
         <img
           src={product.imageUrl}
@@ -403,16 +408,13 @@ function ProductRow({
         />
       )}
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-brand-slatedark text-sm truncate">
+        <div className="font-medium text-brand-slatedark text-sm">
           {product.name}
         </div>
-        {product.description && (
-          <div className="text-xs text-zinc-500 line-clamp-2">{product.description}</div>
-        )}
-        {product.maxQuantity && (
-          <div className="text-xs text-amber-600 mt-0.5">
-            עד {product.maxQuantity} יחידות
-          </div>
+        {product.kashrut && (
+          <span className="inline-block mt-1 badge bg-sky-100 text-sky-700 text-xs">
+            {product.kashrut}
+          </span>
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">

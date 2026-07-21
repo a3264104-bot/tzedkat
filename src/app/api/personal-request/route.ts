@@ -38,10 +38,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "יש לבחור לפחות מוצר אחד" }, { status: 400 });
     }
 
-    // וידוא שכל המוצרים קיימים ופעילים + הגבלות כמות
+    // וידוא שכל המוצרים קיימים ופעילים + זמינים להזמנה אישית
     const productIds = items.map((it: any) => String(it.productId));
-    const products = await prisma.personalProduct.findMany({
-      where: { id: { in: productIds }, isActive: true },
+    const products = await prisma.product.findMany({
+      where: {
+        id: { in: productIds },
+        isActive: true,
+        allowPersonalOrder: true,
+      },
     });
     const pMap = new Map(products.map((p) => [p.id, p]));
 
@@ -56,12 +60,10 @@ export async function POST(req: Request) {
       if (!p) continue;
       const qty = Number(item.quantity);
       if (!qty || qty < 1) continue;
-      const maxQty = p.maxQuantity || 99;
-      const finalQty = Math.min(qty, maxQty);
       validItems.push({
         productId: p.id,
         productName: p.name,
-        quantity: finalQty,
+        quantity: Math.min(qty, 99),
       });
     }
 

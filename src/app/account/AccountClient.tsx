@@ -161,43 +161,92 @@ export function AccountClient({
       </header>
 
       <div className="mx-auto max-w-md md:max-w-4xl px-4 pt-6 space-y-5">
-        {/* פרטי לקוח */}
-        <div className="card p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-lg font-extrabold text-brand-slatedark">{customer.name}</div>
-              {customer.phone && <div className="text-sm text-zinc-500">{customer.phone}</div>}
-              {customer.email && <div className="text-sm text-zinc-500">{customer.email}</div>}
-              {customer.cardLast4 && (
-                <div className="text-sm text-zinc-400 mt-1">
-                  כרטיס: •••• {customer.cardLast4}
+        {/* פרטי לקוח - עם avatar ועיצוב מוקפץ */}
+        <div className="bg-white rounded-2xl shadow-lg border border-zinc-200 overflow-hidden">
+          {/* Header עם רקע gradient עדין */}
+          <div className="relative bg-gradient-to-br from-brand-yellow/40 via-brand-yellow/20 to-transparent px-6 py-5 border-b border-zinc-100">
+            <div className="flex items-start gap-4">
+              {/* Avatar עם initials */}
+              <div className="shrink-0 w-16 h-16 rounded-full bg-gradient-to-br from-brand-rust to-[#a83a15] flex items-center justify-center text-white text-2xl font-extrabold shadow-md">
+                {customer.name.trim().charAt(0)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xl font-extrabold text-brand-slatedark truncate">
+                  {customer.name}
                 </div>
-              )}
+                <div className="text-xs text-zinc-500 mt-0.5">
+                  ברוכ/ה הבא/ה
+                </div>
+              </div>
+              <button
+                onClick={() => signOut({ callbackUrl: "/" })}
+                className="shrink-0 text-xs text-zinc-500 hover:text-brand-rust flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-zinc-200 hover:border-brand-rust bg-white/60 backdrop-blur-sm transition-all"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                יציאה
+              </button>
             </div>
-            <button
-              onClick={() => signOut({ callbackUrl: "/" })}
-              className="btn-ghost btn-sm"
-            >
-              יציאה
-            </button>
+          </div>
+
+          {/* Details עם אייקונים */}
+          <div className="divide-y divide-zinc-100">
+            {customer.phone && (
+              <InfoRow
+                iconPath="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                label="טלפון"
+                value={customer.phone}
+              />
+            )}
+            {customer.email && (
+              <InfoRow
+                iconPath="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                label="דוא״ל"
+                value={customer.email}
+              />
+            )}
+            {customer.cardLast4 && (
+              <InfoRow
+                iconPath="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                label="כרטיס אשראי"
+                value={`•••• ${customer.cardLast4}`}
+              />
+            )}
           </div>
         </div>
 
-        {/* תחנה שמורה */}
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-bold text-brand-slatedark">תחנת חלוקה שמורה</span>
+        {/* תחנה שמורה - מעוצב מחדש */}
+        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 flex items-center justify-between border-b border-zinc-100 bg-zinc-50/50">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-brand-rust/10 flex items-center justify-center">
+                <svg className="w-4 h-4 text-brand-rust" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </div>
+              <span className="font-bold text-brand-slatedark text-sm">תחנת חלוקה שמורה</span>
+            </div>
             <button
               onClick={() => setShowStationEdit(!showStationEdit)}
-              className="text-sm text-brand-rust font-medium"
+              className="text-xs text-brand-rust font-medium hover:underline"
             >
               {showStationEdit ? "ביטול" : "שינוי"}
             </button>
           </div>
+          <div className="p-4">
           {!showStationEdit ? (
-            <div className="text-sm text-zinc-600">
-              {customer.defaultPointName || "לא נבחרה תחנה"}
-              {pointSaved && <span className="text-green-600 mr-2">✓ נשמר</span>}
+            <div className="text-sm text-brand-slatedark font-medium">
+              {customer.defaultPointName || <span className="text-zinc-400 font-normal">לא נבחרה תחנה</span>}
+              {pointSaved && (
+                <span className="text-emerald-600 mr-2 text-xs inline-flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  נשמר
+                </span>
+              )}
             </div>
           ) : (
             <div className="space-y-2">
@@ -222,6 +271,7 @@ export function AccountClient({
               </button>
             </div>
           )}
+          </div>
         </div>
 
         {/* כפתור הזמנה חדשה - רק אם יש מכירה פעילה */}
@@ -329,6 +379,15 @@ export function AccountClient({
               <p className="text-sm text-zinc-500 mt-1">
                 כשתבצע הזמנה, היא תוצג כאן.
               </p>
+              <a
+                href="/order"
+                className="mt-4 inline-flex items-center gap-2 bg-brand-rust text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#a83a15] transition-all shadow-sm"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                להתחלת הזמנה
+              </a>
             </div>
           ) : (
             <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
@@ -452,6 +511,23 @@ function computeIsEditable(o: Order): boolean {
     if (new Date(deadline) < new Date()) return false;
   }
   return true;
+}
+
+// InfoRow - שורת פרטים עם אייקון SVG (בהגדרות אישיות)
+function InfoRow({ iconPath, label, value }: { iconPath: string; label: string; value: string }) {
+  return (
+    <div className="px-5 py-3 flex items-center gap-3">
+      <div className="shrink-0 w-9 h-9 rounded-lg bg-zinc-100 flex items-center justify-center">
+        <svg className="w-4 h-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+          <path strokeLinecap="round" strokeLinejoin="round" d={iconPath} />
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[11px] text-zinc-500 font-medium">{label}</div>
+        <div className="text-sm text-brand-slatedark font-semibold truncate" dir="auto">{value}</div>
+      </div>
+    </div>
+  );
 }
 
 // Timeline של סטטוס הזמנה - 4 שלבים חזותיים

@@ -92,15 +92,24 @@ export async function POST(req: Request) {
     if (!preOrder.customer.paymentToken) {
       return NextResponse.json({ error: "customer has no saved card" }, { status: 400 });
     }
-    // cardExpiry אופציונלי: במצב CreateToken נדרים שומרים את התוקף אצלם.
-    // אם חסר - נשלח חיוב בלי Tokef ונראה אם נדרים מקבלים.
+    // Tokef חובה לפי תיעוד DebitCard הרשמי של נדרים.
+    // בלי תוקף - החיוב ייכשל בוודאות. עדיף לחסום כאן עם הודעה ברורה.
+    if (!preOrder.customer.cardExpiry) {
+      return NextResponse.json(
+        {
+          error:
+            "חסר תוקף כרטיס (Tokef) - לא ניתן לחייב. הלקוח צריך לעדכן את הכרטיס מחדש כדי שהתוקף יישמר.",
+        },
+        { status: 400 }
+      );
+    }
     if (preOrder.customer.cardNeedsUpdate) {
       return NextResponse.json({ error: "customer needs to update card first" }, { status: 400 });
     }
 
     // 4. חישוב סכום החיוב
-    // מסלול טוקן חדש: לא מקזזים 1₪ כי לא חייבנו 1₪ באימות (CreateToken לא מחייב)
-    // הלקוח משלם את המחיר הסופי המלא של ההזמנה
+    // §19 Ragil flow: חייבנו 1₪ באימות ההרשמה. לא מקזזים אותו -
+    // 1₪ הוא דמי אימות/טיפול. הלקוח משלם את המחיר הסופי המלא.
     const finalTotalNum = Number(preOrder.finalTotal);
     const chargeAmount = finalTotalNum;
 

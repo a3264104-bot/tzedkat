@@ -80,9 +80,16 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   if (!token) {
     return { ok: false, error: "missing token", cardProblem: true };
   }
-  // Tokef אופציונלי: במצב CreateToken נדרים שומרים את התוקף אצלם.
-  // אם סופק — בודקים פורמט. אם לא — שולחים בלי Tokef.
-  if (tokef && !/^\d{4}$/.test(tokef)) {
+  // Tokef חובה לפי תיעוד DebitCard הרשמי (פרמטר "חובה").
+  // בלי תוקף החיוב ייכשל אצל נדרים - עדיף להיכשל כאן עם הודעה ברורה.
+  if (!tokef) {
+    return {
+      ok: false,
+      error: "missing Tokef (card expiry) - required per Nedarim DebitCard docs. Customer must re-verify card.",
+      cardProblem: true,
+    };
+  }
+  if (!/^\d{4}$/.test(tokef)) {
     return {
       ok: false,
       error: `invalid Tokef format (expected MMYY, got "${tokef}")`,
@@ -102,10 +109,10 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   body.set("Mosad", MOSAD_ID);
   body.set("ApiValid", API_VALID);
   body.set("Token", token);
-  if (tokef) body.set("Tokef", tokef); // אופציונלי - במצב CreateToken נדרים כבר יודעים את התוקף
-  // ניסיון: לשלוח CVV=Hide בבקשת החיוב (כמו שנשלח ב-CreateToken).
-  // אם נדרים מפרשים את החוסר של CVV כ"חסר מידע", זה יגיד להם: "אל תדרוש CVV".
-  body.set("CVV", "Hide");
+  body.set("Tokef", tokef); // חובה - נבדק למעלה
+  // CVV: לפי התיעוד הרשמי של נדרים (DebitCard.aspx),
+  // CVV הוא פרמטר אופציונלי בחיוב (לא חובה).
+  // לא שולחים בכלל CVV — כדי שנדרים ישתמשו במה שנשמר אצלם בזמן CreateToken.
   body.set("Amount", amount.toFixed(2));
   body.set("Tashloumim", String(tashloumim));
   body.set("Currency", "1"); // 1 = ש"ח

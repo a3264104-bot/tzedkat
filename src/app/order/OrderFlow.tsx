@@ -286,10 +286,10 @@ export function OrderFlow({
   // מעקב אחר "נדרים אישרו את החיוב אבל עדיין ממתינים ל-webhook לשמור את הטוקן"
   const [nedarimConfirmedOk, setNedarimConfirmedOk] = useState(false);
 
-  // iframe נדרים לאימות + יצירת Token (לפי תיעוד: PaymentType=CreateToken)
-  // Tokef=Hide נדרש רשמית לפי תיעוד נדרים.
-  // CVV: השארנו אותו לתצוגה — הלקוח יזין CVV כדי שנדרים ישמרו אותו לחיובים עתידיים.
-  // (אם CVV=Hide, נדרים אמנם יוצרים טוקן אבל DebitCard.aspx מחזיר "CVV ERROR" בחיוב).
+  // iframe נדרים - חיוב 1₪ אמיתי כדי לאמת ולקבל טוקן מלא.
+  // גישה זו (Ragil - חיוב רגיל של 1₪) יוצרת "טוקן חוקי לחיובים חוזרים",
+  // בניגוד ל-CreateToken שיצר טוקן שנדרים סירבו לחייב איתו בעתיד ("CVV ERROR").
+  // הלקוח מזין: מספר כרטיס + תוקף + CVV. נדרים גובים 1₪ + שומרים טוקן.
   const verificationIframeUrl =
     customerId &&
     "https://www.matara.pro/nedarimplus/iframe?" +
@@ -299,10 +299,9 @@ export function OrderFlow({
         ApiValid: "NxhXRWeG5P",
         Amount: "1",
         AmountLock: "1",
-        PaymentType: "CreateToken",
+        PaymentType: "Ragil",
         TransactionType: "Debit",
         Tashlumim: "1",
-        Tokef: "Hide",
         CallBack: "https://tzidkat.com/api/webhooks/nedarim",
         param1: customerId,
         param2: "registration",
@@ -435,14 +434,24 @@ export function OrderFlow({
           // שומרים את הטוקן מיד דרך API call.
           const receivedToken = String(value?.Token || value?.token || "").trim();
           const receivedLast4 = String(value?.LastNum || value?.lastNum || "").trim();
+          // Tokef חובה לחיוב עתידי (לפי תיעוד DebitCard) - שולפים מכל שם אפשרי
+          const receivedTokef = String(
+            value?.Tokef || value?.tokef || value?.CardValidity || value?.Expiry || ""
+          ).trim();
 
           if (receivedToken) {
-            console.log(`[nedarim iframe] ✅ Token received: ${receivedToken}, saving...`);
+            console.log(
+              `[nedarim iframe] ✅ Token received: ${receivedToken}, tokef: ${receivedTokef || "MISSING!"}, saving...`
+            );
             try {
               const saveRes = await fetch("/api/customer/save-token", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ token: receivedToken, lastNum: receivedLast4 }),
+                body: JSON.stringify({
+                  token: receivedToken,
+                  lastNum: receivedLast4,
+                  tokef: receivedTokef,
+                }),
               });
               const saveData = await saveRes.json().catch(() => ({}));
               if (saveRes.ok) {
@@ -638,6 +647,35 @@ export function OrderFlow({
 
   return (
     <main className="min-h-screen bg-[#faf6ec] pb-28">
+      {/* אנימציות מעבר בין שלבים ומיקרו-אינטראקציות */}
+      <style jsx global>{`
+        @keyframes stepFadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes gentleScale {
+          from {
+            transform: scale(0.96);
+            opacity: 0;
+          }
+          to {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+        .step-enter {
+          animation: stepFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .scale-in {
+          animation: gentleScale 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+      `}</style>
       {/* header - עם שם המשתמש המחובר וקישור לאזור אישי (זמין תמיד) */}
       <header className="bg-brand-yellow border-b-4 border-brand-rust/20 sticky top-0 z-20">
         <div className="mx-auto max-w-md md:max-w-4xl px-4 py-2.5 flex items-center justify-between gap-2">
@@ -668,20 +706,29 @@ export function OrderFlow({
 
         {/* STEP: choose point - מקובץ לפי עיר אם יש יותר מעיר אחת */}
         {step === "point" && points.length === 0 && (
-          <section className="card p-6 text-center mt-4">
-            <div className="text-3xl mb-2">📍</div>
+          <section className="step-enter bg-white rounded-2xl border border-zinc-200 shadow-sm p-8 text-center mt-4">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-50 flex items-center justify-center">
+              <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
             <p className="font-bold text-brand-slatedark">לא הוגדרו נקודות חלוקה למכירה זו</p>
-            <p className="text-sm text-zinc-500 mt-1">
-              המכירה פעילה אך טרם שויכו אליה נקודות חלוקה. לא ניתן להזמין כרגע — אנא פנה
-              למנהל שיוסיף נקודות חלוקה, ונסה שוב.
+            <p className="text-sm text-zinc-500 mt-2">
+              המכירה פעילה אך טרם שויכו אליה נקודות חלוקה.
+              <br />
+              אנא פנה למנהל שיוסיף נקודות חלוקה, ונסה שוב.
             </p>
-            <Link href="/" className="btn-ghost btn-sm mt-4 inline-flex">
+            <Link href="/" className="mt-5 inline-flex items-center gap-2 text-brand-rust font-medium hover:underline">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
               חזרה לדף הבית
             </Link>
           </section>
         )}
         {step === "point" && points.length > 0 && (
-          <section>
+          <section className="step-enter">
             {/* סעיף 1: הודעת עמלת טיפול. סעיף 10: תאריך סיום הרשמה */}
             <div className="card p-3 mb-3 bg-amber-50 border-amber-200 text-sm text-amber-800 space-y-1">
               <div>💳 לתשומת לבך: להזמנה תתווסף עמלת טיפול בסך 3₪.</div>
@@ -799,7 +846,7 @@ export function OrderFlow({
 
         {/* STEP: products */}
         {step === "products" && termsChecked && !termsAccepted && (
-          <section>
+          <section className="step-enter">
             <div className="card p-6 text-center">
               <h2 className="text-xl font-extrabold text-brand-slatedark mb-4">
                 ברוכים הבאים למערכת הזמנות עופות בשר ודגים
@@ -837,7 +884,7 @@ export function OrderFlow({
           </section>
         )}
         {step === "products" && termsAccepted && (
-          <section>
+          <section className="step-enter">
             {/* §16 פאזה 2: הודעה במצב עריכה */}
             {editMode && (
               <div className="card p-4 mb-4 bg-amber-50 border-amber-300">
@@ -1029,9 +1076,25 @@ export function OrderFlow({
               <button
                 disabled={itemCount === 0}
                 onClick={() => setStep("summary")}
-                className="btn-primary flex-1"
+                className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                  itemCount === 0
+                    ? "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                    : "bg-brand-rust text-white shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                }`}
               >
-                לסיכום ({itemCount}) ←
+                {itemCount === 0 ? (
+                  "בחר מוצרים להמשך"
+                ) : (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
+                      {itemCount}
+                    </span>
+                    <span>לסיכום</span>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                  </span>
+                )}
               </button>
             </BottomBar>
           </section>
@@ -1039,7 +1102,7 @@ export function OrderFlow({
 
         {/* STEP: summary (ח3: כולל גם את הסל — אין שלב cart נפרד) */}
         {step === "summary" && point && (
-          <section>
+          <section className="step-enter">
             <h2 className="text-lg font-extrabold text-brand-slatedark mb-3">סיכום הזמנה</h2>
 
             {/* פרטי חלוקה */}
@@ -1152,7 +1215,7 @@ export function OrderFlow({
 
         {/* STEP: done */}
         {step === "done" && (
-          <section className="pt-8 md:pt-14">
+          <section className="step-enter pt-8 md:pt-14">
             {/* Success circle with subtle animation */}
             <div className="text-center">
               <div className="relative inline-block mb-6">

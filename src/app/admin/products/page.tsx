@@ -24,6 +24,7 @@ type Product = {
   isFrozen: boolean;
   limitedQty: boolean;
   limitedQtyAmount: number | null;
+  allowPersonalOrder: boolean; // §9: זמין להזמנה אישית
   isActive: boolean;
   sortOrder: number;
   imageUrl: string | null;
@@ -151,6 +152,7 @@ export default function ProductsPage() {
           ? parseInt(String(editing.limitedQtyAmount), 10)
           : null,
       isActive: editing.isActive ?? true,
+      allowPersonalOrder: editing.allowPersonalOrder ?? true,
       sortOrder: editing.sortOrder ?? 0,
       imageUrl: editing.imageUrl || null,
       kashrut: editing.kashrut || null,
@@ -284,6 +286,7 @@ export default function ProductsPage() {
                 saleType: "WEIGHT",
                 priceType: "REGULAR",
                 isActive: true,
+                allowPersonalOrder: true,
               })
             }
             className="btn-primary btn-sm"
@@ -381,6 +384,11 @@ export default function ProductsPage() {
                                     )}
                                     {p.isFrozen && (
                                       <span className="badge bg-blue-100 text-blue-700">קפוא</span>
+                                    )}
+                                    {!p.allowPersonalOrder && (
+                                      <span className="badge bg-zinc-200 text-zinc-600" title="לא זמין להזמנה אישית">
+                                        לא בהזמנה אישית
+                                      </span>
                                     )}
                                   </div>
                                 </div>
@@ -654,6 +662,20 @@ export default function ProductsPage() {
                   className="h-4 w-4 accent-brand-rust"
                 />
                 ⭐ מוצר מבצע (מודגש ללקוח)
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={editing.allowPersonalOrder ?? true}
+                  onChange={(e) => setEditing({ ...editing, allowPersonalOrder: e.target.checked })}
+                  className="h-4 w-4 accent-brand-rust"
+                />
+                <div>
+                  <span>זמין להזמנה אישית</span>
+                  <p className="text-xs text-zinc-400 font-normal">
+                    כשמסומן — המוצר יופיע גם בעמוד ההזמנה האישית של הלקוח
+                  </p>
+                </div>
               </label>
               <label className="flex items-center gap-2">
                 <input

@@ -8,7 +8,7 @@ import { auth } from "@/lib/auth";
 // עם Status=OK ו-Token. במצב CreateToken, נדרים לא שולחים webhook
 // (כי אין חיוב) — הטוקן מגיע רק דרך postMessage.
 //
-// Body: { token: string, lastNum?: string }
+// Body: { token: string, lastNum?: string, tokef?: string }
 //
 // אבטחה:
 //   - רק משתמש מחובר
@@ -27,9 +27,19 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const token = String(body?.token || "").trim();
     const lastNum = String(body?.lastNum || "").trim();
+    // Tokef בפורמט MMYY - חובה בחיוב עתידי לפי תיעוד DebitCard!
+    const tokef = String(body?.tokef || "").trim();
 
     if (!token) {
       return NextResponse.json({ error: "missing token" }, { status: 400 });
+    }
+
+    // אזהרה בלוג אם אין תוקף - החיוב העתידי עלול להיכשל
+    if (!tokef) {
+      console.warn(
+        `[save-token] ⚠️ WARNING: Token saved WITHOUT Tokef for customer=${customerId}. ` +
+          `Per Nedarim DebitCard docs, Tokef is REQUIRED for charging. Future charge may fail!`
+      );
     }
 
     // שמירת הטוקן + סימון הלקוח כמאומת
@@ -38,6 +48,7 @@ export async function POST(req: Request) {
       data: {
         paymentToken: token,
         cardLast4: lastNum || null,
+        ...(tokef ? { cardExpiry: tokef } : {}),
         cardVerifiedAt: new Date(),
         cardNeedsUpdate: false,
       },

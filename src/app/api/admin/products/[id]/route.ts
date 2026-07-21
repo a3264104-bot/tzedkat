@@ -14,6 +14,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     "cartonPrice",
     "allowSingles",
     "singleSurcharge",
+    "singlesMode",
+    "singleUnitPrice",
     "unit",
     "saleType",
     "priceType",
@@ -26,11 +28,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     "isFrozen",
     "limitedQty",
     "limitedQtyAmount",
+    "allowPersonalOrder",
     "isActive",
     "sortOrder",
   ]) {
     if (k in b) data[k] = b[k];
   }
+  // הגנה על מחיקת הזמנות אישיות שמפנות למוצר
   const product = await prisma.product.update({ where: { id }, data });
   return NextResponse.json(product);
 }
@@ -39,8 +43,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const g = await requireAdmin();
   if (!g.ok) return g.res;
   const { id } = await params;
-  const used = await prisma.orderItem.count({ where: { productId: id } });
-  if (used > 0) {
+  const usedOrders = await prisma.orderItem.count({ where: { productId: id } });
+  const usedPersonal = await prisma.personalRequestItem.count({ where: { productId: id } });
+  if (usedOrders > 0 || usedPersonal > 0) {
     // לא מוחקים מוצר שמופיע בהזמנות — רק מסתירים
     await prisma.product.update({ where: { id }, data: { isActive: false } });
     return NextResponse.json({ ok: true, hidden: true });
