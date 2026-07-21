@@ -281,18 +281,23 @@ export function OrderFlow({
   //   3. ה-iframe מעבד ומחזיר postMessage עם Status
   //   4. במקביל הוא קורא ל-webhook שלנו
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // §19: תוקף הכרטיס - נאסף על ידינו (לא ב-iframe) כי נדרים אוסרים Tokef ביצירת טוקן,
+  // אבל דורשים אותו בחיוב (DebitCard.aspx). איסוף ושמירת תוקף חוקיים לפי PCI (בניגוד ל-CVV).
+  const [cardTokef, setCardTokef] = useState(""); // פורמט MMYY - 4 ספרות
   const [iframeSubmitting, setIframeSubmitting] = useState(false);
   const [iframeError, setIframeError] = useState<string | null>(null);
   // מעקב אחר "נדרים אישרו את החיוב אבל עדיין ממתינים ל-webhook לשמור את הטוקן"
   const [nedarimConfirmedOk, setNedarimConfirmedOk] = useState(false);
 
-  // ═══ הקומבינציה האחרונה שלא נבדקה: CreateToken + Tokef=Hide + CVV גלוי ═══
-  // היסטוריה מלאה:
-  //   1. Ragil (הכל גלוי): חיוב עבר, אין טוקן ב-webhook (הוכח 21/07/2026, TransactionId 75236558)
-  //   2. CreateToken + Tokef=Hide + CVV=Hide: טוקן נוצר, חיוב נכשל ב-CVV ERROR
-  //   3. הניסיון הזה: CreateToken + Tokef=Hide + CVV גלוי - הלקוח מזין CVV ביצירת הטוקן.
-  //      אולי נדרים יאמתו CVV מול חברת האשראי והטוקן יהיה "מאומת" לחיובים.
-  // אם גם זה נכשל ב-CVV ERROR - נוסו כל הקומבינציות. הפתרון היחיד: נדרים משנים הגדרות מוסד.
+  // ═══ מצב סופי: CreateToken + Tokef=Hide + CVV=Hide ═══
+  // זו הקומבינציה היחידה שנדרים מקבלים ליצירת טוקן (הוכח: כל האחרות נדחות/לא מחזירות טוקן).
+  // סטטוס נכון ל-21/07/2026: הטוקן נוצר, אבל החיוב נכשל ב-"CVV ERROR" בגלל
+  // "חובת CVV" בהגדרות המוסד אצל נדרים. ממתינים שנדרים יבטלו את החובה.
+  // ברגע שיבטלו - הכל יעבוד מיד, ללא שינוי קוד.
+  // תיעוד מלא של כל הניסיונות:
+  //   1. Ragil: חיוב עבר (TransactionId 75236558), אין Token ב-webhook, KevaId ריק
+  //   2. CreateToken+CVV=Hide: טוקן נוצר, חיוב נכשל CVV ERROR
+  //   3. CreateToken+CVV גלוי: נדרים דוחים - "אין לשלוח CVV ביצירת טוקן"
   const verificationIframeUrl =
     customerId &&
     "https://www.matara.pro/nedarimplus/iframe?" +
@@ -305,8 +310,8 @@ export function OrderFlow({
         PaymentType: "CreateToken",
         TransactionType: "Debit",
         Tashlumim: "1",
-        Tokef: "Hide", // חובה ב-CreateToken (נדרים דורשים להסתיר)
-        // CVV: לא מוסתר בכוונה - הלקוח יזין אותו ביצירת הטוקן
+        Tokef: "Hide", // נדרש על ידי נדרים ב-CreateToken
+        CVV: "Hide", // נדרש על ידי נדרים ב-CreateToken
         CallBack: "https://tzidkat.com/api/webhooks/nedarim",
         param1: customerId,
         param2: "registration",
@@ -439,10 +444,11 @@ export function OrderFlow({
           // שומרים את הטוקן מיד דרך API call.
           const receivedToken = String(value?.Token || value?.token || "").trim();
           const receivedLast4 = String(value?.LastNum || value?.lastNum || "").trim();
-          // Tokef חובה לחיוב עתידי (לפי תיעוד DebitCard) - שולפים מכל שם אפשרי
-          const receivedTokef = String(
-            value?.Tokef || value?.tokef || value?.CardValidity || value?.Expiry || ""
-          ).trim();
+          // Tokef חובה לחיוב עתידי (DebitCard.aspx). עדיפות: מנדרים אם חזר, אחרת מהשדה שלנו.
+          const receivedTokef =
+            String(
+              value?.Tokef || value?.tokef || value?.CardValidity || value?.Expiry || ""
+            ).trim() || cardTokef.replace(/\D/g, "");
 
           if (receivedToken) {
             console.log(
@@ -530,12 +536,23 @@ export function OrderFlow({
       clearTimeout(safetyTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showVerification, iframeSubmitting, nedarimConfirmedOk]);
+  }, [showVerification, iframeSubmitting, nedarimConfirmedOk, cardTokef]);
 
   // לחיצה על "אמת ושלם 1 ש"ח" - שולחים postMessage ל-iframe עם כל פרטי החיוב ב-Value
   function submitVerificationIframe() {
     if (!iframeRef.current?.contentWindow || !customerId) {
       setIframeError("ה-iframe לא נטען כראוי. רענן את הדף ונסה שוב.");
+      return;
+    }
+    // ולידציה של תוקף הכרטיס שנאסף אצלנו (חובה לחיוב עתידי לפי DebitCard.aspx)
+    const tokefClean = cardTokef.replace(/\D/g, "");
+    if (tokefClean.length !== 4) {
+      setIframeError("יש להזין תוקף כרטיס בן 4 ספרות (חודש+שנה, למשל 1128 = נובמבר 2028)");
+      return;
+    }
+    const mm = parseInt(tokefClean.slice(0, 2), 10);
+    if (mm < 1 || mm > 12) {
+      setIframeError("חודש התוקף לא תקין - יש להזין 01 עד 12 (למשל 1128 = נובמבר 2028)");
       return;
     }
     setIframeError(null);
@@ -1325,6 +1342,28 @@ export function OrderFlow({
                     className="w-full h-[620px] max-h-[calc(92vh-140px)] min-h-[500px] border-0 rounded-xl"
                     title="אימות כרטיס אשראי"
                   />
+                  {/* §19: שדה תוקף - נאסף אצלנו כי נדרים מסתירים אותו ביצירת טוקן
+                      אבל דורשים אותו בחיוב (DebitCard.aspx) */}
+                  <div className="mt-3 px-1">
+                    <label className="block">
+                      <span className="text-sm font-medium text-brand-slatedark">
+                        תוקף הכרטיס <span className="text-red-500">*</span>
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        dir="ltr"
+                        maxLength={5}
+                        placeholder="MMYY (למשל 1128)"
+                        value={cardTokef}
+                        onChange={(e) => setCardTokef(e.target.value.replace(/[^\d/]/g, ""))}
+                        className="w-full mt-1 px-3 py-2.5 border border-zinc-300 rounded-lg text-center font-bold tracking-widest focus:outline-none focus:ring-2 focus:ring-brand-rust"
+                      />
+                      <span className="text-xs text-zinc-400 mt-1 block">
+                        חודש + שנה, 4 ספרות. למשל: 1128 = נובמבר 2028
+                      </span>
+                    </label>
+                  </div>
                   {iframeError && (
                     <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm text-center">
                       {iframeError}
