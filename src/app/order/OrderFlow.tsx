@@ -542,7 +542,9 @@ export function OrderFlow({
           Value: {
             Mosad: "7015318",
             ApiValid: "NxhXRWeG5P",
-            PaymentType: "CreateToken",
+            // Ragil = חיוב אמיתי של 1₪. חייב להיות זהה ל-PaymentType שב-URL של ה-iframe!
+            // (זה מה שגרם לשגיאה "אין לשלוח תוקף" - ה-postMessage דרס עם CreateToken)
+            PaymentType: "Ragil",
             Currency: "1",
             Amount: "1",
             Tashlumim: "1",
