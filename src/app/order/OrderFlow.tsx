@@ -286,10 +286,13 @@ export function OrderFlow({
   // מעקב אחר "נדרים אישרו את החיוב אבל עדיין ממתינים ל-webhook לשמור את הטוקן"
   const [nedarimConfirmedOk, setNedarimConfirmedOk] = useState(false);
 
-  // iframe נדרים - חיוב 1₪ אמיתי כדי לאמת ולקבל טוקן מלא.
-  // גישה זו (Ragil - חיוב רגיל של 1₪) יוצרת "טוקן חוקי לחיובים חוזרים",
-  // בניגוד ל-CreateToken שיצר טוקן שנדרים סירבו לחייב איתו בעתיד ("CVV ERROR").
-  // הלקוח מזין: מספר כרטיס + תוקף + CVV. נדרים גובים 1₪ + שומרים טוקן.
+  // ═══ הקומבינציה האחרונה שלא נבדקה: CreateToken + Tokef=Hide + CVV גלוי ═══
+  // היסטוריה מלאה:
+  //   1. Ragil (הכל גלוי): חיוב עבר, אין טוקן ב-webhook (הוכח 21/07/2026, TransactionId 75236558)
+  //   2. CreateToken + Tokef=Hide + CVV=Hide: טוקן נוצר, חיוב נכשל ב-CVV ERROR
+  //   3. הניסיון הזה: CreateToken + Tokef=Hide + CVV גלוי - הלקוח מזין CVV ביצירת הטוקן.
+  //      אולי נדרים יאמתו CVV מול חברת האשראי והטוקן יהיה "מאומת" לחיובים.
+  // אם גם זה נכשל ב-CVV ERROR - נוסו כל הקומבינציות. הפתרון היחיד: נדרים משנים הגדרות מוסד.
   const verificationIframeUrl =
     customerId &&
     "https://www.matara.pro/nedarimplus/iframe?" +
@@ -299,9 +302,11 @@ export function OrderFlow({
         ApiValid: "NxhXRWeG5P",
         Amount: "1",
         AmountLock: "1",
-        PaymentType: "Ragil",
+        PaymentType: "CreateToken",
         TransactionType: "Debit",
         Tashlumim: "1",
+        Tokef: "Hide", // חובה ב-CreateToken (נדרים דורשים להסתיר)
+        // CVV: לא מוסתר בכוונה - הלקוח יזין אותו ביצירת הטוקן
         CallBack: "https://tzidkat.com/api/webhooks/nedarim",
         param1: customerId,
         param2: "registration",
@@ -542,9 +547,8 @@ export function OrderFlow({
           Value: {
             Mosad: "7015318",
             ApiValid: "NxhXRWeG5P",
-            // Ragil = חיוב אמיתי של 1₪. חייב להיות זהה ל-PaymentType שב-URL של ה-iframe!
-            // (זה מה שגרם לשגיאה "אין לשלוח תוקף" - ה-postMessage דרס עם CreateToken)
-            PaymentType: "Ragil",
+            // חייב להיות זהה ל-PaymentType שב-URL של ה-iframe!
+            PaymentType: "CreateToken",
             Currency: "1",
             Amount: "1",
             Tashlumim: "1",
