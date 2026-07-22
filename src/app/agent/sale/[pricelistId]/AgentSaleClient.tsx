@@ -8,6 +8,7 @@ import Link from "next/link";
 import { OrderRow } from "./OrderRow";
 import { WalkinList } from "./WalkinList";
 import { SummaryPanel } from "./SummaryPanel";
+import { WeightsTable } from "./WeightsTable";
 
 type Product = {
   id: string;
@@ -140,6 +141,10 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
   const [tab, setTab] = useState<Tab>("orders");
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  // סינון: הכל / רק ממתינים / רק מוזנים
+  const [filterMode, setFilterMode] = useState<"all" | "pending" | "done">("all");
+  // מצב תצוגה: כרטיסים או טבלה מהירה (Excel-like)
+  const [viewMode, setViewMode] = useState<"cards" | "table">("table");
 
   const load = useCallback(async () => {
     try {
@@ -220,18 +225,83 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
     };
   }, [data]);
 
-  // סינון הזמנות לפי חיפוש
+  // חישוב כמה ק"ג של כל מוצר כבר חולקו (לפי מה שהנציג הזין) - כדי להציג יתרה
+  const productWeightsUsed = useMemo(() => {
+    if (!data) return {} as Record<string, number>;
+    const acc: Record<string, number> = {};
+    for (const order of data.orders) {
+      for (const it of order.items) {
+        if (it.isCancelled) continue;
+        const w = it.agentEnteredWeight || 0;
+        if (w > 0) {
+          acc[it.productId] = (acc[it.productId] || 0) + w;
+        }
+      }
+    }
+    // הוספה גם ממזדמנים
+    for (const w of data.walkins) {
+      for (const it of w.items) {
+        acc[it.productId] = (acc[it.productId] || 0) + it.weight;
+      }
+    }
+    return acc;
+  }, [data]);
+
+  // סינון הזמנות: חיפוש טקסטואלי + מצב (הכל/ממתינים/הושלמו)
   const filteredOrders = useMemo(() => {
     if (!data) return [];
-    if (!filter.trim()) return data.orders;
-    const q = filter.trim().toLowerCase();
-    return data.orders.filter(
-      (o) =>
-        o.customerName.toLowerCase().includes(q) ||
-        o.phone.includes(q) ||
-        String(o.orderNumber).includes(q)
-    );
-  }, [data, filter]);
+    let list = data.orders;
+
+    // סינון לפי סטטוס
+    if (filterMode === "pending") {
+      list = list.filter((o) => {
+        const active = o.items.filter((i) => !i.isCancelled);
+        return active.some(
+          (i) => i.agentEnteredWeight === null || i.agentEnteredWeight === 0
+        );
+      });
+    } else if (filterMode === "done") {
+      list = list.filter((o) => {
+        const active = o.items.filter((i) => !i.isCancelled);
+        return (
+          active.length > 0 &&
+          active.every(
+            (i) => i.agentEnteredWeight !== null && i.agentEnteredWeight > 0
+          )
+        );
+      });
+    }
+
+    // חיפוש טקסטואלי
+    if (filter.trim()) {
+      const q = filter.trim().toLowerCase();
+      list = list.filter(
+        (o) =>
+          o.customerName.toLowerCase().includes(q) ||
+          o.phone.includes(q) ||
+          String(o.orderNumber).includes(q)
+      );
+    }
+
+    return list;
+  }, [data, filter, filterMode]);
+
+  // סטטיסטיקות לתגי הסינון
+  const orderStats = useMemo(() => {
+    if (!data) return { pending: 0, done: 0 };
+    let pending = 0;
+    let done = 0;
+    for (const o of data.orders) {
+      const active = o.items.filter((i) => !i.isCancelled);
+      if (active.length === 0) continue;
+      const allEntered = active.every(
+        (i) => i.agentEnteredWeight !== null && i.agentEnteredWeight > 0
+      );
+      if (allEntered) done++;
+      else pending++;
+    }
+    return { pending, done };
+  }, [data]);
 
   const updateOrderItem = useCallback(
     (orderId: string, itemId: string, updates: Partial<OrderItem>) => {
@@ -370,26 +440,95 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
 
         {tab === "orders" && (
           <div className="space-y-3">
-            {/* Search */}
-            <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-3">
-              <input
-                type="text"
-                placeholder="חיפוש לפי שם, טלפון, מספר הזמנה..."
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-rust"
-              />
+            {/* חיפוש + סינון + מצב תצוגה */}
+            <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-3 space-y-2">
+              <div className="flex gap-2 items-stretch">
+                <input
+                  type="text"
+                  placeholder="חיפוש..."
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-rust"
+                />
+                {/* Toggle כרטיסים / טבלה */}
+                <div className="flex bg-zinc-100 rounded-lg p-0.5 shrink-0">
+                  <button
+                    onClick={() => setViewMode("table")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                      viewMode === "table"
+                        ? "bg-white text-brand-slatedark shadow-sm"
+                        : "text-zinc-500 hover:text-brand-slatedark"
+                    }`}
+                    title="תצוגת טבלה מהירה"
+                  >
+                    <svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    <span className="mr-1">טבלה</span>
+                  </button>
+                  <button
+                    onClick={() => setViewMode("cards")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                      viewMode === "cards"
+                        ? "bg-white text-brand-slatedark shadow-sm"
+                        : "text-zinc-500 hover:text-brand-slatedark"
+                    }`}
+                    title="תצוגת כרטיסים"
+                  >
+                    <svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    </svg>
+                    <span className="mr-1">כרטיסים</span>
+                  </button>
+                </div>
+              </div>
+              <div className="flex gap-1.5">
+                <FilterChip
+                  active={filterMode === "all"}
+                  onClick={() => setFilterMode("all")}
+                  color="slate"
+                >
+                  הכל · {data.orders.length}
+                </FilterChip>
+                <FilterChip
+                  active={filterMode === "pending"}
+                  onClick={() => setFilterMode("pending")}
+                  color="amber"
+                >
+                  ממתינים · {orderStats.pending}
+                </FilterChip>
+                <FilterChip
+                  active={filterMode === "done"}
+                  onClick={() => setFilterMode("done")}
+                  color="emerald"
+                >
+                  ✓ הושלמו · {orderStats.done}
+                </FilterChip>
+              </div>
             </div>
+
             {filteredOrders.length === 0 ? (
               <div className="bg-white rounded-2xl border border-zinc-200 p-8 text-center text-zinc-500">
-                {filter ? "לא נמצאו הזמנות מתאימות לחיפוש" : "אין הזמנות במכירה זו"}
+                {filter || filterMode !== "all"
+                  ? "לא נמצאו הזמנות מתאימות"
+                  : "אין הזמנות במכירה זו"}
               </div>
+            ) : viewMode === "table" ? (
+              <WeightsTable
+                orders={filteredOrders}
+                productWeightsFromNotes={data.productWeightsFromNotes}
+                productWeightsUsed={productWeightsUsed}
+                readOnly={isSealed}
+                onItemUpdate={updateOrderItem}
+              />
             ) : (
               filteredOrders.map((order) => (
                 <OrderRow
                   key={order.id}
                   order={order}
                   availableProducts={data.availableProducts}
+                  productWeightsFromNotes={data.productWeightsFromNotes}
+                  productWeightsUsed={productWeightsUsed}
                   readOnly={isSealed}
                   onItemUpdate={(itemId, updates) =>
                     updateOrderItem(order.id, itemId, updates)
@@ -476,6 +615,36 @@ function TabBtn({
         active
           ? "bg-brand-rust text-white shadow-sm"
           : "text-brand-slate hover:bg-zinc-50"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FilterChip({
+  active,
+  onClick,
+  color,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  color: "slate" | "amber" | "emerald";
+  children: React.ReactNode;
+}) {
+  const activeColors = {
+    slate: "bg-brand-slatedark text-white",
+    amber: "bg-amber-500 text-white",
+    emerald: "bg-emerald-600 text-white",
+  }[color];
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+        active
+          ? activeColors + " shadow-sm"
+          : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
       }`}
     >
       {children}

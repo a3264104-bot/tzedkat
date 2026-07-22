@@ -7,6 +7,8 @@ import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
 type Props = {
   order: Order;
   availableProducts: AvailableProduct[];
+  productWeightsFromNotes: Record<string, number>; // כמה יש מכל מוצר בתעודות
+  productWeightsUsed: Record<string, number>;      // כמה כבר חולק מכל מוצר
   readOnly?: boolean;
   onItemUpdate: (itemId: string, updates: Partial<OrderItem>) => void;
   onNeedsReload: () => void;
@@ -15,6 +17,8 @@ type Props = {
 export function OrderRow({
   order,
   availableProducts,
+  productWeightsFromNotes,
+  productWeightsUsed,
   readOnly,
   onItemUpdate,
   onNeedsReload,
@@ -157,6 +161,8 @@ export function OrderRow({
               key={item.id}
               item={item}
               availableProducts={availableProducts}
+              productAvailable={productWeightsFromNotes[item.productId]}
+              productUsed={productWeightsUsed[item.productId] || 0}
               readOnly={readOnly}
               saving={saving === item.id}
               onSaveWeight={(w) => saveWeight(item, w)}
@@ -167,7 +173,7 @@ export function OrderRow({
           ))}
 
           {/* טלפון-קליק לנוחות */}
-          <div className="p-3 bg-zinc-50 flex items-center justify-between text-xs">
+          <div className="p-3 bg-zinc-50 flex items-center justify-between text-xs gap-2 flex-wrap">
             <a
               href={`tel:${order.phone}`}
               className="text-brand-rust font-medium flex items-center gap-1"
@@ -177,6 +183,17 @@ export function OrderRow({
               </svg>
               חייג ללקוח
             </a>
+            {allEntered && !readOnly && (
+              <button
+                onClick={() => setExpanded(false)}
+                className="text-xs px-3 py-1.5 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-bold flex items-center gap-1"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                סמן כמושלם וסגור
+              </button>
+            )}
             <div className="text-zinc-500">
               נקודה: <strong>{order.point?.name || "—"}</strong>
             </div>
@@ -190,6 +207,8 @@ export function OrderRow({
 function ItemRow({
   item,
   availableProducts,
+  productAvailable,
+  productUsed,
   readOnly,
   saving,
   onSaveWeight,
@@ -199,6 +218,8 @@ function ItemRow({
 }: {
   item: OrderItem;
   availableProducts: AvailableProduct[];
+  productAvailable?: number;    // כמה יש מהמוצר בתעודה
+  productUsed: number;          // כמה כבר חולק
   readOnly?: boolean;
   saving: boolean;
   onSaveWeight: (w: number) => void;
@@ -217,6 +238,14 @@ function ItemRow({
   const currentPrice = item.agentEnteredWeight
     ? item.agentEnteredWeight * item.unitPrice
     : 0;
+
+  // חישוב יתרה: כמה נשאר לחלוקה מהמוצר?
+  const hasNoteData = productAvailable !== undefined && productAvailable > 0;
+  const remaining = hasNoteData ? productAvailable - productUsed : 0;
+  // האם חורגים מהתעודה?
+  const overAllocated = hasNoteData && remaining < 0;
+  // האם נשארה עדיין כמות טובה?
+  const goodRemaining = hasNoteData && remaining > 0.1;
 
   const filteredReplacements = availableProducts.filter((p) =>
     p.product.name.toLowerCase().includes(replaceQuery.toLowerCase())
@@ -265,6 +294,31 @@ function ItemRow({
           </div>
         </div>
       </div>
+
+      {/* Banner מלאי - רק אם יש נתונים מהתעודה + לא בודדים + לא מבוטל */}
+      {!item.isCancelled && !item.isSingle && hasNoteData && (
+        <div
+          className={`text-xs rounded-lg px-2.5 py-1.5 mb-2 flex items-center justify-between gap-2 ${
+            overAllocated
+              ? "bg-red-100 text-red-800 border border-red-300 font-bold"
+              : goodRemaining
+              ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+              : "bg-amber-50 text-amber-800 border border-amber-200"
+          }`}
+        >
+          <div className="flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+            </svg>
+            <span>לחלוקה בסה״כ: <b>{productAvailable!.toFixed(2)} ק"ג</b></span>
+          </div>
+          <div>
+            {overAllocated
+              ? `⚠️ חריגה של ${Math.abs(remaining).toFixed(2)} ק"ג`
+              : `נשאר: ${remaining.toFixed(2)} ק"ג`}
+          </div>
+        </div>
+      )}
 
       {!item.isCancelled && (
         <>
