@@ -49,8 +49,16 @@ model Customer {
   // הרשאות נציג נפרדות: קביעת מחיר סופי / שליחת לינק תשלום
   agentCanSetFinalPrice Boolean @default(false)
   agentCanSendPaymentLink Boolean @default(false)
+  // עמלת נציג לפי ק"ג - קרטונים ובודדים בנפרד
+  // ברירת מחדל: 1 ש"ח לק"ג לקרטונים, 4 ש"ח לק"ג לבודדים (1 בסיסי + 3 תוספת)
+  commissionRateCarton  Decimal @default(1) @db.Decimal(10, 2)
+  commissionRateSingles Decimal @default(4) @db.Decimal(10, 2)
   orders               Order[]
   personalRequests     PersonalRequest[]
+  // §20: מכירות ותשלומים של הנציג
+  agentSaleSummaries   AgentSaleSummary[]
+  agentPayments        AgentPayment[]
+  walkinOrders         WalkinOrder[] @relation("WalkinAgent")
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }
@@ -98,6 +106,9 @@ model Product {
   sortOrder     Int      @default(0)
   orderItems    OrderItem[]
   pricelists    PricelistProduct[]
+  // §20: מודול נציגים
+  deliveryNoteItems DeliveryNoteItem[]
+  walkinOrderItems  WalkinOrderItem[]
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -143,6 +154,11 @@ model Pricelist {
   points        PricelistPoint[]
   products      PricelistProduct[]
   orders        Order[]
+  // §20: מודול נציגים
+  agentSaleSummaries AgentSaleSummary[]
+  deliveryNotes     DeliveryNote[]
+  walkinOrders      WalkinOrder[]
+  agentPayments     AgentPayment[]
   createdAt     DateTime @default(now())
 }
 
@@ -246,6 +262,12 @@ model OrderItem {
   actualWeight  Decimal? @db.Decimal(10, 3) // משקל בפועל - מעודכן ע"י נציג/מנהל אחרי שקילה
   finalWeight   Decimal? @db.Decimal(10, 3) // נשמר לתאימות לאחור (זהה ל-actualWeight)
   finalPrice    Decimal? @db.Decimal(10, 2)
+  // §20: שדות של נציג - נעולים לחישוב עמלה (המנהל יכול לתקן finalWeight, אבל agentEnteredWeight נשמר)
+  agentEnteredWeight Decimal? @db.Decimal(10, 3) // המשקל שהנציג הזין - נעול לעמלה
+  agentEnteredById   String?  // מזהה הנציג שהזין (Customer.id)
+  agentNote          String?  // הערה חופשית מהנציג ("הגיע צלעות במקום כתפיים")
+  isCancelled        Boolean  @default(false) // לקוח לא רצה - לא מחייבים
+  originalProductId  String?  // מוצר מקורי לפני החלפה (לתיעוד)
 }
 
 // הגדרות מערכת גלובליות - שורה יחידה, נערכת מאזור הניהול
@@ -337,4 +359,148 @@ model PersonalRequestMessage {
   createdAt  DateTime @default(now())
 
   @@index([requestId])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// §20: מודול נציגים - חלוקה, משקלים, עמלות, תעודות משלוח, מזדמנים
+// ═══════════════════════════════════════════════════════════════
+
+// סיכום עבודת נציג במכירה ספציפית - מחושב חי, נעול בסוף
+model AgentSaleSummary {
+  id                  String   @id @default(cuid())
+  pricelistId         String
+  pricelist           Pricelist @relation(fields: [pricelistId], references: [id], onDelete: Cascade)
+  agentId             String
+  agent               Customer  @relation(fields: [agentId], references: [id])
+  // סיכומים - מחושבים ונשמרים בסגירת המכירה על ידי הנציג
+  totalCartonWeight   Decimal   @default(0) @db.Decimal(10, 3) // ק"ג קרטונים ללקוחות
+  totalSinglesWeight  Decimal   @default(0) @db.Decimal(10, 3) // ק"ג בודדים
+  totalWalkinWeight   Decimal   @default(0) @db.Decimal(10, 3) // ק"ג מזדמנים
+  totalCustomers      Int       @default(0) // מספר לקוחות שטופלו
+  totalWalkins        Int       @default(0) // מספר מזדמנים
+  cartonCommission    Decimal   @default(0) @db.Decimal(10, 2) // עמלה על קרטונים
+  singlesCommission   Decimal   @default(0) @db.Decimal(10, 2) // עמלה על בודדים
+  totalCommission     Decimal   @default(0) @db.Decimal(10, 2) // עמלה כוללת
+  // "נותר/זרוק" - להסבר פערים מתעודת המשלוח
+  remainderNote       String?   @db.Text
+  // סטטוס: DRAFT (בעריכה) / CONFIRMED (נציג סגר את המכירה)
+  status              String    @default("DRAFT")
+  confirmedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([pricelistId, agentId])
+  @@index([status])
+}
+
+// תעודת משלוח מהספק - מועלית ע"י המנהל, מאושרת ומשמשת מקור אמת לק"ג קרטונים
+model DeliveryNote {
+  id             String   @id @default(cuid())
+  pricelistId    String
+  pricelist      Pricelist @relation(fields: [pricelistId], references: [id])
+  // תמונה מקורית שהמנהל צילם/העלה
+  imageUrl       String?
+  // נתונים גולמיים כפי שחזרו מ-Gemini (JSON)
+  ocrRawData     String?  @db.Text
+  // פרטים שחולצו לגבי התעודה עצמה
+  supplierName   String?  // שם הספק (למשל "לנדה סחר")
+  noteNumber     String?  // מספר תעודה
+  noteDate       DateTime? // תאריך התעודה
+  // סטטוס: DRAFT (רק חולץ ע"י OCR) / CONFIRMED (המנהל אישר) / REJECTED
+  status         String   @default("DRAFT")
+  confirmedById  String?  // מזהה מי אישר
+  confirmedAt    DateTime?
+  items          DeliveryNoteItem[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([pricelistId])
+  @@index([status])
+}
+
+// שורת מוצר בתעודת משלוח - כל שורה = מוצר אחד עם קרטונים ומשקל
+model DeliveryNoteItem {
+  id              String       @id @default(cuid())
+  deliveryNoteId  String
+  deliveryNote    DeliveryNote @relation(fields: [deliveryNoteId], references: [id], onDelete: Cascade)
+  // productId - שיוך למוצר במערכת. NULL אם עדיין לא הותאם
+  productId       String?
+  product         Product?     @relation(fields: [productId], references: [id])
+  // השם כפי שהופיע בתעודה (לפני התאמה)
+  productNameOnNote String
+  quantity        Int          // מספר קרטונים
+  weight          Decimal      @db.Decimal(10, 3) // סה"כ ק"ג לפי התעודה
+  // אמון של Gemini - 0.0 עד 1.0. שורה עם confidence נמוך מסומנת אדום למנהל
+  confidence      Decimal?     @db.Decimal(3, 2)
+  // האם המנהל הוסיף את השורה ידנית (אחרי OCR)
+  addedManually   Boolean      @default(false)
+  // הערה חופשית (למשל: "שם לא ברור בתעודה")
+  note            String?
+  sortOrder       Int          @default(0)
+}
+
+// לקוח מזדמן - הגיע לחלוקה בלי הזמנה מוקדמת
+model WalkinOrder {
+  id              String   @id @default(cuid())
+  walkinNumber    Int      @unique @default(autoincrement()) // מספר מזדמן רץ
+  pricelistId     String
+  pricelist       Pricelist @relation(fields: [pricelistId], references: [id])
+  agentId         String
+  agent           Customer  @relation("WalkinAgent", fields: [agentId], references: [id])
+  // פרטי הלקוח - שם חובה, טלפון אופציונלי (אבל מומלץ ל-SMS)
+  customerName    String
+  customerPhone   String?
+  // אמצעי תשלום
+  paymentMethod   String   // CASH / CARD_TERMINAL / TRANSFER / ONLINE / CARD_ONLINE
+  // האם התקבל בפועל - לתשלומים כמו העברה בנקאית שצריך לוודא
+  paymentReceived Boolean  @default(true)  // ברירת מחדל true (מזומן / אשראי במסוף = מיד)
+  // הערה על התשלום (למשל: "4 ספרות אחרונות: 4523, אישור: 123456")
+  paymentNote     String?
+  // סה"כ הזמנה
+  totalAmount     Decimal  @default(0) @db.Decimal(10, 2)
+  // הערות כלליות
+  notes           String?
+  items           WalkinOrderItem[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([pricelistId])
+  @@index([agentId])
+  @@index([paymentMethod, paymentReceived])
+}
+
+// פריט של הזמנת מזדמן
+model WalkinOrderItem {
+  id              String   @id @default(cuid())
+  walkinOrderId   String
+  walkinOrder     WalkinOrder @relation(fields: [walkinOrderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id])
+  productName     String   // snapshot
+  weight          Decimal  @db.Decimal(10, 3) // ק"ג בפועל
+  unitPrice       Decimal  @db.Decimal(10, 2) // מחיר ליחידה בזמן ההזמנה
+  isSingle        Boolean  @default(false)   // בודדים
+  totalPrice      Decimal  @db.Decimal(10, 2) // weight × unitPrice
+  note            String?
+}
+
+// תשלום שהמנהל שילם לנציג - היסטוריה + מעקב חוב
+model AgentPayment {
+  id            String   @id @default(cuid())
+  agentId       String
+  agent         Customer @relation(fields: [agentId], references: [id])
+  amount        Decimal  @db.Decimal(10, 2) // סכום ששולם (חיובי) או שנציג חייב (שלילי)
+  // סוג: PAID (המנהל שילם לנציג) / COLLECTED (הנציג העביר מזומן שאסף)
+  type          String
+  // אמצעי תשלום
+  method        String?  // BANK_TRANSFER / CASH / CHECK / OTHER
+  note          String?  @db.Text // הערה חופשית ("מזומן שאסף בחלוקה של יום ראשון")
+  // קישור למכירה ספציפית (אופציונלי - יכול להיות תשלום כללי)
+  pricelistId   String?
+  pricelist     Pricelist? @relation(fields: [pricelistId], references: [id])
+  createdById   String?  // מזהה המנהל שרשם
+  createdAt     DateTime @default(now())
+
+  @@index([agentId])
+  @@index([pricelistId])
 }

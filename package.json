@@ -15,10 +15,12 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@hebcal/core": "^6.7.0",
     "@prisma/client": "^6.1.0",
     "@supabase/supabase-js": "^2.110.0",
     "bcryptjs": "^2.4.3",
+    "exceljs": "^4.4.0",
     "next": "15.5.19",
     "next-auth": "5.0.0-beta.25",
     "react": "^19.0.0",
