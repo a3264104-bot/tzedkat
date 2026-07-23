@@ -6,16 +6,19 @@
 // - Tab/Enter קופצים לשדה הבא
 // - שמירה אוטומטית ב-onBlur (בלי לחיצת כפתור)
 // - הבלטת שורה פעילה
+// - פעולות: ביטול פריט + החלפת מוצר בתוך הטבלה
 
 import { useMemo, useRef, useState, useEffect } from "react";
-import type { Order, OrderItem } from "./AgentSaleClient";
+import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
 
 type Props = {
   orders: Order[];
+  availableProducts: AvailableProduct[];
   productWeightsFromNotes: Record<string, number>;
   productWeightsUsed: Record<string, number>;
   readOnly?: boolean;
   onItemUpdate: (orderId: string, itemId: string, updates: Partial<OrderItem>) => void;
+  onNeedsReload: () => void;
 };
 
 // Flat row - פריט אחד עם כל המידע שצריך להציג
@@ -43,18 +46,23 @@ type FlatRow = {
 
 export function WeightsTable({
   orders,
+  availableProducts,
   productWeightsFromNotes,
   productWeightsUsed,
   readOnly,
   onItemUpdate,
+  onNeedsReload,
 }: Props) {
-  // בניית שורות שטוחות
+  // בניית שורות שטוחות - כולל מבוטלים (יופיעו בסוף לכל לקוח)
   const rows = useMemo<FlatRow[]>(() => {
     const out: FlatRow[] = [];
     for (const order of orders) {
-      const activeItems = order.items.filter((i) => !i.isCancelled);
-      if (activeItems.length === 0) continue;
-      activeItems.forEach((item, idx) => {
+      // ראשית פריטים פעילים, ואז מבוטלים - כך שקל להזין ואז לראות מה בוטל
+      const active = order.items.filter((i) => !i.isCancelled);
+      const cancelled = order.items.filter((i) => i.isCancelled);
+      const allItems = [...active, ...cancelled];
+      if (allItems.length === 0) continue;
+      allItems.forEach((item, idx) => {
         out.push({
           orderId: order.id,
           itemId: item.id,
@@ -74,7 +82,7 @@ export function WeightsTable({
           agentEnteredWeight: item.agentEnteredWeight,
           agentNote: item.agentNote,
           isFirstOfCustomer: idx === 0,
-          customerItemCount: activeItems.length,
+          customerItemCount: allItems.length,
         });
       });
     }
@@ -106,12 +114,13 @@ export function WeightsTable({
               <th className="text-right px-3 py-2 min-w-[80px]">מחיר</th>
               <th className="text-right px-3 py-2 min-w-[100px]">יתרה במלאי</th>
               <th className="text-right px-3 py-2 min-w-[140px]">הערה</th>
+              <th className="text-center px-3 py-2 min-w-[80px]">פעולות</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center py-8 text-zinc-500">
+                <td colSpan={9} className="text-center py-8 text-zinc-500">
                   אין פריטים להזין
                 </td>
               </tr>
@@ -132,8 +141,10 @@ export function WeightsTable({
                   }
                   productAvailable={productWeightsFromNotes[row.productId]}
                   productUsed={productWeightsUsed[row.productId] || 0}
+                  availableProducts={availableProducts}
                   readOnly={readOnly}
                   onItemUpdate={onItemUpdate}
+                  onNeedsReload={onNeedsReload}
                   totalRows={rows.length}
                   rowIdx={idx}
                 />
@@ -162,8 +173,10 @@ function TableRow({
   isEvenCustomer,
   productAvailable,
   productUsed,
+  availableProducts,
   readOnly,
   onItemUpdate,
+  onNeedsReload,
   totalRows,
   rowIdx,
 }: {
@@ -171,8 +184,10 @@ function TableRow({
   isEvenCustomer: boolean;
   productAvailable?: number;
   productUsed: number;
+  availableProducts: AvailableProduct[];
   readOnly?: boolean;
   onItemUpdate: (orderId: string, itemId: string, updates: Partial<OrderItem>) => void;
+  onNeedsReload: () => void;
   totalRows: number;
   rowIdx: number;
 }) {
@@ -180,6 +195,9 @@ function TableRow({
   const [noteVal, setNoteVal] = useState(row.agentNote || "");
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [showActions, setShowActions] = useState(false);
+  const [showReplace, setShowReplace] = useState(false);
+  const [replaceQuery, setReplaceQuery] = useState("");
   const weightRef = useRef<HTMLInputElement>(null);
   const noteRef = useRef<HTMLInputElement>(null);
 
@@ -253,6 +271,46 @@ function TableRow({
     }
   }
 
+  async function toggleCancel() {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/agent/order-item/${row.itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isCancelled: !row.isCancelled }),
+      });
+      if (!res.ok) throw new Error("שגיאה");
+      onItemUpdate(row.orderId, row.itemId, { isCancelled: !row.isCancelled });
+      setShowActions(false);
+    } catch (e: any) {
+      alert("שגיאה: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function doReplace(newProductId: string) {
+    if (!newProductId || newProductId === row.productId) return;
+    if (!confirm("להחליף את המוצר? המחיר יתעדכן לפי המוצר החדש")) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/agent/order-item/${row.itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ replaceWithProductId: newProductId }),
+      });
+      if (!res.ok) throw new Error("שגיאה");
+      setShowReplace(false);
+      setShowActions(false);
+      setReplaceQuery("");
+      onNeedsReload();
+    } catch (e: any) {
+      alert("שגיאה: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   // Enter על שדה משקל = שמור וקפוץ לשדה משקל בשורה הבאה
   function handleWeightKey(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
@@ -268,22 +326,28 @@ function TableRow({
     }
   }
 
-  // רקע לפי לקוח + הבלטה אם הוזן
-  const rowBg = isEntered
+  // רקע לפי לקוח + הבלטה אם הוזן / מבוטל
+  const rowBg = row.isCancelled
+    ? "bg-red-50/40 opacity-60"
+    : isEntered
     ? "bg-emerald-50/30"
     : isEvenCustomer
     ? "bg-zinc-50/50"
     : "bg-white";
 
+  const filteredReplacements = availableProducts.filter((p) =>
+    p.product.name.toLowerCase().includes(replaceQuery.toLowerCase())
+  );
+
   return (
     <tr
-      className={`border-b border-zinc-100 hover:bg-yellow-50/30 ${rowBg} transition-colors`}
+      className={`border-b border-zinc-100 hover:bg-yellow-50/30 ${rowBg} transition-colors relative`}
     >
       {/* לקוח - רק בשורה הראשונה */}
       <td className="px-3 py-2 align-top">
         {row.isFirstOfCustomer ? (
           <div>
-            <div className="font-bold text-brand-slatedark text-sm truncate">
+            <div className={`font-bold text-sm truncate ${row.isCancelled ? "text-zinc-400" : "text-brand-slatedark"}`}>
               {row.customerName}
             </div>
             <div className="text-[10px] text-zinc-400">#{row.orderNumber}</div>
@@ -306,9 +370,15 @@ function TableRow({
         )}
       </td>
       {/* מוצר */}
-      <td className="px-3 py-2 text-brand-slatedark">
+      <td className="px-3 py-2">
         <div className="flex items-center gap-1 flex-wrap">
-          <span className="font-semibold">{row.productName}</span>
+          <span
+            className={`font-semibold ${
+              row.isCancelled ? "line-through text-zinc-400" : "text-brand-slatedark"
+            }`}
+          >
+            {row.productName}
+          </span>
           {row.isSingle && (
             <span className="text-[9px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded font-bold">
               בודדים
@@ -319,44 +389,57 @@ function TableRow({
               הוחלף
             </span>
           )}
+          {row.isCancelled && (
+            <span className="text-[9px] bg-red-100 text-red-700 px-1 py-0.5 rounded font-bold">
+              ✗ בוטל
+            </span>
+          )}
         </div>
       </td>
       {/* הוזמן */}
       <td className="px-3 py-2 text-xs text-zinc-500 whitespace-nowrap">
         {row.ordered}
       </td>
-      {/* משקל - שדה עיקרי */}
+      {/* משקל - שדה עיקרי (מושבת אם מבוטל) */}
       <td className="px-2 py-1.5 text-center relative">
-        <input
-          ref={weightRef}
-          type="number"
-          inputMode="decimal"
-          step="0.01"
-          min="0"
-          value={weightVal}
-          onChange={(e) => setWeightVal(e.target.value)}
-          onBlur={saveWeight}
-          onKeyDown={handleWeightKey}
-          disabled={readOnly || saving}
-          data-weight-idx={rowIdx}
-          placeholder="0.00"
-          className={`w-full px-2 py-1.5 border-2 rounded-md text-center font-bold text-base focus:outline-none focus:ring-2 focus:ring-brand-rust transition-all ${
-            savedFlash
-              ? "border-emerald-500 bg-emerald-100"
-              : isEntered
-              ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-              : "border-zinc-300 bg-white"
-          }`}
-        />
-        {saving && (
-          <span className="absolute top-0 left-1 text-[8px] text-amber-600 animate-pulse">
-            שומר...
-          </span>
+        {row.isCancelled ? (
+          <span className="text-zinc-400 text-xs">—</span>
+        ) : (
+          <>
+            <input
+              ref={weightRef}
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min="0"
+              value={weightVal}
+              onChange={(e) => setWeightVal(e.target.value)}
+              onBlur={saveWeight}
+              onKeyDown={handleWeightKey}
+              disabled={readOnly || saving}
+              data-weight-idx={rowIdx}
+              placeholder="0.00"
+              className={`w-full px-2 py-1.5 border-2 rounded-md text-center font-bold text-base focus:outline-none focus:ring-2 focus:ring-brand-rust transition-all ${
+                savedFlash
+                  ? "border-emerald-500 bg-emerald-100"
+                  : isEntered
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                  : "border-zinc-300 bg-white"
+              }`}
+            />
+            {saving && (
+              <span className="absolute top-0 left-1 text-[8px] text-amber-600 animate-pulse">
+                שומר...
+              </span>
+            )}
+          </>
         )}
       </td>
       {/* מחיר מחושב */}
       <td className="px-3 py-2 text-xs whitespace-nowrap">
-        {currentPrice > 0 ? (
+        {row.isCancelled ? (
+          <span className="text-zinc-300">—</span>
+        ) : currentPrice > 0 ? (
           <span className="text-brand-rust font-bold">₪{currentPrice.toFixed(2)}</span>
         ) : (
           <span className="text-zinc-300">—</span>
@@ -364,7 +447,7 @@ function TableRow({
       </td>
       {/* יתרה במלאי - רק אם לא בודדים ויש תעודה */}
       <td className="px-3 py-2 text-xs whitespace-nowrap">
-        {!row.isSingle && hasNoteData ? (
+        {!row.isCancelled && !row.isSingle && hasNoteData ? (
           <span
             className={`font-bold px-1.5 py-0.5 rounded ${
               overAllocated
@@ -392,9 +475,97 @@ function TableRow({
           onChange={(e) => setNoteVal(e.target.value)}
           onBlur={saveNote}
           disabled={readOnly || saving}
-          placeholder="הערה..."
+          placeholder={row.isCancelled ? "לקוח לא רצה..." : "הערה..."}
           className="w-full px-2 py-1 border border-zinc-200 rounded text-xs focus:outline-none focus:ring-2 focus:ring-brand-rust bg-white"
         />
+      </td>
+      {/* פעולות */}
+      <td className="px-2 py-1.5 text-center relative">
+        {!readOnly && (
+          <div className="flex items-center justify-center gap-1">
+            {/* כפתור החלפת מוצר - רק אם לא מבוטל */}
+            {!row.isCancelled && (
+              <button
+                onClick={() => setShowReplace((v) => !v)}
+                disabled={saving}
+                className="p-1 rounded hover:bg-blue-100 text-blue-600 disabled:opacity-30"
+                title="החלף מוצר"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+              </button>
+            )}
+            {/* כפתור ביטול / החזרה */}
+            <button
+              onClick={toggleCancel}
+              disabled={saving}
+              className={`p-1 rounded disabled:opacity-30 ${
+                row.isCancelled
+                  ? "hover:bg-emerald-100 text-emerald-600"
+                  : "hover:bg-red-100 text-red-600"
+              }`}
+              title={row.isCancelled ? "החזר פריט" : "בטל פריט"}
+            >
+              {row.isCancelled ? (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Dropdown להחלפת מוצר */}
+        {showReplace && !readOnly && (
+          <div className="absolute z-30 top-full left-1/2 -translate-x-1/2 mt-1 w-72 bg-white border border-zinc-200 rounded-xl shadow-2xl p-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-brand-slatedark">
+                החלף מוצר
+              </span>
+              <button
+                onClick={() => {
+                  setShowReplace(false);
+                  setReplaceQuery("");
+                }}
+                className="text-zinc-400 hover:text-zinc-700 text-lg leading-none px-1"
+              >
+                ×
+              </button>
+            </div>
+            <input
+              type="text"
+              value={replaceQuery}
+              onChange={(e) => setReplaceQuery(e.target.value)}
+              placeholder="חפש מוצר..."
+              autoFocus
+              className="w-full px-2 py-1.5 border border-zinc-300 rounded text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-brand-rust"
+            />
+            <div className="max-h-56 overflow-y-auto space-y-1">
+              {filteredReplacements.slice(0, 20).map((p) => (
+                <button
+                  key={p.productId}
+                  onClick={() => doReplace(p.productId)}
+                  className="w-full text-right p-2 hover:bg-blue-50 rounded text-xs text-brand-slatedark"
+                >
+                  <div className="font-semibold">{p.product.name}</div>
+                  <div className="text-[10px] text-zinc-500">
+                    {p.product.category?.name} · ₪{p.price.toFixed(2)}
+                  </div>
+                </button>
+              ))}
+              {filteredReplacements.length === 0 && (
+                <div className="text-center text-xs text-zinc-500 py-3">
+                  אין תוצאות
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </td>
     </tr>
   );

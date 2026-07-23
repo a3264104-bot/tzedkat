@@ -516,10 +516,12 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
             ) : viewMode === "table" ? (
               <WeightsTable
                 orders={filteredOrders}
+                availableProducts={data.availableProducts}
                 productWeightsFromNotes={data.productWeightsFromNotes}
                 productWeightsUsed={productWeightsUsed}
                 readOnly={isSealed}
                 onItemUpdate={updateOrderItem}
+                onNeedsReload={load}
               />
             ) : (
               filteredOrders.map((order) => (
