@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import { signOutBtn } from "./AgentHeader";
+import { SignOutBtn } from "./AgentHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -93,7 +93,7 @@ export default async function AgentPage() {
                 </div>
               </div>
             </div>
-            {signOutBtn()}
+            <SignOutBtn />
           </div>
 
           {/* מידע על עמלה */}

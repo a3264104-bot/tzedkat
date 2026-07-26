@@ -3,7 +3,7 @@
 // §20: כפתור יציאה של הנציג - חייב להיות client component
 import { signOut } from "next-auth/react";
 
-export function signOutBtn() {
+export function SignOutBtn() {
   return (
     <button
       onClick={() => signOut({ callbackUrl: "/" })}
