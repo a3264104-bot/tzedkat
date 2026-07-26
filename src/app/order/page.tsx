@@ -187,6 +187,7 @@ export default async function OrderPage({
       }}
       cardVerified={!!customerRecord.paymentToken}
       customerId={customerRecord.id}
+      hasSeenOrderIntro={customerRecord.hasSeenOrderIntro}
       existingOrder={existingOrder ? { id: existingOrder.id, orderNumber: existingOrder.orderNumber } : null}
       editMode={
         editOrder

@@ -89,6 +89,7 @@ export function OrderFlow({
   onBehalfOfCustomerId,
   cardVerified = true,
   customerId = "",
+  hasSeenOrderIntro = false,
   existingOrder = null,
   editMode = null,
 }: {
@@ -99,6 +100,7 @@ export function OrderFlow({
   onBehalfOfCustomerId?: string;
   cardVerified?: boolean;
   customerId?: string;
+  hasSeenOrderIntro?: boolean;
   existingOrder?: { id: string; orderNumber: number } | null;
   editMode?: {
     orderId: string;
@@ -126,27 +128,32 @@ export function OrderFlow({
   const [submitting, setSubmitting] = useState(false);
   const [orderNumber, setOrderNumber] = useState<number | null>(null);
   const [error, setError] = useState("");
-  // §4: הודעת תנאים לפני תחילת ההזמנה (במצב עריכה - מדלגים)
-  // חשוב: מתחילים ב-true כדי להסתיר את התקנון עד ש-useEffect בודק את localStorage.
-  // אחרת יש SSR mismatch (שרת=false, לקוח=true) והתקנון מופיע גם אחרי אישור.
+  // §4: הודעת תנאים לפני תחילת ההזמנה
+  // עברנו מ-localStorage ל-DB (hasSeenOrderIntro) כדי שההודעה תופיע פעם אחת בלבד
+  // לחשבון, ולא תחזור בכל דפדפן/מכשיר או ניקוי cache.
+  // מתחילים ב-true להסתרה מיידית כדי למנוע SSR mismatch, ואז useEffect מכריע לפי מצב אמת.
   const [termsAccepted, setTermsAccepted] = useState<boolean>(true);
-  const [termsChecked, setTermsChecked] = useState(false); // האם כבר בדקנו את localStorage
+  const [termsChecked, setTermsChecked] = useState(false);
 
   useEffect(() => {
-    if (editMode) {
+    // במצב עריכה או אם המשתמש כבר ראה את המסך - מדלגים
+    if (editMode || hasSeenOrderIntro) {
       setTermsAccepted(true);
       setTermsChecked(true);
       return;
     }
-    const accepted = localStorage.getItem("tzidkat_terms_accepted") === "1";
-    setTermsAccepted(accepted);
+    // משתמש חדש שעוד לא ראה - מציגים את מסך התנאים
+    setTermsAccepted(false);
     setTermsChecked(true);
-  }, [editMode]);
+  }, [editMode, hasSeenOrderIntro]);
 
-  function acceptTerms() {
+  async function acceptTerms() {
     setTermsAccepted(true);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("tzidkat_terms_accepted", "1");
+    // שולחים ל-DB שהמשתמש ראה את המסך - כך שלא יוצג שוב לעולם
+    try {
+      await fetch("/api/customer/dismiss-intro", { method: "POST" });
+    } catch {
+      // אם הבקשה נכשלת - זה בסדר, בכל מקרה נסתיר בסשן הנוכחי
     }
   }
   // §13: מספר תשלומים (1 או 2 — מוצג ללקוח רק מעל 800₪)
@@ -725,7 +732,11 @@ export function OrderFlow({
       </header>
 
       <div className="mx-auto max-w-md md:max-w-4xl px-4 pt-5">
-        <StepBar step={step} />
+        {/* מסתירים את פס ההתקדמות במסך "ברוכים הבאים" כדי לא ליצור רושם שגוי
+            שהמשתמש כבר עבר שלבים - הוא רק צריך לאשר תנאים */}
+        {!(step === "products" && termsChecked && !termsAccepted) && (
+          <StepBar step={step} />
+        )}
 
         {/* STEP: choose point - מקובץ לפי עיר אם יש יותר מעיר אחת */}
         {step === "point" && points.length === 0 && (

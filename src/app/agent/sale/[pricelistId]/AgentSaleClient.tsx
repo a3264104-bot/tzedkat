@@ -55,11 +55,14 @@ export type Walkin = {
   walkinNumber: number;
   customerName: string;
   customerPhone: string | null;
+  customerEmail: string | null;
   paymentMethod: string;
   paymentReceived: boolean;
   paymentNote: string | null;
   totalAmount: number;
   notes: string | null;
+  summarySentAt: string | null;
+  summarySentVia: string | null;
   items: Array<{
     id: string;
     productId: string;

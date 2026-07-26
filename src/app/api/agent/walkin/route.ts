@@ -25,6 +25,7 @@ export async function POST(req: Request) {
   const pricelistId = String(body.pricelistId || "").trim();
   const customerName = String(body.customerName || "").trim();
   const customerPhone = body.customerPhone ? String(body.customerPhone).trim() : null;
+  const customerEmail = body.customerEmail ? String(body.customerEmail).trim() : null;
   const paymentMethod = String(body.paymentMethod || "CASH").trim();
   const items = Array.isArray(body.items) ? body.items : [];
 
@@ -34,6 +35,9 @@ export async function POST(req: Request) {
   }
   if (!customerName) {
     return NextResponse.json({ error: "שם לקוח חובה" }, { status: 400 });
+  }
+  if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
+    return NextResponse.json({ error: "כתובת מייל לא תקינה" }, { status: 400 });
   }
   const allowedMethods = ["CASH", "CARD_TERMINAL", "TRANSFER", "ONLINE"];
   if (!allowedMethods.includes(paymentMethod)) {
@@ -110,6 +114,7 @@ export async function POST(req: Request) {
       agentId: g.agent.id,
       customerName,
       customerPhone,
+      customerEmail,
       paymentMethod,
       paymentReceived,
       paymentNote: body.paymentNote ? String(body.paymentNote).trim() : null,
@@ -136,6 +141,7 @@ export async function POST(req: Request) {
       walkinNumber: walkin.walkinNumber,
       customerName: walkin.customerName,
       customerPhone: walkin.customerPhone,
+      customerEmail: walkin.customerEmail,
       paymentMethod: walkin.paymentMethod,
       paymentReceived: walkin.paymentReceived,
       paymentNote: walkin.paymentNote,

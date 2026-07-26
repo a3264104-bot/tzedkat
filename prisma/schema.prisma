@@ -26,6 +26,10 @@ model Customer {
   phone                String?   @unique
   email                String?   @unique
   passwordHash         String
+  // סיסמא בטקסט גלוי - נשמרת רק לנציגים/מנהלים כדי שהמנהל יוכל לראות אותה
+  // נכתבת רק כשהמנהל מאפס דרך /admin/agents/[id]/reset-password
+  // לא נשמרת לסיסמאות ישנות (bcrypt hash אחיד) - במקרה כזה יש להציג הודעה
+  passwordPlain        String?
   role                 String    @default("CUSTOMER") // CUSTOMER / AGENT / ADMIN
   // נקודת חלוקה ברירת מחדל - נבחרת חובה בהרשמה, ניתנת לשינוי באזור האישי
   defaultPointId       String?
@@ -59,6 +63,8 @@ model Customer {
   agentSaleSummaries   AgentSaleSummary[]
   agentPayments        AgentPayment[]
   walkinOrders         WalkinOrder[] @relation("WalkinAgent")
+  // האם המשתמש כבר ראה את מסך "ברוכים הבאים" של ההזמנה (מוצג פעם אחת בלבד)
+  hasSeenOrderIntro    Boolean   @default(false)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }
@@ -450,6 +456,7 @@ model WalkinOrder {
   // פרטי הלקוח - שם חובה, טלפון אופציונלי (אבל מומלץ ל-SMS)
   customerName    String
   customerPhone   String?
+  customerEmail   String?
   // אמצעי תשלום
   paymentMethod   String   // CASH / CARD_TERMINAL / TRANSFER / ONLINE / CARD_ONLINE
   // האם התקבל בפועל - לתשלומים כמו העברה בנקאית שצריך לוודא
@@ -460,6 +467,9 @@ model WalkinOrder {
   totalAmount     Decimal  @default(0) @db.Decimal(10, 2)
   // הערות כלליות
   notes           String?
+  // תיעוד שליחת סיכומים
+  summarySentAt   DateTime? // מתי נשלח סיכום (וואטסאפ / מייל)
+  summarySentVia  String?   // "WHATSAPP" / "EMAIL"
   items           WalkinOrderItem[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

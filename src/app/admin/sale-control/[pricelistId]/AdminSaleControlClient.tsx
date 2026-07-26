@@ -131,6 +131,42 @@ export default function AdminSaleControlClient({
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-5 space-y-5">
+        {/* Quick Actions */}
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={`/api/admin/export-sale/${pricelistId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm shadow-sm hover:bg-emerald-700"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            הורד דוח Excel מלא
+          </a>
+          <Link
+            href={`/admin/weight-review/${pricelistId}`}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-rust text-white rounded-xl font-bold text-sm shadow-sm hover:bg-[#a83a15]"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
+            </svg>
+            עבור על משקלים
+          </Link>
+          <Link
+            href={`/admin/delivery-notes?pricelistId=${pricelistId}`}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-zinc-300 text-brand-slatedark rounded-xl font-bold text-sm hover:bg-zinc-50"
+          >
+            📄 תעודות משלוח
+          </Link>
+          <Link
+            href="/admin/agent-debts"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-zinc-300 text-brand-slatedark rounded-xl font-bold text-sm hover:bg-zinc-50"
+          >
+            🧾 חובות נציגים
+          </Link>
+        </div>
+
         {/* Alerts */}
         {alerts.length > 0 && (
           <div className="space-y-2">
@@ -279,7 +315,7 @@ export default function AdminSaleControlClient({
             </div>
             <div className="divide-y divide-zinc-100">
               {agents.map((a) => (
-                <AgentSummaryRow key={a.agentId} agent={a} />
+                <AgentSummaryRow key={a.agentId} agent={a} pricelistId={pricelistId} />
               ))}
             </div>
           </div>
@@ -437,8 +473,10 @@ function ProductComparisonRow({
 
 function AgentSummaryRow({
   agent: a,
+  pricelistId,
 }: {
   agent: Data["agents"][number];
+  pricelistId: string;
 }) {
   const balanceLabel =
     a.balance > 0.01
@@ -454,7 +492,10 @@ function AgentSummaryRow({
       : "text-zinc-600 bg-zinc-100";
 
   return (
-    <div className="p-4 flex flex-col md:flex-row items-start gap-3">
+    <Link
+      href={`/admin/agents/${a.agentId}/sale-detail?pricelistId=${pricelistId}`}
+      className="p-4 flex flex-col md:flex-row items-start gap-3 hover:bg-zinc-50 transition-colors"
+    >
       <div className="shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-brand-rust to-[#a83a15] flex items-center justify-center text-white font-bold shadow-sm">
         {a.agentName.charAt(0)}
       </div>
@@ -498,7 +539,8 @@ function AgentSummaryRow({
         <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${balanceColor}`}>
           {balanceLabel}
         </span>
+        <span className="text-[10px] text-zinc-400">לחץ לפירוט ←</span>
       </div>
-    </div>
+    </Link>
   );
 }

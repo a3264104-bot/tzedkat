@@ -39,6 +39,13 @@ export async function PATCH(
     data.customerName = n;
   }
   if ("customerPhone" in body) data.customerPhone = body.customerPhone || null;
+  if ("customerEmail" in body) {
+    const em = body.customerEmail ? String(body.customerEmail).trim() : null;
+    if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+      return NextResponse.json({ error: "כתובת מייל לא תקינה" }, { status: 400 });
+    }
+    data.customerEmail = em;
+  }
   if ("paymentMethod" in body) {
     const allowed = ["CASH", "CARD_TERMINAL", "TRANSFER", "ONLINE"];
     if (!allowed.includes(body.paymentMethod)) {
