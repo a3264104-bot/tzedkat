@@ -21,9 +21,16 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = await bcrypt.hash(String(password), 10);
+    // חשוב: מנקים passwordPlain אם היה (מנציג שאיפס לו מנהל בעבר).
+    // אחרי איפוס עצמי הסיסמא לא זמינה יותר למנהל - נדרש איפוס מחדש דרך המנהל.
     await prisma.customer.update({
       where: { id: customer.id },
-      data: { passwordHash, resetToken: null, resetTokenExpiry: null },
+      data: {
+        passwordHash,
+        passwordPlain: null,
+        resetToken: null,
+        resetTokenExpiry: null,
+      },
     });
 
     return NextResponse.json({ ok: true });

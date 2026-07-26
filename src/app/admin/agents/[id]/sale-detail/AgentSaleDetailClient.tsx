@@ -121,10 +121,10 @@ const PAYMENT_ICONS: Record<string, string> = {
 };
 
 export default function AgentSaleDetailClient({
-  agentId,
+  id,
   pricelistId,
 }: {
-  agentId: string;
+  id: string;
   pricelistId: string;
 }) {
   const [data, setData] = useState<Data | null>(null);
@@ -145,7 +145,7 @@ export default function AgentSaleDetailClient({
     }
     try {
       const res = await fetch(
-        `/api/admin/agents/${agentId}/sale-detail?pricelistId=${pricelistId}`,
+        `/api/admin/agents/${id}/sale-detail?pricelistId=${pricelistId}`,
         { cache: "no-store" }
       );
       const json = await res.json();
@@ -156,7 +156,7 @@ export default function AgentSaleDetailClient({
     } finally {
       setLoading(false);
     }
-  }, [agentId, pricelistId]);
+  }, [id, pricelistId]);
 
   useEffect(() => {
     load();
@@ -171,7 +171,7 @@ export default function AgentSaleDetailClient({
       return;
     setResetting(true);
     try {
-      const res = await fetch(`/api/admin/agents/${agentId}/reset-password`, {
+      const res = await fetch(`/api/admin/agents/${id}/reset-password`, {
         method: "POST",
       });
       const json = await res.json();

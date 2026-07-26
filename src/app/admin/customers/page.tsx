@@ -13,6 +13,7 @@ type Customer = {
   pointName: string | null;
   orderCount: number;
   hasPaymentToken: boolean;
+  passwordPlain: string | null;
   createdAt: string;
 };
 
@@ -31,6 +32,7 @@ export default function AdminCustomersPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [showExistingPw, setShowExistingPw] = useState(false);
 
   // סידור ושדה מיון
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -39,6 +41,16 @@ export default function AdminCustomersPage() {
   const [cityFilter, setCityFilter] = useState<string>("");
   // מצב תצוגה: table / grouped
   const [viewMode, setViewMode] = useState<"table" | "grouped">("grouped");
+
+  // יצירת סיסמא אקראית קריאה - 4 אותיות + 4 ספרות (בלי i/l/o/0/1 להימנע מבלבול)
+  function generateRandomPassword(): string {
+    const letters = "abcdefghjkmnpqrstuvwxyz";
+    const numbers = "23456789";
+    let out = "";
+    for (let i = 0; i < 4; i++) out += letters[Math.floor(Math.random() * letters.length)];
+    for (let i = 0; i < 4; i++) out += numbers[Math.floor(Math.random() * numbers.length)];
+    return out;
+  }
 
   // חיפוש עם debounce
   useEffect(() => {
@@ -67,6 +79,7 @@ export default function AdminCustomersPage() {
     setEditEmail(c.email ?? "");
     setEditPhone(c.phone ?? "");
     setEditName(c.name);
+    setShowExistingPw(false);
     setError("");
     setSuccessMsg("");
   }
@@ -297,17 +310,77 @@ export default function AdminCustomersPage() {
               />
             </Field>
 
-            <div className="border-t pt-3">
-              <Field label="איפוס סיסמה (השאר ריק אם לא צריך)">
-                <input
-                  className="input"
-                  type="text"
-                  placeholder="סיסמה זמנית חדשה - למסירה ללקוח"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                />
-                <p className="text-xs text-zinc-400 mt-1">
-                  הסיסמה מוצגת כטקסט כדי שתוכל למסור אותה ללקוח בטלפון.
+            <div className="border-t pt-3 space-y-3">
+              {/* הצגת סיסמא קיימת (אם נשמרה) */}
+              {editing.passwordPlain && (
+                <div className="bg-gradient-to-br from-zinc-50 to-zinc-100 border border-zinc-300 rounded-lg p-3">
+                  <div className="text-xs font-bold text-zinc-500 mb-1.5">
+                    🔐 סיסמא נוכחית (שהוגדרה על ידי מנהל)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`font-mono font-bold flex-1 select-all ${
+                        showExistingPw
+                          ? "text-brand-rust bg-yellow-100 px-2 py-1 rounded"
+                          : "text-zinc-400 tracking-widest"
+                      }`}
+                      dir="ltr"
+                    >
+                      {showExistingPw ? editing.passwordPlain : "••••••••"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowExistingPw((v) => !v)}
+                      className="text-xs px-2 py-1 rounded bg-zinc-200 hover:bg-zinc-300 font-bold"
+                    >
+                      {showExistingPw ? "🙈 הסתר" : "👁️ הצג"}
+                    </button>
+                    {showExistingPw && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            `שם משתמש: ${editing.phone || editing.email}\nסיסמא: ${editing.passwordPlain}`
+                          );
+                          alert("הועתק ללוח!");
+                        }}
+                        className="text-xs px-2 py-1 rounded bg-zinc-800 text-white hover:bg-zinc-900 font-bold"
+                      >
+                        📋 העתק
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-zinc-500 mt-1.5">
+                    💡 הסיסמא זמינה למנהל בלבד. אם הלקוח יאפס בעצמו — היא לא תוצג יותר.
+                  </div>
+                </div>
+              )}
+              {!editing.passwordPlain && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800">
+                  ⚠️ סיסמא ישנה מוצפנת - צריך לאפס כדי לראות אותה
+                </div>
+              )}
+
+              <Field label="איפוס סיסמה חדשה (השאר ריק אם לא צריך)">
+                <div className="flex gap-2">
+                  <input
+                    className="input flex-1"
+                    type="text"
+                    dir="ltr"
+                    placeholder="הזן סיסמא חדשה או צור אקראית"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setNewPassword(generateRandomPassword())}
+                    className="btn-ghost btn-sm whitespace-nowrap"
+                  >
+                    🎲 צור אקראית
+                  </button>
+                </div>
+                <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                  💡 אחרי שמירה - הסיסמא תישאר גלויה כאן כדי שתוכל למסור אותה ללקוח.
                 </p>
               </Field>
             </div>

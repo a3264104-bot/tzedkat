@@ -7,14 +7,14 @@ export default async function AgentSaleDetailPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ agentId: string }>;
+  params: Promise<{ id: string }>;
   searchParams: Promise<{ pricelistId?: string }>;
 }) {
-  const { agentId } = await params;
+  const { id } = await params;
   const sp = await searchParams;
   return (
     <AgentSaleDetailClient
-      agentId={agentId}
+      id={id}
       pricelistId={sp.pricelistId || ""}
     />
   );

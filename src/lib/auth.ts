@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
@@ -8,6 +9,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [
+    // ══════════════════════════════════════════════════════════
+    // Google OAuth - התחברות בלחיצה אחת דרך חשבון Google
+    // ══════════════════════════════════════════════════════════
+    // אחרי sign-in ראשון:
+    //  - אם כבר קיים לקוח עם אותו מייל -> login מוצלח (משתמש קיים)
+    //  - אם לא קיים -> הפנייה ל-/register?googleEmail=X&googleName=Y
+    //    כדי שהמשתמש יוסיף טלפון + נקודת חלוקה + סיסמא
+    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+      ? [
+          Google({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            // מאפשר קישור לאוטומטי לפי מייל - כי המערכת שלנו מזהה משתמשים לפי email/phone
+            allowDangerousEmailAccountLinking: true,
+          }),
+        ]
+      : []),
+
+    // ══════════════════════════════════════════════════════════
+    // Credentials - התחברות עם טלפון/מייל + סיסמא
+    // ══════════════════════════════════════════════════════════
     // provider אחד מאוחד - מנסה קודם מנהל (לפי מייל), ואז לקוח (טלפון או מייל).
     // כך יש מסך התחברות אחד לכולם, וה-role נקבע אוטומטית לפי מי שנמצא.
     Credentials({
@@ -23,9 +45,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         // 1) מנסים קודם כמנהל (טבלת Admin, לפי מייל)
+        // TODO: אחרי שיצליחו כל המנהלים לעבור לטבלת Customer עם role=ADMIN,
+        // אפשר להסיר את הבלוק הזה ולמחוק את טבלת Admin
         const admin = await prisma.admin.findUnique({
           where: { email: identifier.toLowerCase() },
-        });
+        }).catch(() => null);
         if (admin) {
           const ok = await bcrypt.compare(password, admin.password);
           if (ok) {
@@ -52,7 +76,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           (v) => v.length > 0
         );
 
-        // שינוי מ-findFirst ל-findMany לזיהוי כפילויות
+        // findMany לזיהוי כפילויות
         const customers = await prisma.customer.findMany({
           where: {
             OR: [
@@ -97,11 +121,63 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    // ══════════════════════════════════════════════════════════
+    // SignIn callback - טיפול בהתחברות Google
+    // ══════════════════════════════════════════════════════════
+    // מוודא שלכל user שמתחבר עם Google יש רשומה ב-Customer.
+    // אם אין - מפנה ל-/register עם פרטי Google ממולאים.
+    async signIn({ user, account }) {
+      // רק Google צריך טיפול מיוחד - Credentials כבר עבר את authorize
+      if (account?.provider !== "google") return true;
+
+      const email = user.email?.toLowerCase();
+      if (!email) {
+        console.warn("[auth-google] no email from Google");
+        return "/login?error=no_email";
+      }
+
+      // חפש user קיים במסד לפי email
+      const existing = await prisma.customer.findUnique({
+        where: { email },
+      });
+
+      if (existing) {
+        // המשתמש כבר קיים - אשר login
+        console.log(`[auth-google] existing customer login: ${email}`);
+        return true;
+      }
+
+      // אין user - הפנה ל-register עם פרטי Google
+      // המשתמש יוסיף טלפון + נקודה + סיסמא
+      console.log(`[auth-google] new user - redirecting to register: ${email}`);
+      const params = new URLSearchParams({
+        googleEmail: email,
+        googleName: user.name || "",
+      });
+      return `/register?${params.toString()}`;
+    },
+
+    async jwt({ token, user, account }) {
+      // בכניסה ראשונית - מטעינים את הנתונים ל-token
       if (user) {
         token.role = (user as any).role;
         token.id = (user as any).id;
       }
+
+      // כניסה עם Google - צריך לחפש את ה-Customer ב-DB לפי email
+      // כי מ-Google אנחנו לא מקבלים id או role
+      if (account?.provider === "google" && user?.email) {
+        const dbUser = await prisma.customer.findUnique({
+          where: { email: user.email.toLowerCase() },
+          select: { id: true, role: true, name: true },
+        });
+        if (dbUser) {
+          token.id = dbUser.id;
+          token.role = dbUser.role;
+          token.name = dbUser.name;
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {

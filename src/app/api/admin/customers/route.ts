@@ -40,6 +40,8 @@ export async function GET(req: Request) {
       city: c.defaultPoint?.city ?? null,
       orderCount: c._count.orders,
       hasPaymentToken: !!c.paymentToken,
+      // הסיסמא הגלויה - זמינה רק אם המנהל אפס אותה בעבר (או בעת רישום עתידי)
+      passwordPlain: c.passwordPlain,
       createdAt: c.createdAt,
     }))
   );

@@ -1,5 +1,5 @@
 // §20: פירוט מלא של פעילות נציג במכירה מסוימת
-// GET /api/admin/agents/[agentId]/sale-detail?pricelistId=X
+// GET /api/admin/agents/[id]/sale-detail?pricelistId=X
 // מחזיר את כל ההזמנות שהנציג טיפל בהן + כל המזדמנים שלו
 
 import { NextResponse } from "next/server";
@@ -8,12 +8,12 @@ import { requireAdmin } from "@/lib/guard";
 
 export async function GET(
   req: Request,
-  { params }: { params: Promise<{ agentId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const g = await requireAdmin();
   if (!g.ok) return g.res;
 
-  const { agentId } = await params;
+  const { id } = await params;
   const url = new URL(req.url);
   const pricelistId = url.searchParams.get("pricelistId");
 
@@ -23,7 +23,7 @@ export async function GET(
 
   // פרטי הנציג
   const agent = await prisma.customer.findUnique({
-    where: { id: agentId },
+    where: { id: id },
     select: {
       id: true,
       name: true,
@@ -81,7 +81,7 @@ export async function GET(
 
   // מזדמנים שלו במכירה
   const walkins = await prisma.walkinOrder.findMany({
-    where: { pricelistId, agentId },
+    where: { pricelistId, id },
     orderBy: { createdAt: "desc" },
     include: {
       items: {
@@ -94,12 +94,12 @@ export async function GET(
 
   // סיכום הנציג
   const summary = await prisma.agentSaleSummary.findUnique({
-    where: { pricelistId_agentId: { pricelistId, agentId } },
+    where: { pricelistId_agentId: { pricelistId, agentId: id } },
   });
 
   // תשלומים של הנציג במכירה זו
   const payments = await prisma.agentPayment.findMany({
-    where: { agentId, pricelistId },
+    where: { agentId: id, pricelistId },
     orderBy: { createdAt: "desc" },
   });
 

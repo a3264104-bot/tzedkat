@@ -64,6 +64,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: "סיסמה חייבת לפחות 6 תווים" }, { status: 400 });
     }
     data.passwordHash = await bcrypt.hash(pw, 10);
+    // שומרים גם את הסיסמא הגלויה כדי שהמנהל יוכל לראות אותה בהמשך
+    // (יתעדכן ל-null אם הלקוח יאפס בעצמו דרך /forgot-password)
+    data.passwordPlain = pw;
     // מבטלים טוקן איפוס קיים אם יש (הסיסמה החדשה גוברת)
     data.resetToken = null;
     data.resetTokenExpiry = null;
