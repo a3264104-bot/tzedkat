@@ -697,6 +697,12 @@ export function OrderFlow({
         window.location.href = "/account";
         return;
       }
+      // מעבר לעמוד ההצלחה העצמאי (עמיד לרפרש + ניתן לשיתוף)
+      if (data.orderId) {
+        window.location.href = `/order/success/${data.orderId}`;
+        return;
+      }
+      // Fallback: אם משום מה API לא החזיר orderId - המסך הפנימי הישן
       setOrderNumber(data.orderNumber);
       setStep("done");
     } catch (e: any) {
