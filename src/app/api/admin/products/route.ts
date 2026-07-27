@@ -6,10 +6,20 @@ export async function GET() {
   const g = await requireAdmin();
   if (!g.ok) return g.res;
   const products = await prisma.product.findMany({
-    include: { category: true },
+    include: {
+      category: true,
+      kashrutRef: true,
+    },
     orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }],
   });
-  return NextResponse.json(products);
+  // מוסיפים flat fields של כשרות לנוחות הclient
+  return NextResponse.json(
+    products.map((p) => ({
+      ...p,
+      kashrutName: p.kashrutRef?.name || null,
+      kashrutImageUrl: p.kashrutRef?.imageUrl || null,
+    }))
+  );
 }
 
 export async function POST(req: Request) {
@@ -30,6 +40,7 @@ export async function POST(req: Request) {
       avgWeightPerUnit: b.avgWeightPerUnit ?? null,
       imageUrl: b.imageUrl ?? null,
       kashrut: b.kashrut ?? null,
+      kashrutId: b.kashrutId ?? null,
       isFeatured: !!b.isFeatured,
       highlightNote: b.highlightNote ?? null,
       isFrozen: b.isFrozen ?? false,

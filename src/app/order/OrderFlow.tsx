@@ -41,6 +41,8 @@ type Product = {
   categorySort: number;
   imageUrl: string | null;
   kashrut: string | null;
+  kashrutName: string | null;
+  kashrutImageUrl: string | null;
   isFeatured: boolean;
   highlightNote: string | null;
   price: number;
@@ -1108,10 +1110,22 @@ export function OrderFlow({
                             <div className="flex-1">
                               <div className="font-semibold text-brand-slatedark text-[15px] leading-tight">
                                 {renderName(p.name)}
-                                {p.kashrut && (
-                                  <span className="badge bg-sky-100 text-sky-700 mr-1.5 align-middle">
-                                    {p.kashrut}
+                                {p.kashrutName && p.kashrutImageUrl ? (
+                                  <span className="inline-flex items-center gap-1 badge bg-sky-100 text-sky-700 mr-1.5 align-middle pr-1">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={p.kashrutImageUrl}
+                                      alt={p.kashrutName}
+                                      className="w-4 h-4 object-contain rounded-sm bg-white"
+                                    />
+                                    {p.kashrutName}
                                   </span>
+                                ) : (
+                                  p.kashrut && (
+                                    <span className="badge bg-sky-100 text-sky-700 mr-1.5 align-middle">
+                                      {p.kashrut}
+                                    </span>
+                                  )
                                 )}
                               </div>
                               {p.highlightNote && (

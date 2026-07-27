@@ -35,7 +35,14 @@ export default async function OrderPage({
     include: {
       points: { include: { point: true } },
       products: {
-        include: { product: { include: { category: true } } },
+        include: {
+          product: {
+            include: {
+              category: true,
+              kashrutRef: true,
+            },
+          },
+        },
       },
     },
   });
@@ -134,6 +141,8 @@ export default async function OrderPage({
       avgWeightPerUnit: pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null,
       imageUrl: pp.product.imageUrl,
       kashrut: pp.product.kashrut,
+      kashrutName: pp.product.kashrutRef?.name || null,
+      kashrutImageUrl: pp.product.kashrutRef?.imageUrl || null,
       isFeatured: pp.product.isFeatured,
       highlightNote: pp.product.highlightNote,
       packageWeight: pp.product.packageWeight,

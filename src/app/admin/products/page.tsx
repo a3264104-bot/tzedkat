@@ -29,8 +29,17 @@ type Product = {
   sortOrder: number;
   imageUrl: string | null;
   kashrut: string | null;
+  kashrutId: string | null;
+  kashrutName: string | null;
+  kashrutImageUrl: string | null;
   isFeatured: boolean;
   highlightNote: string | null;
+};
+
+type Kashrut = {
+  id: string;
+  name: string;
+  imageUrl: string;
 };
 
 // ברירות מחדל מקובלות לכשרות - ניתן להקליד גם ערך אחר
@@ -77,6 +86,7 @@ function priceTagForTable(p: Product): string {
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cats, setCats] = useState<Cat[]>([]);
+  const [kashruts, setKashruts] = useState<Kashrut[]>([]);
   const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState<Partial<Product> | null>(null);
   const [showCats, setShowCats] = useState(false);
@@ -84,9 +94,14 @@ export default function ProductsPage() {
 
   async function load() {
     setLoading(true);
-    const [p, c] = await Promise.all([api("/api/admin/products"), api("/api/admin/categories")]);
+    const [p, c, k] = await Promise.all([
+      api("/api/admin/products"),
+      api("/api/admin/categories"),
+      api("/api/admin/kashrut?activeOnly=1").catch(() => []),
+    ]);
     setProducts(p);
     setCats(c);
+    setKashruts(Array.isArray(k) ? k : []);
     setLoading(false);
   }
   useEffect(() => {
@@ -156,6 +171,7 @@ export default function ProductsPage() {
       sortOrder: editing.sortOrder ?? 0,
       imageUrl: editing.imageUrl || null,
       kashrut: editing.kashrut || null,
+      kashrutId: editing.kashrutId || null,
       isFeatured: editing.isFeatured ?? false,
       highlightNote: editing.highlightNote || null,
     };
@@ -376,8 +392,20 @@ export default function ProductsPage() {
                                     {p.isFeatured && (
                                       <span className="badge bg-red-100 text-red-700">מבצע</span>
                                     )}
-                                    {p.kashrut && (
-                                      <span className="badge bg-sky-100 text-sky-700">{p.kashrut}</span>
+                                    {p.kashrutName && p.kashrutImageUrl ? (
+                                      <span className="inline-flex items-center gap-1 badge bg-sky-100 text-sky-700 pr-1">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                          src={p.kashrutImageUrl}
+                                          alt={p.kashrutName}
+                                          className="w-4 h-4 object-contain rounded-sm bg-white"
+                                        />
+                                        {p.kashrutName}
+                                      </span>
+                                    ) : (
+                                      p.kashrut && (
+                                        <span className="badge bg-sky-100 text-sky-700">{p.kashrut}</span>
+                                      )
                                     )}
                                     {p.limitedQty && (
                                       <span className="badge bg-amber-100 text-amber-700">מוגבל</span>
@@ -448,18 +476,60 @@ export default function ProductsPage() {
             </Field>
 
             <Field label="כשרות">
-              <input
-                className="input"
-                list="kashrut-options"
-                placeholder='לנדא / אגודת ישראל / בד"ץ העדה החרדית...'
-                value={editing.kashrut ?? ""}
-                onChange={(e) => setEditing({ ...editing, kashrut: e.target.value })}
-              />
-              <datalist id="kashrut-options">
-                {KASHRUT_OPTIONS.map((k) => (
-                  <option key={k} value={k} />
-                ))}
-              </datalist>
+              {kashruts.length === 0 ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800">
+                  ⚠️ עדיין לא הוגדרו כשרויות. עבור למסך <b>כשרויות</b> להגדיר.
+                </div>
+              ) : (
+                <>
+                  <select
+                    className="input"
+                    value={editing.kashrutId ?? ""}
+                    onChange={(e) => {
+                      const id = e.target.value || null;
+                      const k = kashruts.find((x) => x.id === id);
+                      setEditing({
+                        ...editing,
+                        kashrutId: id,
+                        kashrutName: k?.name || null,
+                        kashrutImageUrl: k?.imageUrl || null,
+                        // מנקים את שדה הטקסט הישן כשבוחרים כשרות מרשימה
+                        kashrut: null,
+                      });
+                    }}
+                  >
+                    <option value="">— ללא כשרות —</option>
+                    {kashruts.map((k) => (
+                      <option key={k.id} value={k.id}>
+                        {k.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* תצוגה מקדימה של הלוגו */}
+                  {editing.kashrutId && (
+                    <div className="mt-2 inline-flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-lg px-2.5 py-1.5">
+                      {(() => {
+                        const k = kashruts.find((x) => x.id === editing.kashrutId);
+                        if (!k) return null;
+                        return (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={k.imageUrl}
+                              alt={k.name}
+                              className="w-8 h-8 object-contain rounded bg-white p-0.5"
+                            />
+                            <span className="text-xs font-bold text-sky-800">
+                              {k.name}
+                            </span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </>
+              )}
             </Field>
 
             <Field label="הערת הדגשה (אופציונלי)">

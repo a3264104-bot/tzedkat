@@ -105,7 +105,10 @@ model Product {
   // משקל ממוצע משוער ליחידה/קרטון - משמש לחישוב מחיר משוער מדויק יותר ללקוח
   avgWeightPerUnit Decimal? @db.Decimal(10, 3)
   imageUrl      String?  // תמונת המוצר (Supabase Storage)
-  kashrut       String?  // כשרות: לנדא / אגודת ישראל / בד"ץ העדה החרדית...
+  kashrut       String?  // כשרות (legacy - טקסט חופשי, לתאימות)
+  // כשרות מרשימה מרוכזת - יש לו גם שם וגם תמונה מנוהלים ע"י המנהל
+  kashrutId     String?
+  kashrutRef    Kashrut? @relation(fields: [kashrutId], references: [id])
   isFeatured    Boolean  @default(false) // מוצר מבצע - מודגש ללקוח
   highlightNote String?  // הערת הדגשה ("בקרטונים בלבד - לא בבודדים")
   isFrozen      Boolean  @default(false)
@@ -518,4 +521,17 @@ model AgentPayment {
 
   @@index([agentId])
   @@index([pricelistId])
+}
+
+// כשרויות מרוכזות - מנוהלות ע"י המנהל, נבחרות בכל מוצר, מוצגות ללקוח.
+// יתרון: המנהל מגדיר פעם אחת שם ותמונה, בכל מוצר בוחר מהרשימה.
+model Kashrut {
+  id        String    @id @default(cuid())
+  name      String    @unique // "בד"ץ העדה החרדית" / "לנדא" / "אגודת ישראל"
+  imageUrl  String    // תמונת הלוגו של הכשרות (Supabase Storage)
+  sortOrder Int       @default(0)
+  isActive  Boolean   @default(true)
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }

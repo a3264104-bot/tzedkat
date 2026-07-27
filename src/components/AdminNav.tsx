@@ -45,6 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: "🛒",
     items: [
       { href: "/admin/products", label: "מוצרים", icon: "🥩" },
+      { href: "/admin/kashrut", label: "כשרויות", icon: "🏷️" },
       { href: "/admin/pricelists", label: "מחירונים / מכירות", icon: "💵" },
       { href: "/admin/points", label: "נקודות חלוקה", icon: "📍" },
     ],
