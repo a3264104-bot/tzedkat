@@ -108,7 +108,7 @@ export default function AdminNav() {
       {/* דשבורד - קיצור בראש */}
       <NavLink item={DASHBOARD_ITEM} active={isActive(DASHBOARD_ITEM.href)} />
 
-      <div className="my-2 border-t border-white/10"></div>
+      <div className="my-2 border-t border-brand-slate/15"></div>
 
       {/* קטגוריות מתקפלות */}
       {NAV_GROUPS.map((group) => {
@@ -121,15 +121,15 @@ export default function AdminNav() {
               onClick={() => setOpenGroup(isOpen ? null : group.id)}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-bold transition-colors ${
                 hasActive
-                  ? "bg-brand-rust/20 text-white"
-                  : "text-white/80 hover:bg-white/5 hover:text-white"
+                  ? "bg-brand-rust/15 text-brand-rust"
+                  : "text-brand-slatedark hover:bg-brand-slate/10"
               }`}
             >
               <span className="flex items-center gap-2">
                 <span className="text-base">{group.icon}</span>
                 <span>{group.label}</span>
                 {hasActive && !isOpen && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-brand-yellow"></span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-rust"></span>
                 )}
               </span>
               <svg
@@ -144,7 +144,7 @@ export default function AdminNav() {
             </button>
 
             {isOpen && (
-              <div className="mt-1 mr-3 space-y-0.5 border-r-2 border-white/10 pr-3">
+              <div className="mt-1 mr-3 space-y-0.5 border-r-2 border-brand-slate/15 pr-3">
                 {group.items.map((item) => (
                   <NavLink
                     key={item.href}
@@ -159,7 +159,7 @@ export default function AdminNav() {
         );
       })}
 
-      <div className="my-2 border-t border-white/10"></div>
+      <div className="my-2 border-t border-brand-slate/15"></div>
 
       {/* הגדרות בתחתית */}
       <NavLink item={SETTINGS_ITEM} active={isActive(SETTINGS_ITEM.href)} />
@@ -184,7 +184,7 @@ function NavLink({
       } ${
         active
           ? "bg-brand-rust text-white shadow-sm"
-          : "text-white/80 hover:bg-white/5 hover:text-white"
+          : "text-brand-slatedark hover:bg-brand-slate/10"
       }`}
     >
       <span className={small ? "text-sm" : "text-base"}>{item.icon}</span>

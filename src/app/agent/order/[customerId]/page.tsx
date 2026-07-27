@@ -29,16 +29,24 @@ export default async function AgentOrderPage({
     redirect("/agent");
   }
 
-  // אימות הרשאת נציג מוגבל-נקודה
+  // אימות הרשאת נציג מוגבל-נקודה:
+  // הנציג רשאי להזמין רק עבור:
+  // 1. לקוח שהנציג עצמו יצר (createdByAgentId === agentId)
+  // 2. לקוח שהנקודה שלו זהה לנקודת הנציג
+  // 3. לקוח שיש לו לפחות הזמנה אחת בנקודת הנציג
   if (role === "AGENT") {
-    const agent = await prisma.customer.findUnique({ where: { id: sessionUserId } });
+    const agent = await prisma.customer.findUnique({
+      where: { id: sessionUserId },
+      select: { agentPointId: true },
+    });
     if (agent?.agentPointId) {
-      const belongs =
-        targetCustomer.defaultPointId === agent.agentPointId ||
+      const isCreator = targetCustomer.createdByAgentId === sessionUserId;
+      const samePoint = targetCustomer.defaultPointId === agent.agentPointId;
+      const hasOrderAtPoint = !isCreator && !samePoint &&
         (await prisma.order.count({
           where: { customerId: targetCustomer.id, pointId: agent.agentPointId },
         })) > 0;
-      if (!belongs) redirect("/agent");
+      if (!isCreator && !samePoint && !hasOrderAtPoint) redirect("/agent");
     }
   }
 
@@ -57,11 +65,27 @@ export default async function AgentOrderPage({
 
   if (!pricelist || closed || notYetOpen) {
     return (
-      <main dir="rtl" className="min-h-screen bg-brand-yellow flex items-center justify-center p-6">
-        <div className="card p-8 text-center max-w-sm">
-          <p className="text-lg font-bold text-brand-slatedark">אין כרגע מכירה פעילה</p>
-          <Link href="/agent" className="btn-ghost mt-4">
-            חזרה לאזור הנציג
+      <main
+        dir="rtl"
+        className="min-h-screen bg-brand-yellow flex items-center justify-center p-6"
+      >
+        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-sm">
+          <div className="text-4xl mb-3">😴</div>
+          <p className="text-lg font-bold text-brand-slatedark">
+            אין כרגע מכירה פעילה
+          </p>
+          <p className="text-xs text-zinc-500 mt-1">
+            {closed
+              ? "המכירה נסגרה. הזמנות ייפתחו במכירה הבאה."
+              : notYetOpen
+              ? "המכירה עוד לא נפתחה."
+              : "לא מוגדרת מכירה פעילה במערכת."}
+          </p>
+          <Link
+            href="/agent"
+            className="inline-block mt-5 px-6 py-2.5 bg-brand-rust text-white rounded-xl font-bold hover:bg-[#a83a15]"
+          >
+            ← חזרה לאזור הנציג
           </Link>
         </div>
       </main>
@@ -95,11 +119,17 @@ export default async function AgentOrderPage({
       price: Number(pp.price ?? pp.product.cartonPrice),
       allowSingles: pp.product.allowSingles,
       singlesMode: pp.product.singlesMode || "KG",
-      singleUnitPrice: pp.product.singleUnitPrice != null ? Number(pp.product.singleUnitPrice) : null,
+      singleUnitPrice:
+        pp.product.singleUnitPrice != null
+          ? Number(pp.product.singleUnitPrice)
+          : null,
       unit: pp.product.unit,
       saleType: pp.product.saleType,
       priceType: pp.product.priceType,
-      avgWeightPerUnit: pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null,
+      avgWeightPerUnit:
+        pp.product.avgWeightPerUnit != null
+          ? Number(pp.product.avgWeightPerUnit)
+          : null,
       imageUrl: pp.product.imageUrl,
       kashrut: pp.product.kashrut,
       isFeatured: pp.product.isFeatured,
@@ -109,15 +139,67 @@ export default async function AgentOrderPage({
       limitedQty: pp.product.limitedQty,
       sortOrder: pp.product.sortOrder,
     }))
-    .sort((a, b) => a.categorySort - b.categorySort || a.sortOrder - b.sortOrder);
+    .sort(
+      (a, b) => a.categorySort - b.categorySort || a.sortOrder - b.sortOrder
+    );
+
+  // האם יש לו כבר כרטיס?
+  // - יש token → cardVerified=true → מדלגים על אימות
+  // - אין token → cardVerified=false → הflow יבקש להזין כרטיס (הנציג יעביר את המכשיר ללקוח)
+  const hasPaymentToken = !!targetCustomer.paymentToken;
 
   return (
-    <div>
-      {/* באנר שמבהיר שזו הזמנה בשם לקoot */}
-      <div className="bg-brand-slatedark text-white text-center py-2 text-sm font-medium">
-        הזמנה בשם: {targetCustomer.name}
-        {targetCustomer.phone ? ` · ${targetCustomer.phone}` : ""}
+    <div dir="rtl">
+      {/* ═════ באנר עליון - הזמנה בשם לקוח ═════ */}
+      <div className="bg-gradient-to-l from-brand-slatedark to-zinc-800 text-white sticky top-0 z-50 shadow-lg">
+        <div className="mx-auto max-w-6xl px-4 py-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-full bg-brand-yellow text-brand-slatedark flex items-center justify-center font-extrabold text-lg shrink-0">
+                {targetCustomer.name.charAt(0)}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-wider text-white/60 font-bold">
+                  הזמנה בשם לקוח
+                </div>
+                <div className="font-extrabold truncate flex items-center gap-2">
+                  {targetCustomer.name}
+                  {!targetCustomer.isActivated && (
+                    <span className="text-[10px] bg-amber-400 text-amber-950 px-1.5 py-0.5 rounded font-bold">
+                      לא הופעל
+                    </span>
+                  )}
+                  {hasPaymentToken && (
+                    <span className="text-[10px] bg-emerald-400 text-emerald-950 px-1.5 py-0.5 rounded font-bold">
+                      💳 יש כרטיס
+                    </span>
+                  )}
+                </div>
+                {targetCustomer.phone && (
+                  <div className="text-xs text-white/80 font-mono" dir="ltr">
+                    {targetCustomer.phone}
+                  </div>
+                )}
+              </div>
+            </div>
+            <Link
+              href="/agent"
+              className="shrink-0 text-xs font-bold text-white/80 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition-colors"
+            >
+              ← חזרה לנציג
+            </Link>
+          </div>
+
+          {/* התראת אזהרה אם אין כרטיס */}
+          {!hasPaymentToken && (
+            <div className="mt-2 text-[11px] bg-amber-500/20 border border-amber-400/40 rounded-lg px-3 py-1.5 text-amber-100">
+              💳 <strong>שים לב:</strong> אין ללקוח כרטיס אשראי במערכת. בסוף ההזמנה
+              תתבקש להעביר את המכשיר ללקוח לאימות כרטיס (חיוב 1 ש"ח).
+            </div>
+          )}
+        </div>
       </div>
+
       <OrderFlow
         pricelist={{
           id: pricelist.id,
@@ -142,8 +224,10 @@ export default async function AgentOrderPage({
           email: targetCustomer.email,
           defaultPointId: targetCustomer.defaultPointId,
         }}
+        customerId={targetCustomer.id}
         onBehalfOfCustomerId={targetCustomer.id}
-        cardVerified={true}
+        cardVerified={hasPaymentToken}
+        hasSeenOrderIntro={true}
       />
     </div>
   );
