@@ -220,16 +220,45 @@ export function OrderFlow({
   const itemCount = cartLines.length;
 
   // ח4: פונקציות עדכון כמות — נפרדות לקרטונים ולבודדים
+  // אנימציית "נוסף לסל" - toast קטן שמופיע כשהכמות גדלה
+  const [cartToast, setCartToast] = useState<{
+    id: number;
+    productName: string;
+    isSingle: boolean;
+  } | null>(null);
+  const toastIdRef = useRef(0);
+
+  function showAddedToCart(product: Product, isSingle: boolean) {
+    toastIdRef.current += 1;
+    const id = toastIdRef.current;
+    setCartToast({ id, productName: product.name, isSingle });
+    // נעלם אחרי 1.5 שניה, אלא אם הוחלף בtoast חדש
+    setTimeout(() => {
+      setCartToast((prev) => (prev?.id === id ? null : prev));
+    }, 1500);
+  }
+
   function setCartonQty(id: string, qty: number) {
     setCart((c) => {
       const prev = c[id] ?? { cartonQty: 0, singlesQty: 0 };
-      return { ...c, [id]: { ...prev, cartonQty: Math.max(0, qty) } };
+      const newQty = Math.max(0, qty);
+      // הצגת toast רק כשמוסיפים (לא כשגורעים או מאפסים)
+      if (newQty > prev.cartonQty) {
+        const p = products.find((x) => x.id === id);
+        if (p) showAddedToCart(p, false);
+      }
+      return { ...c, [id]: { ...prev, cartonQty: newQty } };
     });
   }
   function setSinglesQty(id: string, qty: number) {
     setCart((c) => {
       const prev = c[id] ?? { cartonQty: 0, singlesQty: 0 };
-      return { ...c, [id]: { ...prev, singlesQty: Math.max(0, qty) } };
+      const newQty = Math.max(0, qty);
+      if (newQty > prev.singlesQty) {
+        const p = products.find((x) => x.id === id);
+        if (p) showAddedToCart(p, true);
+      }
+      return { ...c, [id]: { ...prev, singlesQty: newQty } };
     });
   }
   // ח4: הסרת מוצר מהעגלה לגמרי
@@ -705,7 +734,74 @@ export function OrderFlow({
         .scale-in {
           animation: gentleScale 0.25s cubic-bezier(0.16, 1, 0.3, 1);
         }
+        /* Toast של הוספה לסל - מרחף מלמטה, נעלם מלמעלה */
+        @keyframes cartToastIn {
+          0% {
+            opacity: 0;
+            transform: translateY(24px) scale(0.9);
+          }
+          15% {
+            opacity: 1;
+            transform: translateY(0) scale(1.02);
+          }
+          25% {
+            transform: translateY(0) scale(1);
+          }
+          85% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+          100% {
+            opacity: 0;
+            transform: translateY(-8px) scale(0.98);
+          }
+        }
+        .cart-toast {
+          animation: cartToastIn 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+        /* פעימת סמל הסל - כשמוסיפים משהו */
+        @keyframes cartPop {
+          0%, 100% { transform: scale(1); }
+          40% { transform: scale(1.3); }
+          70% { transform: scale(0.95); }
+        }
+        .cart-icon-pop {
+          animation: cartPop 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+        }
       `}</style>
+
+      {/* Toast של הוספה לסל - מרחף בתחתית המסך */}
+      {cartToast && (
+        <div
+          key={cartToast.id}
+          className="cart-toast fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none"
+        >
+          <div className="flex items-center gap-3 px-5 py-3 bg-brand-slatedark text-white rounded-2xl shadow-2xl border border-white/10">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 shrink-0">
+              <svg
+                className="w-5 h-5 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={3}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-xs opacity-80">נוסף לסל</div>
+              <div className="font-bold text-sm">
+                {cartToast.productName}
+                {cartToast.isSingle && (
+                  <span className="mr-1.5 text-[10px] bg-amber-400 text-amber-950 px-1.5 py-0.5 rounded font-bold">
+                    בודדים
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* header - עם שם המשתמש המחובר וקישור לאזור אישי (זמין תמיד) */}
       <header className="bg-brand-yellow border-b-4 border-brand-rust/20 sticky top-0 z-20">
         <div className="mx-auto max-w-md md:max-w-4xl px-4 py-2.5 flex items-center justify-between gap-2">
@@ -735,7 +831,7 @@ export function OrderFlow({
         {/* מסתירים את פס ההתקדמות במסך "ברוכים הבאים" כדי לא ליצור רושם שגוי
             שהמשתמש כבר עבר שלבים - הוא רק צריך לאשר תנאים */}
         {!(step === "products" && termsChecked && !termsAccepted) && (
-          <StepBar step={step} />
+          <StepBar step={step} skipPoint={hasValidDefault || !!editMode} />
         )}
 
         {/* STEP: choose point - מקובץ לפי עיר אם יש יותר מעיר אחת */}
@@ -1406,16 +1502,23 @@ export function OrderFlow({
   );
 }
 
-function StepBar({ step }: { step: Step }) {
-  const steps: Step[] = ["point", "products", "summary"];
-  const idx = steps.indexOf(step);
+function StepBar({ step, skipPoint }: { step: Step; skipPoint: boolean }) {
   if (step === "done") return null;
+
+  // אם דילגו על בחירת נקודה (כי ללקוח יש נקודה שמורה), מציגים רק 2 שלבים
+  // כדי לא לתת רושם שגוי שהמשתמש כבר עבר שלב שלא באמת עבר
+  const steps: Step[] = skipPoint ? ["products", "summary"] : ["point", "products", "summary"];
+
+  // אם אנחנו ב-point אבל הStep מוסתר מהרשימה, לא מציגים כלום
+  const idx = steps.indexOf(step);
+  if (idx === -1) return null;
+
   return (
     <div className="flex gap-1.5 mb-5">
       {steps.map((s, i) => (
         <div
           key={s}
-          className={`h-1.5 flex-1 rounded-full ${i <= idx ? "bg-brand-rust" : "bg-zinc-200"}`}
+          className={`h-1.5 flex-1 rounded-full transition-colors ${i <= idx ? "bg-brand-rust" : "bg-zinc-200"}`}
         />
       ))}
     </div>

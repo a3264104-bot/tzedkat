@@ -9,6 +9,7 @@ import { OrderRow } from "./OrderRow";
 import { WalkinList } from "./WalkinList";
 import { SummaryPanel } from "./SummaryPanel";
 import { WeightsTable } from "./WeightsTable";
+import { AgentAddCustomerButton } from "@/components/AgentAddCustomerButton";
 
 type Product = {
   id: string;
@@ -362,6 +363,9 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
             <Link href="/agent" className="text-brand-slate font-medium text-sm">
               ← לרשימת המכירות
             </Link>
+            {!isSealed && (
+              <AgentAddCustomerButton className="py-1.5 px-3 text-xs" />
+            )}
           </div>
           <div className="text-right">
             <div className="font-extrabold text-brand-slatedark text-sm">

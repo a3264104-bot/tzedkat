@@ -21,7 +21,7 @@ export async function GET(req: Request) {
     : {};
 
   const customers = await prisma.customer.findMany({
-    where: { role: "CUSTOMER", ...searchFilter },
+    where: searchFilter, // בלי סינון role - להראות הכל, גם נציגים ומנהלים
     include: {
       defaultPoint: { select: { name: true, city: true } },
       _count: { select: { orders: true } },
@@ -40,8 +40,11 @@ export async function GET(req: Request) {
       city: c.defaultPoint?.city ?? null,
       orderCount: c._count.orders,
       hasPaymentToken: !!c.paymentToken,
-      // הסיסמא הגלויה - זמינה רק אם המנהל אפס אותה בעבר (או בעת רישום עתידי)
       passwordPlain: c.passwordPlain,
+      role: c.role,
+      agentPointId: c.agentPointId,
+      commissionRateCarton: Number(c.commissionRateCarton),
+      commissionRateSingles: Number(c.commissionRateSingles),
       createdAt: c.createdAt,
     }))
   );

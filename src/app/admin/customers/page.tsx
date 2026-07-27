@@ -14,8 +14,12 @@ type Customer = {
   orderCount: number;
   hasPaymentToken: boolean;
   passwordPlain: string | null;
+  role: string;
+  agentPointId: string | null;
   createdAt: string;
 };
+
+type Point = { id: string; name: string; city: string | null };
 
 type SortKey = "name" | "phone" | "city" | "orderCount" | "createdAt";
 type SortDir = "asc" | "desc";
@@ -33,16 +37,20 @@ export default function AdminCustomersPage() {
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [showExistingPw, setShowExistingPw] = useState(false);
+  const [points, setPoints] = useState<Point[]>([]);
+  const [convertingToAgent, setConvertingToAgent] = useState(false);
+  const [newRole, setNewRole] = useState<string>("");
+  const [newPointId, setNewPointId] = useState<string>("");
 
-  // סידור ושדה מיון
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  // סינון לפי עיר
-  const [cityFilter, setCityFilter] = useState<string>("");
-  // מצב תצוגה: table / grouped
-  const [viewMode, setViewMode] = useState<"table" | "grouped">("grouped");
+  // טעינת רשימת נקודות למקרה שנרצה להפוך לקוח לנציג
+  useEffect(() => {
+    fetch('/api/admin/points')
+      .then(r => r.json())
+      .then(d => setPoints(Array.isArray(d) ? d : []))
+      .catch(() => setPoints([]));
+  }, []);
 
-  // יצירת סיסמא אקראית קריאה - 4 אותיות + 4 ספרות (בלי i/l/o/0/1 להימנע מבלבול)
+  // יצירת סיסמא אקראית קריאה - 4 אותיות + 4 ספרות (בלי i/l/o/0/1)
   function generateRandomPassword(): string {
     const letters = "abcdefghjkmnpqrstuvwxyz";
     const numbers = "23456789";
@@ -51,6 +59,14 @@ export default function AdminCustomersPage() {
     for (let i = 0; i < 4; i++) out += numbers[Math.floor(Math.random() * numbers.length)];
     return out;
   }
+
+  // סידור ושדה מיון
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  // סינון לפי עיר
+  const [cityFilter, setCityFilter] = useState<string>("");
+  // מצב תצוגה: table / grouped
+  const [viewMode, setViewMode] = useState<"table" | "grouped">("grouped");
 
   // חיפוש עם debounce
   useEffect(() => {
@@ -80,8 +96,51 @@ export default function AdminCustomersPage() {
     setEditPhone(c.phone ?? "");
     setEditName(c.name);
     setShowExistingPw(false);
+    setConvertingToAgent(false);
+    setNewRole(c.role);
+    setNewPointId(c.agentPointId || "");
     setError("");
     setSuccessMsg("");
+  }
+
+  async function convertRole() {
+    if (!editing) return;
+    if (newRole === "AGENT" && !newPointId) {
+      setError("יש לבחור נקודת חלוקה עבור הנציג");
+      return;
+    }
+    if (!confirm(
+      newRole === "AGENT" 
+        ? `להפוך את ${editing.name} לנציג?` 
+        : newRole === "ADMIN"
+        ? `⚠️ להפוך את ${editing.name} למנהל? יהיו לו הרשאות מלאות!`
+        : `להוריד את ${editing.name} מנציג ללקוח רגיל?`
+    )) return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/users/${editing.id}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: newRole,
+          agentPointId: newRole === "AGENT" ? newPointId : null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'שגיאה');
+      setSuccessMsg(`תפקיד עודכן ל-${newRole === "AGENT" ? "נציג" : newRole === "ADMIN" ? "מנהל" : "לקוח"}!`);
+      setConvertingToAgent(false);
+      // רענון רשימה
+      const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
+      setCustomers(Array.isArray(data) ? data : []);
+      // סגירת מודאל
+      setTimeout(() => setEditing(null), 1500);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function save() {
@@ -311,11 +370,10 @@ export default function AdminCustomersPage() {
             </Field>
 
             <div className="border-t pt-3 space-y-3">
-              {/* הצגת סיסמא קיימת (אם נשמרה) */}
               {editing.passwordPlain && (
                 <div className="bg-gradient-to-br from-zinc-50 to-zinc-100 border border-zinc-300 rounded-lg p-3">
                   <div className="text-xs font-bold text-zinc-500 mb-1.5">
-                    🔐 סיסמא נוכחית (שהוגדרה על ידי מנהל)
+                    🔐 סיסמא נוכחית
                   </div>
                   <div className="flex items-center gap-2">
                     <span
@@ -328,61 +386,72 @@ export default function AdminCustomersPage() {
                     >
                       {showExistingPw ? editing.passwordPlain : "••••••••"}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowExistingPw((v) => !v)}
-                      className="text-xs px-2 py-1 rounded bg-zinc-200 hover:bg-zinc-300 font-bold"
-                    >
+                    <button type="button" onClick={() => setShowExistingPw(v => !v)} className="text-xs px-2 py-1 rounded bg-zinc-200 hover:bg-zinc-300 font-bold">
                       {showExistingPw ? "🙈 הסתר" : "👁️ הצג"}
                     </button>
-                    {showExistingPw && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(
-                            `שם משתמש: ${editing.phone || editing.email}\nסיסמא: ${editing.passwordPlain}`
-                          );
-                          alert("הועתק ללוח!");
-                        }}
-                        className="text-xs px-2 py-1 rounded bg-zinc-800 text-white hover:bg-zinc-900 font-bold"
-                      >
-                        📋 העתק
-                      </button>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-zinc-500 mt-1.5">
-                    💡 הסיסמא זמינה למנהל בלבד. אם הלקוח יאפס בעצמו — היא לא תוצג יותר.
                   </div>
                 </div>
               )}
               {!editing.passwordPlain && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800">
-                  ⚠️ סיסמא ישנה מוצפנת - צריך לאפס כדי לראות אותה
+                  ⚠️ סיסמא מוצפנת - צריך לאפס כדי לראות אותה
                 </div>
               )}
-
               <Field label="איפוס סיסמה חדשה (השאר ריק אם לא צריך)">
                 <div className="flex gap-2">
-                  <input
-                    className="input flex-1"
-                    type="text"
-                    dir="ltr"
-                    placeholder="הזן סיסמא חדשה או צור אקראית"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setNewPassword(generateRandomPassword())}
-                    className="btn-ghost btn-sm whitespace-nowrap"
-                  >
-                    🎲 צור אקראית
-                  </button>
+                  <input className="input flex-1" type="text" dir="ltr" placeholder="הזן סיסמא או צור אקראית" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+                  <button type="button" onClick={() => setNewPassword(generateRandomPassword())} className="btn-ghost btn-sm whitespace-nowrap">🎲 צור</button>
                 </div>
-                <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
-                  💡 אחרי שמירה - הסיסמא תישאר גלויה כאן כדי שתוכל למסור אותה ללקוח.
-                </p>
               </Field>
+            </div>
+
+            {/* ═══ המרת תפקיד: לקוח ↔ נציג ↔ מנהל ═══ */}
+            <div className="border-t pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-bold text-zinc-500">
+                  תפקיד נוכחי: {" "}
+                  <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    editing.role === "AGENT" ? "bg-purple-100 text-purple-700" :
+                    editing.role === "ADMIN" ? "bg-red-100 text-red-700" :
+                    "bg-zinc-100 text-zinc-600"
+                  }`}>
+                    {editing.role === "AGENT" ? "🎯 נציג" : editing.role === "ADMIN" ? "👑 מנהל" : "לקוח"}
+                  </span>
+                </div>
+                {!convertingToAgent && (
+                  <button type="button" onClick={() => setConvertingToAgent(true)} className="text-xs text-brand-rust font-bold hover:underline">
+                    שינוי תפקיד ←
+                  </button>
+                )}
+              </div>
+
+              {convertingToAgent && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-3">
+                  <Field label="תפקיד חדש">
+                    <select className="input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+                      <option value="CUSTOMER">לקוח רגיל</option>
+                      <option value="AGENT">נציג</option>
+                      <option value="ADMIN">מנהל (⚠️ הרשאות מלאות)</option>
+                    </select>
+                  </Field>
+                  {newRole === "AGENT" && (
+                    <Field label="נקודת חלוקה משויכת *">
+                      <select className="input" value={newPointId} onChange={(e) => setNewPointId(e.target.value)}>
+                        <option value="">— בחר נקודה —</option>
+                        {points.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}{p.city ? ` — ${p.city}` : ""}</option>
+                        ))}
+                      </select>
+                    </Field>
+                  )}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setConvertingToAgent(false)} className="btn-ghost btn-sm flex-1">ביטול</button>
+                    <button type="button" onClick={convertRole} disabled={saving} className="btn-primary btn-sm flex-1">
+                      {saving ? "מעדכן..." : "עדכן תפקיד"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {error && <p className="text-red-600 text-sm">{error}</p>}

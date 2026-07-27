@@ -65,6 +65,11 @@ model Customer {
   walkinOrders         WalkinOrder[] @relation("WalkinAgent")
   // האם המשתמש כבר ראה את מסך "ברוכים הבאים" של ההזמנה (מוצג פעם אחת בלבד)
   hasSeenOrderIntro    Boolean   @default(false)
+  // חשבון "פסיבי" - נוצר ע"י נציג בשם הלקוח, הלקוח עוד לא הפעיל אותו.
+  // כשהלקוח יעשה "שכחתי סיסמה" ויגדיר סיסמא בעצמו - יהפוך ל-true.
+  isActivated          Boolean   @default(true)
+  // מזהה הנציג שיצר את הלקוח (רק אם נוצר ע"י נציג, לתיעוד)
+  createdByAgentId     String?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }
