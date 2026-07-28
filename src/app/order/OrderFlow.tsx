@@ -694,15 +694,20 @@ export function OrderFlow({
       if (!res.ok) throw new Error(data.error || "שגיאה בשליחת ההזמנה");
       // במצב עריכה - מפנים חזרה לאזור אישי
       if (isEdit) {
+        if (data.unchanged) {
+          alert("לא בוצעו שינויים בהזמנה");
+        }
         window.location.href = "/account";
         return;
       }
       // מעבר לעמוד ההצלחה העצמאי (עמיד לרפרש + ניתן לשיתוף)
-      if (data.orderId) {
-        window.location.href = `/order/success/${data.orderId}`;
+      // ה-API מחזיר id (או orderId - שני השמות נתמכים)
+      const orderId = data.id || data.orderId;
+      if (orderId) {
+        window.location.href = `/order/success/${orderId}`;
         return;
       }
-      // Fallback: אם משום מה API לא החזיר orderId - המסך הפנימי הישן
+      // Fallback: אם משום מה API לא החזיר id - המסך הפנימי הישן
       setOrderNumber(data.orderNumber);
       setStep("done");
     } catch (e: any) {
@@ -967,10 +972,20 @@ export function OrderFlow({
             )}
 
             <BottomBar>
+              <Link
+                href="/"
+                className="btn-ghost flex-1 text-center"
+              >
+                חזרה לדף הבית
+              </Link>
               <button
                 disabled={!point}
                 onClick={() => setStep("products")}
-                className="btn-primary w-full"
+                className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                  !point
+                    ? "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                    : "bg-brand-rust text-white shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                }`}
               >
                 המשך ←
               </button>
@@ -1018,6 +1033,12 @@ export function OrderFlow({
               >
                 קראתי ומאשר/ת — להמשך ביצוע ההזמנה
               </button>
+              <Link
+                href="/"
+                className="block text-center mt-3 text-sm text-brand-slate hover:text-brand-rust font-medium"
+              >
+                ← חזרה לדף הבית
+              </Link>
             </div>
           </section>
         )}
@@ -1220,9 +1241,21 @@ export function OrderFlow({
               ))}
             </div>
             <BottomBar>
-              <button onClick={() => setStep("products")} className="btn-ghost flex-1">
-                חזרה
-              </button>
+              {hasValidDefault || editMode ? (
+                <Link
+                  href={editMode ? "/account" : "/"}
+                  className="btn-ghost flex-1 text-center"
+                >
+                  {editMode ? "חזרה לאזור אישי" : "חזרה לדף הבית"}
+                </Link>
+              ) : (
+                <button
+                  onClick={() => setStep("point")}
+                  className="btn-ghost flex-1"
+                >
+                  ← חזרה לבחירת נקודה
+                </button>
+              )}
               <button
                 disabled={itemCount === 0}
                 onClick={() => setStep("summary")}

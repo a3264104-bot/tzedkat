@@ -427,11 +427,35 @@ export function AccountClient({
                               className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
                             />
                           )}
-                          <div>
-                            <span className="text-brand-slatedark font-medium">{item.productName}</span>
-                            <span className="text-zinc-500 mr-2">
-                              {item.quantity} {item.isSingle ? (item.unit === "ק\"ג" ? "ק\"ג" : "יח'") : item.unit}
-                            </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-brand-slatedark font-medium">
+                                {item.productName}
+                              </span>
+                              {item.isSingle ? (
+                                <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold shrink-0">
+                                  בודדים
+                                </span>
+                              ) : (
+                                <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold shrink-0">
+                                  קרטון
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-zinc-500 mt-0.5 font-medium">
+                              {(() => {
+                                const qty = item.quantity;
+                                if (item.isSingle) {
+                                  // בודדים - יחידות או ק"ג
+                                  if (item.unit === "יחידה" || item.unit === "יחידות") {
+                                    return qty === 1 ? "1 יחידה" : `${qty} יחידות`;
+                                  }
+                                  return `${qty} ק"ג`;
+                                }
+                                // קרטון - תמיד "קרטון" (לא unit של המוצר)
+                                return qty === 1 ? "1 קרטון" : `${qty} קרטונים`;
+                              })()}
+                            </div>
                           </div>
                         </div>
                       ))}

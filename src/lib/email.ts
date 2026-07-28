@@ -24,6 +24,9 @@ type OrderItemLike = {
   unit: string;
   isSingle: boolean;
   quantity: any;
+  estimatedWeight?: any;
+  actualWeight?: any;
+  finalWeight?: any;
   estimatedPrice: any;
   finalPrice?: any;
 };
@@ -44,14 +47,48 @@ type OrderLike = {
   items: OrderItemLike[];
 };
 
+// חישוב תצוגת כמות נקייה - קרטון/בודדים במקום "יח'"
+function qtyDisplay(it: OrderItemLike): string {
+  const qty = Number(it.quantity);
+  if (it.isSingle) {
+    // בודדים = ק"ג או יחידות
+    if (it.unit === "יחידה" || it.unit === "יחידות") {
+      return qty === 1 ? "1 יחידה" : `${qty} יחידות`;
+    }
+    return `${qty} ק"ג`;
+  }
+  // קרטון
+  return qty === 1 ? "1 קרטון" : `${qty} קרטונים`;
+}
+
+// חישוב תצוגת משקל - סופי או משוער
+function weightDisplay(it: OrderItemLike): string {
+  const final = it.finalWeight ?? it.actualWeight;
+  if (final != null) {
+    return `<strong>${Number(final).toFixed(2)} ק"ג</strong> (סופי)`;
+  }
+  if (it.estimatedWeight != null) {
+    return `~${Number(it.estimatedWeight).toFixed(1)} ק"ג (משוער)`;
+  }
+  return it.isSingle ? `${Number(it.quantity)} ק"ג` : "—";
+}
+
 function itemsRows(items: OrderItemLike[], useFinal = false) {
   return items
     .map((it) => {
       const price = useFinal && it.finalPrice != null ? it.finalPrice : it.estimatedPrice;
+      const qtyLabel = qtyDisplay(it);
+      const wLabel = weightDisplay(it);
+      const singleBadge = it.isSingle
+        ? '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:bold;margin-right:6px;">בודדים</span>'
+        : '<span style="background:#fed7aa;color:#9a3412;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:bold;margin-right:6px;">קרטון</span>';
       return `<tr style="border-bottom:1px solid #eee;">
-        <td style="padding:8px;text-align:right;">${it.productName}${it.isSingle ? " (בודדים)" : ""}</td>
-        <td style="padding:8px;text-align:center;">${it.quantity} ${it.unit}</td>
-        <td style="padding:8px;text-align:left;">${fmt(Number(price))}</td>
+        <td style="padding:10px;text-align:right;">
+          <div><strong>${it.productName}</strong>${singleBadge}</div>
+        </td>
+        <td style="padding:10px;text-align:center;font-weight:bold;color:#3f3f46;">${qtyLabel}</td>
+        <td style="padding:10px;text-align:center;font-size:12px;color:#71717a;">${wLabel}</td>
+        <td style="padding:10px;text-align:left;font-weight:bold;">${fmt(Number(price))}</td>
       </tr>`;
     })
     .join("");
@@ -141,9 +178,10 @@ export async function sendCustomerOrderConfirmation(
       <p>הזמנתך התקבלה בהצלחה! מספר הזמנה: <strong>#${order.orderNumber}</strong></p>
       <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;">
         <thead><tr style="background:#FFE000;">
-          <th style="padding:8px;text-align:right;">מוצר</th>
-          <th style="padding:8px;text-align:center;">כמות</th>
-          <th style="padding:8px;text-align:left;">משוער</th>
+          <th style="padding:10px;text-align:right;">מוצר</th>
+          <th style="padding:10px;text-align:center;">כמות</th>
+          <th style="padding:10px;text-align:center;">משקל</th>
+          <th style="padding:10px;text-align:left;">מחיר</th>
         </tr></thead>
         <tbody>${itemsRows(order.items)}</tbody>
       </table>
@@ -153,7 +191,7 @@ export async function sendCustomerOrderConfirmation(
       <div style="background:#fff8d8;border-radius:10px;padding:14px;margin-top:16px;">
         <p style="color:#9A3412;font-size:13px;margin:0;">
           <strong>שים לב:</strong> המחיר המוצג הוא מחיר משוער בלבד. המחיר הסופי ייקבע לאחר שקילה בפועל.
-          לאחר קביעת המחיר הסופי תקבל/י הודעה עם קישור לתשלום באתר.
+          יום לפני החלוקה תקבל תזכורת עם שעת החלוקה במיקום שבחרת.
         </p>
       </div>`;
 

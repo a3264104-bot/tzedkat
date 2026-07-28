@@ -111,8 +111,69 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: "אין שדות לעדכון" }, { status: 400 });
     }
 
-    // אם יש עדכון פריטים - מעדכנים בטרנזקציה
+    // ═════════════════════════════════════════════════════════════
+    // 🆕 בדיקת "אין שינוי בפועל" — לא לעדכן ולא לשלוח מייל מיותר
+    // ═════════════════════════════════════════════════════════════
+    // המשתמש יכול ללחוץ "אישור" בלי לשנות כלום. בלי הבדיקה הזאת -
+    // המערכת מבצעת מחיקה+יצירה של פריטים ושולחת מייל, למרות שכלום לא זז.
+    const existingForDiff = await prisma.order.findUnique({
+      where: { id },
+      include: {
+        items: {
+          where: { isCancelled: false },
+        },
+      },
+    });
+    if (!existingForDiff) {
+      return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
+    }
+
+    // בדיקת שינוי בשדות בסיס: משווים ערך מול ערך
+    let baseFieldsChanged = false;
+    for (const [key, value] of Object.entries(data)) {
+      if ((existingForDiff as any)[key] !== value) {
+        baseFieldsChanged = true;
+        break;
+      }
+    }
+
+    // בדיקת שינוי בפריטים: snapshot ממויין של (productId|isSingle|quantity)
+    let itemsReallyChanged = false;
     if (itemsChanged) {
+      const existingSnapshot = existingForDiff.items
+        .map(
+          (i) => `${i.productId}|${i.isSingle ? 1 : 0}|${Number(i.quantity)}`
+        )
+        .sort()
+        .join(",");
+      const newSnapshot = body.items
+        .map(
+          (i: any) =>
+            `${String(i.productId)}|${i.isSingle ? 1 : 0}|${Number(i.quantity)}`
+        )
+        .sort()
+        .join(",");
+      itemsReallyChanged = existingSnapshot !== newSnapshot;
+    }
+
+    // אם כלום לא השתנה - מחזירים "לא בוצעו שינויים" בלי לגעת ב-DB ובלי לשלוח מייל
+    if (!baseFieldsChanged && !itemsReallyChanged) {
+      return NextResponse.json({
+        ok: true,
+        id,
+        unchanged: true,
+        message: "לא בוצעו שינויים בהזמנה",
+      });
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    // עדכון בפועל - רק אם באמת יש שינוי
+    // ═════════════════════════════════════════════════════════════
+    // עדכון items הוא רק אם באמת השתנו (חוסך מחיקה+יצירה מיותרת)
+    const shouldUpdateItems = itemsChanged && itemsReallyChanged;
+
+    // אם יש עדכון פריטים - מעדכנים בטרנזקציה
+    if (shouldUpdateItems) {
       // טוענים מחירון + מוצרים כדי לחשב estimatedTotal
       const orderInfo = await prisma.order.findUnique({
         where: { id },

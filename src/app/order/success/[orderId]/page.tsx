@@ -64,7 +64,12 @@ export default async function OrderSuccessPage({
       },
       items: {
         include: {
-          product: { select: { imageUrl: true } },
+          product: {
+            select: {
+              imageUrl: true,
+              kashrutRef: { select: { name: true, imageUrl: true } },
+            },
+          },
         },
       },
     },
@@ -150,21 +155,6 @@ export default async function OrderSuccessPage({
 
           {/* פרטים */}
           <div className="p-5 space-y-3 text-sm">
-            {/* פריטים */}
-            <div className="flex items-start gap-3">
-              <div className="text-xl">📦</div>
-              <div className="flex-1">
-                <div className="font-bold text-brand-slatedark">
-                  {itemsCount} פריטים
-                </div>
-                <div className="text-xs text-zinc-500">
-                  {cartonsCount > 0 && `${cartonsCount} קרטונים`}
-                  {cartonsCount > 0 && singlesCount > 0 && " · "}
-                  {singlesCount > 0 && `${singlesCount} בודדים`}
-                </div>
-              </div>
-            </div>
-
             {/* נקודה */}
             {order.point && (
               <div className="flex items-start gap-3">
@@ -219,6 +209,197 @@ export default async function OrderSuccessPage({
           </div>
         </div>
 
+        {/* ═════ פירוט פריטים ═════ */}
+        <div className="bg-white rounded-2xl shadow-lg border border-zinc-200 overflow-hidden mb-4">
+          <div className="bg-zinc-50 border-b border-zinc-200 px-5 py-3 flex items-center justify-between">
+            <h3 className="font-extrabold text-brand-slatedark">
+              📦 פירוט ההזמנה
+            </h3>
+            <span className="text-xs bg-brand-rust text-white px-2.5 py-1 rounded-full font-bold">
+              {itemsCount} פריטים
+            </span>
+          </div>
+
+          <div className="divide-y divide-zinc-100">
+            {activeItems.map((item) => {
+              const isCarton = !item.isSingle;
+              const finalWeight = item.finalWeight
+                ? Number(item.finalWeight)
+                : item.actualWeight
+                ? Number(item.actualWeight)
+                : null;
+              const itemFinalPrice = item.finalPrice
+                ? Number(item.finalPrice)
+                : null;
+              const estWeight = item.estimatedWeight
+                ? Number(item.estimatedWeight)
+                : null;
+              const unitPrice = Number(item.unitPrice);
+              const qty = Number(item.quantity);
+              const estPrice = Number(item.estimatedPrice);
+
+              return (
+                <div key={item.id} className="p-4">
+                  <div className="flex items-start gap-3">
+                    {/* תמונה */}
+                    {item.product?.imageUrl && (
+                      <div className="w-14 h-14 shrink-0 rounded-lg bg-zinc-50 overflow-hidden">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={item.product.imageUrl}
+                          alt={item.productName}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex-1 min-w-0">
+                      {/* שם + הכשר */}
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <span className="font-bold text-brand-slatedark">
+                            {item.productName}
+                          </span>
+                          {isCarton ? (
+                            <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">
+                              קרטון
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">
+                              בודדים
+                            </span>
+                          )}
+                          {item.product?.kashrutRef?.imageUrl && (
+                            <span className="inline-flex items-center gap-1 text-[10px] bg-sky-50 border border-sky-200 rounded px-1 py-0.5">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={item.product.kashrutRef.imageUrl}
+                                alt={item.product.kashrutRef.name}
+                                className="w-3 h-3 object-contain"
+                              />
+                              <span className="text-sky-800 font-bold">
+                                {item.product.kashrutRef.name}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* כמות + משקל + מחיר */}
+                      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                        {/* הוזמן */}
+                        <div>
+                          <span className="text-zinc-500">הוזמן: </span>
+                          <span className="font-bold text-brand-slatedark">
+                            {isCarton
+                              ? `${qty} קרטון${qty > 1 ? "ים" : ""}`
+                              : `${qty} ק"ג`}
+                          </span>
+                        </div>
+
+                        {/* מחיר יחידה */}
+                        <div>
+                          <span className="text-zinc-500">מחיר: </span>
+                          <span className="font-bold text-brand-slatedark">
+                            ₪{unitPrice.toFixed(2)}
+                            <span className="font-normal text-zinc-500">
+                              {" "}
+                              / ק"ג
+                            </span>
+                          </span>
+                        </div>
+
+                        {/* משקל סופי (אם קיים) או משוער */}
+                        {finalWeight ? (
+                          <div className="col-span-2 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1 mt-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-emerald-700 font-bold">
+                                ✓ משקל סופי לחיוב
+                              </span>
+                              <span className="font-extrabold text-emerald-800">
+                                {finalWeight.toFixed(2)} ק"ג
+                              </span>
+                            </div>
+                            {itemFinalPrice && (
+                              <div className="flex items-center justify-between mt-0.5">
+                                <span className="text-[10px] text-emerald-700 font-bold">
+                                  מחיר סופי
+                                </span>
+                                <span className="font-extrabold text-emerald-800">
+                                  ₪{itemFinalPrice.toFixed(2)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            {estWeight && (
+                              <div>
+                                <span className="text-zinc-500">
+                                  משקל משוער:{" "}
+                                </span>
+                                <span className="text-brand-slatedark">
+                                  {estWeight.toFixed(1)} ק"ג
+                                </span>
+                              </div>
+                            )}
+                            <div>
+                              <span className="text-zinc-500">
+                                מחיר משוער:{" "}
+                              </span>
+                              <span className="font-bold text-brand-rust">
+                                ₪{estPrice.toFixed(2)}
+                              </span>
+                            </div>
+                          </>
+                        )}
+
+                        {/* הערת נציג אם יש */}
+                        {item.agentNote && (
+                          <div className="col-span-2 mt-1 text-[11px] bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-yellow-900">
+                            💬 {item.agentNote}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* סה"כ תחתון */}
+          <div className="bg-brand-cream/50 border-t border-zinc-200 px-5 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-brand-slatedark">
+                סה"כ הזמנה
+              </span>
+              <div className="text-left">
+                {finalTotal ? (
+                  <>
+                    <div className="text-xs text-zinc-500">סופי</div>
+                    <div className="text-xl font-extrabold text-emerald-700">
+                      ₪{finalTotal.toFixed(2)}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xs text-zinc-500">משוער</div>
+                    <div className="text-xl font-extrabold text-brand-rust">
+                      ₪{estimatedTotal.toFixed(2)}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            {!finalTotal && (
+              <p className="text-[10px] text-zinc-500 mt-1 text-center">
+                💡 המחיר הסופי ייקבע לפי המשקל בפועל שיישקל בזמן החלוקה
+              </p>
+            )}
+          </div>
+        </div>
+
         {/* הודעה על מייל / וואטסאפ */}
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-start gap-3">
           <div className="text-xl">📧</div>
@@ -226,7 +407,7 @@ export default async function OrderSuccessPage({
             <div className="font-bold mb-0.5">מה קורה עכשיו?</div>
             <div>
               נשלח לך אישור למייל עם פרטי ההזמנה. יום לפני החלוקה תקבל תזכורת
-              עם כתובת מדויקת של הנקודה.
+              עם שעת החלוקה במיקום שבחרת.
             </div>
           </div>
         </div>
