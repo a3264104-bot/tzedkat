@@ -93,17 +93,21 @@ export default function SaleSummaryPage() {
   function exportProductsCsv() {
     if (!data) return;
     const rows: string[][] = [
-      ["מוצר", "יחידה", 'סה"כ הוזמן', "מתוכו בודדים", "משקל משוער (ק\"ג)", "משקל בפועל (ק\"ג)", "מס' הזמנות", "מגבלה"],
-      ...data.products.map((p) => [
-        p.productName,
-        p.unit,
-        String(p.totalQuantity),
-        String(p.singlesQuantity || ""),
-        p.totalEstimatedWeight ? String(p.totalEstimatedWeight) : "",
-        p.totalActualWeight ? String(p.totalActualWeight) : "",
-        String(p.orderCount),
-        p.limitedQtyAmount != null ? String(p.limitedQtyAmount) : "",
-      ]),
+      ["מוצר", "קרטונים", 'בודדים (ק"ג/יח\')', 'סה"כ משקל (ק"ג)', 'משקל בפועל (ק"ג)', "הזמנות", "מגבלה"],
+      ...data.products.map((p) => {
+        const singlesOnly = Number(p.singlesQuantity || 0);
+        const cartonsOnly = Math.max(0, Number(p.totalQuantity) - singlesOnly);
+        const singlesUnit = p.unit === "יחידה" || p.unit === "יחידות" ? "יח'" : 'ק"ג';
+        return [
+          p.productName,
+          cartonsOnly > 0 ? String(cartonsOnly) : "",
+          singlesOnly > 0 ? `${singlesOnly} ${singlesUnit}` : "",
+          p.totalEstimatedWeight ? String(p.totalEstimatedWeight) : "",
+          p.totalActualWeight ? String(p.totalActualWeight) : "",
+          String(p.orderCount),
+          p.limitedQtyAmount != null ? String(p.limitedQtyAmount) : "",
+        ];
+      }),
     ];
     downloadCsv(`סיכום-מוצרים-${data.pricelist.name}.csv`, rows);
   }
@@ -118,7 +122,17 @@ export default function SaleSummaryPage() {
         o.phone,
         STATUS_LABELS[o.status] ?? o.status,
         PAYMENT_STATUS_LABELS[o.paymentStatus] ?? o.paymentStatus,
-        o.items.map((it) => `${it.productName} ×${it.quantity}${it.isSingle ? " (בודדים)" : ""}`).join(" | "),
+        o.items
+          .map((it) => {
+            const qty = Number(it.quantity);
+            const label = it.isSingle
+              ? it.unit === "יחידה" || it.unit === "יחידות"
+                ? `${qty} יח'`
+                : `${qty} ק"ג`
+              : `${qty} קרטון${qty > 1 ? "ים" : ""}`;
+            return `${it.productName} · ${label}`;
+          })
+          .join(" | "),
         o.finalTotal != null ? String(o.finalTotal) : `~${o.estimatedTotal}`,
       ]),
     ];
@@ -202,36 +216,112 @@ export default function SaleSummaryPage() {
             ⬇ ייצוא לאקסל
           </button>
         </div>
+
+        {/* הסבר קצר בראש הטבלה */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 mb-2 text-xs text-blue-900">
+          💡 <strong>שים לב:</strong> "קרטונים" = יחידות שלמות של קרטון. "בודדים" = חלקים
+          שהוזמנו לפי משקל (בק״ג). "סה״כ משקל" מסכם את שניהם למשקל כולל להזמנה מהספק.
+        </div>
+
         <div className="table-wrap">
           <table className="admin">
             <thead>
               <tr>
                 <th>מוצר</th>
-                <th>סה"כ הוזמן</th>
-                <th>מתוכו בודדים</th>
-                <th>משקל משוער</th>
-                <th>הזמנות</th>
+                <th className="text-center">קרטונים</th>
+                <th className="text-center">בודדים</th>
+                <th className="text-center">סה״כ משקל</th>
+                <th className="text-center">הזמנות</th>
               </tr>
             </thead>
             <tbody>
-              {data.products.map((p) => (
-                <tr key={p.productId} className={p.overLimit ? "bg-red-50" : ""}>
-                  <td className="font-medium">
-                    {p.productName}
-                    {p.overLimit && <span className="badge bg-red-100 text-red-700 mr-1">מכסה מלאה</span>}
-                    {p.nearLimit && <span className="badge bg-amber-100 text-amber-700 mr-1">מתקרב</span>}
-                  </td>
-                  <td className="font-bold">
-                    {p.totalQuantity} {p.unit}
-                    {p.limitedQtyAmount != null && (
-                      <span className="text-xs text-zinc-400"> / {p.limitedQtyAmount}</span>
-                    )}
-                  </td>
-                  <td>{p.singlesQuantity || "—"}</td>
-                  <td>{p.totalEstimatedWeight ? `${p.totalEstimatedWeight} ק"ג` : "—"}</td>
-                  <td className="text-zinc-500">{p.orderCount}</td>
-                </tr>
-              ))}
+              {data.products.map((p) => {
+                // 🔎 חישוב חכם:
+                // ה-API מחזיר totalQuantity שכולל את הכל (קרטונים + בודדים)
+                // ו-singlesQuantity שהוא רק הבודדים.
+                // לכן: קרטונים נטו = totalQuantity - singlesQuantity
+                const cartonsOnly = Math.max(
+                  0,
+                  Number(p.totalQuantity) - Number(p.singlesQuantity || 0)
+                );
+                const singlesOnly = Number(p.singlesQuantity || 0);
+                const hasCartons = cartonsOnly > 0;
+                const hasSingles = singlesOnly > 0;
+                const totalWeight = Number(p.totalEstimatedWeight || 0);
+
+                return (
+                  <tr key={p.productId} className={p.overLimit ? "bg-red-50" : ""}>
+                    <td className="font-medium">
+                      {p.productName}
+                      {p.overLimit && (
+                        <span className="badge bg-red-100 text-red-700 mr-1">
+                          מכסה מלאה
+                        </span>
+                      )}
+                      {p.nearLimit && (
+                        <span className="badge bg-amber-100 text-amber-700 mr-1">
+                          מתקרב
+                        </span>
+                      )}
+                      {p.limitedQtyAmount != null && (
+                        <div className="text-[10px] text-zinc-500 mt-0.5">
+                          מגבלה: {p.limitedQtyAmount}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* קרטונים */}
+                    <td className="text-center">
+                      {hasCartons ? (
+                        <span className="inline-flex items-center gap-1">
+                          <span className="text-lg font-extrabold text-orange-700">
+                            {cartonsOnly}
+                          </span>
+                          <span className="text-xs text-zinc-500">
+                            {cartonsOnly === 1 ? "קרטון" : "קרטונים"}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-zinc-300">—</span>
+                      )}
+                    </td>
+
+                    {/* בודדים */}
+                    <td className="text-center">
+                      {hasSingles ? (
+                        <span className="inline-flex items-center gap-1">
+                          <span className="text-lg font-extrabold text-amber-700">
+                            {singlesOnly}
+                          </span>
+                          <span className="text-xs text-zinc-500">
+                            {/* בבשר/עוף - ק"ג; במוצרים UNITS - יחידות */}
+                            {p.unit === "יחידה" || p.unit === "יחידות"
+                              ? singlesOnly === 1
+                                ? "יחידה"
+                                : "יחידות"
+                              : "ק״ג"}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-zinc-300">—</span>
+                      )}
+                    </td>
+
+                    {/* סה"כ משקל - השדה החשוב ביותר להזמנה מהספק */}
+                    <td className="text-center">
+                      {totalWeight > 0 ? (
+                        <span className="font-extrabold text-brand-rust">
+                          {totalWeight.toFixed(1)} ק״ג
+                        </span>
+                      ) : (
+                        <span className="text-zinc-300">—</span>
+                      )}
+                    </td>
+
+                    <td className="text-center text-zinc-500">{p.orderCount}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -285,10 +375,18 @@ export default function SaleSummaryPage() {
                             <td>#{o.orderNumber}</td>
                             <td className="font-medium">{o.customerName}</td>
                             <td dir="ltr" className="text-right">{o.phone}</td>
-                            <td className="text-xs text-zinc-500 max-w-[240px]">
+                            <td className="text-xs text-zinc-500 max-w-[280px]">
                               {o.items
-                                .map((it) => `${it.productName} ×${it.quantity}`)
-                                .join(", ")}
+                                .map((it) => {
+                                  const qty = Number(it.quantity);
+                                  const label = it.isSingle
+                                    ? it.unit === "יחידה" || it.unit === "יחידות"
+                                      ? `${qty} יח'`
+                                      : `${qty} ק"ג`
+                                    : `${qty} קרטון${qty > 1 ? "ים" : ""}`;
+                                  return `${it.productName} · ${label}`;
+                                })
+                                .join(" | ")}
                             </td>
                             <td>
                               <span
