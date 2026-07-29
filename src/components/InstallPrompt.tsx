@@ -38,6 +38,20 @@ export function InstallPrompt() {
     // בדיקות ראשונות
     if (typeof window === "undefined") return;
 
+    // 🚨 הבנר לא מוצג במחשב - רק במובייל
+    // זיהוי מובייל לפי userAgent + touch + width
+    const isMobile =
+      /iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      ) ||
+      (typeof window.matchMedia === "function" &&
+        window.matchMedia("(max-width: 768px)").matches);
+
+    if (!isMobile) {
+      // מחשב - לא מציגים בכלל
+      return;
+    }
+
     // 1. האם המשתמש כבר התקין בעבר?
     if (localStorage.getItem(LS_INSTALLED) === "1") {
       return;
