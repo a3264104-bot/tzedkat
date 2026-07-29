@@ -82,6 +82,32 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 401 });
     }
 
+    // 🚨 חסימת הזמנה כפולה - לא ניתן ליצור 2 הזמנות באותה מכירה
+    // אם יש כבר הזמנה פעילה של הלקוח במכירה זו, מחזירים 409
+    // הלקוח יכול לערוך את הקיימת אבל לא ליצור חדשה
+    const existingOrder = await prisma.order.findFirst({
+      where: {
+        customerId,
+        pricelistId: data.pricelistId,
+        status: { notIn: ["CANCELLED"] },
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+      },
+    });
+    if (existingOrder) {
+      return NextResponse.json(
+        {
+          error: `יש לך כבר הזמנה במכירה זו (הזמנה #${existingOrder.orderNumber}). ניתן לערוך אותה במקום ליצור חדשה.`,
+          code: "DUPLICATE_ORDER",
+          existingOrderId: existingOrder.id,
+          existingOrderNumber: existingOrder.orderNumber,
+        },
+        { status: 409 }
+      );
+    }
+
     // אכיפת אימות כרטיס: לקוח שמזמין לעצמו חייב כרטיס מאומת (טוקן שמור)
     // לפני שמירת הזמנה. זה סוגר את האפשרות לעקוף את אימות ה-1 ש"ח.
     // נציג/מנהל שמזמין בשם לקוח - פטור (הוא לוקח אחריות על הגבייה).

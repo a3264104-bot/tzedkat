@@ -96,16 +96,25 @@ export default async function OrderPage({
     }
   }
 
-  // §12: בדיקה אם ללקוח יש הזמנה קיימת למכירה הזו — מציגים הודעה, לא חוסמים
-  // (מדלגים על הבדיקה אם אנחנו במצב עריכה)
-  const existingOrder = editOrderId ? null : await prisma.order.findFirst({
-    where: {
-      customerId,
-      pricelistId: pricelist.id,
-      status: { notIn: ["CANCELLED"] },
-    },
-    select: { id: true, orderNumber: true },
-  });
+  // §12: בדיקה אם ללקוח יש הזמנה קיימת למכירה הזו
+  // אם יש - מפנים אוטומטית לעמוד ההצלחה של ההזמנה הקיימת,
+  // כדי למנוע יצירת הזמנה כפולה בטעות.
+  // הלקוח יכול משם ללחוץ "עריכה" כדי לשנות.
+  // (מדלגים על הבדיקה אם אנחנו במצב עריכה מפורש)
+  if (!editOrderId) {
+    const existingOrder = await prisma.order.findFirst({
+      where: {
+        customerId,
+        pricelistId: pricelist.id,
+        status: { notIn: ["CANCELLED"] },
+      },
+      select: { id: true, orderNumber: true },
+    });
+    if (existingOrder) {
+      // מפנים ישירות לעמוד ההצלחה של ההזמנה הקיימת
+      redirect(`/order/success/${existingOrder.id}`);
+    }
+  }
 
   const points = pricelist.points
     .map((pp) => pp.point)
@@ -197,7 +206,7 @@ export default async function OrderPage({
       cardVerified={!!customerRecord.paymentToken}
       customerId={customerRecord.id}
       hasSeenOrderIntro={customerRecord.hasSeenOrderIntro}
-      existingOrder={existingOrder ? { id: existingOrder.id, orderNumber: existingOrder.orderNumber } : null}
+      existingOrder={null}
       editMode={
         editOrder
           ? { orderId: editOrder.id, orderNumber: editOrder.orderNumber, initialCart }

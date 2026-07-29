@@ -128,6 +128,12 @@ export function OrderFlow({
   // טלפון ראשי מהחשבון. אם חסר — משלים בסיכום.
   const [phone, setPhone] = useState(customer.phone ?? "");
   const [submitting, setSubmitting] = useState(false);
+  // 🚨 מנעול חד-פעמי - מונע קריאה כפולה של doSubmit
+  // הבעיה: כשלקוח חדש מאמת כרטיס, יש 2 מקורות שקוראים ל-doSubmit במקביל:
+  // 1. postMessage listener מ-iframe של נדרים (מיידי)
+  // 2. polling כל 3 שניות של /api/customer/verification-status
+  // בלי מנעול, שני הם קוראים לdoSubmit ו-נוצרות 2 הזמנות!
+  const submitLockRef = useRef<boolean>(false);
   const [orderNumber, setOrderNumber] = useState<number | null>(null);
   const [error, setError] = useState("");
   // §4: הודעת תנאים לפני תחילת ההזמנה
@@ -359,6 +365,11 @@ export function OrderFlow({
   useEffect(() => {
     if (!showVerification || isVerified) return;
     const interval = setInterval(async () => {
+      // 🚨 הגנה: אם doSubmit כבר רץ (מ-postMessage) - לא לקרוא לו שוב
+      if (submitLockRef.current) {
+        console.log("[polling] Skip - submit already in progress");
+        return;
+      }
       try {
         const res = await fetch("/api/customer/verification-status");
         const data = await res.json();
@@ -369,6 +380,7 @@ export function OrderFlow({
           setIframeError(null);
           setNedarimConfirmedOk(false);
           // האימות הושלם - שולחים את ההזמנה אוטומטית
+          // (המנעול ב-doSubmit יבלום קריאה כפולה גם אם postMessage מזמן במקביל)
           doSubmit();
         }
       } catch {
@@ -652,6 +664,13 @@ export function OrderFlow({
 
   // השליחה עצמה - נקראת ישירות (לקוח מאומת) או אוטומטית אחרי אימות
   async function doSubmit() {
+    // 🚨 מנעול חד-פעמי - מונע קריאה כפולה
+    if (submitLockRef.current) {
+      console.log("[doSubmit] Blocked: already in progress or completed");
+      return;
+    }
+    submitLockRef.current = true;
+
     setError("");
     setSubmitting(true);
     try {
@@ -691,6 +710,17 @@ export function OrderFlow({
         body: JSON.stringify(body),
       });
       const data = await res.json();
+      // 🚨 חסימת הזמנה כפולה - השרת מזהה שיש כבר הזמנה
+      if (!res.ok && data.code === "DUPLICATE_ORDER" && data.existingOrderId) {
+        // מציגים הודעה + מפנים לעמוד ההצלחה של ההזמנה הקיימת
+        alert(
+          `יש לך כבר הזמנה במכירה זו (הזמנה #${data.existingOrderNumber}).\n\n` +
+          `לא ניתן ליצור הזמנה נוספת - ניתן רק לערוך את הקיימת.\n\n` +
+          `נעביר אותך לצפייה בהזמנה הקיימת.`
+        );
+        window.location.href = `/order/success/${data.existingOrderId}`;
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "שגיאה בשליחת ההזמנה");
       // במצב עריכה - מפנים חזרה לאזור אישי
       if (isEdit) {
@@ -712,6 +742,8 @@ export function OrderFlow({
       setStep("done");
     } catch (e: any) {
       setError(e.message || "שגיאה");
+      // שחרור המנעול במקרה של שגיאה - כדי לאפשר ניסיון חוזר
+      submitLockRef.current = false;
     } finally {
       setSubmitting(false);
     }
