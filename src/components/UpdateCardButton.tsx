@@ -178,15 +178,20 @@ function UpdateCardModal({
       const name = payload.Name || payload.name;
       const value = payload.Value ?? payload.value;
 
+      // נדרים מחזירים TransactionResponse עם Status
       if (name === "TransactionResponse") {
-        if (value?.Status === "OK" || value?.Status === "Success") {
-          // הצלחה - הtoken נשמר. הpolling יזהה
+        console.log("[UpdateCard] TransactionResponse:", value);
+        const status = value?.Status || value?.status;
+        if (status === "success" || status === "Success" || status === "OK") {
+          // הצלחה - הtoken נשמר. הpolling יזהה את cardVerifiedAt החדש
           processingRef.current = true;
           setStatus("success");
           setTimeout(() => onSuccess(), 1500);
         } else {
           setStatus("error");
-          setError(value?.Message || "אירעה שגיאה בעדכון הכרטיס");
+          setError(
+            value?.Message || value?.message || "אירעה שגיאה בעדכון הכרטיס"
+          );
         }
       }
     }
@@ -200,20 +205,47 @@ function UpdateCardModal({
       setError("יש להזין תוקף כרטיס בפורמט MMYY (למשל 1225)");
       return;
     }
+    const mm = parseInt(cardTokef.slice(0, 2), 10);
+    if (mm < 1 || mm > 12) {
+      setError("חודש התוקף לא תקין - יש להזין 01 עד 12");
+      return;
+    }
+    if (!iframeRef.current?.contentWindow) {
+      setError("ה-iframe לא נטען כראוי. רענן את הדף ונסה שוב.");
+      return;
+    }
     setError(null);
     setStatus("verifying");
 
-    // שולחים תוקף לnedarim + מזיזים הגשה
-    iframeRef.current?.contentWindow?.postMessage(
-      JSON.stringify({ Name: "SetTokef", Value: cardTokef }),
+    // שליחת ההוראה לנדרים - חייבים לכלול את כל הפרמטרים ב-Value!
+    // זהו הפרוטוקול של נדרים - Param1/Param2 בURL של iframe לא מספיקים
+    iframeRef.current.contentWindow.postMessage(
+      {
+        Name: "FinishTransaction2",
+        Value: {
+          Mosad: "7015318",
+          ApiValid: "NxhXRWeG5P",
+          PaymentType: "CreateToken",
+          Currency: "1",
+          Amount: "1",
+          Tashlumim: "1",
+          CallBack: "https://tzidkat.com/api/webhooks/nedarim",
+          Param1: customerId,
+          Param2: "registration",
+          // גיבוי: גם ב-Comment (אם Param1/Param2 לא עוברים ב-response)
+          Comment: `customer:${customerId}|type:registration`,
+          Zeout: "",
+          FirstName: "",
+          LastName: "",
+          Street: "",
+          City: "",
+          Phone: "",
+          Mail: "",
+          Groupe: "Registration",
+        },
+      },
       "*"
     );
-    setTimeout(() => {
-      iframeRef.current?.contentWindow?.postMessage(
-        JSON.stringify({ Name: "FinishTransaction2" }),
-        "*"
-      );
-    }, 200);
   }
 
   return (
