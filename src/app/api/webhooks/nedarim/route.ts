@@ -182,13 +182,16 @@ export async function POST(req: Request) {
         },
       });
 
-      // §19: קידום הזמנות של הלקוח שממתינות לטוקן.
+      // §19: קידום הזמנות של הלקוח שממתינות לטוקן / שנכשלו בעבר.
+      // כולל ניקוי של שגיאות ישנות כדי שהמנהל יראה שאפשר לחייב שוב.
       let promotedCount = 0;
       if (token) {
         const pendingOrders = await prisma.order.findMany({
           where: {
             customerId: param1,
-            paymentStatus: { in: ["PENDING", "PAYMENT_PENDING", "CARD_UPDATE_NEEDED"] },
+            paymentStatus: {
+              in: ["PENDING", "PAYMENT_PENDING", "CARD_UPDATE_NEEDED", "FAILED"],
+            },
           },
           select: { id: true, paymentStatus: true, finalTotal: true },
         });
@@ -200,10 +203,25 @@ export async function POST(req: Request) {
               : "TOKEN_CREATED";
           await prisma.order.update({
             where: { id: o.id },
-            data: { paymentStatus: nextStatus },
+            data: {
+              paymentStatus: nextStatus,
+              lastChargeError: null, // 🆕 מנקים שגיאה ישנה
+            },
           });
           promotedCount++;
         }
+
+        // 🆕 מנקים גם את lastChargeError של הזמנות אחרות של הלקוח
+        // (למשל: הזמנות במצב READY_TO_CHARGE שהיתה עליהן שגיאה ישנה)
+        await prisma.order.updateMany({
+          where: {
+            customerId: param1,
+            lastChargeError: { not: null },
+          },
+          data: {
+            lastChargeError: null,
+          },
+        });
       }
 
       console.log(
