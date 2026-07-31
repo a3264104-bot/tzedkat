@@ -24,6 +24,8 @@ model Customer {
   // אחד מהשניים (phone/email) חייב להיות מלא - נאכף בקוד (Prisma לא תומך
   // ב"אחד משני שדות חובה" ברמת הסכמה). שניהם unique כדי למנוע כפילות חשבון.
   phone                String?   @unique
+  // טלפון נוסף - ליצירת קשר בעת חלוקה אם הראשי לא עונה
+  phone2               String?
   email                String?   @unique
   passwordHash         String
   // סיסמא בטקסט גלוי - נשמרת רק לנציגים/מנהלים כדי שהמנהל יוכל לראות אותה
@@ -53,6 +55,10 @@ model Customer {
   // הרשאות נציג נפרדות: קביעת מחיר סופי / שליחת לינק תשלום
   agentCanSetFinalPrice Boolean @default(false)
   agentCanSendPaymentLink Boolean @default(false)
+  // הרשאה לחייב לקוח אוטומטית עם טוקן שמור (נדרים)
+  agentCanCharge Boolean @default(false)
+  // הרשאה לעדכן פרטי אשראי של לקוח (החלפת token)
+  agentCanUpdateCards Boolean @default(false)
   // עמלת נציג לפי ק"ג - קרטונים ובודדים בנפרד
   // ברירת מחדל: 1 ש"ח לק"ג לקרטונים, 4 ש"ח לק"ג לבודדים (1 בסיסי + 3 תוספת)
   commissionRateCarton  Decimal @default(1) @db.Decimal(10, 2)

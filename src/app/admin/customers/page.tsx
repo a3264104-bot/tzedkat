@@ -16,6 +16,10 @@ type Customer = {
   passwordPlain: string | null;
   role: string;
   agentPointId: string | null;
+  agentCanSetFinalPrice?: boolean;
+  agentCanSendPaymentLink?: boolean;
+  agentCanCharge?: boolean;
+  agentCanUpdateCards?: boolean;
   createdAt: string;
 };
 
@@ -136,6 +140,35 @@ export default function AdminCustomersPage() {
       setCustomers(Array.isArray(data) ? data : []);
       // סגירת מודאל
       setTimeout(() => setEditing(null), 1500);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // עדכון הרשאת נציג בודדת
+  async function togglePermission(
+    field: "agentCanSetFinalPrice" | "agentCanSendPaymentLink" | "agentCanCharge" | "agentCanUpdateCards",
+    value: boolean
+  ) {
+    if (!editing) return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/customers/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+      // עדכון local state
+      setEditing({ ...editing, [field]: value });
+      // עדכון רשימה
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === editing.id ? { ...c, [field]: value } : c))
+      );
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -454,6 +487,45 @@ export default function AdminCustomersPage() {
               )}
             </div>
 
+            {/* ═══ הרשאות נציג - רק אם הrole הוא AGENT ═══ */}
+            {editing.role === "AGENT" && !convertingToAgent && (
+              <div className="border-t pt-3">
+                <div className="text-xs font-bold text-zinc-500 mb-2">
+                  🔐 הרשאות נציג
+                </div>
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2 text-sm">
+                  <PermissionCheckbox
+                    checked={!!editing.agentCanSetFinalPrice}
+                    label="קביעת מחיר סופי"
+                    hint="הנציג יכול לחתום על מחיר סופי לאחר שקילה"
+                    onChange={(v) => togglePermission("agentCanSetFinalPrice", v)}
+                    saving={saving}
+                  />
+                  <PermissionCheckbox
+                    checked={!!editing.agentCanSendPaymentLink}
+                    label="שליחת קישור תשלום"
+                    hint="הנציג יכול לשלוח ללקוח קישור לתשלום"
+                    onChange={(v) => togglePermission("agentCanSendPaymentLink", v)}
+                    saving={saving}
+                  />
+                  <PermissionCheckbox
+                    checked={!!editing.agentCanCharge}
+                    label="💳 חיוב אוטומטי עם טוקן"
+                    hint="הנציג יכול לחייב את הלקוח אוטומטית בכרטיס השמור"
+                    onChange={(v) => togglePermission("agentCanCharge", v)}
+                    saving={saving}
+                  />
+                  <PermissionCheckbox
+                    checked={!!editing.agentCanUpdateCards}
+                    label="🔄 עדכון פרטי אשראי"
+                    hint="הנציג יכול להזמין את הלקוח לעדכן כרטיס אצלו"
+                    onChange={(v) => togglePermission("agentCanUpdateCards", v)}
+                    saving={saving}
+                  />
+                </div>
+              </div>
+            )}
+
             {error && <p className="text-red-600 text-sm">{error}</p>}
             {successMsg && (
               <p className="text-green-700 text-sm font-medium bg-green-50 border border-green-200 rounded-lg p-2">
@@ -467,5 +539,36 @@ export default function AdminCustomersPage() {
         </Modal>
       )}
     </div>
+  );
+}
+
+// ═══ קומפוננט checkbox של הרשאה ═══
+function PermissionCheckbox({
+  checked,
+  label,
+  hint,
+  onChange,
+  saving,
+}: {
+  checked: boolean;
+  label: string;
+  hint?: string;
+  onChange: (v: boolean) => void;
+  saving: boolean;
+}) {
+  return (
+    <label className="flex items-start gap-2 cursor-pointer hover:bg-purple-100/50 rounded p-2 -m-2">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={saving}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-1 w-4 h-4 accent-purple-600"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="font-bold text-purple-900 text-sm">{label}</div>
+        {hint && <div className="text-xs text-purple-700 mt-0.5">{hint}</div>}
+      </div>
+    </label>
   );
 }

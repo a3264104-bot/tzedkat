@@ -88,8 +88,10 @@ export default async function AccountPage() {
   return (
     <AccountClient
       customer={{
+        id: customer.id,
         name: customer.name,
         phone: customer.phone,
+        phone2: customer.phone2,
         email: customer.email,
         cardLast4: customer.cardLast4,
         defaultPointId: customer.defaultPointId,

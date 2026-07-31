@@ -5,6 +5,7 @@ import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { Logo } from "@/components/Logo";
 import { CustomerOrderActions } from "@/components/CustomerOrderActions";
+import { UpdateCardButton } from "@/components/UpdateCardButton";
 import { STATUS_LABELS, PAYMENT_METHOD_LABELS, fmt } from "@/lib/pricing";
 
 type OrderItem = {
@@ -44,8 +45,10 @@ type Order = {
 type Point = { id: string; name: string; city: string | null };
 
 type Customer = {
+  id: string;
   name: string;
   phone: string | null;
+  phone2: string | null;
   email: string | null;
   cardLast4: string | null;
   defaultPointId: string | null;
@@ -87,6 +90,44 @@ export function AccountClient({
   const [resetErr, setResetErr] = useState("");
   const [sendingReset, setSendingReset] = useState(false);
   const [currentEmail, setCurrentEmail] = useState(customer.email ?? "");
+  // טלפון נוסף - ליצירת קשר בחלוקה
+  const [phone2, setPhone2] = useState(customer.phone2 ?? "");
+  const [showPhone2Edit, setShowPhone2Edit] = useState(false);
+  const [phone2Msg, setPhone2Msg] = useState("");
+  const [phone2Err, setPhone2Err] = useState("");
+  const [savingPhone2, setSavingPhone2] = useState(false);
+  // הזמנות ישנות - מוצגות רק אחרי לחיצה
+  const [showHistory, setShowHistory] = useState(false);
+
+  // הפרדה בין הזמנות פעילות להיסטוריות
+  const activeOrders = orders.filter(
+    (o) => o.status !== "CANCELLED" && o.status !== "COMPLETED"
+  );
+  const historyOrders = orders.filter(
+    (o) => o.status === "CANCELLED" || o.status === "COMPLETED"
+  );
+
+  async function savePhone2() {
+    setPhone2Err("");
+    setPhone2Msg("");
+    setSavingPhone2(true);
+    try {
+      const cleaned = phone2.trim();
+      const res = await fetch("/api/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-phone2", phone2: cleaned }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+      setPhone2Msg("טלפון נוסף עודכן בהצלחה");
+      setShowPhone2Edit(false);
+    } catch (e: any) {
+      setPhone2Err(e.message);
+    } finally {
+      setSavingPhone2(false);
+    }
+  }
 
   async function saveEmail() {
     setEmailErr("");
@@ -199,6 +240,93 @@ export function AccountClient({
                 value={customer.phone}
               />
             )}
+
+            {/* טלפון נוסף - ליצירת קשר בעת חלוקה */}
+            <div className="py-2 border-b border-zinc-100">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-start gap-3">
+                  <svg
+                    className="w-5 h-5 text-brand-slate mt-0.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                    />
+                  </svg>
+                  <div>
+                    <div className="text-xs text-zinc-500">
+                      טלפון נוסף לחלוקה
+                    </div>
+                    {!showPhone2Edit && (
+                      <div className="text-sm text-brand-slatedark" dir="ltr">
+                        {phone2 || (
+                          <span className="text-zinc-400 italic">
+                            לא הוגדר
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {!showPhone2Edit && (
+                  <button
+                    onClick={() => setShowPhone2Edit(true)}
+                    className="text-xs text-brand-rust font-bold hover:underline"
+                  >
+                    {phone2 ? "✏️ עריכה" : "➕ הוסף"}
+                  </button>
+                )}
+              </div>
+
+              {showPhone2Edit && (
+                <div className="mt-3 space-y-2">
+                  <input
+                    type="tel"
+                    value={phone2}
+                    onChange={(e) => setPhone2(e.target.value)}
+                    placeholder="050-1234567"
+                    dir="ltr"
+                    className="w-full px-3 py-2 border-2 border-zinc-300 rounded-lg focus:outline-none focus:border-brand-rust"
+                  />
+                  <p className="text-[10px] text-zinc-500">
+                    💡 טלפון נוסף לשימוש אם הראשי לא עונה בזמן חלוקת ההזמנה
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setPhone2(customer.phone2 ?? "");
+                        setShowPhone2Edit(false);
+                        setPhone2Err("");
+                        setPhone2Msg("");
+                      }}
+                      disabled={savingPhone2}
+                      className="btn-ghost btn-sm flex-1"
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      onClick={savePhone2}
+                      disabled={savingPhone2}
+                      className="btn-primary btn-sm flex-1"
+                    >
+                      {savingPhone2 ? "שומר..." : "שמור"}
+                    </button>
+                  </div>
+                  {phone2Err && (
+                    <p className="text-red-600 text-xs">{phone2Err}</p>
+                  )}
+                </div>
+              )}
+              {phone2Msg && !showPhone2Edit && (
+                <p className="text-emerald-700 text-xs mt-1">✓ {phone2Msg}</p>
+              )}
+            </div>
+
             {customer.email && (
               <InfoRow
                 iconPath="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
@@ -206,12 +334,63 @@ export function AccountClient({
                 value={customer.email}
               />
             )}
-            {customer.cardLast4 && (
-              <InfoRow
-                iconPath="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-                label="כרטיס אשראי"
-                value={`•••• ${customer.cardLast4}`}
-              />
+            {customer.cardLast4 ? (
+              <div className="flex items-center justify-between gap-2 flex-wrap py-2 border-b border-zinc-100">
+                <div className="flex items-start gap-3">
+                  <svg
+                    className="w-5 h-5 text-brand-slate mt-0.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                    />
+                  </svg>
+                  <div>
+                    <div className="text-xs text-zinc-500">כרטיס אשראי</div>
+                    <div className="font-medium text-brand-slatedark" dir="ltr">
+                      •••• {customer.cardLast4}
+                    </div>
+                  </div>
+                </div>
+                <UpdateCardButton
+                  customerId={customer.id}
+                  hasCurrentCard={true}
+                  cardLast4={customer.cardLast4}
+                  onSuccess={() => window.location.reload()}
+                />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-2 flex-wrap py-2 border-b border-zinc-100">
+                <div className="flex items-start gap-3">
+                  <svg
+                    className="w-5 h-5 text-zinc-400 mt-0.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                    />
+                  </svg>
+                  <div>
+                    <div className="text-xs text-zinc-500">כרטיס אשראי</div>
+                    <div className="text-sm text-zinc-400">אין כרטיס שמור</div>
+                  </div>
+                </div>
+                <UpdateCardButton
+                  customerId={customer.id}
+                  hasCurrentCard={false}
+                  onSuccess={() => window.location.reload()}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -358,40 +537,74 @@ export function AccountClient({
           </div>
         </div>
 
-        {/* היסטוריית הזמנות */}
+        {/* הזמנות פעילות + היסטוריה */}
         <div>
           <div className="flex items-center gap-3 mb-3">
             <div className="w-1 h-6 bg-brand-rust rounded-full"></div>
-            <h2 className="font-extrabold text-brand-slatedark text-lg">ההזמנות שלי</h2>
+            <h2 className="font-extrabold text-brand-slatedark text-lg">
+              {activeOrders.length > 0 ? "ההזמנות שלי" : "אין הזמנות פעילות"}
+            </h2>
             <div className="flex-1 h-px bg-zinc-200"></div>
-            {orders.length > 0 && (
-              <span className="text-xs text-zinc-400 font-medium">{orders.length}</span>
+            {activeOrders.length > 0 && (
+              <span className="text-xs text-zinc-400 font-medium">
+                {activeOrders.length}
+              </span>
             )}
           </div>
-          {orders.length === 0 ? (
+          {activeOrders.length === 0 ? (
             <div className="bg-white rounded-2xl border border-zinc-200 p-8 text-center">
               <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-zinc-100 flex items-center justify-center">
-                <svg className="w-7 h-7 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                <svg
+                  className="w-7 h-7 text-zinc-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                  />
                 </svg>
               </div>
-              <p className="text-brand-slatedark font-semibold">אין הזמנות עדיין</p>
-              <p className="text-sm text-zinc-500 mt-1">
-                כשתבצע הזמנה, היא תוצג כאן.
+              <p className="text-brand-slatedark font-semibold">
+                אין הזמנות פעילות
               </p>
-              <a
-                href="/order"
-                className="mt-4 inline-flex items-center gap-2 bg-brand-rust text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#a83a15] transition-all shadow-sm"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-                להתחלת הזמנה
-              </a>
+              {hasActiveSale ? (
+                <>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    יש מכירה פעילה! לחץ להתחלת הזמנה חדשה
+                  </p>
+                  <a
+                    href="/order"
+                    className="mt-4 inline-flex items-center gap-2 bg-brand-rust text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#a83a15] transition-all shadow-sm"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                      />
+                    </svg>
+                    להתחלת הזמנה
+                  </a>
+                </>
+              ) : (
+                <p className="text-sm text-zinc-500 mt-1">
+                  ההרשמה למכירה הבאה תיפתח בקרוב
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
-              {orders.map((o) => (
+              {activeOrders.map((o) => (
                 <div key={o.id} className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
                   {/* Header with status */}
                   <div className="px-4 py-3 border-b border-zinc-100 flex justify-between items-center">
@@ -517,6 +730,102 @@ export function AccountClient({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* היסטוריה - accordion */}
+          {historyOrders.length > 0 && (
+            <div className="mt-6">
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="w-full flex items-center justify-between gap-3 bg-white rounded-xl border border-zinc-200 p-3 hover:bg-zinc-50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center">
+                    <svg
+                      className="w-4 h-4 text-zinc-500"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-bold text-brand-slatedark text-sm">
+                      היסטוריית הזמנות
+                    </div>
+                    <div className="text-xs text-zinc-500">
+                      {historyOrders.length} הזמנות ישנות
+                    </div>
+                  </div>
+                </div>
+                <svg
+                  className={`w-5 h-5 text-zinc-400 transition-transform ${
+                    showHistory ? "rotate-180" : ""
+                  }`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+
+              {showHistory && (
+                <div className="mt-3 space-y-2">
+                  {historyOrders.map((o) => (
+                    <div
+                      key={o.id}
+                      className="bg-white rounded-xl border border-zinc-200 p-3 opacity-75 hover:opacity-100 transition-opacity"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-brand-slatedark text-sm">
+                            #{o.orderNumber}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                              statusColors[o.status] ?? "bg-zinc-100 text-zinc-600"
+                            }`}
+                          >
+                            {STATUS_LABELS[o.status] ?? o.status}
+                          </span>
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          {new Date(o.createdAt).toLocaleDateString("he-IL", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "2-digit",
+                          })}
+                        </div>
+                      </div>
+                      <div className="text-xs text-zinc-600 space-y-0.5">
+                        <div>
+                          📍 {o.pointName}
+                          {o.deliveryDate && ` · 🗓 ${o.deliveryDate}`}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>{o.itemCount} פריטים</span>
+                          <span className="font-bold text-brand-slatedark">
+                            {fmt(o.finalTotal ?? o.estimatedTotal)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

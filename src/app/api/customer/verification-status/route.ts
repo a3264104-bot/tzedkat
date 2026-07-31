@@ -1,27 +1,55 @@
+// GET /api/customer/verification-status
+// בודק אם ללקוח יש paymentToken (כרטיס אשראי שאומת ונשמר).
+// שימושים:
+//   1. OrderFlow - polling אחרי iframe אימות ראשוני
+//   2. UpdateCardButton - polling אחרי עדכון כרטיס
+//
+// אם עובר customerId ב-query - בודק את הלקוח הזה (מנהל/נציג)
+// אחרת - בודק את הלקוח המחובר (שימוש של הלקוח עצמו)
+
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 
-// סטטוס אימות כרטיס של הלקוח המחובר.
-// זרימת ההזמנה מבצעת polling על הנקודה הזו בזמן שהלקוח מזין
-// פרטי אשראי ב-iframe של נדרים - עד שה-webhook שומר את הטוקן.
-//
-// verified=true אך ורק אם paymentToken קיים.
-// אנחנו לא מסמנים את הלקוח כמאומת רק כי הכרטיס אומת (cardVerifiedAt) -
-// כי אז לא נוכל לחייב אותו על ההזמנה האמיתית ונקבל FAILED במסך התשלומים.
-// עדיף שהתהליך יעצר כאן ונדע שיש בעיה, במקום ליצור הזמנות שאי אפשר לחייב.
-export async function GET() {
+export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user) {
-    return NextResponse.json({ error: "יש להתחבר" }, { status: 401 });
+    return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
   }
-  const id = (session.user as any).id as string;
+
+  const { searchParams } = new URL(req.url);
+  const requestedCustomerId = searchParams.get("customerId");
+  const sessionUserId = (session.user as any).id as string;
+  const role = (session.user as any).role;
+
+  // קובעים מי הלקוח שאנחנו בודקים
+  let targetCustomerId = sessionUserId; // ברירת מחדל: המשתמש עצמו
+  if (requestedCustomerId && requestedCustomerId !== sessionUserId) {
+    // הרשאה: רק מנהל או נציג יכולים לבדוק לקוח אחר
+    if (role !== "ADMIN" && role !== "AGENT") {
+      return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+    }
+    targetCustomerId = requestedCustomerId;
+  }
+
   const customer = await prisma.customer.findUnique({
-    where: { id },
-    select: { paymentToken: true, cardLast4: true },
+    where: { id: targetCustomerId },
+    select: {
+      paymentToken: true,
+      cardLast4: true,
+      cardExpiry: true,
+      cardNeedsUpdate: true,
+    },
   });
+
+  if (!customer) {
+    return NextResponse.json({ verified: false });
+  }
+
   return NextResponse.json({
-    verified: !!customer?.paymentToken,
-    cardLast4: customer?.cardLast4 ?? null,
+    verified: !!customer.paymentToken,
+    cardLast4: customer.cardLast4,
+    cardExpiry: customer.cardExpiry,
+    cardNeedsUpdate: customer.cardNeedsUpdate,
   });
 }

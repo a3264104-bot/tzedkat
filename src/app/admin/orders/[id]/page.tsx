@@ -21,6 +21,7 @@ export default function OrderDetail() {
   const [internalNotes, setInternalNotes] = useState("");
   const [addProductId, setAddProductId] = useState("");
   const [showCashForm, setShowCashForm] = useState(false);
+  const [charging, setCharging] = useState(false);
 
   async function load() {
     const [o, p] = await Promise.all([api(`/api/admin/orders/${id}`), api("/api/admin/products")]);
@@ -72,6 +73,36 @@ export default function OrderDetail() {
 
   // יצירת ושליחת לינק תשלום להזמנה שכבר יש לה מחיר סופי
   // (נדרש כשנציג ללא הרשאת לינק קבע את המחיר)
+  async function chargeNow() {
+    const amount = Number(order.finalTotal || 0);
+    const confirmMsg =
+      `לחייב את הזמנה #${order.orderNumber}?\n\n` +
+      `לקוח: ${order.customerName}\n` +
+      `סכום: ${fmt(amount)}\n` +
+      `כרטיס: ${order.customer?.cardLast4 ? "****" + order.customer.cardLast4 : "לא ידוע"}`;
+    if (!confirm(confirmMsg)) return;
+
+    setCharging(true);
+    try {
+      const res = await fetch("/api/admin/charge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        alert(`חיוב הצליח! ${fmt(data.amountCharged || amount)}`);
+      } else {
+        alert(`חיוב נכשל: ${data.error || "שגיאה לא ידועה"}`);
+      }
+      await load();
+    } catch (e: any) {
+      alert(`שגיאת רשת: ${e.message || "לא ידוע"}`);
+    } finally {
+      setCharging(false);
+    }
+  }
+
   async function sendPaymentLink() {
     setSaving(true);
     try {
@@ -210,6 +241,16 @@ export default function OrderDetail() {
           </div>
           {!isPaid && (
             <div className="flex gap-2 flex-wrap">
+              {/* חיוב אוטומטי - אם יש כרטיס שמור */}
+              {hasFinalTotal && order.customer?.hasToken && !order.customer?.cardNeedsUpdate && (
+                <button
+                  onClick={chargeNow}
+                  disabled={saving || charging}
+                  className="btn-primary btn-sm bg-emerald-600 hover:bg-emerald-700"
+                >
+                  {charging ? "מחייב..." : "💳 חייב עכשיו"}
+                </button>
+              )}
               {/* שליחת לינק תשלום - למשל כשנציג קבע מחיר בלי הרשאת לינק */}
               {hasFinalTotal && !order.paymentLink && (
                 <button
@@ -231,6 +272,41 @@ export default function OrderDetail() {
             </div>
           )}
         </div>
+
+        {/* פרטי הכרטיס השמור - חשוב לראות לפני החיוב */}
+        {order.customer?.hasToken && !isPaid && (
+          <div className="mt-3 pt-3 border-t text-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-zinc-600">
+                💳 כרטיס שמור:{" "}
+                <strong dir="ltr">
+                  {order.customer.cardLast4 ? `****${order.customer.cardLast4}` : "טוקן שמור"}
+                </strong>
+                {order.customer.cardExpiry && (
+                  <span className="text-zinc-500 mr-2" dir="ltr">
+                    (תוקף: {order.customer.cardExpiry})
+                  </span>
+                )}
+              </span>
+              {order.customer.cardNeedsUpdate && (
+                <span className="text-orange-700 text-xs font-medium bg-orange-50 border border-orange-200 rounded px-2 py-0.5">
+                  ⚠️ נדרש עדכון
+                </span>
+              )}
+              {order.chargeAttempts > 0 && (
+                <span className="text-xs text-zinc-500">
+                  ניסיונות חיוב: {order.chargeAttempts}
+                </span>
+              )}
+            </div>
+            {order.lastChargeError && (
+              <div className="mt-2 bg-red-50 border border-red-200 rounded p-2 text-xs text-red-800">
+                <div className="font-medium">שגיאה אחרונה:</div>
+                <div className="font-mono">{order.lastChargeError}</div>
+              </div>
+            )}
+          </div>
+        )}
         {/* תצוגת לינק תשלום קיים - להעתקה/שליחה ידנית */}
         {order.paymentLink && !isPaid && (
           <div className="mt-3 pt-3 border-t text-sm">

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
-import { STATUSES_REQUIRING_PAYMENT } from "@/lib/pricing";
+import { STATUSES_REQUIRING_PAYMENT, smartLineEstimate } from "@/lib/pricing";
 import { sendFinalPriceEmail } from "@/lib/email";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -66,17 +66,57 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       } else if (it.productId) {
         const product = await prisma.product.findUnique({ where: { id: it.productId } });
         if (product) {
+          const qty = Number(it.quantity ?? 1);
+          const isSingle = it.isSingle ?? false;
           const unitPrice = Number(it.unitPrice ?? product.cartonPrice);
+          const avgWeight =
+            product.avgWeightPerUnit != null
+              ? Number(product.avgWeightPerUnit)
+              : null;
+
+          // 🚨 חישוב נכון לפי סוג המוצר
+          // משתמשים ב-smartLineEstimate שכבר מטפל בכל המקרים:
+          //   - קרטון עם PER_KG: unitPrice × avgWeight × qty
+          //   - יחידה במחיר קבוע: unitPrice × qty
+          //   - בודדים בק"ג: unitPrice × qty (qty הוא כבר ק"ג)
+          let estPrice: number;
+          let estWeight: number | null = null;
+
+          if (isSingle) {
+            // בודדים - מחיר לפי quantity
+            estPrice = Math.round(unitPrice * qty * 100) / 100;
+            // אם בודדים בק"ג, המשקל הוא הכמות
+            if (product.singlesMode !== "UNITS") {
+              estWeight = qty;
+            }
+          } else {
+            // קרטון - חישוב חכם (משתמש בפונקציה קיימת)
+            const smart = smartLineEstimate(
+              unitPrice,
+              qty,
+              product.saleType,
+              product.priceType,
+              avgWeight
+            );
+            // אם smartLineEstimate החזיר null (חסר avgWeight ל-PER_KG), נופלים לחישוב פשוט
+            estPrice = smart ?? Math.round(unitPrice * qty * 100) / 100;
+            // עבור קרטון נשקל - הצמדת estimatedWeight
+            if (avgWeight && (product.saleType === "UNIT" || product.saleType === "PACKAGE") && product.priceType === "PER_KG") {
+              estWeight = Math.round(avgWeight * qty * 1000) / 1000;
+            }
+          }
+
           await prisma.orderItem.create({
             data: {
               orderId: id,
               productId: product.id,
               productName: product.name,
               unit: product.unit,
-              isSingle: it.isSingle ?? false,
-              quantity: it.quantity ?? 1,
+              isSingle,
+              quantity: qty,
               unitPrice,
-              estimatedPrice: Math.round(unitPrice * (it.quantity ?? 1) * 100) / 100,
+              estimatedWeight: estWeight,
+              estimatedPrice: estPrice,
             },
           });
         }
@@ -99,26 +139,26 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const customerForLink = await prisma.customer.findUnique({
       where: { id: current.customerId },
     });
-    const chargeAmountNow = Number(current.finalTotal);
+    const deductOneNow =
+      customerForLink && !customerForLink.creditVerificationCharged && Number(current.finalTotal) > 1;
+    const chargeAmountNow = deductOneNow
+      ? Math.round((Number(current.finalTotal) - 1) * 100) / 100
+      : Number(current.finalTotal);
 
-    if (customerForLink?.paymentToken) {
-      // מסלול חדש: יש טוקן → מסמנים כמוכן לחיוב אוטומטי, בלי לינק
-      data.paymentStatus = "READY_TO_CHARGE";
-    } else {
-      // Fallback: אין טוקן (לקוח ישן?) → לינק תשלום ידני
-      data.paymentLink = buildNedarimPaymentLink(id, chargeAmountNow, current.customerName);
-      data.paymentStatus = "PAYMENT_PENDING";
-    }
-    justSetFinalTotal = true; // מפעיל את שליחת מייל המחיר הסופי
+    data.paymentLink = buildNedarimPaymentLink(id, chargeAmountNow, current.customerName);
+    data.paymentStatus = "PAYMENT_PENDING";
+    justSetFinalTotal = true; // מפעיל את שליחת מייל המחיר הסופי עם הלינק
   }
   if ("recomputeFinal" in b || Array.isArray(b.items)) {
     const items = await prisma.orderItem.findMany({ where: { orderId: id } });
     const hasFinal = items.some((i) => i.finalPrice !== null);
-    if (hasFinal) {
-      const total = items.reduce(
-        (s, i) => s + Number(i.finalPrice ?? i.estimatedPrice),
-        0
-      );
+    // 🚨 חשוב: אם יש פריט אחד שאין לו finalPrice - לא לחשב finalTotal!
+    // הבאג הישן: היה מחשב total גם עם פריטים לא שקולים (לוקח estimatedPrice)
+    // וזה גורם לחיוב שגוי (למשל: מחיר קרטון שלא נשקל).
+    // התיקון: רק אם *כל* הפריטים שקולים - יש לנו finalTotal אמיתי.
+    const allWeighed = items.length > 0 && items.every((i) => i.finalPrice !== null);
+    if (hasFinal && allWeighed) {
+      const total = items.reduce((s, i) => s + Number(i.finalPrice), 0);
       const newFinalTotal = Math.round(total * 100) / 100;
       // אם זו הפעם הראשונה שנקבע finalTotal, נעדכן גם את הסטטוס ל-FINAL_PRICE_SET (אם עדיין PENDING_REVIEW)
       if (current.finalTotal === null && current.status === "PENDING_REVIEW") {
@@ -126,33 +166,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         data.finalPriceSetAt = new Date();
         data.finalPriceSetBy = g.session?.user?.email ?? null;
         justSetFinalTotal = true;
-        // מסלול חדש: אין יותר קיזוז 1₪ - הלקוח יחויב את הסכום המלא
-        const customerForCharge = await prisma.customer.findUnique({ where: { id: current.customerId } });
-        if (customerForCharge?.paymentToken) {
-          // יש טוקן → מוכן לחיוב אוטומטי דרך /admin/payments
-          data.paymentStatus = "READY_TO_CHARGE";
-        } else {
-          // Fallback: אין טוקן (לקוח ישן?) → לינק תשלום ידני
-          data.paymentLink = buildNedarimPaymentLink(id, newFinalTotal, current.customerName);
-          data.paymentStatus = "PAYMENT_PENDING";
-        }
+        // קיזוז 1₪ בהזמנה הראשונה (אימות כרטיס שנגבה בהרשמה) - creditVerificationCharged מסמן שכבר קוזז
+        const customerForDeduction = await prisma.customer.findUnique({ where: { id: current.customerId } });
+        const deductOne = customerForDeduction && !customerForDeduction.creditVerificationCharged && newFinalTotal > 1;
+        const chargeAmount = deductOne ? Math.round((newFinalTotal - 1) * 100) / 100 : newFinalTotal;
+        data.paymentLink = buildNedarimPaymentLink(id, chargeAmount, current.customerName);
+        data.paymentStatus = "PAYMENT_PENDING";
       }
       data.finalTotal = newFinalTotal;
+    } else if (hasFinal && !allWeighed) {
+      // יש פריטים שקולים חלקית - לא מחשבים finalTotal, אבל כן מסמנים שיש פריטים מחכים לשקילה
+      // (הסטטוס נשאר PENDING_REVIEW, finalTotal נשאר null)
     }
     const est = items.reduce((s, i) => s + Number(i.estimatedPrice), 0);
     data.estimatedTotal = Math.round(est * 100) / 100;
   }
   if ("finalTotal" in b) data.finalTotal = b.finalTotal;
-
-  // §17: זיהוי שינויים גלויים ללקוח - נשלח מייל עדכון רק אם אלה השתנו,
-  // וגם רק אם לא היה justSetFinalTotal (כי אז נשלח sendFinalPriceEmail במקום).
-  const contentChanged =
-    Array.isArray(b.items) ||
-    "pointId" in b ||
-    "notes" in b ||
-    "customerName" in b ||
-    "phone" in b ||
-    "phone2" in b;
 
   const order = await prisma.order.update({
     where: { id },
@@ -160,7 +189,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     include: { point: true, items: true },
   });
   // אם נקבע מחיר סופי עכשיו - שולחים ללקוח מייל עם קישור תשלום (לא חוסם)
-  // אחרת - אם היה שינוי גלוי ללקוח, שולחים מייל עדכון הזמנה (§17)
   if (justSetFinalTotal) {
     const fullOrder = await prisma.order.findUnique({
       where: { id },
@@ -176,9 +204,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }).catch(() => null);
     }
   }
-  // הערה: הוסר מייל עדכון כשמנהל עורך - לא צריך להטריח את הלקוח בהודעות
-  // על שינויים שהוא לא ביצע. הלקוח יראה את הסטטוס המעודכן באזור אישי.
-  // מיילים ללקוח: 1) הזמנה חדשה 2) שינוי שהוא עשה 3) מחיר סופי 4) חיוב
 
   return NextResponse.json({ ...order, _finalPriceJustSet: justSetFinalTotal });
 }
@@ -186,7 +211,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 // יוצר לינק תשלום נעול לנדרים פלוס עבור הזמנה ספציפית.
 // הסכום נעול (AmountLock=1) - הלקוח לא יכול לשנות אותו.
 // ה-webhook של נדרים יפנה ל-/api/webhooks/nedarim עם orderId ב-param1.
-// שימוש: נקרא כ-fallback רק כאשר ללקוח אין paymentToken (מסלול ישן).
+// בהזמנה ראשונה מקזזים 1₪ (אימות כרטיס שנגבה בהרשמה) - creditVerificationCharged מסמן זאת.
 function buildNedarimPaymentLink(orderId: string, amount: number, customerName: string): string {
   const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://tzidkat.com";
   const params = new URLSearchParams({
