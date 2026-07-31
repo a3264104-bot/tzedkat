@@ -38,6 +38,7 @@ export async function GET(req: Request) {
       paymentToken: true,
       cardLast4: true,
       cardExpiry: true,
+      cardVerifiedAt: true,
       cardNeedsUpdate: true,
     },
   });
@@ -50,6 +51,7 @@ export async function GET(req: Request) {
     verified: !!customer.paymentToken,
     cardLast4: customer.cardLast4,
     cardExpiry: customer.cardExpiry,
+    cardVerifiedAt: customer.cardVerifiedAt,
     cardNeedsUpdate: customer.cardNeedsUpdate,
   });
 }

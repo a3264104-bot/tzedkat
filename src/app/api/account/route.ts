@@ -88,6 +88,31 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: true, email });
   }
 
+  // ── הוספת/עדכון טלפון נוסף (לחלוקה) ──
+  if (body.action === "update-phone2") {
+    const phone2Raw = String(body.phone2 || "").trim();
+    const finalPhone2 = phone2Raw.length > 0 ? phone2Raw : null;
+
+    // וידוא פורמט - רק אם ניתן ערך (מחיקה תמיד מותרת)
+    if (finalPhone2 && !/^[\d\-\+\(\)\s]{7,15}$/.test(finalPhone2)) {
+      return NextResponse.json(
+        { error: "מספר טלפון לא תקין" },
+        { status: 400 }
+      );
+    }
+
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: { phone2: finalPhone2 },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      phone2: finalPhone2,
+      message: "טלפון נוסף עודכן",
+    });
+  }
+
   // ── שליחת קישור איפוס סיסמה למייל של הלקוח עצמו ──
   if (body.action === "send-reset") {
     if (!customer.email) {

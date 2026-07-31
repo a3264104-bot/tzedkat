@@ -97,6 +97,23 @@ function UpdateCardModal({
 
   // מנעול לחסימת processing כפול
   const processingRef = useRef(false);
+  // ⭐ שומרים את cardVerifiedAt הראשוני - כדי לזהות רק שינוי אמיתי
+  const initialVerifiedAtRef = useRef<string | null>(null);
+
+  // בטעינה - שומרים את cardVerifiedAt הנוכחי כדי לזהות רק אימות חדש
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/customer/verification-status?customerId=${customerId}`
+        );
+        const data = await res.json();
+        initialVerifiedAtRef.current = data.cardVerifiedAt || null;
+      } catch {
+        // מתעלמים
+      }
+    })();
+  }, [customerId]);
 
   // URL של iframe נדרים - זהה לזה של OrderFlow
   const iframeUrl =
@@ -120,12 +137,17 @@ function UpdateCardModal({
   // Polling של verification-status
   useEffect(() => {
     if (status === "success" || status === "error") return;
+    // מחכים שהtimestamp הראשוני נטען - כדי לא לסמן שווא-חיובי
+    if (status === "idle") return;
     const interval = setInterval(async () => {
       if (processingRef.current) return;
       try {
         const res = await fetch(`/api/customer/verification-status?customerId=${customerId}`);
         const data = await res.json();
-        if (data.verified) {
+        // ⭐ רק אם cardVerifiedAt השתנה = יש אימות חדש
+        const newVerifiedAt = data.cardVerifiedAt || null;
+        const initial = initialVerifiedAtRef.current;
+        if (data.verified && newVerifiedAt && newVerifiedAt !== initial) {
           processingRef.current = true;
           setStatus("success");
           setTimeout(() => onSuccess(), 1500); // מציג הודעת הצלחה לרגע
