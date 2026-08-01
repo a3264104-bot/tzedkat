@@ -171,6 +171,8 @@ model Pricelist {
   notes         String?
   status        String   @default("DRAFT") // DRAFT / ACTIVE / CLOSED / DONE
   singleSurcharge Decimal @default(3) @db.Decimal(10, 2) // תוספת לבודדים גלובלית למחירון
+  // דמי הזמנה קבועים - תוספת חד-פעמית לכל הזמנה
+  orderFee Decimal @default(3) @db.Decimal(10, 2)
   points        PricelistPoint[]
   products      PricelistProduct[]
   orders        Order[]

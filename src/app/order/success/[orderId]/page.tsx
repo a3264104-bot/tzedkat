@@ -9,7 +9,9 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import SuccessAnimation from "./SuccessAnimation";
+import OrderHeader from "./OrderHeader";
 import WhatsappShareButton from "./WhatsappShareButton";
+import { CustomerOrderActions } from "@/components/CustomerOrderActions";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +62,7 @@ export default async function OrderSuccessPage({
           deliveryDate: true,
           deliveryDateText: true,
           editDeadline: true,
+          closeDate: true,
         },
       },
       items: {
@@ -105,6 +108,13 @@ export default async function OrderSuccessPage({
     redirect("/");
   }
 
+  // רשימת נקודות פעילות - לתפריט בחירת נקודה בעריכה (CustomerOrderActions)
+  const points = await prisma.deliveryPoint.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, city: true },
+  });
+
   const activeItems = order.items.filter((it) => !it.isCancelled);
   const itemsCount = activeItems.length;
   const cartonsCount = activeItems.filter((it) => !it.isSingle).length;
@@ -114,9 +124,14 @@ export default async function OrderSuccessPage({
   const estimatedTotal = Number(order.estimatedTotal);
   const displayTotal = finalTotal ?? estimatedTotal;
 
+  // ניתן לערוך/לבטל רק אם: לא בוטל/הושלם, טרם נשקל (finalTotal=null), ובתוך המועד
+  const deadline = order.pricelist?.editDeadline || order.pricelist?.closeDate;
+  const withinDeadline = !deadline || new Date() < new Date(deadline);
   const canEdit =
-    order.pricelist?.editDeadline &&
-    new Date() < new Date(order.pricelist.editDeadline);
+    order.status !== "CANCELLED" &&
+    order.status !== "COMPLETED" &&
+    finalTotal === null &&
+    withinDeadline;
 
   return (
     <main dir="rtl" className="min-h-screen bg-brand-cream pb-20">
@@ -124,16 +139,11 @@ export default async function OrderSuccessPage({
       <SuccessAnimation />
 
       <div className="mx-auto max-w-md md:max-w-lg px-4 pt-8">
-        {/* כותרת ראשית */}
-        <div className="text-center mb-6">
-          <h1 className="text-2xl md:text-3xl font-extrabold text-brand-slatedark">
-            ההזמנה התקבלה בהצלחה!
-          </h1>
-          <p className="text-brand-slate mt-2 text-sm">
-            נעים לראותך במכירה של{" "}
-            <span className="font-bold">{order.pricelist?.name}</span>
-          </p>
-        </div>
+        {/* כותרת ראשית - דינמית: "הזמנה חדשה" או "צפייה בהזמנה" */}
+        <OrderHeader
+          orderNumber={order.orderNumber}
+          pricelistName={order.pricelist?.name ?? null}
+        />
 
         {/* כרטיס פרטי הזמנה */}
         <div className="bg-white rounded-2xl shadow-lg border border-emerald-200 overflow-hidden mb-4">
@@ -435,13 +445,28 @@ export default async function OrderSuccessPage({
             </Link>
           )}
 
-          {canEdit && isOwner && (
-            <Link
-              href={`/order?editOrderId=${order.id}`}
-              className="block w-full py-3 rounded-xl bg-white border border-zinc-300 text-brand-slatedark text-center font-bold hover:bg-zinc-50 transition-colors"
-            >
-              ✏️ עריכת ההזמנה
-            </Link>
+          {/* עריכה + ביטול הזמנה - רק לבעל ההזמנה, ורק אם עדיין ניתן */}
+          {isOwner && (
+            <CustomerOrderActions
+              orderId={order.id}
+              orderNumber={order.orderNumber}
+              isEditable={canEdit}
+              editableUntil={
+                order.pricelist?.editDeadline
+                  ? fmtDate(order.pricelist.editDeadline)
+                  : order.pricelist?.closeDate
+                    ? fmtDate(order.pricelist.closeDate)
+                    : null
+              }
+              currentValues={{
+                customerName: order.customerName,
+                phone: order.phone,
+                phone2: order.phone2,
+                pointId: order.pointId ?? "",
+                notes: order.notes,
+              }}
+              points={points}
+            />
           )}
 
           <Link

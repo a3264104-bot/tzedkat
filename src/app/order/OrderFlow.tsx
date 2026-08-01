@@ -67,6 +67,7 @@ type Pricelist = {
   editDeadlineText?: string | null; // §16: תאריך נעילת שינויים ללקוח (אופציונלי - fallback ל-null)
   notes: string | null;
   singleSurcharge: number;
+  orderFee: number;
 };
 
 // פרטי הלקוח המחובר - מגיעים מה-session, לא מוקלדים מחדש בכל הזמנה
@@ -223,7 +224,12 @@ export function OrderFlow({
     return lines;
   }, [cart, products, pricelist.singleSurcharge]);
 
-  const estimatedTotal = cartLines.reduce((s, l) => s + (l.lineTotal ?? 0), 0);
+  // סה"כ מוצרים (בלי דמי הזמנה)
+  const itemsSubtotal = cartLines.reduce((s, l) => s + (l.lineTotal ?? 0), 0);
+  // דמי הזמנה (תוספת קבועה על כל הזמנה)
+  const orderFeeAmount = Number(pricelist.orderFee || 0);
+  // סה"כ כולל דמי הזמנה
+  const estimatedTotal = itemsSubtotal + orderFeeAmount;
   const hasMissingWeight = cartLines.some((l) => l.lineTotal === null);
   const itemCount = cartLines.length;
 
@@ -1039,7 +1045,7 @@ export function OrderFlow({
               <div className="text-right text-sm text-zinc-700 space-y-3 leading-relaxed">
                 <p>
                   <span className="font-bold text-brand-rust">*</span>{" "}
-                  בהזמנתכם תחויבו בתוספת {fmt(pricelist.singleSurcharge || 3)} דמי הזמנה.
+                  בהזמנתכם תחויבו בתוספת {fmt(pricelist.orderFee || 3)} דמי הזמנה.
                 </p>
                 <p>
                   <span className="font-bold text-brand-rust">*</span>{" "}
@@ -1396,6 +1402,33 @@ export function OrderFlow({
                 </div>
               </div>
             )}
+
+            {/* פירוט התשלום המשוער - כולל דמי הזמנה */}
+            <div className="card p-3 mt-3 bg-white">
+              <div className="text-xs font-bold text-brand-slatedark mb-2">
+                📋 פירוט משוער
+              </div>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between text-zinc-700">
+                  <span>סה"כ מוצרים משוער</span>
+                  <span className="font-medium">{fmt(itemsSubtotal)}</span>
+                </div>
+                {orderFeeAmount > 0 && (
+                  <div className="flex justify-between text-zinc-700">
+                    <span>דמי הזמנה</span>
+                    <span className="font-medium">+{fmt(orderFeeAmount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-extrabold text-brand-rust border-t border-zinc-200 pt-1 mt-1">
+                  <span>סה"כ לחיוב משוער</span>
+                  <span>{fmt(estimatedTotal)}</span>
+                </div>
+              </div>
+              <p className="text-[10px] text-zinc-500 mt-2 leading-relaxed">
+                💡 המחיר סופי ייקבע לאחר שקילה בפועל. בהזמנת בודדים תתווסף גם תוספת של{" "}
+                <strong>{fmt(pricelist.singleSurcharge || 3)} לק"ג</strong>.
+              </p>
+            </div>
 
             {/* הודעת גבייה */}
             <div className="card p-3 mt-3 bg-amber-50 border-amber-200 text-sm text-amber-800 text-center">

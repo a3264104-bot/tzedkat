@@ -159,7 +159,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const allWeighed = items.length > 0 && items.every((i) => i.finalPrice !== null);
     if (hasFinal && allWeighed) {
       const total = items.reduce((s, i) => s + Number(i.finalPrice), 0);
-      const newFinalTotal = Math.round(total * 100) / 100;
+      // 🆕 הוספת דמי הזמנה (תוספת קבועה) לסה"כ הסופי
+      const pricelist = await prisma.pricelist.findUnique({
+        where: { id: current.pricelistId! },
+        select: { orderFee: true },
+      });
+      const orderFee = Number(pricelist?.orderFee || 0);
+      const newFinalTotal = Math.round((total + orderFee) * 100) / 100;
       // אם זו הפעם הראשונה שנקבע finalTotal, נעדכן גם את הסטטוס ל-FINAL_PRICE_SET (אם עדיין PENDING_REVIEW)
       if (current.finalTotal === null && current.status === "PENDING_REVIEW") {
         data.status = data.status ?? "FINAL_PRICE_SET";

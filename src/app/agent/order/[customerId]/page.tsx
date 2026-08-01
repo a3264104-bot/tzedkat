@@ -226,6 +226,7 @@ export default async function AgentOrderPage({
             : null,
           notes: pricelist.notes,
           singleSurcharge: Number(pricelist.singleSurcharge),
+          orderFee: Number(pricelist.orderFee),
         }}
         points={points}
         products={products}

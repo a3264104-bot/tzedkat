@@ -226,7 +226,11 @@ export async function POST(req: Request) {
         estimatedWeight,
       });
     }
-    estimatedTotal = Math.round(estimatedTotal * 100) / 100;
+     estimatedTotal = Math.round(estimatedTotal * 100) / 100;
+
+    // 🆕 הוספת דמי הזמנה (תוספת קבועה לכל הזמנה)
+    const orderFee = Number(pricelist.orderFee || 0);
+    estimatedTotal = Math.round((estimatedTotal + orderFee) * 100) / 100;
 
     // הזמנה נוצרת עם:
     // - customerId מה-session (לא מהלקוח)
