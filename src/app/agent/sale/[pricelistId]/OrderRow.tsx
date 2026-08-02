@@ -2,6 +2,7 @@
 
 // §20: שורת הזמנה של לקוח - עם עריכת משקלים, הערות, החלפה וביטול
 import { useState } from "react";
+import Link from "next/link";
 import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
 
 type Props = {
@@ -172,7 +173,7 @@ export function OrderRow({
             />
           ))}
 
-          {/* טלפון-קליק לנוחות */}
+          {/* טלפון-קליק לנוחות + קישור לפרטי הזמנה מלאים */}
           <div className="p-3 bg-zinc-50 flex items-center justify-between text-xs gap-2 flex-wrap">
             <a
               href={`tel:${order.phone}`}
@@ -183,6 +184,16 @@ export function OrderRow({
               </svg>
               חייג ללקוח
             </a>
+            {/* קישור למסך פרטי הזמנה מלא - כולל חיוב (אם יש הרשאה) */}
+            <Link
+              href={`/agent/orders/${order.id}`}
+              className="text-brand-slatedark font-medium flex items-center gap-1 hover:text-brand-rust"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              פרטי הזמנה + חיוב
+            </Link>
             {allEntered && !readOnly && (
               <button
                 onClick={() => setExpanded(false)}

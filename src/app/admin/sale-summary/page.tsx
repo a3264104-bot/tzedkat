@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client";
-import { fmt, STATUS_LABELS, PAYMENT_STATUS_LABELS } from "@/lib/pricing";
+import { fmt, STATUS_LABELS } from "@/lib/pricing";
+import { payStatusLabel, payStatusColor } from "@/lib/pay-status-lib";
 
 type ProductRow = {
   productId: string;
@@ -121,7 +122,7 @@ export default function SaleSummaryPage() {
         o.customerName,
         o.phone,
         STATUS_LABELS[o.status] ?? o.status,
-        PAYMENT_STATUS_LABELS[o.paymentStatus] ?? o.paymentStatus,
+        payStatusLabel(o.paymentStatus),
         o.items
           .map((it) => {
             const qty = Number(it.quantity);
@@ -390,13 +391,9 @@ export default function SaleSummaryPage() {
                             </td>
                             <td>
                               <span
-                                className={`badge ${
-                                  o.paymentStatus === "PAID"
-                                    ? "bg-green-100 text-green-700"
-                                    : "bg-amber-100 text-amber-700"
-                                }`}
+                                className={`badge ${payStatusColor(o.paymentStatus)}`}
                               >
-                                {PAYMENT_STATUS_LABELS[o.paymentStatus] ?? o.paymentStatus}
+                                {payStatusLabel(o.paymentStatus)}
                               </span>
                             </td>
                           </tr>

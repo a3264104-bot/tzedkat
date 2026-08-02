@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { Resend } from "resend";
 import crypto from "crypto";
-import { PAYMENT_STATUS_LABELS, PAYMENT_METHOD_LABELS, STATUS_LABELS } from "@/lib/pricing";
+import { PAYMENT_METHOD_LABELS, STATUS_LABELS } from "@/lib/pricing";
+import { payStatusLabel } from "@/lib/pay-status-lib";
 
 // מחזיר את פרטי הלקוח המחובר + היסטוריית ההזמנות שלו
 export async function GET() {
@@ -44,7 +45,7 @@ export async function GET() {
       status: o.status,
       statusLabel: STATUS_LABELS[o.status] ?? o.status,
       paymentStatus: o.paymentStatus,
-      paymentStatusLabel: PAYMENT_STATUS_LABELS[o.paymentStatus] ?? o.paymentStatus,
+      paymentStatusLabel: payStatusLabel(o.paymentStatus),
       paymentMethod: o.paymentMethod,
       paymentMethodLabel: o.paymentMethod ? PAYMENT_METHOD_LABELS[o.paymentMethod] : null,
       paymentLink: o.paymentLink,

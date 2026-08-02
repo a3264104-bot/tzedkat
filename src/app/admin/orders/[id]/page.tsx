@@ -7,10 +7,10 @@ import {
   STATUS_LABELS,
   MANUAL_STATUS_OPTIONS,
   STATUSES_REQUIRING_PAYMENT,
-  PAYMENT_STATUS_LABELS,
   PAYMENT_METHOD_LABELS,
   fmt,
 } from "@/lib/pricing";
+import { payStatusLabel } from "@/lib/pay-status-lib";
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
@@ -225,7 +225,7 @@ export default function OrderDetail() {
           <div>
             <div className="text-sm text-zinc-500">סטטוס תשלום</div>
             <div className="font-bold text-brand-slatedark">
-              {PAYMENT_STATUS_LABELS[order.paymentStatus] ?? order.paymentStatus}
+              {payStatusLabel(order.paymentStatus)}
               {order.paymentMethod && (
                 <span className="text-zinc-400 font-normal mr-2">
                   ({PAYMENT_METHOD_LABELS[order.paymentMethod]})

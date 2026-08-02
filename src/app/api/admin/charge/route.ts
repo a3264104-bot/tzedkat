@@ -40,19 +40,24 @@ export async function POST(req: Request) {
   // אם משהו נכשל כאן → לא ננעלנו עדיין, בטוח להחזיר שגיאה
   // ═══════════════════════════════════════════════════════════════
   try {
-    // 1. אימות admin
+    // 1. אימות admin/agent
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
     const role = (session.user as { role?: string }).role;
     const sessionEmail = session.user.email;
+    const sessionUserId = (session.user as any).id as string;
     let isAdmin = role === "ADMIN";
     if (!isAdmin && sessionEmail) {
       const adminRow = await prisma.admin.findUnique({ where: { email: sessionEmail } });
       isAdmin = !!adminRow;
     }
-    if (!isAdmin) {
+    // 🆕 נציג יכול לחייב רק אם יש לו הרשאה מפורשת (agentCanCharge) מהמנהל.
+    // בדיקת ההרשאה המלאה (כולל שייכות לנקודה) מתבצעת בהמשך, אחרי טעינת ההזמנה,
+    // כי אנחנו צריכים לדעת ל-pointId של ההזמנה קודם.
+    const isAgent = !isAdmin && role === "AGENT";
+    if (!isAdmin && !isAgent) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
@@ -71,6 +76,34 @@ export async function POST(req: Request) {
 
     if (!preOrder) {
       return NextResponse.json({ error: "order not found" }, { status: 404 });
+    }
+
+    // 🆕 הרשאת AGENT מלאה - רק עכשיו שיש לנו preOrder עם pointId+customer.
+    // מותר לנציג לחייב רק אם:
+    //   א. יש לו agentCanCharge=true (המנהל העניק הרשאה)
+    //   ב. וגם: הוא יצר את הלקוח, או שההזמנה בנקודת החלוקה שלו
+    if (isAgent) {
+      const agent = await prisma.customer.findUnique({
+        where: { id: sessionUserId },
+        select: { agentCanCharge: true, agentPointId: true },
+      });
+      if (!agent?.agentCanCharge) {
+        return NextResponse.json(
+          {
+            error: "אין לך הרשאת חיוב. פנה למנהל להענקת הרשאה.",
+            code: "NO_CHARGE_PERMISSION",
+          },
+          { status: 403 }
+        );
+      }
+      const isCreator = preOrder.customer.createdByAgentId === sessionUserId;
+      const samePoint = preOrder.pointId === agent.agentPointId;
+      if (!isCreator && !samePoint) {
+        return NextResponse.json(
+          { error: "אין הרשאה להזמנה זו - היא לא בנקודת החלוקה שלך" },
+          { status: 403 }
+        );
+      }
     }
 
     // בדיקות שלמות (רק לפני נעילה - הודעות שגיאה ידידותיות)
@@ -126,6 +159,9 @@ export async function POST(req: Request) {
     // updateMany עם WHERE conditions הוא אטומי ב-Postgres.
     // אם count=0 - מישהו אחר תפס את ההזמנה בין ה-findUnique לבין הנעילה.
     // זה מונע מצב של שני טאבים / שני עוגנים ששניהם מחייבים במקביל.
+    console.log(
+      `[charge-route] Charge initiated by ${isAdmin ? "ADMIN" : "AGENT"} (${sessionEmail || sessionUserId}) for order ${orderId}`
+    );
     const lockResult = await prisma.order.updateMany({
       where: {
         id: orderId,

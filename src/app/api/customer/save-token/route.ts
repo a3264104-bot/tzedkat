@@ -22,9 +22,34 @@ export async function POST(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "יש להתחבר" }, { status: 401 });
     }
-    const customerId = (session.user as any).id as string;
+    const sessionUserId = (session.user as any).id as string;
+    const role = (session.user as any).role;
 
     const body = await req.json().catch(() => ({}));
+
+    // 🆕 תמיכה בעדכון עבור לקוח אחר (מנהל/נציג) - לפי customerId ב-body.
+    // ברירת מחדל: הלקוח עצמו (session).
+    let targetCustomerId = sessionUserId;
+    if (body?.customerId && body.customerId !== sessionUserId) {
+      if (role !== "ADMIN" && role !== "AGENT") {
+        return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+      }
+      // נציג - רק אם יש לו הרשאת עדכון כרטיסים
+      if (role === "AGENT") {
+        const agent = await prisma.customer.findUnique({
+          where: { id: sessionUserId },
+          select: { agentCanUpdateCards: true },
+        });
+        if (!agent?.agentCanUpdateCards) {
+          return NextResponse.json(
+            { error: "אין לך הרשאה לעדכן כרטיסי לקוחות" },
+            { status: 403 }
+          );
+        }
+      }
+      targetCustomerId = String(body.customerId);
+    }
+
     const token = String(body?.token || "").trim();
     const lastNum = String(body?.lastNum || "").trim();
     // Tokef בפורמט MMYY - חובה בחיוב עתידי לפי תיעוד DebitCard!
@@ -37,14 +62,26 @@ export async function POST(req: Request) {
     // אזהרה בלוג אם אין תוקף - החיוב העתידי עלול להיכשל
     if (!tokef) {
       console.warn(
-        `[save-token] ⚠️ WARNING: Token saved WITHOUT Tokef for customer=${customerId}. ` +
+        `[save-token] ⚠️ WARNING: Token saved WITHOUT Tokef for customer=${targetCustomerId}. ` +
           `Per Nedarim DebitCard docs, Tokef is REQUIRED for charging. Future charge may fail!`
       );
+    }
+    // ולידציה של פורמט תוקף - MMYY, חודש 01-12
+    if (tokef && !/^\d{4}$/.test(tokef)) {
+      console.warn(`[save-token] ⚠️ Invalid Tokef format: "${tokef}" - expected MMYY`);
+    } else if (tokef) {
+      const mm = parseInt(tokef.slice(0, 2), 10);
+      if (mm < 1 || mm > 12) {
+        return NextResponse.json(
+          { error: `תוקף לא תקין: חודש ${tokef.slice(0, 2)} אינו קיים (חייב 01-12)` },
+          { status: 400 }
+        );
+      }
     }
 
     // שמירת הטוקן + סימון הלקוח כמאומת
     await prisma.customer.update({
-      where: { id: customerId },
+      where: { id: targetCustomerId },
       data: {
         paymentToken: token,
         cardLast4: lastNum || null,
@@ -54,11 +91,11 @@ export async function POST(req: Request) {
       },
     });
 
-    // קידום הזמנות שממתינות לטוקן
+    // קידום הזמנות שממתינות לטוקן (כולל FAILED - כרטיס חדש = הזדמנות חדשה)
     const pendingOrders = await prisma.order.findMany({
       where: {
-        customerId,
-        paymentStatus: { in: ["PENDING", "PAYMENT_PENDING", "CARD_UPDATE_NEEDED"] },
+        customerId: targetCustomerId,
+        paymentStatus: { in: ["PENDING", "PAYMENT_PENDING", "CARD_UPDATE_NEEDED", "FAILED"] },
       },
       select: { id: true, finalTotal: true },
     });
@@ -71,13 +108,25 @@ export async function POST(req: Request) {
           : "TOKEN_CREATED";
       await prisma.order.update({
         where: { id: o.id },
-        data: { paymentStatus: nextStatus },
+        data: {
+          paymentStatus: nextStatus,
+          lastChargeError: null, // מנקים שגיאה ישנה - כרטיס חדש
+        },
       });
       promotedCount++;
     }
 
+    // מנקים גם lastChargeError משאר ההזמנות של הלקוח (שלא היו ברשימה למעלה)
+    await prisma.order.updateMany({
+      where: {
+        customerId: targetCustomerId,
+        lastChargeError: { not: null },
+      },
+      data: { lastChargeError: null },
+    });
+
     console.log(
-      `[save-token] Token saved for customer=${customerId} last4=${lastNum || "none"} promotedOrders=${promotedCount}`
+      `[save-token] Token saved for customer=${targetCustomerId} (by ${sessionUserId}) last4=${lastNum || "none"} tokef=${tokef || "MISSING"} promotedOrders=${promotedCount}`
     );
 
     return NextResponse.json({ ok: true, promotedOrders: promotedCount });

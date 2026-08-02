@@ -94,6 +94,11 @@ function UpdateCardModal({
   );
   const [error, setError] = useState<string | null>(null);
   const [cardTokef, setCardTokef] = useState(""); // MMYY
+  // ref יציב לגישה מתוך postMessage listener (נמנע מ-stale closure)
+  const cardTokefRef = useRef("");
+  useEffect(() => {
+    cardTokefRef.current = cardTokef;
+  }, [cardTokef]);
 
   // מנעול לחסימת processing כפול
   const processingRef = useRef(false);
@@ -161,7 +166,7 @@ function UpdateCardModal({
 
   // postMessage listener מ-iframe של נדרים
   useEffect(() => {
-    function handleMessage(e: MessageEvent) {
+    async function handleMessage(e: MessageEvent) {
       const origin = e.origin || "";
       if (!origin.includes("matara.pro")) return;
 
@@ -178,27 +183,87 @@ function UpdateCardModal({
       const name = payload.Name || payload.name;
       const value = payload.Value ?? payload.value;
 
-      // נדרים מחזירים TransactionResponse עם Status
-      if (name === "TransactionResponse") {
-        console.log("[UpdateCard] TransactionResponse:", value);
-        const status = value?.Status || value?.status;
-        if (status === "success" || status === "Success" || status === "OK") {
-          // הצלחה - הtoken נשמר. הpolling יזהה את cardVerifiedAt החדש
+      if (name !== "TransactionResponse") return;
+
+      console.log("[UpdateCard] TransactionResponse:", value);
+      const status = String(value?.Status || "").toLowerCase();
+      const isError = status === "error" || status === "err" || status === "fail";
+      const isOk = status === "ok" || status === "success";
+
+      if (isError) {
+        setStatus("error");
+        setError(
+          value?.Message || value?.message || "אירעה שגיאה בעדכון הכרטיס"
+        );
+        return;
+      }
+
+      if (!isOk) {
+        console.warn("[UpdateCard] unknown status:", status, value);
+        setStatus("error");
+        setError(`סטטוס לא מזוהה מנדרים: ${status || "(ריק)"}`);
+        return;
+      }
+
+      // ═══ הצלחה! נדרים מחזירים את הטוקן ישירות ב-TransactionResponse ═══
+      // במצב CreateToken אין webhook - חובה לשמור את הטוקן כאן, ישירות.
+      // Tokef: נדרים לא תמיד מחזירים אותו בחזרה - ניפול חזרה לשדה שהמשתמש הזין (cardTokef).
+      const receivedToken = String(value?.Token || value?.token || "").trim();
+      const receivedLast4 = String(value?.LastNum || value?.lastNum || "").trim();
+      const receivedTokef =
+        String(
+          value?.Tokef || value?.tokef || value?.CardValidity || value?.Expiry || ""
+        ).trim() || cardTokefRef.current.replace(/\D/g, "");
+
+      if (!receivedToken) {
+        console.warn("[UpdateCard] Status OK but no Token in response:", value);
+        setStatus("error");
+        setError("נדרים אישרו אך לא החזירו טוקן. נסה שוב או פנה לתמיכה.");
+        return;
+      }
+
+      console.log(
+        `[UpdateCard] ✅ Token received: ${receivedToken.slice(0, 6)}..., tokef: ${
+          receivedTokef || "MISSING!"
+        }, saving...`
+      );
+
+      try {
+        const saveRes = await fetch("/api/customer/save-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerId, // תומך בעדכון ע"י מנהל/נציג בשם לקוח
+            token: receivedToken,
+            lastNum: receivedLast4,
+            tokef: receivedTokef,
+          }),
+        });
+        const saveData = await saveRes.json().catch(() => ({}));
+        if (saveRes.ok) {
+          console.log("[UpdateCard] Token saved successfully:", saveData);
           processingRef.current = true;
           setStatus("success");
           setTimeout(() => onSuccess(), 1500);
         } else {
+          console.error("[UpdateCard] Failed to save token:", saveData);
           setStatus("error");
           setError(
-            value?.Message || value?.message || "אירעה שגיאה בעדכון הכרטיס"
+            `הטוקן התקבל מנדרים אבל שמירתו נכשלה: ${
+              saveData.error || "שגיאה לא ידועה"
+            }`
           );
         }
+      } catch (fetchErr: any) {
+        console.error("[UpdateCard] Network error saving token:", fetchErr);
+        setStatus("error");
+        setError("שגיאת רשת בשמירת הטוקן. בדוק את החיבור ונסה שוב.");
       }
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [customerId]);
 
   function submitVerification() {
     if (!cardTokef || cardTokef.length !== 4) {
@@ -225,6 +290,7 @@ function UpdateCardModal({
         Value: {
           Mosad: "7015318",
           ApiValid: "NxhXRWeG5P",
+          // חייב להיות זהה ל-PaymentType שב-URL של ה-iframe!
           PaymentType: "CreateToken",
           Currency: "1",
           Amount: "1",
@@ -232,7 +298,7 @@ function UpdateCardModal({
           CallBack: "https://tzidkat.com/api/webhooks/nedarim",
           Param1: customerId,
           Param2: "registration",
-          // גיבוי: גם ב-Comment (אם Param1/Param2 לא עוברים ב-response)
+          // גיבוי: גם ב-Comment (במידה ש-Param1/Param2 לא עוברים ב-response)
           Comment: `customer:${customerId}|type:registration`,
           Zeout: "",
           FirstName: "",
