@@ -10,9 +10,38 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const order = await prisma.order.findUnique({
     where: { id },
-    include: { point: true, items: { include: { product: true } }, pricelist: true },
+    include: {
+      point: true,
+      items: { include: { product: true } },
+      pricelist: true,
+      // 🐛 תוקן: היה חסר customer בכלל! בלעדיו, order.customer?.hasToken
+      // תמיד undefined בצד הלקוח, אז כפתור "חייב עכשיו" אף פעם לא הופיע -
+      // גם ללקוחות שכן יש להם טוקן שמור. במקום זה הוצג רק לינק התשלום הישן.
+      customer: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          paymentToken: true, // נשלף כדי לחשב hasToken, לא נחשף כמו שהוא
+          cardLast4: true,
+          cardExpiry: true,
+          cardNeedsUpdate: true,
+        },
+      },
+    },
   });
-  return NextResponse.json(order);
+  if (!order) {
+    return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
+  }
+  // לא חושפים את הטוקן הגולמי ללקוח - רק boolean + מטא-דאטה בטוחה
+  const { paymentToken, ...safeCustomer } = order.customer ?? {};
+  return NextResponse.json({
+    ...order,
+    customer: order.customer
+      ? { ...safeCustomer, hasToken: !!paymentToken }
+      : null,
+  });
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {

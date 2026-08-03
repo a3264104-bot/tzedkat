@@ -141,10 +141,15 @@ export async function POST(req: Request) {
     }
 
     // 4. חישוב סכום החיוב
-    // §19 Ragil flow: חייבנו 1₪ באימות ההרשמה. לא מקזזים אותו -
-    // 1₪ הוא דמי אימות/טיפול. הלקוח משלם את המחיר הסופי המלא.
+    // §19: ה-1₪ שחויב באימות הכרטיס (יצירת הטוקן) הוא מקדמה, לא עמלה!
+    // הוא מקוזז מההזמנה הראשונה בלבד של הלקוח - creditVerificationCharged
+    // מסמן אם הקיזוז כבר נוצל (אם true - אין יותר קיזוז, ההזמנה משלמת מלא).
     const finalTotalNum = Number(preOrder.finalTotal);
-    const chargeAmount = finalTotalNum;
+    const shouldDeductVerification =
+      !preOrder.customer.creditVerificationCharged && finalTotalNum > 1;
+    const chargeAmount = shouldDeductVerification
+      ? Math.round((finalTotalNum - 1) * 100) / 100
+      : finalTotalNum;
 
     if (chargeAmount <= 0) {
       return NextResponse.json(
@@ -220,18 +225,31 @@ export async function POST(req: Request) {
 
       // Fix #4: DB update נפרד בtry/catch כדי לא לאבד את הצלחת החיוב
       try {
-        await prisma.order.update({
-          where: { id: orderId },
-          data: {
-            paymentStatus: "PAID",
-            paymentMethod: "ONLINE",
-            paymentProvider: "nedarim_plus",
-            paymentTransactionId: successfulTransactionId,
-            amountPaid: chargeAmount,
-            paidAt: new Date(),
-            lastChargeError: null,
-          },
-        });
+        // $transaction אטומי: מסמנים PAID + (אם קוזז) מסמנים creditVerificationCharged=true
+        // כדי שההזמנה הבאה לא תקבל קיזוז נוסף. שני העדכונים חייבים לקרות יחד -
+        // אחרת עלול להיווצר מצב שבו הקיזוז נוצל בפועל אבל הסימון לא נשמר.
+        await prisma.$transaction([
+          prisma.order.update({
+            where: { id: orderId },
+            data: {
+              paymentStatus: "PAID",
+              paymentMethod: "ONLINE",
+              paymentProvider: "nedarim_plus",
+              paymentTransactionId: successfulTransactionId,
+              amountPaid: chargeAmount,
+              paidAt: new Date(),
+              lastChargeError: null,
+            },
+          }),
+          ...(shouldDeductVerification
+            ? [
+                prisma.customer.update({
+                  where: { id: preOrder.customer.id },
+                  data: { creditVerificationCharged: true },
+                }),
+              ]
+            : []),
+        ]);
       } catch (dbError) {
         // ⚠️ מצב קריטי: נדרים חייבו בהצלחה, אבל ה-DB שלנו לא הצליח להתעדכן
         // חייבים להשאיר את ההזמנה ב-CHARGING - אסור להחזירה ל-READY_TO_CHARGE
