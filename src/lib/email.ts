@@ -282,3 +282,42 @@ export async function sendPaymentConfirmedEmail(
     return { ok: false, error: String(e?.message || e).slice(0, 500) };
   }
 }
+export async function sendBroadcastEmail(
+  customerName: string,
+  customerEmail: string,
+  subject: string,
+  messageHtml: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const body = `
+      <div style="padding: 8px 0;">
+        <p style="font-size: 15px; color: #27272A; margin: 0 0 12px;">
+          שלום ${customerName},
+        </p>
+        <div style="font-size: 14px; line-height: 1.7; color: #52525B;">
+          ${messageHtml}
+        </div>
+        <p style="font-size: 13px; color: #71717A; margin-top: 20px;">
+          בברכה,<br/>צדקת רבותינו
+        </p>
+      </div>
+    `;
+
+    const { data, error } = await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: customerEmail,
+      subject,
+      html: baseTemplate(subject, body),
+    });
+
+    if (error) {
+      return { ok: false, error: String(error) };
+    }
+    if (!data?.id) {
+      return { ok: false, error: "no message id" };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}

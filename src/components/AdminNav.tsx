@@ -196,3 +196,5 @@ function NavLink({
 
 // Named export כדי שגם import { AdminNav } וגם import AdminNav יעבדו
 export { AdminNav };
+
+<Link href="/admin/broadcast">📧 שליחת מייל</Link>
