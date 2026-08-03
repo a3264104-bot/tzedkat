@@ -53,6 +53,7 @@ type Customer = {
   cardLast4: string | null;
   defaultPointId: string | null;
   defaultPointName: string | null;
+  agreedToEmails: boolean;
 };
 
 const statusColors: Record<string, string> = {
@@ -233,6 +234,9 @@ export function AccountClient({
 
           {/* Details עם אייקונים */}
           <div className="divide-y divide-zinc-100">
+            {!customer.agreedToEmails && customer.email && (
+              <ConsentBanner customerId={customer.id} />
+            )}
             {customer.phone && (
               <InfoRow
                 iconPath="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
@@ -927,6 +931,57 @@ function OrderTimeline({ status, paymentStatus }: { status: string; paymentStatu
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// באנר בקשת הסכמה למיילים - מוצג רק פעם אחת עד שהלקוח מסמן
+function ConsentBanner({ customerId }: { customerId: string }) {
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function agree() {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "consent-emails" }),
+      });
+      if (res.ok) {
+        setDone(true);
+        setTimeout(() => window.location.reload(), 1200);
+      }
+    } catch {}
+    finally {
+      setSaving(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 my-2 text-sm text-emerald-800 font-medium text-center">
+        ✅ תודה! תקבל עדכונים על המכירות במייל
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 my-2 space-y-2">
+      <div className="text-sm text-brand-slatedark">
+        <div className="font-bold mb-0.5">📧 קבלת עדכונים במייל</div>
+        <p className="text-xs text-zinc-600 leading-relaxed">
+          תרצה לקבל עדכונים על פתיחת מכירות והודעות כלליות? מיילים תפעוליים
+          (אישור הזמנה, חיוב) יישלחו בכל מקרה.
+        </p>
+      </div>
+      <button
+        onClick={agree}
+        disabled={saving}
+        className="w-full py-2 rounded-lg bg-brand-rust text-white text-sm font-bold hover:bg-[#a83a15] disabled:opacity-50"
+      >
+        {saving ? "שומר..." : "כן, אני מסכים לקבל עדכונים"}
+      </button>
     </div>
   );
 }

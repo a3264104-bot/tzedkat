@@ -96,6 +96,7 @@ export default async function AccountPage() {
         cardLast4: customer.cardLast4,
         defaultPointId: customer.defaultPointId,
         defaultPointName: customer.defaultPoint?.name ?? null,
+        agreedToEmails: customer.agreedToEmails,
       }}
       orders={ordersData}
       points={points}

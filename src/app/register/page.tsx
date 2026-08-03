@@ -27,6 +27,8 @@ function RegisterPageInner() {
   const [email, setEmail] = useState(googleEmail);
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
+  // הסכמה לקבלת מיילים על עדכוני מכירות (נשאלת פעם אחת)
+  const [agreedToEmails, setAgreedToEmails] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -61,6 +63,8 @@ function RegisterPageInner() {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError("כתובת מייל לא תקינה");
     if (password.length < 6) return setError("הסיסמה חייבת להכיל לפחות 6 תווים");
     if (password !== password2) return setError("הסיסמאות אינן תואמות");
+    if (!agreedToEmails)
+      return setError("יש לאשר את קבלת המיילים כדי להירשם");
     setStep("station");
   }
 
@@ -77,6 +81,7 @@ function RegisterPageInner() {
           email: email.trim().toLowerCase() || null,
           password,
           defaultPointId: defaultPointId || null,
+          agreedToEmails,
         }),
       });
       const data = await res.json();
@@ -221,6 +226,24 @@ function RegisterPageInner() {
                 autoComplete="new-password"
               />
             </div>
+
+            {/* הסכמה לקבלת מיילים - חד-פעמית בהרשמה */}
+            <label className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={agreedToEmails}
+                onChange={(e) => setAgreedToEmails(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-brand-rust shrink-0"
+              />
+              <div className="text-xs text-brand-slatedark leading-relaxed">
+                <div className="font-bold mb-0.5">אני מסכים/ה לקבל מיילים *</div>
+                אישור לקבלת עדכונים במייל על פתיחת מכירות, הודעות כלליות וחלוקות.
+                <span className="text-zinc-500 block mt-1">
+                  (מיילים תפעוליים - אישור הזמנה, אישור תשלום - יישלחו בכל מקרה כחלק מהשירות)
+                </span>
+              </div>
+            </label>
+
             {error && <p className="text-red-600 text-sm">{error}</p>}
             <button onClick={validateDetails} className="btn-primary w-full">
               המשך ←

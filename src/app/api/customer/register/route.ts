@@ -27,6 +27,14 @@ export async function POST(req: Request) {
     }
     const email = data.email?.trim().toLowerCase() || null;
 
+    const agreedToEmails = !!body.agreedToEmails;
+if (!agreedToEmails) {
+  return NextResponse.json(
+    { error: "יש לאשר את קבלת המיילים כדי להירשם" },
+    { status: 400 }
+  );
+}
+
     // בדיקת כפילות מפורשת - לפני יצירה - כדי להחזיר הודעה ידידותית ולא רק שגיאת unique מה-DB
     if (phone) {
       const existingByPhone = await prisma.customer.findUnique({ where: { phone } });
@@ -64,7 +72,8 @@ export async function POST(req: Request) {
         email,
         passwordHash,
         defaultPointId: data.defaultPointId || null,
-      },
+     agreedToEmails: true,
+agreedToEmailsAt: new Date(),},
     });
 
     // לא מחזירים passwordHash בתשובה

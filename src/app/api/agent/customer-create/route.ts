@@ -118,6 +118,12 @@ export async function POST(req: Request) {
       defaultPointId: effectivePointId,
       // דילוג על מסך "ברוכים הבאים" - כי הנציג יזמין עבורו
       hasSeenOrderIntro: true,
+      // 🆕 הסכמה לקבלת מיילים - נשארת false ביצירה ע"י נציג!
+      // הלקוח לא נכח פיזית ולא נתן הסכמה. הוא יידרש לאשר בכניסה הראשונה
+      // שלו למערכת (דרך /account או "שכחתי סיסמה" -> הפעלה). זה חוקי חשוב,
+      // גם GDPR (הסכמה מפורשת מהאדם עצמו).
+      agreedToEmails: false,
+      agreedToEmailsAt: null,
     },
     select: {
       id: true,

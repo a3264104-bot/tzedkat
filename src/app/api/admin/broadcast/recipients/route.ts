@@ -15,6 +15,8 @@ export async function GET() {
       where: {
         role: "CUSTOMER",
         email: { not: null },
+        // 🆕 רק לקוחות שאישרו לקבל מיילים שיווקיים
+        agreedToEmails: true,
       },
       select: {
         id: true,

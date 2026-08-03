@@ -50,17 +50,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "יש לבחור לפחות לקוח אחד" }, { status: 400 });
   }
 
-  // בניית where clause לפי mode
+  // בניית where clause לפי mode.
+  // בכל המצבים: רק לקוחות שאישרו לקבל מיילים שיווקיים!
+  // מיילים תפעוליים (אישור הזמנה/חיוב) עוברים ערוצים אחרים ולא כפופים לזה.
   const where: any = {
     role: "CUSTOMER",
     email: { not: null },
+    agreedToEmails: true,
   };
   if (mode === "point") {
     where.defaultPointId = { in: pointIds };
   } else if (mode === "manual") {
     where.id = { in: customerIds };
   }
-  // mode === "all" - אין תנאי נוסף
+  // mode === "all" - אין תנאי נוסף מעבר לbase
 
   const recipients = await prisma.customer.findMany({
     where,

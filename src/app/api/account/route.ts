@@ -89,6 +89,26 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: true, email });
   }
 
+  // ── הסכמה לקבלת מיילים שיווקיים (חד-פעמית) ──
+  // רק לקוחות שעדיין לא אישרו יכולים לקרוא לזה. לא מאפשרים לבטל דרך endpoint זה
+  // (זה יהיה action נפרד "unsubscribe" עם flow שונה).
+  if (body.action === "consent-emails") {
+    if (!customer.email) {
+      return NextResponse.json(
+        { error: "יש להוסיף כתובת מייל לפני אישור" },
+        { status: 400 }
+      );
+    }
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: {
+        agreedToEmails: true,
+        agreedToEmailsAt: new Date(),
+      },
+    });
+    return NextResponse.json({ ok: true, agreedToEmails: true });
+  }
+
   // ── הוספת/עדכון טלפון נוסף (לחלוקה) ──
   if (body.action === "update-phone2") {
     const phone2Raw = String(body.phone2 || "").trim();

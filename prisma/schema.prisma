@@ -76,6 +76,12 @@ model Customer {
   isActivated          Boolean   @default(true)
   // מזהה הנציג שיצר את הלקוח (רק אם נוצר ע"י נציג, לתיעוד)
   createdByAgentId     String?
+  // הסכמה לקבלת מיילים שיווקיים (עדכוני מכירות, הודעות כלליות).
+  // מיילים תפעוליים (אישור הזמנה/חיוב) לא תלויים בזה - הם חלק מהשירות.
+  // נשאל פעם אחת בהרשמה. ברירת מחדל false כדי שהמערכת לא תשלח בטעות.
+  agreedToEmails       Boolean   @default(false)
+  // תאריך ההסכמה - חשוב לתיעוד רגולטורי (GDPR/CAN-SPAM) ולהוכחת הסכמה במחלוקת.
+  agreedToEmailsAt     DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }
