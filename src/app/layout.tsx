@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import InstallPrompt from "@/components/InstallPrompt";
+import SplashScreen from "@/components/SplashScreen";
 import "./globals.css";
 
 const SITE_URL = "https://tzidkat.com";
@@ -71,6 +72,19 @@ export const viewport: Viewport = {
   themeColor: "#FFE000",
 };
 
+// מסכי פתיחה (splash screens) ל-iOS — תמונה מלאה לפי גודל מסך כל מכשיר
+const appleSplashScreens = [
+  { size: "1290x2796", media: "(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" }, // iPhone 15/14 Pro Max, 15 Plus
+  { size: "1179x2556", media: "(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" }, // iPhone 15/14 Pro, 15
+  { size: "1170x2532", media: "(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" }, // iPhone 12/13/14, 13 mini
+  { size: "1284x2778", media: "(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" }, // iPhone 12/13 Pro Max, 14 Plus
+  { size: "1125x2436", media: "(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" }, // iPhone X/XS/11 Pro
+  { size: "1242x2688", media: "(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)" }, // iPhone XS Max/11 Pro Max
+  { size: "828x1792",  media: "(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" }, // iPhone XR/11
+  { size: "750x1334",  media: "(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" }, // iPhone 6/7/8/SE2/SE3
+  { size: "640x1136",  media: "(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)" }, // iPhone 5/SE1
+];
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="he" dir="rtl">
@@ -81,8 +95,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap"
           rel="stylesheet"
         />
+        {appleSplashScreens.map(({ size, media }) => (
+          <link
+            key={size}
+            rel="apple-touch-startup-image"
+            media={media}
+            href={`/splash/apple-splash-${size}.png`}
+          />
+        ))}
       </head>
       <body>
+        <SplashScreen />
         {children}
         <InstallPrompt />
       </body>
