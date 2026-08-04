@@ -11,6 +11,8 @@ const schema = z.object({
   email: z.string().trim().email("כתובת מייל לא תקינה").optional().nullable().or(z.literal("")),
   password: z.string().min(6, "הסיסמה חייבת להכיל לפחות 6 תווים"),
   defaultPointId: z.string().optional().nullable(),
+  // הסכמה לקבלת מיילים - חובה אמיתית (חד-פעמית בהרשמה)
+  agreedToEmails: z.boolean(),
 });
 
 export async function POST(req: Request) {
@@ -27,13 +29,14 @@ export async function POST(req: Request) {
     }
     const email = data.email?.trim().toLowerCase() || null;
 
-    const agreedToEmails = !!body.agreedToEmails;
-if (!agreedToEmails) {
-  return NextResponse.json(
-    { error: "יש לאשר את קבלת המיילים כדי להירשם" },
-    { status: 400 }
-  );
-}
+    // הסכמה לקבלת מיילים היא חובה בהרשמה - נאספה, מאומתת ב-zod למעלה.
+    // חוסמים כאן במפורש כי zod רק וידא שזה boolean, לא שזה true.
+    if (!data.agreedToEmails) {
+      return NextResponse.json(
+        { error: "יש לאשר את קבלת המיילים כדי להירשם" },
+        { status: 400 }
+      );
+    }
 
     // בדיקת כפילות מפורשת - לפני יצירה - כדי להחזיר הודעה ידידותית ולא רק שגיאת unique מה-DB
     if (phone) {
@@ -72,8 +75,11 @@ if (!agreedToEmails) {
         email,
         passwordHash,
         defaultPointId: data.defaultPointId || null,
-     agreedToEmails: true,
-agreedToEmailsAt: new Date(),},
+        // הסכמה חד-פעמית לקבלת מיילים שיווקיים (עדכוני מכירות וכו')
+        // תיעוד timestamp חשוב לרגולציה (GDPR/CAN-SPAM) ולהוכחת הסכמה במחלוקת
+        agreedToEmails: true,
+        agreedToEmailsAt: new Date(),
+      },
     });
 
     // לא מחזירים passwordHash בתשובה
