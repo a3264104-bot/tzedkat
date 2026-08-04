@@ -58,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/customers", label: "לקוחות", icon: "🧑" },
       { href: "/admin/debts", label: "חובות לקוחות", icon: "💰" },
       { href: "/admin/personal-requests", label: "בקשות אישיות", icon: "💬" },
+      { href: "/admin/broadcast", label: "שליחת מייל ללקוחות", icon: "📧" },
     ],
   },
   {
@@ -82,6 +83,8 @@ const NAV_GROUPS: NavGroup[] = [
 
 // פריט עצמאי בראש - קיצור דרך לדשבורד
 const DASHBOARD_ITEM = { href: "/admin", label: "דשבורד", icon: "🏠" };
+// פריט עצמאי - קיצור להזמנה כלקוח (מנהל מזמין בשם עצמו)
+const CREATE_ORDER_ITEM = { href: "/order", label: "בצע הזמנה", icon: "🛒" };
 const SETTINGS_ITEM = { href: "/admin/settings", label: "הגדרות", icon: "⚙️" };
 
 export default function AdminNav() {
@@ -108,6 +111,9 @@ export default function AdminNav() {
     <nav className="space-y-1">
       {/* דשבורד - קיצור בראש */}
       <NavLink item={DASHBOARD_ITEM} active={isActive(DASHBOARD_ITEM.href)} />
+
+      {/* בצע הזמנה - קיצור בולט למנהל שרוצה להזמין בשם עצמו */}
+      <NavLink item={CREATE_ORDER_ITEM} active={isActive(CREATE_ORDER_ITEM.href)} />
 
       <div className="my-2 border-t border-brand-slate/15"></div>
 
@@ -196,5 +202,3 @@ function NavLink({
 
 // Named export כדי שגם import { AdminNav } וגם import AdminNav יעבדו
 export { AdminNav };
-
-<Link href="/admin/broadcast">📧 שליחת מייל</Link>

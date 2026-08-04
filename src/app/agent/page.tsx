@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { SignOutBtn } from "./AgentHeader";
+import { AgentAddCustomerButton } from "@/components/AgentAddCustomerButton";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +104,24 @@ export default async function AgentIndexPage() {
                 המנהל צריך לשייך אותך לנקודת חלוקה במסך "נציגים".
               </div>
             </div>
+          </div>
+        )}
+
+        {/* כפתור בולט - בצע הזמנה ללקוח (חיפוש/יצירה + ניווט אוטומטי) */}
+        {agent.agentPoint && (
+          <div className="bg-gradient-to-l from-emerald-500 to-emerald-600 rounded-2xl p-4 shadow-md">
+            <div className="flex items-center gap-3 mb-3 text-white">
+              <div className="text-3xl">🛒</div>
+              <div className="flex-1">
+                <div className="font-extrabold text-lg">בצע הזמנה ללקוח</div>
+                <div className="text-xs text-white/90">
+                  חיפוש לקוח קיים או הוספה מהירה
+                </div>
+              </div>
+            </div>
+            <AgentAddCustomerButton
+              className="w-full justify-center bg-white text-emerald-700 hover:bg-emerald-50"
+            />
           </div>
         )}
 
