@@ -95,11 +95,69 @@ export async function PATCH(
     data.phone = phone;
   }
 
-  if (Object.keys(data).length === 0) {
+  // 🆕 טיפול מיוחד ב-agentPointIds (many-to-many)
+  // הclient שולח מערך של pointIds. אנחנו מוחקים את כל הקשרים הקיימים
+  // של הנציג ויוצרים מחדש. כך גם הוספה וגם הסרה מטופלות באותה הפעולה.
+  // זה מבוצע בטרנזקציה - אם משהו נכשל, אין שינוי חלקי.
+  let agentPointIds: string[] | null = null;
+  if ("agentPointIds" in body) {
+    if (!Array.isArray(body.agentPointIds)) {
+      return NextResponse.json(
+        { error: "agentPointIds חייב להיות מערך" },
+        { status: 400 }
+      );
+    }
+    // דה-דופלוקציה + סינון strings בלבד
+    agentPointIds = Array.from(
+      new Set(
+        body.agentPointIds
+          .filter((x: unknown) => typeof x === "string" && x.trim().length > 0)
+          .map((x: string) => x.trim())
+      )
+    );
+  }
+
+  if (Object.keys(data).length === 0 && agentPointIds === null) {
     return NextResponse.json({ error: "אין שדות לעדכון" }, { status: 400 });
   }
 
   try {
+    // אם יש עדכון של רשימת נקודות - עושים בטרנזקציה
+    if (agentPointIds !== null) {
+      // וידוא שכל pointIds תקינים לפני מחיקה
+      if (agentPointIds.length > 0) {
+        const foundPoints = await prisma.deliveryPoint.findMany({
+          where: { id: { in: agentPointIds } },
+          select: { id: true },
+        });
+        if (foundPoints.length !== agentPointIds.length) {
+          return NextResponse.json(
+            { error: "אחת מנקודות החלוקה שצוינו לא קיימת" },
+            { status: 400 }
+          );
+        }
+      }
+      const customer = await prisma.$transaction(async (tx) => {
+        // מחיקת כל הקשרים הקיימים של הנציג
+        await tx.agentPoint.deleteMany({ where: { agentId: id } });
+        // יצירת הקשרים החדשים
+        if (agentPointIds!.length > 0) {
+          await tx.agentPoint.createMany({
+            data: agentPointIds!.map((pid) => ({
+              agentId: id,
+              pointId: pid,
+            })),
+          });
+        }
+        // עדכון שאר השדות (אם יש)
+        if (Object.keys(data).length > 0) {
+          return tx.customer.update({ where: { id }, data });
+        }
+        return tx.customer.findUnique({ where: { id } });
+      });
+      return NextResponse.json({ ok: true, customer });
+    }
+    // עדכון רגיל (בלי שינוי נקודות)
     const customer = await prisma.customer.update({
       where: { id },
       data,

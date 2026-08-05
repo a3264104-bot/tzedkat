@@ -52,13 +52,20 @@ export default async function AgentSalePage({
     );
   }
 
-  // בדיקה שהנציג משויך לנקודה (אלא אם הוא מנהל)
+  // בדיקה שהנציג משויך לפחות לנקודה אחת (אלא אם הוא מנהל)
   if (role === "AGENT") {
     const agent = await prisma.customer.findUnique({
       where: { id: userId },
-      select: { agentPointId: true },
+      select: {
+        agentPointId: true, // deprecated - נשמר לתאימות אחורה
+        agentPoints: { select: { pointId: true } }, // חדש - כל הנקודות שלו
+      },
     });
-    if (!agent?.agentPointId) {
+    // בונים set של כל הנקודות (מקור אמת: agentPoints. fallback: agentPointId)
+    const agentPointIds = new Set(agent?.agentPoints.map((ap) => ap.pointId) ?? []);
+    if (agent?.agentPointId) agentPointIds.add(agent.agentPointId);
+
+    if (agentPointIds.size === 0) {
       return (
         <div dir="rtl" className="min-h-screen bg-brand-cream flex items-center justify-center p-6">
           <div className="bg-white rounded-2xl p-8 shadow-lg text-center max-w-md">
@@ -68,9 +75,9 @@ export default async function AgentSalePage({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </div>
-            <h1 className="text-xl font-bold text-brand-slatedark">אין נקודת חלוקה משויכת</h1>
+            <h1 className="text-xl font-bold text-brand-slatedark">אין נקודות חלוקה משויכות</h1>
             <p className="text-sm text-zinc-500 mt-2">
-              המנהל צריך לשייך אותך לנקודת חלוקה לפני שתוכל לעבוד עם המכירה.
+              המנהל צריך לשייך אותך לפחות לנקודת חלוקה אחת לפני שתוכל לעבוד עם המכירה.
               <br />
               פנה למנהל.
             </p>

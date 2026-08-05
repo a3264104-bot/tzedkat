@@ -25,6 +25,12 @@ export async function GET(req: Request) {
     include: {
       defaultPoint: { select: { name: true, city: true } },
       _count: { select: { orders: true } },
+      // 🆕 כל הנקודות של הנציג (many-to-many דרך AgentPoint)
+      agentPoints: {
+        select: {
+          point: { select: { id: true, name: true, city: true } },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
     take: 100,
@@ -45,7 +51,14 @@ export async function GET(req: Request) {
       cardNeedsUpdate: c.cardNeedsUpdate,
       passwordPlain: c.passwordPlain,
       role: c.role,
+      // deprecated - נשמר לתאימות אחורה עד שכל ה-UI ידע להשתמש ב-agentPoints[]
       agentPointId: c.agentPointId,
+      // 🆕 רשימת כל הנקודות שהנציג משויך אליהן
+      agentPoints: c.agentPoints.map((ap) => ({
+        id: ap.point.id,
+        name: ap.point.name,
+        city: ap.point.city,
+      })),
       agentCanSetFinalPrice: c.agentCanSetFinalPrice,
       agentCanSendPaymentLink: c.agentCanSendPaymentLink,
       agentCanCharge: c.agentCanCharge,

@@ -16,6 +16,7 @@ type Customer = {
   passwordPlain: string | null;
   role: string;
   agentPointId: string | null;
+  agentPoints?: { id: string; name: string; city: string | null }[];
   agentCanSetFinalPrice?: boolean;
   agentCanSendPaymentLink?: boolean;
   agentCanCharge?: boolean;
@@ -45,6 +46,8 @@ export default function AdminCustomersPage() {
   const [convertingToAgent, setConvertingToAgent] = useState(false);
   const [newRole, setNewRole] = useState<string>("");
   const [newPointId, setNewPointId] = useState<string>("");
+  // 🆕 בחירת נקודות מרובות לנציג (Set של pointIds)
+  const [selectedAgentPointIds, setSelectedAgentPointIds] = useState<Set<string>>(new Set());
 
   // טעינת רשימת נקודות למקרה שנרצה להפוך לקוח לנציג
   useEffect(() => {
@@ -103,8 +106,51 @@ export default function AdminCustomersPage() {
     setConvertingToAgent(false);
     setNewRole(c.role);
     setNewPointId(c.agentPointId || "");
+    // 🆕 טעינת כל הנקודות של הנציג ל-Set. עדיפות ל-agentPoints[] החדש,
+    // fallback ל-agentPointId הישן אם עוד אין רשומות במערך
+    const pointIds = new Set<string>();
+    if (c.agentPoints && c.agentPoints.length > 0) {
+      c.agentPoints.forEach((ap) => pointIds.add(ap.id));
+    } else if (c.agentPointId) {
+      pointIds.add(c.agentPointId);
+    }
+    setSelectedAgentPointIds(pointIds);
     setError("");
     setSuccessMsg("");
+  }
+
+  function toggleAgentPoint(pointId: string) {
+    setSelectedAgentPointIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pointId)) next.delete(pointId);
+      else next.add(pointId);
+      return next;
+    });
+  }
+
+  // שמירת נקודות הנציג (many-to-many) דרך PATCH /api/admin/customers/[id]
+  async function saveAgentPoints() {
+    if (!editing) return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/customers/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentPointIds: Array.from(selectedAgentPointIds),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "שגיאה");
+      setSuccessMsg("נקודות החלוקה של הנציג עודכנו!");
+      const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
+      setCustomers(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setError(e.message || "שגיאה בשמירת נקודות");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function convertRole() {
@@ -522,6 +568,58 @@ export default function AdminCustomersPage() {
                     onChange={(v) => togglePermission("agentCanUpdateCards", v)}
                     saving={saving}
                   />
+                </div>
+
+                {/* 🆕 נקודות חלוקה משויכות - many-to-many */}
+                <div className="mt-3">
+                  <div className="text-xs font-bold text-zinc-500 mb-2">
+                    📍 נקודות חלוקה משויכות
+                    <span className="font-normal text-zinc-400 mr-1">
+                      (הנציג יראה לקוחות והזמנות מכל הנקודות שסומנו)
+                    </span>
+                  </div>
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                    {points.length === 0 ? (
+                      <p className="text-xs text-zinc-500">טוען נקודות...</p>
+                    ) : (
+                      <div className="space-y-1 max-h-52 overflow-y-auto">
+                        {points.map((p) => (
+                          <label
+                            key={p.id}
+                            className={`flex items-center gap-2 p-2 rounded cursor-pointer text-sm transition-colors ${
+                              selectedAgentPointIds.has(p.id)
+                                ? "bg-emerald-100"
+                                : "hover:bg-white"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedAgentPointIds.has(p.id)}
+                              onChange={() => toggleAgentPoint(p.id)}
+                              className="w-4 h-4 accent-emerald-600"
+                            />
+                            <span className="flex-1 min-w-0 truncate text-brand-slatedark">
+                              {p.name}
+                              {p.city ? ` — ${p.city}` : ""}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-emerald-200">
+                      <span className="text-xs text-emerald-800 font-medium">
+                        {selectedAgentPointIds.size} נקודות נבחרו
+                      </span>
+                      <button
+                        type="button"
+                        onClick={saveAgentPoints}
+                        disabled={saving}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        {saving ? "שומר..." : "שמור נקודות"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

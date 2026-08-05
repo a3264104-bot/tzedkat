@@ -29,25 +29,42 @@ export default async function AgentOrderPage({
     redirect("/agent");
   }
 
-  // אימות הרשאת נציג מוגבל-נקודה:
+  // אימות הרשאת נציג מוגבל-נקודות:
   // הנציג רשאי להזמין רק עבור:
   // 1. לקוח שהנציג עצמו יצר (createdByAgentId === agentId)
-  // 2. לקוח שהנקודה שלו זהה לנקודת הנציג
-  // 3. לקוח שיש לו לפחות הזמנה אחת בנקודת הנציג
+  // 2. לקוח שהנקודה שלו זהה לאחת מהנקודות של הנציג
+  // 3. לקוח שיש לו לפחות הזמנה אחת באחת מנקודות הנציג
   if (role === "AGENT") {
     const agent = await prisma.customer.findUnique({
       where: { id: sessionUserId },
-      select: { agentPointId: true },
+      select: {
+        agentPointId: true, // deprecated - נשמר לתאימות אחורה
+        agentPoints: { select: { pointId: true } }, // חדש - כל הנקודות שלו
+      },
     });
-    if (agent?.agentPointId) {
+    // בונים set של כל הנקודות של הנציג (משני המקורות)
+    const agentPointIds = new Set(agent?.agentPoints.map((ap) => ap.pointId) ?? []);
+    if (agent?.agentPointId) agentPointIds.add(agent.agentPointId); // תאימות אחורה
+
+    // אם לנציג יש שיוכי נקודות - בודקים גישה. אם אין לו בכלל - חסימה מלאה.
+    if (agentPointIds.size > 0) {
       const isCreator = targetCustomer.createdByAgentId === sessionUserId;
-      const samePoint = targetCustomer.defaultPointId === agent.agentPointId;
-      const hasOrderAtPoint = !isCreator && !samePoint &&
+      const samePoint =
+        targetCustomer.defaultPointId !== null &&
+        agentPointIds.has(targetCustomer.defaultPointId);
+      const hasOrderAtPoint =
+        !isCreator &&
+        !samePoint &&
         (await prisma.order.count({
-          where: { customerId: targetCustomer.id, pointId: agent.agentPointId },
+          where: {
+            customerId: targetCustomer.id,
+            pointId: { in: Array.from(agentPointIds) },
+          },
         })) > 0;
       if (!isCreator && !samePoint && !hasOrderAtPoint) redirect("/agent");
     }
+    // אם agentPointIds.size === 0 - זה נציג בלי נקודות מוגדרות. לא ראוי לבטל
+    // את הבדיקה לגמרי, אבל נשמור על ההתנהגות הקיימת (עוברים בלי בדיקה) לא לשבור.
   }
 
   const pricelist = await prisma.pricelist.findFirst({

@@ -50,8 +50,14 @@ model Customer {
   cardNeedsUpdate      Boolean   @default(false)
   // שדות נציג (רלוונטיים רק כאשר role=AGENT)
   // agentPointId: הנקודה שהנציג מוגבל אליה. null = רואה את כל הלקוחות
+  // 🔴 DEPRECATED: משתמש בטבלת הקשר AgentPoint (מרובה נקודות). נשאר לתאימות אחורה
+  // בזמן המעבר, ולmigration של רשומות ישנות. יוסר בסבב עתידי אחרי וידוא שכל
+  // הlogic משתמש ב-agentPoints[].
   agentPointId         String?
   agentPoint           DeliveryPoint? @relation("AgentPoint", fields: [agentPointId], references: [id])
+  // 🆕 קשר many-to-many: נציג יכול להיות משויך לכמה נקודות במקביל.
+  // בזמן טעינת נציג: `include: { agentPoints: { include: { point: true } } }`
+  agentPoints          AgentPoint[]   @relation("AgentPoints")
   // הרשאות נציג נפרדות: קביעת מחיר סופי / שליחת לינק תשלום
   agentCanSetFinalPrice Boolean @default(false)
   agentCanSendPaymentLink Boolean @default(false)
@@ -158,9 +164,28 @@ model DeliveryPoint {
   orders       Order[]
   pricelists   PricelistPoint[]
   customers    Customer[] // לקוחות שבחרו נקודה זו כברירת מחדל
-  agents       Customer[] @relation("AgentPoint") // נציגים המוגבלים לנקודה זו
+  agents       Customer[] @relation("AgentPoint") // 🔴 DEPRECATED: נציגים המוגבלים לנקודה זו (single). נשאר לתאימות.
+  // 🆕 קשר many-to-many: כל הנציגים המשויכים לנקודה דרך AgentPoint
+  agentPoints  AgentPoint[] @relation("PointAgents")
   personalProducts PersonalProduct[] @relation("PersonalProductPoint") // §9: מוצרים אישיים בנקודה זו
   createdAt    DateTime @default(now())
+}
+
+// טבלת קשר: נציג <-> נקודת חלוקה (many-to-many).
+// לפני שינוי זה, לכל נציג הייתה בדיוק נקודה אחת (`Customer.agentPointId`).
+// עכשיו הנציג יכול להיות משויך לכמה נקודות במקביל, וכל שיוך נשמר כרשומה כאן.
+model AgentPoint {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Customer @relation("AgentPoints", fields: [agentId], references: [id], onDelete: Cascade)
+  pointId   String
+  point     DeliveryPoint @relation("PointAgents", fields: [pointId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  // נציג יכול להיות משויך פעם אחת בלבד לכל נקודה
+  @@unique([agentId, pointId])
+  // חיפוש מהיר של כל הנציגים בנקודה מסוימת
+  @@index([pointId])
 }
 
 model Pricelist {

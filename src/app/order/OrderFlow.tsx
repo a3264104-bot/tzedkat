@@ -1372,7 +1372,22 @@ export function OrderFlow({
               ))}
             </div>
 
-            {/* §13: מעל 800₪ — הצעת 2 תשלומים (לא מציגים את הסכום ללקוח!) */}
+            {/* הודעה קבועה - לתשומת לב הלקוח לגבי סטיות משקל בבודדים */}
+            <div className="card p-4 mt-3 bg-amber-50 border-amber-200">
+              <div className="flex items-start gap-2.5">
+                <div className="text-xl shrink-0">ℹ️</div>
+                <div className="text-xs text-amber-900 leading-relaxed space-y-2">
+                  <p>
+                    <strong>לידיעתכם:</strong> בהזמנת בודדים המשקל כנראה לא יהיה שווה
+                    בין הכמות שהוזמנה לכמות שסופקה בפועל, וזאת מפני שכל גוש במשקל שונה.
+                  </p>
+                  <p>
+                    כמו"כ בהזמנת בודדים, היות והם נשקלים במקום, יתכן סטיה במשקל,
+                    והינכם מאשרים ומוחלים על כך.
+                  </p>
+                </div>
+              </div>
+            </div>
             {estimatedTotal > 800 && (
               <div className="card p-4 mt-3 bg-blue-50 border-blue-200">
                 <div className="text-sm font-medium text-blue-900 mb-2">
