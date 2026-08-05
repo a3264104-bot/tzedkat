@@ -1,102 +1,115 @@
-import Link from "next/link";
-import { Logo } from "@/components/Logo";
+// עמוד מדיניות פרטיות
+//
 
 export const metadata = {
-  title: "מדיניות פרטיות",
-  description: "מדיניות הפרטיות של אתר צדקת רבותינו — כיצד אנו אוספים ומגנים על המידע שלך.",
+  title: "מדיניות פרטיות | צדקת רבותינו",
+  description: "מדיניות הפרטיות של אתר צדקת רבותינו",
 };
 
 export default function PrivacyPage() {
   return (
-    <main
-      dir="rtl"
-      className="min-h-screen"
-      style={{ background: "linear-gradient(to bottom, #fff3a3, #fff8d8)" }}
-    >
-      <div className="mx-auto max-w-2xl px-5 py-10">
-        <div className="flex justify-center mb-6">
-          <Link href="/">
-            <Logo size={90} />
-          </Link>
-        </div>
+    <main dir="rtl" className="min-h-screen bg-white">
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <h1 className="text-3xl font-extrabold text-brand-slatedark mb-2">
+          מדיניות פרטיות
+        </h1>
+        <p className="text-sm text-zinc-500 mb-6">
+          עודכן לאחרונה: 5 באוגוסט 2026
+        </p>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 p-6 md:p-8 space-y-5 text-zinc-700 leading-relaxed">
-          <h1 className="text-2xl font-extrabold text-brand-slatedark">מדיניות פרטיות</h1>
-          <p className="text-sm text-zinc-500">עודכן לאחרונה: {new Date().getFullYear()}</p>
+        <div className="max-w-none space-y-5 text-brand-slatedark leading-relaxed">
+          <p>
+            עמותת צדקת רבותינו (להלן: "העמותה" או "אנחנו") מכבדת את פרטיות
+            המשתמשים באתר ומחויבת להגן על המידע האישי הנמסר לה. מדיניות זו מפרטת
+            אילו נתונים נאספים, כיצד נעשה בהם שימוש, וכיצד הם מוגנים, בהתאם לחוק
+            הגנת הפרטיות, התשמ"א-1981 והתקנות שמכוחו.
+          </p>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">איזה מידע אנו אוספים</h2>
-            <p>
-              בעת הרשמה והזמנה באתר, אנו אוספים את הפרטים הבאים: שם מלא, מספר טלפון, כתובת דוא"ל
-              (אם נמסרה), נקודת החלוקה שבחרת, ופרטי ההזמנות שלך.
-            </p>
-            <p>
-              לצורך תשלום, אנו משתמשים בשירות סליקה חיצוני ומאובטח (נדרים פלוס). פרטי כרטיס האשראי
-              המלאים <strong>אינם נשמרים אצלנו</strong> — הם נשמרים באופן מאובטח אצל חברת הסליקה
-              בהתאם לתקן PCI. אצלנו נשמר רק מזהה מוצפן (טוקן) וארבע ספרות אחרונות של הכרטיס, לצורך
-              חיוב הזמנות עתידיות.
-            </p>
-          </section>
-
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">כיצד אנו משתמשים במידע</h2>
-            <p>המידע משמש אך ורק לצורך:</p>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">1. איזה מידע אנו אוספים</h2>
+            <p>בעת השימוש באתר וביצוע הזמנות, אנו עשויים לאסוף:</p>
             <ul className="list-disc pr-6 space-y-1">
-              <li>עיבוד וניהול ההזמנות שלך</li>
-              <li>יצירת קשר בנוגע להזמנה (טלפון, דוא"ל)</li>
-              <li>חיוב עבור הזמנות שביצעת</li>
-              <li>שליחת אישורי הזמנה ועדכונים</li>
+              <li><strong>פרטי זיהוי:</strong> שם מלא, מספר טלפון (ומספר טלפון נוסף), כתובת דוא"ל.</li>
+              <li><strong>פרטי הזמנה:</strong> המוצרים שהוזמנו, כמויות, נקודת החלוקה שנבחרה, הערות.</li>
+              <li><strong>פרטי תשלום:</strong> אנו <u>איננו שומרים</u> את מספר כרטיס האשראי המלא. סליקת האשראי ואחסון פרטי הכרטיס מתבצעים באמצעות ספק הסליקה המאובטח "נדרים פלוס". אנו שומרים אך ורק מזהה מוצפן (טוקן), 4 ספרות אחרונות ותוקף - לצורך חיוב עתידי בהסכמתך.</li>
+              <li><strong>מידע טכני:</strong> מידע הנאסף אוטומטית בעת הגלישה (כגון כתובת IP, סוג דפדפן) לצורך תפעול ואבטחת האתר.</li>
             </ul>
-            <p>איננו מוכרים, משכירים או מעבירים את המידע שלך לצדדים שלישיים לצרכים שיווקיים.</p>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">שירותים חיצוניים</h2>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">2. למה אנו משתמשים במידע</h2>
+            <ul className="list-disc pr-6 space-y-1">
+              <li>לעיבוד וניהול ההזמנות שלך.</li>
+              <li>לביצוע חיובים ותשלומים עבור הזמנות.</li>
+              <li>ליצירת קשר בנוגע להזמנה (אישורים, עדכונים, תזכורות חלוקה).</li>
+              <li>לשליחת עדכונים על מכירות והודעות כלליות - <strong>רק אם אישרת זאת</strong> בעת ההרשמה.</li>
+              <li>לשיפור השירות ואבטחת האתר.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">3. מסירת מידע לצדדים שלישיים</h2>
             <p>
-              אנו נעזרים בספקי שירות מהימנים לצורך תפעול האתר: חברת הסליקה נדרים פלוס (תשלומים),
-              שירות דוא"ל לשליחת אישורים, ושירותי אחסון ותשתית מאובטחים. כל אחד מהם מקבל רק את המידע
-              ההכרחי לביצוע תפקידו.
+              איננו מוכרים או משכירים את המידע שלך. מידע עשוי להימסר לצדדים
+              שלישיים רק במקרים הבאים:
+            </p>
+            <ul className="list-disc pr-6 space-y-1">
+              <li><strong>ספק סליקה (נדרים פלוס):</strong> לצורך ביצוע התשלום.</li>
+              <li><strong>ספק שליחת דוא"ל:</strong> לצורך משלוח אישורים ועדכונים.</li>
+              <li>כאשר הדבר נדרש על פי חוק או צו שיפוטי.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">4. אבטחת מידע</h2>
+            <p>
+              אנו נוקטים באמצעי אבטחה מקובלים להגנה על המידע, לרבות הצפנה, אחסון
+              מאובטח והרשאות גישה מוגבלות. עם זאת, אין באפשרותנו להבטיח הגנה מוחלטת
+              מפני חדירה בלתי מורשית.
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">אבטחת מידע</h2>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">5. זכויותיך</h2>
             <p>
-              אנו נוקטים באמצעי אבטחה מקובלים להגנה על המידע שלך, כולל הצפנה, גישה מוגבלת, ושמירת
-              פרטי אשראי אצל חברת סליקה מוסמכת בלבד. עם זאת, אין אפשרות להבטיח אבטחה מוחלטת בהעברת
-              מידע באינטרנט.
+              על פי חוק, זכותך לעיין במידע שנאסף עליך, לבקש את תיקונו או מחיקתו.
+              לכל בקשה בנושא, ניתן לפנות אלינו בכתובת:{" "}
+              <a href="mailto:m5402088@gmail.com" className="text-brand-rust underline underline-offset-2">
+                m5402088@gmail.com
+              </a>
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">הזכויות שלך</h2>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">6. שמירת מידע</h2>
             <p>
-              באפשרותך לעיין במידע שלך, לעדכן אותו או לבקש את מחיקתו, בכפוף לחובות חוקיות לשמירת
-              רשומות. לבקשות בנושא פרטיות, ניתן לפנות אלינו.
+              המידע יישמר כל עוד הוא נדרש למטרות שלשמן נאסף, או כפי שנדרש על פי חוק
+              (למשל, חובת שמירת מסמכי הנהלת חשבונות).
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">עוגיות (Cookies)</h2>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">7. שינויים במדיניות</h2>
             <p>
-              האתר משתמש בעוגיות הכרחיות בלבד — לצורך שמירת ההתחברות שלך למערכת. איננו משתמשים
-              בעוגיות למעקב שיווקי.
+              העמותה רשאית לעדכן מדיניות זו מעת לעת. המדיניות המעודכנת תפורסם בעמוד
+              זה.
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">יצירת קשר</h2>
-            <p>לשאלות בנוגע למדיניות פרטיות זו, ניתן לפנות אלינו דרך פרטי הקשר באתר.</p>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">8. יצירת קשר</h2>
+            <p>
+              בכל שאלה בנוגע למדיניות פרטיות זו, ניתן לפנות אלינו:{" "}
+              <a href="mailto:m5402088@gmail.com" className="text-brand-rust underline underline-offset-2">
+                m5402088@gmail.com
+              </a>
+            </p>
           </section>
 
-          <div className="pt-4 border-t flex gap-4 text-sm">
-            <Link href="/" className="text-brand-rust font-medium">
-              ← חזרה לדף הבית
-            </Link>
-            <Link href="/terms" className="text-brand-rust font-medium">
-              תנאי שימוש
-            </Link>
-          </div>
+          <p className="text-sm text-zinc-500 border-t pt-4 mt-6">
+            מדיניות זו נכתבה מתוך מחויבות לשקיפות ולהגנה על פרטיות המשתמשים. אנו
+            עומדים לרשותכם בכל שאלה או בקשה.
+          </p>
         </div>
       </div>
     </main>

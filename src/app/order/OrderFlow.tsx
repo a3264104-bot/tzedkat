@@ -1364,8 +1364,9 @@ export function OrderFlow({
                       onClick={() => removeFromCart(l.product.id, l.isSingle)}
                       className="text-zinc-300 hover:text-red-500 text-sm px-1"
                       title="הסר מוצר"
+                      aria-label={`הסר את ${l.product.name} מההזמנה`}
                     >
-                      ✕
+                      <span aria-hidden="true">✕</span>
                     </button>
                   </div>
                 </div>
@@ -1716,6 +1717,7 @@ function QtyControl({
         }}
         className="w-12 text-center rounded-lg border border-zinc-200 py-1.5 font-semibold"
         placeholder="0"
+        aria-label="כמות"
       />
       <button
         onClick={() => {

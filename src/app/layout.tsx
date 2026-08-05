@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import InstallPrompt from "@/components/InstallPrompt";
+import { Footer } from "@/components/Footer";
+import { AccessibilityWidget } from "@/components/AccessibilityWidget";
 import "./globals.css";
 
 const SITE_URL = "https://tzidkat.com";
@@ -23,11 +25,6 @@ export const metadata: Metadata = {
     "מכירת עופות",
   ],
   authors: [{ name: "צדקת רבותינו" }],
-  // אימות Google Search Console - יש להחליף את הקוד בקוד האמיתי מ-Search Console
-  // ניתן לקבל אותו ב-https://search.google.com/search-console תחת "HTML tag"
-  verification: {
-    google: "REPLACE_WITH_GOOGLE_VERIFICATION_CODE",
-  },
   alternates: {
     canonical: SITE_URL,
   },
@@ -83,8 +80,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        {children}
+        {/* קישור דילוג לתוכן - נגישות: מאפשר למשתמשי מקלדת/קורא מסך לדלג לתוכן */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:right-2 focus:z-[100] focus:bg-brand-rust focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:font-bold"
+        >
+          דלג לתוכן הראשי
+        </a>
+        <div id="main-content" className="min-h-screen flex flex-col">
+          {children}
+          <Footer />
+        </div>
         <InstallPrompt />
+        <AccessibilityWidget />
       </body>
     </html>
   );

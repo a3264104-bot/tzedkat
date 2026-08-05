@@ -7,10 +7,12 @@
   --brand-cream: #fff8e1;
   --brand-rust: #c0461e;
   --brand-slate: #3f3f46;
+  --a11y-font-scale: 1;
 }
 
 html {
   -webkit-text-size-adjust: 100%;
+  font-size: calc(100% * var(--a11y-font-scale));
 }
 
 body {
@@ -95,3 +97,73 @@ textarea:focus-visible {
   .no-print { display: none !important; }
   body { background: white; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   סגנונות ווידג'ט הנגישות
+   כל class כאן מופעל ע"י ה-widget שמוסיף/מסיר אותו מ-<html>.
+   בלי ה-CSS הזה - הכפתורים בווידג'ט לא יעשו כלום!
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── גודל טקסט ──
+   ה-widget מגדיר --a11y-font-scale על <html> (הוגדר ב-:root למעלה,
+   והוחל על html { font-size } למעלה). rem-based sizing של Tailwind
+   יגדל אוטומטית איתו. */
+
+/* ── ניגודיות גבוהה ──
+   מכהה רקעים, מבהיר טקסט, ומחזק גבולות.
+   !important נדרש כדי לגבור על Tailwind utility classes. */
+html.a11y-high-contrast body {
+  background: #000 !important;
+}
+html.a11y-high-contrast * {
+  background-color: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+}
+html.a11y-high-contrast a,
+html.a11y-high-contrast button {
+  color: #ffff00 !important;
+}
+/* שמירה על תמונות גלויות (לא להפוך לשחור) */
+html.a11y-high-contrast img {
+  background: transparent !important;
+}
+
+/* ── הדגשת קישורים ──
+   כל <a> מקבל קו תחתון עבה + מסגרת + רקע בולט. */
+html.a11y-highlight-links a {
+  text-decoration: underline !important;
+  text-underline-offset: 2px !important;
+  text-decoration-thickness: 2px !important;
+  outline: 2px solid #C0461E !important;
+  outline-offset: 1px !important;
+  background-color: #fff3a3 !important;
+  color: #000 !important;
+  padding: 0 2px !important;
+  border-radius: 2px !important;
+}
+
+/* ── גופן קריא ──
+   מחליף לפונט sans-serif פשוט וברור, מגדיל מרווח בין שורות. */
+html.a11y-readable-font,
+html.a11y-readable-font * {
+  font-family: Arial, Helvetica, sans-serif !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1.7 !important;
+}
+
+/* ── עצירת אנימציות ──
+   מבטל כל transition ו-animation. חשוב למשתמשים עם רגישות לתנועה. */
+html.a11y-stop-animations *,
+html.a11y-stop-animations *::before,
+html.a11y-stop-animations *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+
+/* ── שמירה על ה-widget עצמו נגיש תמיד ──
+   גם במצב ניגודיות גבוהה, כפתור הנגישות צריך להישאר לחיץ וברור.
+   (ה-z-index הגבוה שלו כבר מבטיח שהוא מעל הכל) */

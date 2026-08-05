@@ -1,90 +1,125 @@
-import Link from "next/link";
-import { Logo } from "@/components/Logo";
+// עמוד תנאי שימוש
+//
 
 export const metadata = {
-  title: "תנאי שימוש",
-  description: "תנאי השימוש של אתר צדקת רבותינו.",
+  title: "תנאי שימוש | צדקת רבותינו",
+  description: "תנאי השימוש של אתר צדקת רבותינו",
 };
 
 export default function TermsPage() {
   return (
-    <main
-      dir="rtl"
-      className="min-h-screen"
-      style={{ background: "linear-gradient(to bottom, #fff3a3, #fff8d8)" }}
-    >
-      <div className="mx-auto max-w-2xl px-5 py-10">
-        <div className="flex justify-center mb-6">
-          <Link href="/">
-            <Logo size={90} />
-          </Link>
-        </div>
+    <main dir="rtl" className="min-h-screen bg-white">
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <h1 className="text-3xl font-extrabold text-brand-slatedark mb-2">
+          תנאי שימוש
+        </h1>
+        <p className="text-sm text-zinc-500 mb-6">
+          עודכן לאחרונה: 5 באוגוסט 2026
+        </p>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 p-6 md:p-8 space-y-5 text-zinc-700 leading-relaxed">
-          <h1 className="text-2xl font-extrabold text-brand-slatedark">תנאי שימוש</h1>
-          <p className="text-sm text-zinc-500">עודכן לאחרונה: {new Date().getFullYear()}</p>
+        <div className="max-w-none space-y-5 text-brand-slatedark leading-relaxed">
+          <p>
+            ברוכים הבאים לאתר צדקת רבותינו. השימוש באתר ובשירותיו כפוף לתנאים
+            המפורטים להלן. עצם השימוש באתר וביצוע הזמנה מהווים הסכמה לתנאים אלו.
+          </p>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">כללי</h2>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">1. כללי</h2>
             <p>
-              אתר צדקת רבותינו מאפשר הזמנת עופות, בשר ודגים במסגרת מכירות תקופתיות, עם חלוקה בנקודות
-              איסוף. השימוש באתר ובהזמנה מהווה הסכמה לתנאים אלה.
+              האתר מופעל על ידי עמותת צדקת רבותינו. התנאים
+              מנוסחים בלשון זכר מטעמי נוחות בלבד ומופנים לכל המגדרים.
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">מחיר משוער ומחיר סופי</h2>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">2. ההזמנות והמוצרים</h2>
+            <ul className="list-disc pr-6 space-y-1">
+              <li>האתר מאפשר הזמנת מוצרי בשר, עוף ודגים לחלוקה בנקודות שנקבעו.</li>
+              <li>
+                <strong>מחיר משוער מול מחיר סופי:</strong> המחיר המוצג בעת ההזמנה
+                הוא מחיר משוער בלבד. המחיר הסופי נקבע לאחר שקילה בפועל של המוצרים.
+              </li>
+              <li>
+                <strong>סטיות במשקל (בודדים):</strong> בהזמנת פריטים "בודדים",
+                המשקל בפועל עשוי להיות שונה מהכמות שהוזמנה, מאחר שכל פריט נשקל
+                בנפרד ובמשקל שונה. ביצוע ההזמנה מהווה אישור והסכמה לכך.
+              </li>
+              <li>העמותה רשאית להגביל כמויות או לבטל פריטים בהתאם למלאי.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">3. תשלום וחיוב</h2>
+            <ul className="list-disc pr-6 space-y-1">
+              <li>התשלום מתבצע באמצעות כרטיס אשראי דרך מערכת סליקה מאובטחת.</li>
+              <li>
+                בעת רישום כרטיס אשראי מבוצע חיוב אימות בסך 1 ש"ח, המקוזז מסכום
+                ההזמנה הראשונה.
+              </li>
+              <li>
+                החיוב הסופי מתבצע לאחר קביעת המחיר הסופי (לאחר שקילה), בהתאם למשקל
+                בפועל.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">4. ביטול הזמנה</h2>
             <p>
-              חלק מהמוצרים נמכרים לפי משקל. המחיר המוצג בעת ההזמנה הוא <strong>מחיר משוער</strong>{" "}
-              בלבד, המבוסס על משקל ממוצע. <strong>המחיר הסופי</strong> נקבע לאחר שקילה בפועל של
-              המוצרים, וייתכנו הפרשים בהתאם למשקל המדויק.
-            </p>
-            <p>
-              לאחר קביעת המחיר הסופי, תישלח אליך הודעה עם קישור לתשלום, או שהתשלום יבוצע באמצעות אמצעי
-              התשלום שנשמר.
+              ניתן לבטל או לשנות הזמנה כל עוד לא נקבע המחיר הסופי (טרם שקילה) ובתוך
+              מועד הסגירה של המכירה. ביטול עסקה יתבצע בהתאם להוראות חוק הגנת הצרכן,
+              התשמ"א-1981, ככל שהן חלות.
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">תשלום</h2>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">5. אחריות</h2>
             <p>
-              התשלום מתבצע באמצעות כרטיס אשראי דרך חברת סליקה מאובטחת. בעת ההרשמה מתבצע חיוב אימות
-              חד-פעמי בסך 1 ש"ח לצורך אימות תקינות הכרטיס, אשר יקוזז מההזמנה הראשונה.
+              העמותה עושה מאמץ לספק מידע מדויק ושירות תקין. עם זאת, העמותה לא תישא
+              באחריות לנזק עקיף הנובע משימוש באתר או מתקלות טכניות שאינן בשליטתה.
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">הזמנות וביטולים</h2>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">6. קניין רוחני</h2>
             <p>
-              הזמנות ניתן לבצע בתקופת המכירה הפעילה בלבד. לבירורים, שינויים או ביטולים, יש לפנות
-              בהקדם דרך פרטי הקשר באתר. ביטול הזמנה כפוף לזמינות ולשלב שבו נמצאת ההזמנה.
+              כל התכנים באתר, לרבות עיצוב, טקסטים ותמונות, הם קניינה של העמותה ואין
+              לעשות בהם שימוש ללא רשות.
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">איסוף</h2>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">7. פרטיות</h2>
             <p>
-              האיסוף מתבצע בנקודת החלוקה שבחרת, במועדים ובשעות המפורסמים לכל נקודה. באחריותך לאסוף את
-              ההזמנה במועד שנקבע.
+              השימוש באתר כפוף גם ל
+              <a href="/privacy" className="text-brand-rust underline underline-offset-2">
+                מדיניות הפרטיות
+              </a>
+              .
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="text-lg font-bold text-brand-slatedark">אחריות</h2>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">8. דין וסמכות שיפוט</h2>
             <p>
-              אנו עושים כמיטב יכולתנו לספק מוצרים טריים ואיכותיים ולהציג מידע מדויק. איננו אחראים
-              לעיכובים או תקלות הנובעים מגורמים שאינם בשליטתנו.
+              על תנאים אלו יחולו דיני מדינת ישראל, וסמכות השיפוט הבלעדית בכל
+              מחלוקת נתונה לבתי המשפט המוסמכים במדינת ישראל.
             </p>
           </section>
 
-          <div className="pt-4 border-t flex gap-4 text-sm">
-            <Link href="/" className="text-brand-rust font-medium">
-              ← חזרה לדף הבית
-            </Link>
-            <Link href="/privacy" className="text-brand-rust font-medium">
-              מדיניות פרטיות
-            </Link>
-          </div>
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">9. יצירת קשר</h2>
+            <p>
+              בכל שאלה בנוגע לתנאי שימוש אלו:{" "}
+              <a href="mailto:m5402088@gmail.com" className="text-brand-rust underline underline-offset-2">
+                m5402088@gmail.com
+              </a>
+            </p>
+          </section>
+
+          <p className="text-sm text-zinc-500 border-t pt-4 mt-6">
+            תודה שבחרתם בצדקת רבותינו. אנו מאחלים לכם חוויית שירות נעימה.
+          </p>
         </div>
       </div>
     </main>
