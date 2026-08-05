@@ -73,7 +73,47 @@ export default function SaleSummaryPage() {
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [openPoint, setOpenPoint] = useState<string | null>(null);
+  // אילו נקודות פתוחות כרגע (Set מאפשר לפתוח כמה במקביל, לא כמו accordion)
+  const [openPoints, setOpenPoints] = useState<Set<string>>(new Set());
+  // אילו נקודות המנהל בחר להציג. null = הצג את כולן (ברירת מחדל).
+  // Set של pointIds = הצג רק אותן. שימושי כשיש הרבה נקודות ורוצים להתמקד ב-1-2.
+  const [visiblePointIds, setVisiblePointIds] = useState<Set<string> | null>(null);
+  const [showPointFilter, setShowPointFilter] = useState(false);
+
+  function togglePointOpen(pointId: string) {
+    setOpenPoints((prev) => {
+      const next = new Set(prev);
+      if (next.has(pointId)) next.delete(pointId);
+      else next.add(pointId);
+      return next;
+    });
+  }
+
+  function togglePointVisible(pointId: string) {
+    setVisiblePointIds((prev) => {
+      // אם עוד לא בחרו כלום (null), מתחילים set חדש עם כל השאר חוץ מזה שהוסר
+      if (prev === null) {
+        // ברגע שהמשתמש מסיר נקודה - מציגים את השאר
+        const all = new Set(data?.points.map((p) => p.pointId) ?? []);
+        all.delete(pointId);
+        return all;
+      }
+      const next = new Set(prev);
+      if (next.has(pointId)) next.delete(pointId);
+      else next.add(pointId);
+      // אם המנהל סימן שוב את כולם - חוזרים ל-null (הכל)
+      if (next.size === (data?.points.length ?? 0)) return null;
+      return next;
+    });
+  }
+
+  function selectAllPoints() {
+    setVisiblePointIds(null);
+  }
+
+  function selectNonePoints() {
+    setVisiblePointIds(new Set());
+  }
 
   async function load() {
     setLoading(true);
@@ -330,12 +370,81 @@ export default function SaleSummaryPage() {
 
       {/* פירוט לפי נקודה */}
       <div>
-        <h2 className="text-lg font-bold text-brand-slatedark mb-2">לפי נקודת חלוקה</h2>
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+          <h2 className="text-lg font-bold text-brand-slatedark">לפי נקודת חלוקה</h2>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500">
+              {visiblePointIds === null
+                ? `מציג את כל ${data.points.length} הנקודות`
+                : `מציג ${visiblePointIds.size} מתוך ${data.points.length} נקודות`}
+            </span>
+            <button
+              onClick={() => setShowPointFilter(!showPointFilter)}
+              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 font-bold no-print"
+            >
+              {showPointFilter ? "סגור בחירה" : "🎯 בחר נקודות"}
+            </button>
+          </div>
+        </div>
+
+        {showPointFilter && (
+          <div className="card p-3 mb-3 no-print space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-bold text-zinc-500">
+                סמן אילו נקודות להציג:
+              </div>
+              <div className="flex gap-1">
+                <button
+                  onClick={selectAllPoints}
+                  className="text-[10px] px-2 py-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold"
+                >
+                  בחר הכל
+                </button>
+                <button
+                  onClick={selectNonePoints}
+                  className="text-[10px] px-2 py-1 rounded bg-zinc-100 hover:bg-zinc-200 font-bold"
+                >
+                  נקה
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+              {data.points.map((pt) => {
+                const isChecked = visiblePointIds === null || visiblePointIds.has(pt.pointId);
+                return (
+                  <label
+                    key={pt.pointId}
+                    className={`flex items-center gap-2 p-2 rounded cursor-pointer text-sm ${
+                      isChecked ? "bg-emerald-50" : "bg-white hover:bg-zinc-50"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => togglePointVisible(pt.pointId)}
+                      className="w-4 h-4 accent-emerald-600"
+                    />
+                    <span className="flex-1 min-w-0 truncate">
+                      {pt.city ? `${pt.city} — ` : ""}
+                      {pt.pointName}
+                    </span>
+                    <span className="text-[10px] text-zinc-500 shrink-0">
+                      {pt.orderCount}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="space-y-2">
-          {data.points.map((pt) => (
+          {data.points
+            .filter((pt) => visiblePointIds === null || visiblePointIds.has(pt.pointId))
+            .map((pt) => (
             <div key={pt.pointId} className="card p-4">
               <button
-                onClick={() => setOpenPoint(openPoint === pt.pointId ? null : pt.pointId)}
+                onClick={() => togglePointOpen(pt.pointId)}
                 className="w-full flex justify-between items-center text-right"
               >
                 <div>
@@ -352,7 +461,7 @@ export default function SaleSummaryPage() {
                 </span>
               </button>
 
-              {openPoint === pt.pointId && (
+              {openPoints.has(pt.pointId) && (
                 <div className="mt-3 border-t pt-3">
                   <div className="flex justify-end mb-2 no-print">
                     <button onClick={() => exportPointCsv(pt)} className="btn-ghost btn-sm">

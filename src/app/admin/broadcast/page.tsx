@@ -13,6 +13,7 @@ type Customer = {
   phone: string | null;
   pointId: string | null;
   pointName: string | null;
+  agreedToEmails: boolean;
 };
 
 export default function AdminBroadcastPage() {
@@ -48,17 +49,27 @@ export default function AdminBroadcastPage() {
       });
   }, []);
 
-  // חישוב מספר הנמענים לפי המצב הנוכחי
+  // חישוב מספר הנמענים לפי המצב הנוכחי - סופרים רק את מי שאישר!
+  // (הסינון בפועל בשליחה בשרת יוודא זאת שוב, זו רק תצוגה מדויקת למנהל)
   const recipientCount = useMemo(() => {
-    if (mode === "all") return customers.length;
+    const consented = customers.filter((c) => c.agreedToEmails);
+    if (mode === "all") return consented.length;
     if (mode === "point") {
       if (selectedPointIds.size === 0) return 0;
-      return customers.filter(
+      return consented.filter(
         (c) => c.pointId && selectedPointIds.has(c.pointId)
       ).length;
     }
-    return selectedCustomerIds.size;
+    // manual: המנהל בחר לקוחות ידנית - אנחנו סופרים רק את המאושרים מתוך הבחירה
+    return consented.filter((c) => selectedCustomerIds.has(c.id)).length;
   }, [mode, customers, selectedPointIds, selectedCustomerIds]);
+
+  // נתונים סטטיסטיים לתצוגה למנהל
+  const stats = useMemo(() => {
+    const total = customers.length;
+    const consented = customers.filter((c) => c.agreedToEmails).length;
+    return { total, consented, notConsented: total - consented };
+  }, [customers]);
 
   // סינון לקוחות לחיפוש (במצב manual)
   const filteredCustomers = useMemo(() => {
@@ -230,7 +241,7 @@ export default function AdminBroadcastPage() {
             onClick={() => setMode("all")}
             icon="🌐"
             label="כל הלקוחות"
-            hint={`${customers.length} לקוחות`}
+            hint={`${stats.consented} מאושרים / ${stats.total} רשומים`}
           />
           <ModeButton
             active={mode === "point"}
@@ -247,6 +258,13 @@ export default function AdminBroadcastPage() {
             hint="לקוח אחר לקוח"
           />
         </div>
+
+        {stats.notConsented > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
+            ⚠️ יש {stats.notConsented} לקוחות שלא אישרו קבלת מיילים - הם מופיעים ברשימה אבל <strong>לא יקבלו את ההודעה</strong>.
+            (מסומנים באדום בבחירה ידנית.)
+          </div>
+        )}
 
         {/* תת-בחירה לפי מצב */}
         {mode === "point" && (
@@ -331,9 +349,11 @@ export default function AdminBroadcastPage() {
                       key={c.id}
                       className={`flex items-center gap-2 p-2.5 cursor-pointer transition-colors ${
                         selectedCustomerIds.has(c.id)
-                          ? "bg-emerald-50"
+                          ? c.agreedToEmails
+                            ? "bg-emerald-50"
+                            : "bg-red-50"
                           : "hover:bg-zinc-50"
-                      }`}
+                      } ${!c.agreedToEmails ? "opacity-70" : ""}`}
                     >
                       <input
                         type="checkbox"
@@ -342,8 +362,13 @@ export default function AdminBroadcastPage() {
                         className="w-4 h-4 accent-emerald-600"
                       />
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-brand-slatedark text-sm truncate">
+                        <div className="font-medium text-brand-slatedark text-sm truncate flex items-center gap-1.5">
                           {c.name}
+                          {!c.agreedToEmails && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-bold shrink-0">
+                              לא אישר
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-zinc-500 truncate">
                           {c.email}

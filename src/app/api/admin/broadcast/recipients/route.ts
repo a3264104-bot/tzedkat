@@ -15,8 +15,11 @@ export async function GET() {
       where: {
         role: "CUSTOMER",
         email: { not: null },
-        // 🆕 רק לקוחות שאישרו לקבל מיילים שיווקיים
-        agreedToEmails: true,
+        // 🚨 חשוב: לא מסננים כאן לפי agreedToEmails!
+        // רוצים שהמנהל יראה את כל הלקוחות (גם אלה שלא אישרו) כדי:
+        //   א. שיוכל למצוא לקוח ספציפי לבחירה ידנית
+        //   ב. שידע כמה לקוחות מאבד בגלל שלא אישרו
+        // הסינון בפועל של agreedToEmails קורה ב-broadcast/route.ts בשליחה.
       },
       select: {
         id: true,
@@ -25,6 +28,7 @@ export async function GET() {
         phone: true,
         defaultPointId: true,
         defaultPoint: { select: { name: true } },
+        agreedToEmails: true,
       },
       orderBy: { name: "asc" },
     }),
@@ -44,6 +48,7 @@ export async function GET() {
       phone: c.phone,
       pointId: c.defaultPointId,
       pointName: c.defaultPoint?.name ?? null,
+      agreedToEmails: c.agreedToEmails,
     })),
   });
 }

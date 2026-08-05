@@ -101,16 +101,30 @@ export default function AdminDeliveryNotesClient({
     if (!file || !pricelistId) return;
     e.target.value = ""; // אפס את האינפוט כדי לאפשר העלאה חוזרת של אותו קובץ
 
+    // זיהוי סוג הקובץ - תמונה או PDF
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const isImage = file.type.startsWith("image/");
+
+    if (!isPdf && !isImage) {
+      setUploadState({
+        stage: "error",
+        error: "פורמט לא נתמך - יש להעלות תמונה או PDF",
+      });
+      return;
+    }
+
     setUploadState({ stage: "compressing" });
 
     try {
-      // דחיסת התמונה בצד לקוח כדי לחסוך זמן שליחה ל-Gemini
-      const compressed = await compressImage(file, 1600);
+      // PDF - שולחים כמו שהוא (בלי דחיסה, שהיא מיועדת לתמונות בלבד)
+      // תמונה - דוחסים לפני שליחה כדי לחסוך זמן ב-Gemini
+      const payload = isPdf ? file : await compressImage(file, 1600);
+      const mimeType = isPdf ? "application/pdf" : "image/jpeg";
 
       setUploadState({ stage: "sending" });
 
       // המרה ל-base64
-      const base64 = await blobToBase64(compressed);
+      const base64 = await blobToBase64(payload);
 
       setUploadState({ stage: "processing" });
 
@@ -120,7 +134,7 @@ export default function AdminDeliveryNotesClient({
         body: JSON.stringify({
           pricelistId,
           imageBase64: base64,
-          mimeType: "image/jpeg",
+          mimeType,
         }),
       });
       const data = await res.json();
@@ -210,8 +224,7 @@ export default function AdminDeliveryNotesClient({
                 )}
                 <input
                   type="file"
-                  accept="image/*"
-                  capture="environment"
+                  accept="image/*,application/pdf"
                   onChange={handleFile}
                   className="hidden"
                   disabled={uploadState.stage !== "idle" && uploadState.stage !== "done" && uploadState.stage !== "error"}
