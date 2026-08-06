@@ -87,15 +87,53 @@ export async function POST(req: Request) {
     }
   }
 
-  // אם הנציג לא ציין נקודה - משתמשים בנקודה של הנציג עצמו (הכי סביר שהלקוח יאסוף שם)
-  let effectivePointId = defaultPointId;
-  if (!effectivePointId) {
+  // ─── קביעת נקודת ברירת המחדל של הלקוח, עם אכיפת שייכות לנציג ───
+  // נציג יכול לשייך לקוח חדש *רק* לאחת מנקודות החלוקה שלו.
+  // ADMIN לא מוגבל. נציג ללא נקודות כלל - נחסם (אין לו נקודה לשייך אליה).
+  //
+  // טוענים את כל נקודות הנציג (many-to-many דרך AgentPoint), עם נפילה
+  // ל-agentPointId הישן אם עדיין לא הועבר.
+  let effectivePointId: string | null = defaultPointId;
+
+  if (role === "ADMIN") {
+    // מנהל: מכבדים את מה שנשלח (או null). אין הגבלת נקודה.
+    effectivePointId = defaultPointId || null;
+  } else {
+    // נציג: מחשבים את רשימת נקודותיו
     const agent = await prisma.customer.findUnique({
       where: { id: agentId },
-      select: { agentPointId: true },
+      select: {
+        agentPointId: true,
+        agentPoints: { select: { pointId: true } },
+      },
     });
-    if (agent?.agentPointId) {
-      effectivePointId = agent.agentPointId;
+    const agentPointIds =
+      agent && agent.agentPoints.length > 0
+        ? agent.agentPoints.map((ap) => ap.pointId)
+        : agent?.agentPointId
+          ? [agent.agentPointId]
+          : [];
+
+    if (agentPointIds.length === 0) {
+      return NextResponse.json(
+        { error: "אין לך נקודת חלוקה משויכת. פנה למנהל." },
+        { status: 403 }
+      );
+    }
+
+    if (defaultPointId) {
+      // הנציג ציין נקודה - חייבת להיות אחת משלו
+      if (!agentPointIds.includes(defaultPointId)) {
+        return NextResponse.json(
+          { error: "לא ניתן לשייך לקוח לנקודה שאינה שלך" },
+          { status: 403 }
+        );
+      }
+      effectivePointId = defaultPointId;
+    } else {
+      // לא צוינה נקודה - נופלים לנקודה הראשונה של הנציג.
+      // (ה-UI הנוכחי לא שולח נקודה; הבחירה האמיתית קורית בזמן ההזמנה ב-OrderFlow.)
+      effectivePointId = agentPointIds[0];
     }
   }
 

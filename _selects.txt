@@ -1,0 +1,128 @@
+src\app\api\account\route.ts:20:      defaultPoint: { select: { id: true, name: true, city: true } },
+src\app\api\account\route.ts:24:          point: { select: { name: true, city: true } },
+src\app\api\account\route.ts:192:    include: { defaultPoint: { select: { id: true, name: true, city: true } } },
+src\app\api\admin\agent-payments\route.ts:23:    select: {
+src\app\api\admin\agent-payments\route.ts:28:      agentPoint: { select: { id: true, name: true } },
+src\app\api\admin\agent-payments\route.ts:43:            select: {
+src\app\api\admin\agent-payments\route.ts:58:          pricelist: { select: { id: true, name: true } },
+src\app\api\admin\agent-payments\route.ts:184:    select: { id: true, role: true },
+src\app\api\admin\agent-payments\[id]\route.ts:18:    select: { id: true },
+src\app\api\admin\agents\route.ts:21:    include: { agentPoint: { select: { id: true, name: true, city: true } } },
+src\app\api\admin\agents\[id]\profile\route.ts:20:    select: {
+src\app\api\admin\agents\[id]\profile\route.ts:28:      agentPoint: { select: { id: true, name: true, city: true } },
+src\app\api\admin\agents\[id]\profile\route.ts:44:    select: { id: true, name: true, city: true },
+src\app\api\admin\agents\[id]\profile\route.ts:53:        select: {
+src\app\api\admin\agents\[id]\profile\route.ts:66:      pricelist: { select: { id: true, name: true } },
+src\app\api\admin\agents\[id]\profile\route.ts:163:    select: { role: true },
+src\app\api\admin\agents\[id]\reset-password\route.ts:36:    select: {
+src\app\api\admin\agents\[id]\sale-detail\route.ts:27:    select: {
+src\app\api\admin\agents\[id]\sale-detail\route.ts:34:      agentPoint: { select: { id: true, name: true, city: true } },
+src\app\api\admin\agents\[id]\sale-detail\route.ts:47:    select: {
+src\app\api\admin\agents\[id]\sale-detail\route.ts:73:      point: { select: { id: true, name: true } },
+src\app\api\admin\agents\[id]\sale-detail\route.ts:76:          product: { select: { id: true, name: true, unit: true } },
+src\app\api\admin\agents\[id]\sale-detail\route.ts:89:          product: { select: { id: true, name: true, unit: true } },
+src\app\api\admin\broadcast\recipients\route.ts:24:      select: {
+src\app\api\admin\broadcast\recipients\route.ts:30:        defaultPoint: { select: { name: true } },
+src\app\api\admin\broadcast\recipients\route.ts:37:      select: { id: true, name: true, city: true },
+src\app\api\admin\broadcast\route.ts:70:    select: { id: true, name: true, email: true },
+src\app\api\admin\charge\route.ts:152:        select: { agentCanCharge: true, agentPointId: true },
+src\app\api\admin\charge\route.ts:251:        select: { paymentStatus: true },
+src\app\api\admin\customers\route.ts:26:      defaultPoint: { select: { name: true, city: true } },
+src\app\api\admin\customers\route.ts:27:      _count: { select: { orders: true } },
+src\app\api\admin\customers\route.ts:30:        select: {
+src\app\api\admin\customers\route.ts:31:          point: { select: { id: true, name: true, city: true } },
+src\app\api\admin\customers\[id]\route.ts:131:          select: { id: true },
+src\app\api\admin\debts\route.ts:18:      customer: { select: { email: true, phone: true } },
+src\app\api\admin\debts\route.ts:19:      point: { select: { name: true } },
+src\app\api\admin\delivery-notes\route.ts:29:    select: { id: true },
+src\app\api\admin\delivery-notes\route.ts:51:    select: { id: true, name: true },
+src\app\api\admin\delivery-notes\route.ts:91:          product: { select: { id: true, name: true } },
+src\app\api\admin\delivery-notes\route.ts:123:          product: { select: { id: true, name: true } },
+src\app\api\admin\delivery-notes\route.ts:126:      _count: { select: { items: true } },
+src\app\api\admin\delivery-notes\[id]\route.ts:60:          include: { product: { select: { id: true, name: true } } },
+src\app\api\admin\delivery-notes\[id]\route.ts:110:        include: { product: { select: { id: true, name: true } } },
+src\app\api\admin\delivery-notes\[id]\route.ts:128:    select: { status: true },
+src\app\api\admin\export-sale\[pricelistId]\route.ts:45:    select: {
+src\app\api\admin\export-sale\[pricelistId]\route.ts:60:        include: { product: { select: { id: true, name: true } } },
+src\app\api\admin\export-sale\[pricelistId]\route.ts:83:      point: { select: { id: true, name: true } },
+src\app\api\admin\export-sale\[pricelistId]\route.ts:93:      agent: { select: { id: true, name: true } },
+src\app\api\admin\export-sale\[pricelistId]\route.ts:103:        select: {
+src\app\api\admin\export-sale\[pricelistId]\route.ts:105:          agentPoint: { select: { id: true, name: true } },
+src\app\api\admin\kashrut\route.ts:19:      _count: { select: { products: true } },
+src\app\api\admin\notify-arrival\route.ts:31:      select: { id: true, name: true, deliveryDateText: true },
+src\app\api\admin\notify-arrival\route.ts:46:        customer: { select: { email: true, name: true } },
+src\app\api\admin\notify-arrival\route.ts:47:        point: { select: { name: true, address: true, deliveryHours: true } },
+src\app\api\admin\notify-arrival\route.ts:127:      ? (await prisma.deliveryPoint.findUnique({ where: { id: pointId }, select: { name: true } }))?.name || pointId
+src\app\api\admin\orders\[id]\route.ts:21:        select: {
+src\app\api\admin\orders\[id]\route.ts:194:        select: { orderFee: true },
+src\app\api\admin\payments\route.ts:68:      select: {
+src\app\api\admin\payments\route.ts:88:          select: {
+src\app\api\admin\pending-weights\route.ts:49:      select: {
+src\app\api\admin\pending-weights\route.ts:61:          select: {
+src\app\api\admin\personal-products\route.ts:17:      point: { select: { id: true, name: true, city: true } },
+src\app\api\admin\personal-requests\route.ts:16:      items: { select: { productName: true, quantity: true } },
+src\app\api\admin\personal-requests\[id]\route.ts:66:    select: { status: true },
+src\app\api\admin\pricelists\route.ts:10:      _count: { select: { orders: true, products: true, points: true } },
+src\app\api\admin\reports\route.ts:51:    select: { id: true, name: true, unit: true, limitedQtyAmount: true },
+src\app\api\admin\sale-control\[pricelistId]\route.ts:20:    select: {
+src\app\api\admin\sale-control\[pricelistId]\route.ts:35:        include: { product: { select: { id: true, name: true } } },
+src\app\api\admin\sale-control\[pricelistId]\route.ts:62:      customer: { select: { id: true, name: true } },
+src\app\api\admin\sale-control\[pricelistId]\route.ts:63:      point: { select: { id: true, name: true } },
+src\app\api\admin\sale-control\[pricelistId]\route.ts:113:      agent: { select: { id: true, name: true } },
+src\app\api\admin\sale-control\[pricelistId]\route.ts:166:        select: { name: true },
+src\app\api\admin\sale-control\[pricelistId]\route.ts:205:        select: {
+src\app\api\admin\sale-control\[pricelistId]\route.ts:207:          agentPoint: { select: { id: true, name: true } },
+src\app\api\admin\sale-summary\route.ts:33:      items: { include: { product: { select: { id: true, limitedQty: true, limitedQtyAmount: true, saleType: true, priceType: true } } } },
+src\app\api\admin\sale-summary\route.ts:34:      point: { select: { id: true, name: true, city: true } },
+src\app\api\admin\weight-review\[pricelistId]\route.ts:19:    select: {
+src\app\api\admin\weight-review\[pricelistId]\route.ts:31:    select: { id: true, name: true },
+src\app\api\admin\weight-review\[pricelistId]\route.ts:43:      point: { select: { id: true, name: true } },
+src\app\api\admin\weight-review\[pricelistId]\route.ts:45:        select: {
+src\app\api\admin\weight-review-item\[id]\route.ts:25:    select: {
+src\app\api\admin\weight-review-item\[id]\route.ts:29:        select: {
+src\app\api\agent\customer-create\route.ts:95:      select: { agentPointId: true },
+src\app\api\agent\customer-create\route.ts:128:    select: {
+src\app\api\agent\customer-search\route.ts:32:    select: {
+src\app\api\agent\customer-search\route.ts:41:      defaultPoint: { select: { id: true, name: true, city: true } },
+src\app\api\agent\customer-search\route.ts:42:      _count: { select: { orders: true } },
+src\app\api\agent\customers\route.ts:58:      defaultPoint: { select: { name: true, city: true } },
+src\app\api\agent\customers\route.ts:59:      _count: { select: { orders: true } },
+src\app\api\agent\export-sale\[pricelistId]\route.ts:26:    select: {
+src\app\api\agent\export-sale\[pricelistId]\route.ts:49:        include: { product: { select: { name: true, unit: true } } },
+src\app\api\agent\export-sale\[pricelistId]\route.ts:59:        include: { product: { select: { id: true, name: true } } },
+src\app\api\agent\my-debts\route.ts:18:        select: {
+src\app\api\agent\my-debts\route.ts:32:      pricelist: { select: { id: true, name: true } },
+src\app\api\agent\order-item\[id]\route.ts:30:        select: { id: true, pointId: true, pricelistId: true, status: true },
+src\app\api\agent\order-item\[id]\route.ts:33:        select: {
+src\app\api\agent\order-item\[id]\route.ts:102:      select: {
+src\app\api\agent\order-item\[id]\route.ts:145:      product: { select: { id: true, name: true, unit: true } },
+src\app\api\agent\order-item\[id]\route.ts:176:    select: {
+src\app\api\agent\orders\[id]\route.ts:84:      include: { product: { select: { saleType: true, priceType: true } } },
+src\app\api\agent\sale\[pricelistId]\route.ts:20:    select: {
+src\app\api\agent\sale\[pricelistId]\route.ts:46:      point: { select: { id: true, name: true, city: true } },
+src\app\api\agent\sale\[pricelistId]\route.ts:47:      customer: { select: { id: true, name: true, phone: true } },
+src\app\api\agent\sale\[pricelistId]\route.ts:51:            select: {
+src\app\api\agent\sale\[pricelistId]\route.ts:78:          product: { select: { id: true, name: true, unit: true } },
+src\app\api\agent\sale\[pricelistId]\route.ts:93:          product: { select: { id: true, name: true } },
+src\app\api\agent\sale\[pricelistId]\route.ts:134:        select: {
+src\app\api\agent\sale\[pricelistId]\route.ts:139:          category: { select: { name: true } },
+src\app\api\agent\walkin\route.ts:57:        select: { price: true },
+src\app\api\agent\walkin\route.ts:128:          product: { select: { id: true, name: true, unit: true } },
+src\app\api\agent\walkin\route.ts:168:    select: {
+src\app\api\agent\walkin\[id]\route.ts:19:    select: {
+src\app\api\agent\walkin\[id]\route.ts:82:    select: { id: true, agentId: true, pricelistId: true },
+src\app\api\agent\walkin\[id]\route.ts:96:    select: {
+src\app\api\agent\walkin\[id]\route.ts:112:    select: {
+src\app\api\agent\walkin\[id]\send-summary\route.ts:38:      pricelist: { select: { name: true, deliveryDateText: true } },
+src\app\api\customer\orders\[id]\route.ts:23:      pricelist: { select: { closeDate: true, editDeadline: true } },
+src\app\api\customer\orders\[id]\route.ts:180:        select: {
+src\app\api\customer\orders\[id]\route.ts:182:          pricelist: { select: { singleSurcharge: true } },
+src\app\api\customer\points\route.ts:9:    select: { id: true, name: true, city: true },
+src\app\api\customer\save-token\route.ts:41:          select: { agentCanUpdateCards: true },
+src\app\api\customer\save-token\route.ts:100:      select: { id: true, finalTotal: true },
+src\app\api\customer\verification-status\route.ts:37:    select: {
+src\app\api\orders\route.ts:94:      select: {
+src\app\api\personal-request\route.ts:88:      select: {
+src\app\api\personal-request\route.ts:121:        select: { email: true },
+src\app\api\personal-request\[id]\messages\route.ts:19:    select: { id: true, customerId: true },
+src\app\api\webhooks\nedarim\route.ts:196:          select: { id: true, paymentStatus: true, finalTotal: true },

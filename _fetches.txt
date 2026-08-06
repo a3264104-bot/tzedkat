@@ -1,0 +1,80 @@
+src\app\account\AccountClient.tsx:117:      const res = await fetch("/api/account", {
+src\app\account\AccountClient.tsx:138:      const res = await fetch("/api/account", {
+src\app\account\AccountClient.tsx:160:      const res = await fetch("/api/account", {
+src\app\account\AccountClient.tsx:179:      await fetch("/api/account", {
+src\app\account\AccountClient.tsx:946:      const res = await fetch("/api/account", {
+src\app\admin\agent-debts\AdminAgentDebtsClient.tsx:65:      const res = await fetch("/api/admin/agent-payments", { cache: "no-store" });
+src\app\admin\agent-debts\AdminAgentDebtsClient.tsx:436:      const res = await fetch(`/api/admin/agent-payments/${payment.id}`, {
+src\app\admin\agent-debts\AdminAgentDebtsClient.tsx:515:      const res = await fetch("/api/admin/agent-payments", {
+src\app\admin\agents\[id]\profile\AgentProfileClient.tsx:89:      const res = await fetch(`/api/admin/agents/${agentId}/profile`, {
+src\app\admin\agents\[id]\profile\AgentProfileClient.tsx:115:      const res = await fetch(`/api/admin/agents/${agentId}/reset-password`, {
+src\app\admin\agents\[id]\profile\AgentProfileClient.tsx:570:      const res = await fetch(`/api/admin/agents/${agent.id}/profile`, {
+src\app\admin\agents\[id]\sale-detail\AgentSaleDetailClient.tsx:147:      const res = await fetch(
+src\app\admin\agents\[id]\sale-detail\AgentSaleDetailClient.tsx:174:      const res = await fetch(`/api/admin/agents/${id}/reset-password`, {
+src\app\admin\broadcast\page.tsx:39:    fetch("/api/admin/broadcast/recipients")
+src\app\admin\broadcast\page.tsx:134:      const res = await fetch("/api/admin/broadcast", {
+src\app\admin\customers\page.tsx:54:    fetch('/api/admin/points')
+src\app\admin\customers\page.tsx:137:      const res = await fetch(`/api/admin/customers/${editing.id}`, {
+src\app\admin\customers\page.tsx:172:      const res = await fetch(`/api/admin/users/${editing.id}/role`, {
+src\app\admin\customers\page.tsx:205:      const res = await fetch(`/api/admin/customers/${editing.id}`, {
+src\app\admin\delivery-notes\AdminDeliveryNotesClient.tsx:71:      const res = await fetch(
+src\app\admin\delivery-notes\AdminDeliveryNotesClient.tsx:86:      const res = await fetch(`/api/admin/products`, { cache: "no-store" });
+src\app\admin\delivery-notes\AdminDeliveryNotesClient.tsx:131:      const res = await fetch("/api/admin/delivery-notes", {
+src\app\admin\delivery-notes\AdminDeliveryNotesClient.tsx:308:      const res = await fetch(`/api/admin/delivery-notes/${note.id}`, {
+src\app\admin\delivery-notes\AdminDeliveryNotesClient.tsx:421:      const res = await fetch(`/api/admin/delivery-notes/${note.id}`, {
+src\app\admin\delivery-notes\AdminDeliveryNotesClient.tsx:462:      await fetch(`/api/admin/delivery-notes/${note.id}`, {
+src\app\admin\delivery-notes\AdminDeliveryNotesClient.tsx:480:      const res = await fetch(`/api/admin/delivery-notes/${note.id}`, {
+src\app\admin\kashrut\KashrutClient.tsx:212:      const res = await fetch("/api/admin/upload", {
+src\app\admin\orders\[id]\page.tsx:87:      const res = await fetch("/api/admin/charge", {
+src\app\admin\payments\page.tsx:101:      const res = await fetch(url, { cache: "no-store" });
+src\app\admin\payments\page.tsx:141:      const res = await fetch("/api/admin/charge", {
+src\app\admin\pending-weights\PendingWeightsClient.tsx:261:      const res = await fetch(`/api/admin/weight-review-item/${row.id}`, {
+src\app\admin\personal-products\page.tsx:50:      const res = await fetch("/api/admin/upload", { method: "POST", body: form });
+src\app\admin\personal-requests\AdminPersonalRequestsClient.tsx:53:      const res = await fetch("/api/admin/personal-requests");
+src\app\admin\personal-requests\AdminPersonalRequestsClient.tsx:68:      const res = await fetch(`/api/admin/personal-requests/${id}`, {
+src\app\admin\products\page.tsx:194:      const res = await fetch("/api/admin/upload", { method: "POST", body: form });
+src\app\admin\sale-control\[pricelistId]\AdminSaleControlClient.tsx:83:        const res = await fetch(`/api/admin/sale-control/${pricelistId}`, {
+src\app\admin\weight-review\[pricelistId]\AdminWeightReviewClient.tsx:77:      const res = await fetch(`/api/admin/weight-review/${pricelistId}`, {
+src\app\admin\weight-review\[pricelistId]\AdminWeightReviewClient.tsx:387:      const res = await fetch(`/api/admin/weight-review-item/${row.id}`, {
+src\app\admin\weight-review\[pricelistId]\AdminWeightReviewClient.tsx:413:      const res = await fetch(`/api/admin/weight-review-item/${row.id}`, {
+src\app\admin\weight-review\[pricelistId]\AdminWeightReviewClient.tsx:431:      const res = await fetch(`/api/admin/weight-review-item/${row.id}`, {
+src\app\agent\AgentClient.tsx:37:        const res = await fetch(`/api/agent/customers?q=${encodeURIComponent(query)}`);
+src\app\agent\customer\[customerId]\AgentCustomerClient.tsx:63:      const res = await fetch(`/api/agent/orders/${order.id}`, {
+src\app\agent\my-debts\AgentMyDebtsClient.tsx:63:        const res = await fetch("/api/agent/my-debts", { cache: "no-store" });
+src\app\agent\orders\[id]\AgentChargeButton.tsx:41:      const res = await fetch("/api/admin/charge", {
+src\app\agent\sale\[pricelistId]\AgentSaleClient.tsx:155:      const res = await fetch(`/api/agent/sale/${pricelistId}`, {
+src\app\agent\sale\[pricelistId]\OrderRow.tsx:42:      const res = await fetch(`/api/agent/order-item/${item.id}`, {
+src\app\agent\sale\[pricelistId]\OrderRow.tsx:63:      const res = await fetch(`/api/agent/order-item/${item.id}`, {
+src\app\agent\sale\[pricelistId]\OrderRow.tsx:80:      const res = await fetch(`/api/agent/order-item/${item.id}`, {
+src\app\agent\sale\[pricelistId]\OrderRow.tsx:99:      const res = await fetch(`/api/agent/order-item/${item.id}`, {
+src\app\agent\sale\[pricelistId]\SummaryPanel.tsx:91:      const res = await fetch(`/api/agent/summary/${pricelistId}`, {
+src\app\agent\sale\[pricelistId]\SummaryPanel.tsx:114:      const res = await fetch(`/api/agent/summary/${pricelistId}`, {
+src\app\agent\sale\[pricelistId]\WalkinList.tsx:199:      const res = await fetch(`/api/agent/walkin/${walkin.id}`, {
+src\app\agent\sale\[pricelistId]\WalkinList.tsx:217:      const res = await fetch(`/api/agent/walkin/${walkin.id}`, {
+src\app\agent\sale\[pricelistId]\WalkinList.tsx:245:      const res = await fetch(`/api/agent/walkin/${walkin.id}/send-summary`, {
+src\app\agent\sale\[pricelistId]\WalkinList.tsx:494:      const res = await fetch("/api/agent/walkin", {
+src\app\agent\sale\[pricelistId]\WeightsTable.tsx:234:      const res = await fetch(`/api/agent/order-item/${row.itemId}`, {
+src\app\agent\sale\[pricelistId]\WeightsTable.tsx:259:      const res = await fetch(`/api/agent/order-item/${row.itemId}`, {
+src\app\agent\sale\[pricelistId]\WeightsTable.tsx:277:      const res = await fetch(`/api/agent/order-item/${row.itemId}`, {
+src\app\agent\sale\[pricelistId]\WeightsTable.tsx:297:      const res = await fetch(`/api/agent/order-item/${row.itemId}`, {
+src\app\forgot-password\page.tsx:21:      const res = await fetch("/api/customer/forgot-password", {
+src\app\order\OrderFlow.tsx:163:      await fetch("/api/customer/dismiss-intro", { method: "POST" });
+src\app\order\OrderFlow.tsx:380:        const res = await fetch("/api/customer/verification-status");
+src\app\order\OrderFlow.tsx:514:              const saveRes = await fetch("/api/customer/save-token", {
+src\app\order\OrderFlow.tsx:713:      const res = await fetch(url, {
+src\app\personal-order\PersonalOrderClient.tsx:102:      const res = await fetch("/api/personal-request", {
+src\app\register\page.tsx:42:    fetch("/api/customer/points")
+src\app\register\page.tsx:79:      const res = await fetch("/api/customer/register", {
+src\app\reset-password\page.tsx:31:      const res = await fetch("/api/customer/reset-password", {
+src\components\AgentAddCustomerButton.tsx:90:        const res = await fetch(
+src\components\AgentAddCustomerButton.tsx:130:      const res = await fetch("/api/agent/customer-create", {
+src\components\CustomerOrderActions.tsx:62:      const res = await fetch(`/api/customer/orders/${orderId}`, { method: "DELETE" });
+src\components\CustomerOrderActions.tsx:164:      const res = await fetch(`/api/customer/orders/${orderId}`, {
+src\components\NotifyArrivalButton.tsx:18:    fetch("/api/admin/points")
+src\components\NotifyArrivalButton.tsx:33:      const res = await fetch("/api/admin/notify-arrival", {
+src\components\PendingWeightsAlert.tsx:24:        const res = await fetch("/api/admin/pending-weights", { cache: "no-store" });
+src\components\PersonalRequestMessages.tsx:48:      const res = await fetch(`/api/personal-request/${requestId}/messages`);
+src\components\PersonalRequestMessages.tsx:65:      const res = await fetch(`/api/personal-request/${requestId}/messages`, {
+src\components\UpdateCardButton.tsx:112:        const res = await fetch(
+src\components\UpdateCardButton.tsx:150:        const res = await fetch(`/api/customer/verification-status?customerId=${customerId}`);
+src\components\UpdateCardButton.tsx:232:        const saveRes = await fetch("/api/customer/save-token", {

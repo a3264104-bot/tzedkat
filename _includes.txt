@@ -1,0 +1,97 @@
+src\app\api\account\route.ts:19:    include: {
+src\app\api\account\route.ts:23:        include: {
+src\app\api\account\route.ts:192:    include: { defaultPoint: { select: { id: true, name: true, city: true } } },
+src\app\api\admin\agent-payments\route.ts:41:        include: {
+src\app\api\admin\agent-payments\route.ts:57:        include: {
+src\app\api\admin\agents\route.ts:21:    include: { agentPoint: { select: { id: true, name: true, city: true } } },
+src\app\api\admin\agents\[id]\profile\route.ts:51:    include: {
+src\app\api\admin\agents\[id]\profile\route.ts:65:    include: {
+src\app\api\admin\agents\[id]\sale-detail\route.ts:72:    include: {
+src\app\api\admin\agents\[id]\sale-detail\route.ts:75:        include: {
+src\app\api\admin\agents\[id]\sale-detail\route.ts:86:    include: {
+src\app\api\admin\agents\[id]\sale-detail\route.ts:88:        include: {
+src\app\api\admin\charge\route.ts:132:      include: {
+src\app\api\admin\customers\route.ts:25:    include: {
+src\app\api\admin\debts\route.ts:17:    include: {
+src\app\api\admin\debts\route.ts:57:    include: { items: true, customer: true },
+src\app\api\admin\delivery-notes\route.ts:87:    include: {
+src\app\api\admin\delivery-notes\route.ts:90:        include: {
+src\app\api\admin\delivery-notes\route.ts:119:    include: {
+src\app\api\admin\delivery-notes\route.ts:122:        include: {
+src\app\api\admin\delivery-notes\[id]\route.ts:28:    include: { items: true },
+src\app\api\admin\delivery-notes\[id]\route.ts:57:      include: {
+src\app\api\admin\delivery-notes\[id]\route.ts:60:          include: { product: { select: { id: true, name: true } } },
+src\app\api\admin\delivery-notes\[id]\route.ts:107:    include: {
+src\app\api\admin\delivery-notes\[id]\route.ts:110:        include: { product: { select: { id: true, name: true } } },
+src\app\api\admin\export\route.ts:21:    include: { point: true, items: true },
+src\app\api\admin\export-sale\[pricelistId]\route.ts:58:    include: {
+src\app\api\admin\export-sale\[pricelistId]\route.ts:60:        include: { product: { select: { id: true, name: true } } },
+src\app\api\admin\export-sale\[pricelistId]\route.ts:82:    include: {
+src\app\api\admin\export-sale\[pricelistId]\route.ts:91:    include: {
+src\app\api\admin\export-sale\[pricelistId]\route.ts:101:    include: {
+src\app\api\admin\kashrut\route.ts:18:    include: {
+src\app\api\admin\notify-arrival\route.ts:45:      include: {
+src\app\api\admin\orders\[id]\cash-payment\route.ts:80:      include: { items: true, customer: true },
+src\app\api\admin\orders\[id]\route.ts:13:    include: {
+src\app\api\admin\orders\[id]\route.ts:15:      items: { include: { product: true } },
+src\app\api\admin\orders\[id]\route.ts:224:    include: { point: true, items: true },
+src\app\api\admin\orders\[id]\route.ts:230:      include: { items: true, customer: true },
+src\app\api\admin\personal-products\route.ts:16:    include: {
+src\app\api\admin\personal-requests\route.ts:15:    include: {
+src\app\api\admin\pricelists\route.ts:9:    include: {
+src\app\api\admin\pricelists\route.ts:26:      include: { products: true, points: true },
+src\app\api\admin\pricelists\[id]\route.ts:11:    include: {
+src\app\api\admin\pricelists\[id]\route.ts:12:      products: { include: { product: true } },
+src\app\api\admin\pricelists\[id]\route.ts:13:      points: { include: { point: true } },
+src\app\api\admin\products\route.ts:9:    include: {
+src\app\api\admin\reports\route.ts:15:    include: { point: true, items: true },
+src\app\api\admin\sale-control\[pricelistId]\route.ts:33:    include: {
+src\app\api\admin\sale-control\[pricelistId]\route.ts:35:        include: { product: { select: { id: true, name: true } } },
+src\app\api\admin\sale-control\[pricelistId]\route.ts:60:    include: {
+src\app\api\admin\sale-control\[pricelistId]\route.ts:111:    include: {
+src\app\api\admin\sale-control\[pricelistId]\route.ts:203:    include: {
+src\app\api\admin\sale-summary\route.ts:32:    include: {
+src\app\api\admin\sale-summary\route.ts:33:      items: { include: { product: { select: { id: true, limitedQty: true, limitedQtyAmount: true, saleType: true, priceType: true } } } },
+src\app\api\admin\weight-review\[pricelistId]\route.ts:42:    include: {
+src\app\api\agent\customers\route.ts:57:    include: {
+src\app\api\agent\export-sale\[pricelistId]\route.ts:47:    include: {
+src\app\api\agent\export-sale\[pricelistId]\route.ts:49:        include: { product: { select: { name: true, unit: true } } },
+src\app\api\agent\export-sale\[pricelistId]\route.ts:57:    include: {
+src\app\api\agent\export-sale\[pricelistId]\route.ts:59:        include: { product: { select: { id: true, name: true } } },
+src\app\api\agent\my-debts\route.ts:16:    include: {
+src\app\api\agent\my-debts\route.ts:31:    include: {
+src\app\api\agent\order-item\[id]\route.ts:28:    include: {
+src\app\api\agent\order-item\[id]\route.ts:144:    include: {
+src\app\api\agent\order-item\[id]\route.ts:193:    include: {
+src\app\api\agent\order-item\[id]\route.ts:218:    include: { items: true },
+src\app\api\agent\orders\[id]\route.ts:38:    include: { items: true, customer: true },
+src\app\api\agent\orders\[id]\route.ts:84:      include: { product: { select: { saleType: true, priceType: true } } },
+src\app\api\agent\orders\[id]\route.ts:143:        include: { items: true },
+src\app\api\agent\orders\[id]\route.ts:153:    include: { items: true },
+src\app\api\agent\sale\[pricelistId]\route.ts:45:    include: {
+src\app\api\agent\sale\[pricelistId]\route.ts:49:        include: {
+src\app\api\agent\sale\[pricelistId]\route.ts:75:    include: {
+src\app\api\agent\sale\[pricelistId]\route.ts:77:        include: {
+src\app\api\agent\sale\[pricelistId]\route.ts:90:    include: {
+src\app\api\agent\sale\[pricelistId]\route.ts:92:        include: {
+src\app\api\agent\sale\[pricelistId]\route.ts:132:    include: {
+src\app\api\agent\walkin\route.ts:54:    include: {
+src\app\api\agent\walkin\route.ts:125:    include: {
+src\app\api\agent\walkin\route.ts:127:        include: {
+src\app\api\agent\walkin\route.ts:184:    include: { items: { where: { isCancelled: false } } },
+src\app\api\agent\walkin\route.ts:205:    include: { items: true },
+src\app\api\agent\walkin\[id]\route.ts:128:    include: { items: { where: { isCancelled: false } } },
+src\app\api\agent\walkin\[id]\route.ts:149:    include: { items: true },
+src\app\api\agent\walkin\[id]\send-summary\route.ts:36:    include: {
+src\app\api\customer\orders\[id]\route.ts:22:    include: {
+src\app\api\customer\orders\[id]\route.ts:121:      include: {
+src\app\api\customer\orders\[id]\route.ts:196:        include: { product: true },
+src\app\api\customer\orders\[id]\route.ts:269:      include: { items: true, customer: true, point: true },
+src\app\api\customer\orders\[id]\route.ts:308:      include: { items: true, customer: true, point: true },
+src\app\api\orders\route.ts:129:      include: {
+src\app\api\orders\route.ts:130:        products: { include: { product: true } },
+src\app\api\orders\route.ts:131:        points: { include: { point: true } },
+src\app\api\orders\route.ts:261:      include: { point: true, items: true },
+src\app\api\orders\route.ts:334:    include: { point: true, items: true },
+src\app\api\webhooks\nedarim\route.ts:260:        include: { customer: true },
+src\app\api\webhooks\nedarim\route.ts:305:          include: { items: true },

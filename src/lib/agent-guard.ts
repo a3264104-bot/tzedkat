@@ -23,15 +23,23 @@ export async function requireAgent() {
     };
   }
 
-  // טעינת פרטי הנציג (עם agentPointId + עמלות)
+  // טעינת פרטי הנציג (עם agentPointId הישן + agentPoints החדש רב-נקודתי + עמלות)
   const agent = await prisma.customer.findUnique({
     where: { id: userId },
     select: {
       id: true,
       name: true,
       role: true,
+      // 🔴 deprecated - נשמר לתאימות אחורה (קוד שעדיין קורא ל-agentPoint/agentPointId)
       agentPointId: true,
       agentPoint: { select: { id: true, name: true, city: true } },
+      // 🆕 כל הנקודות של הנציג (many-to-many דרך AgentPoint).
+      // זהו מקור האמת לסינון - נציג יכול להיות משויך לכמה נקודות.
+      agentPoints: {
+        select: {
+          point: { select: { id: true, name: true, city: true } },
+        },
+      },
       commissionRateCarton: true,
       commissionRateSingles: true,
     },
@@ -44,12 +52,23 @@ export async function requireAgent() {
     };
   }
 
+  // רשימת מזהי הנקודות של הנציג - מקור אמת אחיד לכל סינון.
+  // מעדיף את agentPoints (רב-נקודתי); נופל ל-agentPointId הישן אם המערך ריק
+  // (נציג שעדיין לא הועבר ל-many-to-many). ADMIN מקבל [] = בלי הגבלה.
+  const agentPointIds =
+    agent.agentPoints.length > 0
+      ? agent.agentPoints.map((ap) => ap.point.id)
+      : agent.agentPointId
+        ? [agent.agentPointId]
+        : [];
+
   return {
     ok: true as const,
     session,
     userId,
     role,
     agent,
+    agentPointIds,
     isAdmin: role === "ADMIN",
   };
 }

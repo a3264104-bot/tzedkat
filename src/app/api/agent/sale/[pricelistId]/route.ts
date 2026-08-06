@@ -30,10 +30,11 @@ export async function GET(
     return NextResponse.json({ error: "מחירון לא נמצא" }, { status: 404 });
   }
 
-  // הזמנות: אם הנציג משויך לנקודה - רק ההזמנות שלה. אם לא - הכל (מנהל)
+  // הזמנות: אם הנציג משויך לנקודות - רק ההזמנות שלהן. אם לא (מנהל) - הכל.
+  // g.agentPointIds מכיל את *כל* נקודות הנציג (many-to-many), לא רק אחת.
   const whereOrders: any = { pricelistId };
-  if (g.agent.agentPointId) {
-    whereOrders.pointId = g.agent.agentPointId;
+  if (g.agentPointIds.length > 0) {
+    whereOrders.pointId = { in: g.agentPointIds };
   }
 
   const orders = await prisma.order.findMany({

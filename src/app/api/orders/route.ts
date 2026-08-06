@@ -55,21 +55,54 @@ export async function POST(req: Request) {
       if (!targetCustomer || targetCustomer.role !== "CUSTOMER") {
         return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 404 });
       }
-      // אם הנציג מוגבל לנקודה - מוודאים שהלקוח שייך לנקודה הזו
+      // אכיפת נקודות הנציג (many-to-many). נציג יכול:
+      //   1. להזמין רק בשם לקוח המשויך לאחת מנקודותיו
+      //   2. לשייך את ההזמנה רק לאחת מנקודותיו (pointId היעד)
+      // ADMIN פטור משתי הבדיקות. נציג ללא נקודות כלל - נחסם.
       if (role === "AGENT") {
-        const agent = await prisma.customer.findUnique({ where: { id: sessionUserId } });
-        if (agent?.agentPointId) {
-          const belongs =
-            targetCustomer.defaultPointId === agent.agentPointId ||
-            (await prisma.order.count({
-              where: { customerId: targetCustomer.id, pointId: agent.agentPointId },
-            })) > 0;
-          if (!belongs) {
-            return NextResponse.json(
-              { error: "אין לך הרשאה להזמין עבור לקוח זה" },
-              { status: 403 }
-            );
-          }
+        const agent = await prisma.customer.findUnique({
+          where: { id: sessionUserId },
+          select: {
+            agentPointId: true,
+            agentPoints: { select: { pointId: true } },
+          },
+        });
+        // רשימת כל נקודות הנציג (עם נפילה ל-agentPointId הישן)
+        const agentPointIds =
+          agent && agent.agentPoints.length > 0
+            ? agent.agentPoints.map((ap) => ap.pointId)
+            : agent?.agentPointId
+              ? [agent.agentPointId]
+              : [];
+
+        if (agentPointIds.length === 0) {
+          return NextResponse.json(
+            { error: "אין לך נקודת חלוקה משויכת. פנה למנהל." },
+            { status: 403 }
+          );
+        }
+
+        // (1) נקודת היעד חייבת להיות אחת מנקודות הנציג
+        if (!agentPointIds.includes(data.pointId)) {
+          return NextResponse.json(
+            { error: "לא ניתן לשייך הזמנה לנקודה שאינה שלך" },
+            { status: 403 }
+          );
+        }
+
+        // (2) הלקוח חייב להיות משויך לאחת מנקודות הנציג -
+        //     או שנקודת ברירת המחדל שלו היא אחת מהן, או שיש לו הזמנה קודמת באחת מהן.
+        const belongs =
+          (targetCustomer.defaultPointId != null &&
+            agentPointIds.includes(targetCustomer.defaultPointId)) ||
+          (await prisma.order.count({
+            where: { customerId: targetCustomer.id, pointId: { in: agentPointIds } },
+          })) > 0;
+        if (!belongs) {
+          return NextResponse.json(
+            { error: "אין לך הרשאה להזמין עבור לקוח זה - הוא אינו משויך לנקודות שלך" },
+            { status: 403 }
+          );
         }
       }
       customerId = data.onBehalfOfCustomerId;
