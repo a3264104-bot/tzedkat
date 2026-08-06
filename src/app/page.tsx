@@ -383,21 +383,6 @@ export default async function Home() {
             <span>ליצירת קשר: m5402088@gmail.com</span>
           </a>
         </div>
-
-        <footer className="mt-8 pt-6 border-t border-brand-slate/10 text-center">
-          <nav className="flex justify-center gap-4 text-xs text-brand-slate/60">
-            <a href="/privacy" className="hover:text-brand-rust">
-              מדיניות פרטיות
-            </a>
-            <span aria-hidden="true">·</span>
-            <a href="/terms" className="hover:text-brand-rust">
-              תנאי שימוש
-            </a>
-          </nav>
-          <p className="text-xs text-brand-slate/40 mt-2">
-            © {new Date().getFullYear()} צדקת רבותינו
-          </p>
-        </footer>
       </div>
 
       {/* אנימציה של הכניסה למסך "יש לך הזמנה" */}

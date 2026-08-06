@@ -32,6 +32,64 @@ const CHARGEABLE_STATUSES_FOR_LOCK = {
   notIn: ["PAID", "CHARGING", "CANCELLED", "REFUNDED"],
 };
 
+// תקרת אורך בטוחה לשדה "עבור" (Avour) שנשלח לנדרים.
+// נדרים לא מתעדים מגבלה מדויקת; 250 תו שמרני כדי שהחיוב לא ייכשל/ייחתך.
+const AVOUR_MAX_LEN = 250;
+
+// ─────────────────────────────────────────────────────────────
+// בונה את טקסט ה-"עבור" (Avour) שנדרים מציגים במייל למנהל כ"הערות".
+// כולל: מספר הזמנה, נקודת חלוקה (+עיר), תאריך חלוקה, ומספר הפריטים.
+//
+// עדיפות קיצוץ: מספר ההזמנה, הנקודה והתאריך תמיד נכנסים (הכי חשובים למנהל).
+// אם עדיין חורג מ-AVOUR_MAX_LEN - חותכים בזהירות ומוסיפים "…".
+//
+// שים לב: לא שולחים פירוט משקלים/מחירים per-item (לבקשת המשתמש) -
+// רק ספירת הפריטים הלא-מבוטלים בהזמנה.
+// ─────────────────────────────────────────────────────────────
+function buildChargeAvour(input: {
+  orderNumber: number;
+  pointName?: string | null;
+  pointCity?: string | null;
+  deliveryDate?: string | null;
+  itemCount: number;
+}): string {
+  const { orderNumber, pointName, pointCity, deliveryDate, itemCount } = input;
+
+  const parts: string[] = [`הזמנה #${orderNumber}`];
+
+  // נקודת חלוקה (+ עיר אם שונה/קיימת)
+  const point = (pointName || "").trim();
+  const city = (pointCity || "").trim();
+  if (point && city && !point.includes(city)) {
+    parts.push(`נקודה: ${point} (${city})`);
+  } else if (point) {
+    parts.push(`נקודה: ${point}`);
+  } else if (city) {
+    parts.push(`עיר: ${city}`);
+  }
+
+  // תאריך חלוקה
+  const date = (deliveryDate || "").trim();
+  if (date) {
+    parts.push(`חלוקה: ${date}`);
+  }
+
+  // מספר פריטים (ספירה בלבד, לא פירוט)
+  if (itemCount > 0) {
+    parts.push(`${itemCount} פריטים`);
+  }
+
+  let avour = parts.join(" | ");
+
+  // קיצוץ חכם: אם חורג מהתקרה, חותכים ומוסיפים אליפסיס.
+  // המבנה מבטיח שמספר ההזמנה + הנקודה (החלקים הראשונים) שורדים.
+  if (avour.length > AVOUR_MAX_LEN) {
+    avour = avour.substring(0, AVOUR_MAX_LEN - 1).trimEnd() + "…";
+  }
+
+  return avour;
+}
+
 export async function POST(req: Request) {
   let orderId = "";
 
@@ -71,7 +129,13 @@ export async function POST(req: Request) {
     // 3. טעינת ההזמנה לפני נעילה - לצורך validations
     const preOrder = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { customer: true },
+      include: {
+        customer: true,
+        // point + items נטענים כדי לבנות את טקסט ה-"עבור" (Avour) העשיר
+        // שנדרים מציגים למנהל במייל: נקודת חלוקה + עיר + תאריך + מס' פריטים.
+        point: true,
+        items: true,
+      },
     });
 
     if (!preOrder) {
@@ -203,11 +267,27 @@ export async function POST(req: Request) {
     // ═══════════════════════════════════════════════════════════════
     // Phase D: קריאה לנדרים
     // ═══════════════════════════════════════════════════════════════
+    // בניית טקסט "עבור" עשיר למייל שנדרים שולחים למנהל.
+    // נקודת החלוקה: מעדיפים את ה-snapshot (מה שהלקוח ראה בזמן ההזמנה),
+    // ונופלים לנקודה החיה אם ה-snapshot ריק.
+    // ספירת הפריטים: רק פריטים שלא בוטלו (isCancelled=false).
+    const itemCount = (preOrder.items || []).filter(
+      (it: { isCancelled: boolean }) => !it.isCancelled
+    ).length;
+    const avourText = buildChargeAvour({
+      orderNumber: preOrder.orderNumber,
+      pointName: preOrder.pointNameSnapshot || preOrder.point?.name || null,
+      pointCity: preOrder.point?.city || null,
+      deliveryDate: preOrder.deliveryDateSnapshot || null,
+      itemCount,
+    });
+
     const result = await chargeToken({
       token: preOrder.customer.paymentToken,
       tokef: preOrder.customer.cardExpiry || undefined,
       amount: chargeAmount,
       orderRef: String(preOrder.orderNumber),
+      avourText,
       clientName: preOrder.customer.name || preOrder.customerName,
       phone: preOrder.customer.phone || preOrder.phone,
       email: preOrder.customer.email || undefined,

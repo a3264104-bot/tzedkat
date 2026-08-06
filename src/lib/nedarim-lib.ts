@@ -33,6 +33,10 @@ export type ChargeParams = {
   tokef?: string | null; // תוקף הכרטיס בפורמט MMYY - אופציונלי כי במצב CreateToken נדרים שומרים אותו
   amount: number;
   orderRef: string; // מספר הזמנה שלנו לתיעוד אצל נדרים
+  // טקסט "עבור" מותאם שיוצג במייל של נדרים בשדה "הערות".
+  // אם מסופק - מחליף את ברירת המחדל `הזמנה #${orderRef}`.
+  // ה-caller אחראי להגביל אורך (נדרים עלולים לחתוך/לדחות מחרוזת ארוכה מדי).
+  avourText?: string;
   clientName?: string;
   phone?: string;
   email?: string;
@@ -68,6 +72,7 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
     tokef,
     amount,
     orderRef,
+    avourText,
     clientName,
     phone,
     email,
@@ -116,7 +121,12 @@ export async function chargeToken(params: ChargeParams): Promise<ChargeResult> {
   body.set("Amount", amount.toFixed(2));
   body.set("Tashloumim", String(tashloumim));
   body.set("Currency", "1"); // 1 = ש"ח
-  body.set("Avour", `הזמנה #${orderRef}`);
+  // "עבור" - מוצג במייל של נדרים למנהל בשדה "הערות".
+  // אם ה-caller סיפק טקסט מותאם (נקודת חלוקה + תאריך + מס' פריטים) משתמשים בו,
+  // אחרת נופלים לברירת המחדל הישנה (מספר הזמנה בלבד).
+  const avourFinal =
+    avourText && avourText.trim() ? avourText.trim() : `הזמנה #${orderRef}`;
+  body.set("Avour", avourFinal);
   body.set("Groupe", "הזמנות");
 
   if (clientName) body.set("ClientName", clientName);
