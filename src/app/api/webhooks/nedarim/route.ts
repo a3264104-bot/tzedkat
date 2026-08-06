@@ -154,6 +154,36 @@ export async function POST(req: Request) {
       data["asmachta"] ||
       "";
 
+    // ═══════════════════════════════════════════════════════════════
+    // אבטחה (GRACE MODE): אימות מול Mosad שנדרים מחזירים ב-payload
+    // ═══════════════════════════════════════════════════════════════
+    // ה-webhook הזה נקרא מדפדפן הלקוח (iframe/postMessage), אז לא ניתן
+    // להשתמש בסוד בכתובת - הוא היה נחשף ב-F12. במקום זאת מאמתים מול
+    // שדה שנדרים מוסיפים בעצמם ושהתוקף לא שולט בו: מספר המוסד (Mosad).
+    //
+    // 🟡 GRACE: אם Mosad חסר בתשובה, או שאין NEDARIM_MOSAD_ID ב-env -
+    // מתריעים אבל *לא חוסמים*, כדי לא לשבור תשלומים אמיתיים לפני
+    // שאימתנו (בלוגים) שנדרים אכן מחזירים Mosad. אחרי אימות → ENFORCE.
+    const expectedMosad = String(process.env.NEDARIM_MOSAD_ID || "").trim();
+    const providedMosad = String(
+      data["Mosad"] || data["mosad"] || data["MosadId"] || data["MosadNumber"] || ""
+    ).trim();
+
+    if (!expectedMosad) {
+      console.warn("[webhook] ⚠️ GRACE: NEDARIM_MOSAD_ID not in env - Mosad check skipped");
+    } else if (providedMosad && providedMosad === expectedMosad) {
+      console.log("[webhook] ✅ Mosad verified:", providedMosad);
+    } else {
+      // Mosad חסר או לא תואם. במצב grace מתריעים וממשיכים.
+      // ⚠️ כשעוברים ל-ENFORCE: להחזיר 401 כאן ולחסום.
+      console.error(
+        `[webhook] ⚠️ GRACE: Mosad mismatch/missing (provided="${providedMosad || "(empty)"}", expected="${expectedMosad}"). ` +
+          `Allowing for now - switch to ENFORCE once logs confirm Nedarim returns Mosad.`
+      );
+      // ── לחסימה מלאה, בטל הערה מהשורה הבאה: ──
+      // return NextResponse.json({ error: "unauthorized - bad Mosad" }, { status: 401 });
+    }
+
     if (!param1) {
       console.log("WEBHOOK ERROR: missing param1");
       return NextResponse.json({ error: "missing param1", receivedKeys: Object.keys(data) }, { status: 400 });

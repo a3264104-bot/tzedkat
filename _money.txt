@@ -1,0 +1,146 @@
+src\app\api\account\route.ts:35:  // לא מחזירים passwordHash / paymentToken ללקוח
+src\app\api\account\route.ts:47:      paymentStatus: o.paymentStatus,
+src\app\api\account\route.ts:48:      paymentStatusLabel: payStatusLabel(o.paymentStatus),
+src\app\api\account\route.ts:55:      finalTotal: o.finalTotal != null ? Number(o.finalTotal) : null,
+src\app\api\admin\agents\[id]\sale-detail\route.ts:168:      finalTotal: o.finalTotal ? Number(o.finalTotal) : null,
+src\app\api\admin\charge\route.ts:174:    if (preOrder.paymentStatus === "PAID") {
+src\app\api\admin\charge\route.ts:175:      return NextResponse.json({ error: "already paid", paymentStatus: "PAID" }, { status: 409 });
+src\app\api\admin\charge\route.ts:177:    if (preOrder.paymentStatus === "CHARGING") {
+src\app\api\admin\charge\route.ts:179:        { error: "charge already in progress", paymentStatus: "CHARGING" },
+src\app\api\admin\charge\route.ts:183:    if (preOrder.finalTotal === null || preOrder.finalTotal === undefined) {
+src\app\api\admin\charge\route.ts:189:    if (!preOrder.customer.paymentToken) {
+src\app\api\admin\charge\route.ts:211:    const finalTotalNum = Number(preOrder.finalTotal);
+src\app\api\admin\charge\route.ts:213:      !preOrder.customer.creditVerificationCharged && finalTotalNum > 1;
+src\app\api\admin\charge\route.ts:215:      ? Math.round((finalTotalNum - 1) * 100) / 100
+src\app\api\admin\charge\route.ts:216:      : finalTotalNum;
+src\app\api\admin\charge\route.ts:237:        paymentStatus: CHARGEABLE_STATUSES_FOR_LOCK,
+src\app\api\admin\charge\route.ts:240:        paymentStatus: "CHARGING",
+src\app\api\admin\charge\route.ts:251:        select: { paymentStatus: true },
+src\app\api\admin\charge\route.ts:255:          error: `cannot charge - order status has changed to ${fresh?.paymentStatus || "unknown"}`,
+src\app\api\admin\charge\route.ts:256:          paymentStatus: fresh?.paymentStatus,
+src\app\api\admin\charge\route.ts:286:      token: preOrder.customer.paymentToken,
+src\app\api\admin\charge\route.ts:315:              paymentStatus: "PAID",
+src\app\api\admin\charge\route.ts:319:              amountPaid: chargeAmount,
+src\app\api\admin\charge\route.ts:349:              // paymentStatus נשאר CHARGING - לא משנים!
+src\app\api\admin\charge\route.ts:361:            paymentStatus: "CHARGING",
+src\app\api\admin\charge\route.ts:389:        paymentStatus: "PAID",
+src\app\api\admin\charge\route.ts:403:            // ⚠️ paymentStatus נשאר CHARGING - לא חוזרים ל-READY_TO_CHARGE!
+src\app\api\admin\charge\route.ts:414:          paymentStatus: "CHARGING",
+src\app\api\admin\charge\route.ts:429:              paymentStatus: "CARD_UPDATE_NEEDED",
+src\app\api\admin\charge\route.ts:450:          finalTotal: finalTotalNum,
+src\app\api\admin\charge\route.ts:460:        paymentStatus: "CARD_UPDATE_NEEDED",
+src\app\api\admin\charge\route.ts:471:          paymentStatus: "FAILED",
+src\app\api\admin\charge\route.ts:481:      paymentStatus: "FAILED",
+src\app\api\admin\charge\route.ts:509:      paymentStatus: "CHARGING",
+src\app\api\admin\charge\route.ts:512:      paymentStatus: "READY_TO_CHARGE",
+src\app\api\admin\customers\route.ts:48:      hasPaymentToken: !!c.paymentToken,
+src\app\api\admin\debts\route.ts:13:      finalTotal: { not: null },
+src\app\api\admin\debts\route.ts:14:      paymentStatus: { notIn: ["PAID", "REFUNDED"] },
+src\app\api\admin\debts\route.ts:33:      finalTotal: Number(o.finalTotal),
+src\app\api\admin\debts\route.ts:34:      amountPaid: o.amountPaid != null ? Number(o.amountPaid) : 0,
+src\app\api\admin\debts\route.ts:35:      paymentStatus: o.paymentStatus,
+src\app\api\admin\debts\route.ts:60:  if (order.paymentStatus === "PAID") {
+src\app\api\admin\export\route.ts:46:      "סה\"כ סופי": o.finalTotal ? Number(o.finalTotal) : "",
+src\app\api\admin\export\route.ts:110:      cur.total += Number(o.finalTotal ?? o.estimatedTotal);
+src\app\api\admin\orders\[id]\cash-payment\route.ts:4:import { resolvePaymentStatusFromAmount, PAYMENT_METHOD_LABELS } from "@/lib/pricing";
+src\app\api\admin\orders\[id]\cash-payment\route.ts:8:// כללים (לפי המפרט): חובה finalTotal קיים מראש; חובה receivedBy; אם amountPaid < finalTotal
+src\app\api\admin\orders\[id]\cash-payment\route.ts:16:  const amountPaid = Number(b.amountPaid);
+src\app\api\admin\orders\[id]\cash-payment\route.ts:20:  if (!amountPaid || amountPaid <= 0) {
+src\app\api\admin\orders\[id]\cash-payment\route.ts:28:  if (order.finalTotal === null) {
+src\app\api\admin\orders\[id]\cash-payment\route.ts:34:  if (order.paymentStatus === "PAID") {
+src\app\api\admin\orders\[id]\cash-payment\route.ts:38:  const finalTotal = Number(order.finalTotal);
+src\app\api\admin\orders\[id]\cash-payment\route.ts:39:  const resolved = resolvePaymentStatusFromAmount(amountPaid, finalTotal);
+src\app\api\admin\orders\[id]\cash-payment\route.ts:40:  // OVERPAID מטופל כ"שולם" לצורך paymentStatus (האזהרה כבר הוצגה ללקוח בצד הלקוח לפני אישור)
+src\app\api\admin\orders\[id]\cash-payment\route.ts:41:  const paymentStatus = resolved === "PARTIALLY_PAID" ? "PARTIALLY_PAID" : "PAID";
+src\app\api\admin\orders\[id]\cash-payment\route.ts:54:      paymentStatus,
+src\app\api\admin\orders\[id]\cash-payment\route.ts:56:      amountPaid,
+src\app\api\admin\orders\[id]\cash-payment\route.ts:67:      amountPaid,
+src\app\api\admin\orders\[id]\cash-payment\route.ts:68:      finalTotalAtTime: finalTotal,
+src\app\api\admin\orders\[id]\cash-payment\route.ts:77:  if (paymentStatus === "PAID") {
+src\app\api\admin\orders\[id]\route.ts:26:          paymentToken: true, // נשלף כדי לחשב hasToken, לא נחשף כמו שהוא
+src\app\api\admin\orders\[id]\route.ts:38:  const { paymentToken, ...safeCustomer } = order.customer ?? {};
+src\app\api\admin\orders\[id]\route.ts:42:      ? { ...safeCustomer, hasToken: !!paymentToken }
+src\app\api\admin\orders\[id]\route.ts:71:    if (STATUSES_REQUIRING_PAYMENT.includes(b.status) && current.paymentStatus !== "PAID") {
+src\app\api\admin\orders\[id]\route.ts:156:  // recompute finalTotal from items if any final prices exist
+src\app\api\admin\orders\[id]\route.ts:157:  let justSetFinalTotal = false;
+src\app\api\admin\orders\[id]\route.ts:162:    if (current.finalTotal == null) {
+src\app\api\admin\orders\[id]\route.ts:172:      customerForLink && !customerForLink.creditVerificationCharged && Number(current.finalTotal) > 1;
+src\app\api\admin\orders\[id]\route.ts:174:      ? Math.round((Number(current.finalTotal) - 1) * 100) / 100
+src\app\api\admin\orders\[id]\route.ts:175:      : Number(current.finalTotal);
+src\app\api\admin\orders\[id]\route.ts:178:    data.paymentStatus = "PAYMENT_PENDING";
+src\app\api\admin\orders\[id]\route.ts:179:    justSetFinalTotal = true; // מפעיל את שליחת מייל המחיר הסופי עם הלינק
+src\app\api\admin\orders\[id]\route.ts:184:    // 🚨 חשוב: אם יש פריט אחד שאין לו finalPrice - לא לחשב finalTotal!
+src\app\api\admin\orders\[id]\route.ts:187:    // התיקון: רק אם *כל* הפריטים שקולים - יש לנו finalTotal אמיתי.
+src\app\api\admin\orders\[id]\route.ts:197:      const newFinalTotal = Math.round((total + orderFee) * 100) / 100;
+src\app\api\admin\orders\[id]\route.ts:198:      // אם זו הפעם הראשונה שנקבע finalTotal, נעדכן גם את הסטטוס ל-FINAL_PRICE_SET (אם עדיין PENDING_REVIEW)
+src\app\api\admin\orders\[id]\route.ts:199:      if (current.finalTotal === null && current.status === "PENDING_REVIEW") {
+src\app\api\admin\orders\[id]\route.ts:203:        justSetFinalTotal = true;
+src\app\api\admin\orders\[id]\route.ts:206:        const deductOne = customerForDeduction && !customerForDeduction.creditVerificationCharged && newFinalTotal > 1;
+src\app\api\admin\orders\[id]\route.ts:207:        const chargeAmount = deductOne ? Math.round((newFinalTotal - 1) * 100) / 100 : newFinalTotal;
+src\app\api\admin\orders\[id]\route.ts:209:        data.paymentStatus = "PAYMENT_PENDING";
+src\app\api\admin\orders\[id]\route.ts:211:      data.finalTotal = newFinalTotal;
+src\app\api\admin\orders\[id]\route.ts:213:      // יש פריטים שקולים חלקית - לא מחשבים finalTotal, אבל כן מסמנים שיש פריטים מחכים לשקילה
+src\app\api\admin\orders\[id]\route.ts:214:      // (הסטטוס נשאר PENDING_REVIEW, finalTotal נשאר null)
+src\app\api\admin\orders\[id]\route.ts:219:  if ("finalTotal" in b) data.finalTotal = b.finalTotal;
+src\app\api\admin\orders\[id]\route.ts:227:  if (justSetFinalTotal) {
+src\app\api\admin\orders\[id]\route.ts:243:  return NextResponse.json({ ...order, _finalPriceJustSet: justSetFinalTotal });
+src\app\api\admin\payments\route.ts:52:    let whereClause: { paymentStatus?: string | { in: string[] } } = {};
+src\app\api\admin\payments\route.ts:56:      whereClause = { paymentStatus: statusParam };
+src\app\api\admin\payments\route.ts:58:      whereClause = { paymentStatus: { in: DEFAULT_STATUSES } };
+src\app\api\admin\payments\route.ts:73:        paymentStatus: true,
+src\app\api\admin\payments\route.ts:76:        finalTotal: true,
+src\app\api\admin\payments\route.ts:77:        amountPaid: true,
+src\app\api\admin\payments\route.ts:93:            paymentToken: true,
+src\app\api\admin\payments\route.ts:110:      paymentStatus: o.paymentStatus,
+src\app\api\admin\payments\route.ts:113:      finalTotal: o.finalTotal ? Number(o.finalTotal) : null,
+src\app\api\admin\payments\route.ts:114:      amountPaid: o.amountPaid ? Number(o.amountPaid) : null,
+src\app\api\admin\payments\route.ts:129:        hasToken: !!o.customer.paymentToken,
+src\app\api\admin\pending-weights\route.ts:46:        finalTotal: null, // הזמנה שעדיין לא נסגר עליה מחיר סופי
+src\app\api\admin\reports\route.ts:23:  const finalSales = active.reduce((s, o) => s + Number(o.finalTotal ?? 0), 0);
+src\app\api\admin\reports\route.ts:30:    cur.total += Number(o.finalTotal ?? o.estimatedTotal);
+src\app\api\admin\reports\route.ts:92:    cur.total += Number(o.finalTotal ?? o.estimatedTotal);
+src\app\api\admin\sale-summary\route.ts:62:    finalTotal: number;
+src\app\api\admin\sale-summary\route.ts:68:      paymentStatus: string;
+src\app\api\admin\sale-summary\route.ts:70:      finalTotal: number | null;
+src\app\api\admin\sale-summary\route.ts:89:    if (o.finalTotal != null) paymentSummary.finalSum += Number(o.finalTotal);
+src\app\api\admin\sale-summary\route.ts:90:    if (o.paymentStatus === "PAID") {
+src\app\api\admin\sale-summary\route.ts:92:      paymentSummary.paidSum += Number(o.amountPaid ?? o.finalTotal ?? 0);
+src\app\api\admin\sale-summary\route.ts:134:        finalTotal: 0,
+src\app\api\admin\sale-summary\route.ts:140:    if (o.paymentStatus === "PAID") pAgg.paidCount++;
+src\app\api\admin\sale-summary\route.ts:142:    if (o.finalTotal != null) pAgg.finalTotal += Number(o.finalTotal);
+src\app\api\admin\sale-summary\route.ts:148:      paymentStatus: o.paymentStatus,
+src\app\api\admin\sale-summary\route.ts:150:      finalTotal: o.finalTotal != null ? Number(o.finalTotal) : null,
+src\app\api\admin\sale-summary\route.ts:186:      finalTotal: Math.round(p.finalTotal * 100) / 100,
+src\app\api\admin\weight-review\[pricelistId]\route.ts:83:      finalTotal: o.finalTotal ? Number(o.finalTotal) : null,
+src\app\api\agent\customer-search\route.ts:40:      paymentToken: true,
+src\app\api\agent\customer-search\route.ts:68:      hasCard: !!customer.paymentToken,
+src\app\api\agent\orders\[id]\route.ts:106:    let finalTotal = 0;
+src\app\api\agent\orders\[id]\route.ts:110:      finalTotal += linePrice;
+src\app\api\agent\orders\[id]\route.ts:116:    finalTotal = Math.round(finalTotal * 100) / 100;
+src\app\api\agent\orders\[id]\route.ts:119:    const deductOne = !order.customer.creditVerificationCharged && finalTotal > 1;
+src\app\api\agent\orders\[id]\route.ts:120:    const chargeAmount = deductOne ? Math.round((finalTotal - 1) * 100) / 100 : finalTotal;
+src\app\api\agent\orders\[id]\route.ts:124:      finalTotal,
+src\app\api\agent\orders\[id]\route.ts:132:      updateData.paymentStatus = "PAYMENT_PENDING";
+src\app\api\agent\sale\[pricelistId]\route.ts:167:      finalTotal: o.finalTotal ? Number(o.finalTotal) : null,
+src\app\api\customer\orders\[id]\route.ts:15://   4. finalTotal עדיין null (עוד לא נשקלה)
+src\app\api\customer\orders\[id]\route.ts:37:  if (order.finalTotal !== null && order.finalTotal !== undefined) {
+src\app\api\customer\save-token\route.ts:86:        paymentToken: token,
+src\app\api\customer\save-token\route.ts:98:        paymentStatus: { in: ["PENDING", "PAYMENT_PENDING", "CARD_UPDATE_NEEDED", "FAILED"] },
+src\app\api\customer\save-token\route.ts:100:      select: { id: true, finalTotal: true },
+src\app\api\customer\save-token\route.ts:106:        o.finalTotal !== null && o.finalTotal !== undefined
+src\app\api\customer\save-token\route.ts:112:          paymentStatus: nextStatus,
+src\app\api\customer\verification-status\route.ts:2:// בודק אם ללקוח יש paymentToken (כרטיס אשראי שאומת ונשמר).
+src\app\api\customer\verification-status\route.ts:38:      paymentToken: true,
+src\app\api\customer\verification-status\route.ts:51:    verified: !!customer.paymentToken,
+src\app\api\orders\route.ts:147:    if (!placedByAgentId && role === "CUSTOMER" && !customer.paymentToken) {
+src\app\api\webhooks\nedarim\route.ts:170:      const isCardUpdate = !!customer.paymentToken;
+src\app\api\webhooks\nedarim\route.ts:177:          paymentToken: token || null,
+src\app\api\webhooks\nedarim\route.ts:192:            paymentStatus: {
+src\app\api\webhooks\nedarim\route.ts:196:          select: { id: true, paymentStatus: true, finalTotal: true },
+src\app\api\webhooks\nedarim\route.ts:201:            o.finalTotal !== null && o.finalTotal !== undefined
+src\app\api\webhooks\nedarim\route.ts:207:              paymentStatus: nextStatus,
+src\app\api\webhooks\nedarim\route.ts:266:      if (order.paymentStatus === "PAID") {
+src\app\api\webhooks\nedarim\route.ts:277:            paymentStatus: "PAID",
+src\app\api\webhooks\nedarim\route.ts:279:            amountPaid: amount,
+src\app\api\webhooks\nedarim\route.ts:285:        ...(token && !customer.paymentToken
+src\app\api\webhooks\nedarim\route.ts:290:                  paymentToken: token,
