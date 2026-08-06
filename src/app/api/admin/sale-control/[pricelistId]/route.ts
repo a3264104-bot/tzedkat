@@ -82,16 +82,25 @@ export async function GET(
       if (!productWeightsUsed[it.productId]) {
         productWeightsUsed[it.productId] = { entered: 0, ordered: 0, missing: 0 };
       }
-      // ק"ג שהנציג הזין
-      const w = it.agentEnteredWeight ? Number(it.agentEnteredWeight) : 0;
-      if (w > 0) {
-        productWeightsUsed[it.productId].entered += w;
+      // 🐛 תוקן: "כמה חולק בפועל" נמדד לפי actualWeight - המשקל שבאמת
+      // נמסר ללקוח וחויב עליו, כולל תיקונים שהמנהל ביצע בביקורת המשקלים.
+      // קודם נמדד רק agentEnteredWeight (שהוא "נעול לעמלה" ולא משתנה
+      // כשהמנהל מתקן), ולכן כל תיקון של המנהל יצר פער שקרי מול התעודה -
+      // עד כדי הצגת 0 חולק כשהמנהל שקל בעצמו בלי שהנציג הזין.
+      // אותה עדיפות שכבר קיימת בייצוא לאקסל (export-sale).
+      const distributed = it.actualWeight
+        ? Number(it.actualWeight)
+        : it.agentEnteredWeight
+          ? Number(it.agentEnteredWeight)
+          : 0;
+      if (distributed > 0) {
+        productWeightsUsed[it.productId].entered += distributed;
         hasData = true;
       } else {
         allEntered = false;
         productWeightsUsed[it.productId].missing++;
       }
-      itemsEntered += w > 0 ? 1 : 0;
+      itemsEntered += distributed > 0 ? 1 : 0;
 
       // מחיר סופי (או משוער)
       if (it.finalPrice) {
@@ -144,7 +153,7 @@ export async function GET(
     productName: string;
     receivedWeight: number;   // מהתעודה
     receivedCartons: number;
-    distributedWeight: number; // הוזן ע"י נציגים
+    distributedWeight: number; // מה שנמסר בפועל (actualWeight, כולל תיקוני מנהל)
     difference: number;         // מה שהתקבל - מה שחולק
     differencePercent: number;
     status: "OK" | "OVER" | "UNDER" | "SIGNIFICANT_UNDER" | "NO_NOTE";

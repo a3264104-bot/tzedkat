@@ -22,7 +22,7 @@ export async function PATCH(
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
 
-  // בדיקת בעלות: פריט חייב להיות בהזמנה של הנקודה של הנציג
+  // בדיקת בעלות: פריט חייב להיות בהזמנה של אחת מהנקודות של הנציג
   const item = await prisma.orderItem.findUnique({
     where: { id },
     include: {
@@ -46,10 +46,12 @@ export async function PATCH(
     return NextResponse.json({ error: "פריט לא נמצא" }, { status: 404 });
   }
 
-  // אם הנציג משויך לנקודה - חייב להיות שהפריט בנקודה שלו
-  if (g.agent.agentPointId && item.order.pointId !== g.agent.agentPointId) {
+  // 🐛 תוקן: הבדיקה השתמשה ב-agentPointId היחיד (deprecated), ולכן נציג
+  // המשויך לכמה נקודות נחסם מלעדכן משקלים בכל נקודה חוץ מהראשונה.
+  // g.agentPointIds מכיל את *כל* נקודות הנציג. ריק = בלי הגבלה (מנהל).
+  if (g.agentPointIds.length > 0 && !g.agentPointIds.includes(item.order.pointId)) {
     return NextResponse.json(
-      { error: "אין הרשאה - הפריט לא בנקודה שלך" },
+      { error: "אין הרשאה - הפריט לא באחת מהנקודות שלך" },
       { status: 403 }
     );
   }
@@ -175,6 +177,8 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
     where: { id: agentId },
     select: {
       agentPointId: true,
+      // 🆕 כל נקודות הנציג (many-to-many)
+      agentPoints: { select: { pointId: true } },
       commissionRateCarton: true,
       commissionRateSingles: true,
     },
@@ -184,9 +188,20 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
   const rateCarton = Number(agent.commissionRateCarton);
   const rateSingles = Number(agent.commissionRateSingles);
 
-  // כל ההזמנות של הנקודה של הנציג במכירה זו
+  // 🐛 תוקן: החישוב סינן לפי agentPointId היחיד (deprecated), ולכן נציג
+  // המשויך לכמה נקודות קיבל עמלה רק על נקודה אחת - כלומר הפסיד כסף.
+  // עכשיו מסננים לפי *כל* נקודותיו, עם נפילה ל-agentPointId הישן
+  // אם עדיין לא הועבר ל-many-to-many.
+  const agentPointIds =
+    agent.agentPoints.length > 0
+      ? agent.agentPoints.map((ap) => ap.pointId)
+      : agent.agentPointId
+        ? [agent.agentPointId]
+        : [];
+
+  // כל ההזמנות של נקודות הנציג במכירה זו
   const whereOrders: any = { pricelistId, status: { notIn: ["CANCELLED"] } };
-  if (agent.agentPointId) whereOrders.pointId = agent.agentPointId;
+  if (agentPointIds.length > 0) whereOrders.pointId = { in: agentPointIds };
 
   const orders = await prisma.order.findMany({
     where: whereOrders,
@@ -202,6 +217,8 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
   for (const order of orders) {
     let hasData = false;
     for (const it of order.items) {
+      // 📌 בכוונה agentEnteredWeight ולא actualWeight: העמלה מגיעה על מה
+      // שהנציג שקל וחילק בפועל, ולא על תיקון שהמנהל ביצע אחר כך.
       const w = it.agentEnteredWeight ? Number(it.agentEnteredWeight) : 0;
       if (w > 0) {
         hasData = true;
