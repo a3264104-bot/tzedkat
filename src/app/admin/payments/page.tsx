@@ -1,5 +1,11 @@
 "use client";
 
+// מסך ניהול תשלומים.
+//
+// 🆕 נוסף פילטר מכירה. ברירת המחדל היא *כל המכירות* בכוונה - בניגוד למסך
+//    ההזמנות. הסיבה: חיובים שנכשלו במכירות קודמות הם בדיוק מה שהמסך אמור
+//    לתפוס, ופילטר שמסתיר אותם כברירת מחדל היה מסתיר כסף שממתין לגבייה.
+
 import { useEffect, useState, useCallback } from "react";
 import { payStatusLabel, payStatusColor, payStatusNeedsAttention } from "@/lib/pay-status-lib";
 
@@ -38,8 +44,11 @@ type PayOrder = {
 };
 
 type Message = { text: string; type: "success" | "error" };
+type Pricelist = { id: string; name: string; status: string };
 
-// אפשרויות סינון במסך
+const ALL = "__all__";
+
+// אפשרויות סינון סטטוס
 const FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: "default", label: "פעולות פתוחות (ברירת מחדל)" },
   { value: "all", label: "כל הסטטוסים" },
@@ -53,19 +62,15 @@ const FILTER_OPTIONS: { value: string; label: string }[] = [
 ];
 
 // אילו סטטוסים מאפשרים ללחוץ "חייב עכשיו"?
-// READY_TO_CHARGE - המצב הרגיל (finalTotal נקבע, ממתין לחיוב)
-// FAILED - אפשר לנסות שוב (שגיאה כללית, לא כרטיס פסול)
 function canCharge(status: string): boolean {
   return status === "READY_TO_CHARGE" || status === "FAILED";
 }
 
-// פורמט מחיר בשקלים
 function fmtIls(n: number | null): string {
   if (n === null || n === undefined) return "—";
   return `${n.toFixed(2)} ₪`;
 }
 
-// פורמט תאריך קצר
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   try {
@@ -84,20 +89,31 @@ function fmtDate(iso: string | null): string {
 
 export default function PaymentsPage() {
   const [orders, setOrders] = useState<PayOrder[]>([]);
+  const [lists, setLists] = useState<Pricelist[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("default");
+  const [fPricelist, setFPricelist] = useState<string>(ALL);
   const [charging, setCharging] = useState<string | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // טעינת רשימת המכירות לבורר (ברירת המחדל נשארת "כל המכירות")
+  useEffect(() => {
+    fetch("/api/admin/pricelists", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((res: Pricelist[]) => setLists(Array.isArray(res) ? res : []))
+      .catch(() => setLists([]));
+  }, []);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
     try {
-      const url =
-        filter === "default"
-          ? "/api/admin/payments"
-          : `/api/admin/payments?status=${encodeURIComponent(filter)}`;
+      const q = new URLSearchParams();
+      if (filter !== "default") q.set("status", filter);
+      if (fPricelist !== ALL) q.set("pricelistId", fPricelist);
+      const qs = q.toString();
+      const url = qs ? `/api/admin/payments?${qs}` : "/api/admin/payments";
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -113,7 +129,7 @@ export default function PaymentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, fPricelist]);
 
   useEffect(() => {
     fetchOrders();
@@ -156,18 +172,15 @@ export default function PaymentsPage() {
         });
       }
     } catch (e: any) {
-      setMessage({
-        text: `שגיאת רשת: ${e.message || "לא ידוע"}`,
-        type: "error",
-      });
+      setMessage({ text: `שגיאת רשת: ${e.message || "לא ידוע"}`, type: "error" });
     } finally {
       setCharging(null);
       await fetchOrders();
     }
   }
 
-  // ספירת פריטים לפי סוג
   const needAttentionCount = orders.filter((o) => payStatusNeedsAttention(o.paymentStatus)).length;
+  const currentList = lists?.find((l) => l.id === fPricelist) ?? null;
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -176,7 +189,11 @@ export default function PaymentsPage() {
         <div>
           <h1 className="text-2xl font-bold text-brand-slatedark">💳 ניהול תשלומים</h1>
           <p className="text-sm text-zinc-500 mt-1">
-            חיוב אוטומטי של הזמנות באמצעות כרטיס האשראי השמור של הלקוח
+            {fPricelist === ALL
+              ? "חיוב הזמנות בכרטיס השמור — כל המכירות"
+              : currentList
+                ? `חיוב הזמנות במכירה: ${currentList.name}`
+                : "חיוב הזמנות בכרטיס השמור"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -211,12 +228,29 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* פילטר */}
+      {/* פילטרים */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <label className="text-sm text-zinc-600">סינון:</label>
+        {/* מכירה - ברירת מחדל "כל המכירות" בכוונה */}
+        <select
+          value={fPricelist}
+          onChange={(e) => setFPricelist(e.target.value)}
+          disabled={!lists}
+          aria-label="סינון לפי מכירה"
+          className="px-3 py-2 bg-white border border-zinc-300 rounded-lg text-sm max-w-[240px]"
+        >
+          <option value={ALL}>כל המכירות</option>
+          {lists?.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+              {l.status === "ACTIVE" ? " • פעילה" : ""}
+            </option>
+          ))}
+        </select>
+
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
+          aria-label="סינון לפי סטטוס תשלום"
           className="px-3 py-2 bg-white border border-zinc-300 rounded-lg text-sm"
         >
           {FILTER_OPTIONS.map((o) => (
@@ -225,10 +259,15 @@ export default function PaymentsPage() {
             </option>
           ))}
         </select>
+
         {needAttentionCount > 0 && filter === "default" && (
           <span className="text-sm bg-red-100 text-red-700 px-2.5 py-1 rounded-full font-medium">
             ⚠️ {needAttentionCount} דורש פעולה
           </span>
+        )}
+
+        {!loading && (
+          <span className="text-sm text-zinc-500 mr-auto">{orders.length} הזמנות</span>
         )}
       </div>
 
@@ -239,15 +278,17 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* מצב טעינה */}
-      {loading && (
-        <div className="text-center py-12 text-zinc-500">טוען...</div>
-      )}
+      {loading && <div className="text-center py-12 text-zinc-500">טוען...</div>}
 
       {/* מצב ריק */}
       {!loading && !fetchError && orders.length === 0 && (
-        <div className="text-center py-12 text-zinc-500 bg-white rounded-xl border border-zinc-200">
-          אין הזמנות בסינון הנוכחי
+        <div className="text-center py-12 bg-white rounded-xl border border-zinc-200">
+          <p className="font-medium text-brand-slatedark">אין הזמנות בסינון הנוכחי</p>
+          <p className="text-sm text-zinc-500 mt-1">
+            {fPricelist !== ALL
+              ? "נסה לבחור מכירה אחרת או להציג את כל המכירות."
+              : "אין כרגע הזמנות שדורשות פעולת תשלום."}
+          </p>
         </div>
       )}
 
@@ -296,19 +337,14 @@ function OrderCard({
             {statusLabel}
           </span>
           {order.chargeAttempts > 0 && (
-            <span className="text-xs text-zinc-500">
-              ניסיונות: {order.chargeAttempts}
-            </span>
+            <span className="text-xs text-zinc-500">ניסיונות: {order.chargeAttempts}</span>
           )}
         </div>
-        <div className="text-xs text-zinc-500">
-          עודכן: {fmtDate(order.updatedAt)}
-        </div>
+        <div className="text-xs text-zinc-500">עודכן: {fmtDate(order.updatedAt)}</div>
       </div>
 
-      {/* שורת פרטים - grid */}
+      {/* שורת פרטים */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-        {/* לקוח */}
         <div>
           <div className="text-xs text-zinc-500 mb-0.5">לקוח</div>
           <div className="font-medium">{order.customerName}</div>
@@ -322,7 +358,6 @@ function OrderCard({
           )}
         </div>
 
-        {/* מחיר */}
         <div>
           <div className="text-xs text-zinc-500 mb-0.5">מחיר</div>
           {hasFinalTotal ? (
@@ -331,22 +366,17 @@ function OrderCard({
                 סופי: {fmtIls(order.finalTotal)}
               </div>
               {order.amountPaid !== null && (
-                <div className="text-xs text-emerald-700">
-                  שולם: {fmtIls(order.amountPaid)}
-                </div>
+                <div className="text-xs text-emerald-700">שולם: {fmtIls(order.amountPaid)}</div>
               )}
             </div>
           ) : (
             <div className="text-zinc-500">
               משוער: {fmtIls(order.estimatedTotal)}
-              <div className="text-xs text-amber-700 mt-0.5">
-                טרם נקבע מחיר סופי
-              </div>
+              <div className="text-xs text-amber-700 mt-0.5">טרם נקבע מחיר סופי</div>
             </div>
           )}
         </div>
 
-        {/* כרטיס */}
         <div>
           <div className="text-xs text-zinc-500 mb-0.5">כרטיס שמור</div>
           {order.customer.hasToken ? (
@@ -360,9 +390,7 @@ function OrderCard({
                 </div>
               )}
               {cardBlocked && (
-                <div className="text-xs text-orange-700 font-medium mt-1">
-                  ⚠️ נדרש עדכון
-                </div>
+                <div className="text-xs text-orange-700 font-medium mt-1">⚠️ נדרש עדכון</div>
               )}
             </div>
           ) : (
@@ -371,7 +399,7 @@ function OrderCard({
         </div>
       </div>
 
-      {/* נקודה + תאריך חלוקה (אם קיים) */}
+      {/* נקודה + תאריך חלוקה */}
       {(order.pointNameSnapshot || order.deliveryDateSnapshot) && (
         <div className="mt-3 pt-3 border-t border-zinc-100 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600">
           {order.pointNameSnapshot && <div>📍 {order.pointNameSnapshot}</div>}
@@ -405,14 +433,10 @@ function OrderCard({
             </span>
           )}
           {!hasFinalTotal && (
-            <span className="text-xs text-amber-700">
-              יש לקבוע מחיר סופי לפני חיוב
-            </span>
+            <span className="text-xs text-amber-700">יש לקבוע מחיר סופי לפני חיוב</span>
           )}
           {!order.customer.hasToken && (
-            <span className="text-xs text-zinc-600">
-              אין כרטיס שמור ללקוח
-            </span>
+            <span className="text-xs text-zinc-600">אין כרטיס שמור ללקוח</span>
           )}
         </div>
       )}

@@ -10,13 +10,12 @@ import { auth } from "@/lib/auth";
 // לא מציג PAID (הסתיים) או PENDING (עדיין אין טוקן, אין מה לחייב).
 //
 // Query params:
-//   ?status=all    → כל הסטטוסים כולל PAID/PENDING
-//   ?status=FAILED → סינון סטטוס יחיד
-//   (בלי) → ברירת המחדל של §19
+//   ?status=all           → כל הסטטוסים כולל PAID/PENDING
+//   ?status=FAILED        → סינון סטטוס יחיד
+//   ?pricelistId=<id>     → 🆕 סינון למכירה מסוימת
+//   (בלי) → ברירת המחדל של §19, כל המכירות
 //
-// ⚠️ אימות admin: משתמש ב-auth() של Auth.js v5. אם המבנה שונה בפרויקט
-// (למשל role נשמר במקום אחר), עדכן את הבדיקה בהתאם - הלוגיקה של השאילתה
-// נכונה בכל מקרה.
+// ⚠️ אימות admin: משתמש ב-auth() של Auth.js v5.
 const DEFAULT_STATUSES = [
   "TOKEN_CREATED",
   "AWAITING_WEIGHING",
@@ -45,17 +44,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
-    // סינון סטטוס
     const url = new URL(req.url);
     const statusParam = url.searchParams.get("status");
+    // 🆕 סינון לפי מכירה. אם לא נשלח - כל המכירות (כדי לא להסתיר
+    // חיובים שנכשלו במכירות קודמות, שהם בדיוק מה שהמסך אמור לתפוס).
+    const pricelistId = url.searchParams.get("pricelistId") || undefined;
 
-    let whereClause: { paymentStatus?: string | { in: string[] } } = {};
+    // סינון סטטוס
+    const whereClause: {
+      paymentStatus?: string | { in: string[] };
+      pricelistId?: string;
+    } = {};
     if (statusParam === "all") {
-      // בלי סינון
+      // בלי סינון סטטוס
     } else if (statusParam && statusParam.length > 0) {
-      whereClause = { paymentStatus: statusParam };
+      whereClause.paymentStatus = statusParam;
     } else {
-      whereClause = { paymentStatus: { in: DEFAULT_STATUSES } };
+      whereClause.paymentStatus = { in: DEFAULT_STATUSES };
+    }
+    if (pricelistId) {
+      whereClause.pricelistId = pricelistId;
     }
 
     const orders = await prisma.order.findMany({
@@ -101,7 +109,7 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    // ממירים ל-PayOrder[]: מסיפים hasToken (bool) כדי לא לחשוף את הטוקן הגולמי לצד לקוח
+    // ממירים ל-PayOrder[]: חושפים hasToken (bool) כדי לא לחשוף את הטוקן הגולמי לצד לקוח
     const payOrders = orders.map((o) => ({
       id: o.id,
       orderNumber: o.orderNumber,

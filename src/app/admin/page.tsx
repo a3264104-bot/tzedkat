@@ -2,12 +2,14 @@
 
 // דשבורד ניהול - ממוקד במכירה אחת בכל רגע.
 //
-// למה: כשיש עשרות מכירות, נתונים מצטברים על כולן חסרי משמעות ("5 הזמנות" - של מה?).
-// לכן הדשבורד תמיד מוצג בהקשר של מכירה נבחרת (ברירת מחדל: המכירה הפעילה),
-// וכל המספרים והפאנלים מסוננים אליה.
+// כשיש עשרות מכירות, נתונים מצטברים על כולן חסרי משמעות ("5 הזמנות" - של מה?).
+// לכן הדשבורד תמיד מוצג בהקשר של מכירה נבחרת (ברירת מחדל: המכירה הפעילה).
 //
-// 🐛 תוקן: הכרטיס "חדשות" ופאנל "הזמנות חדשות" הסתמכו על סטטוס "NEW" שלא
-// קיים יותר (הוחלף ב-PENDING_REVIEW ב-/api/orders). לכן הם תמיד הציגו 0/ריק.
+// 🐛 תוקן: "חדשות" הסתמך על סטטוס NEW שלא קיים יותר (הוחלף ב-PENDING_REVIEW),
+//    ולכן תמיד הציג 0.
+// 🐛 תוקן: הכרטיס הרביעי היה בלתי-נראה (טקסט לבן על רקע לבן כש-accent לא נתפס).
+// 🐛 תוקן: "מצב ההזמנות" ספר גם הזמנות מבוטלות, וכך הסכום שם (9) לא הסתדר
+//    מול "הזמנות פעילות" (5). מבוטלות מוצגות עכשיו בנפרד, מחוץ לפילוח.
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
@@ -21,7 +23,6 @@ type Pricelist = {
   _count?: { orders: number };
 };
 
-// ברירת מחדל לבורר: "כל המכירות"
 const ALL = "__all__";
 
 export default function Dashboard() {
@@ -31,19 +32,16 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  // טעינת רשימת המכירות + בחירת ברירת המחדל (המכירה הפעילה)
   useEffect(() => {
     api("/api/admin/pricelists")
       .then((res: Pricelist[]) => {
         setLists(res);
-        // ברירת מחדל: המכירה הפעילה. אם אין - המכירה האחרונה שנוצרה.
         const active = res.find((l) => l.status === "ACTIVE");
         setSelected(active?.id ?? res[0]?.id ?? ALL);
       })
       .catch((e) => setErr(e.message));
   }, []);
 
-  // טעינת הנתונים לפי המכירה הנבחרת
   const load = useCallback((pricelistId: string) => {
     if (!pricelistId) return;
     setLoading(true);
@@ -73,13 +71,26 @@ export default function Dashboard() {
     );
   }
 
-  // ספירות לפי סטטוס - מקור אמת לפאנל "מה הצעד הבא"
   const sc: Record<string, number> = data?.statusCounts ?? {};
   const waitingWeigh = sc.PENDING_REVIEW ?? 0;
   const priceSet = sc.FINAL_PRICE_SET ?? 0;
   const waitingPay = sc.PAYMENT_PENDING ?? 0;
   const paid = sc.PAID ?? 0;
   const readyPickup = sc.READY_FOR_PICKUP ?? 0;
+  const completed = sc.COMPLETED ?? 0;
+  const cancelled = sc.CANCELLED ?? 0;
+
+  // "תומחרו" = כל מה שעבר את שלב השקילה (כלומר כבר לא ממתין לשקילה),
+  // מתוך ההזמנות הפעילות בלבד.
+  const activeTotal = data?.totalOrders ?? 0;
+  const pricedCount = Math.max(0, activeTotal - waitingWeigh);
+  const remaining = Math.max(0, activeTotal - pricedCount);
+
+  // פילוח מצב ההזמנות - בלי מבוטלות (הן מוצגות בנפרד),
+  // כדי שסכום הפילוח יתאים ל"הזמנות פעילות" למעלה.
+  const activeStatusEntries = Object.entries(sc).filter(([s]) => s !== "CANCELLED");
+
+  const openActions = waitingWeigh + priceSet + waitingPay + paid + readyPickup;
 
   return (
     <div className="space-y-6">
@@ -125,18 +136,27 @@ export default function Dashboard() {
         <>
           {/* ─── מספרי מפתח ─── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Stat label="הזמנות" value={String(data.totalOrders)} />
+            <Stat label="הזמנות פעילות" value={String(activeTotal)} />
             <Stat label="סכום משוער" value={fmt(data.estimatedSales)} />
             <Stat label="סכום סופי" value={fmt(data.finalSales)} />
-            <Stat label="ממתינות לשקילה" value={String(waitingWeigh)} accent={waitingWeigh > 0} />
+            <Stat
+              label="תומחרו"
+              value={`${pricedCount} / ${activeTotal}`}
+              sub={
+                activeTotal === 0
+                  ? undefined
+                  : remaining === 0
+                    ? "כל ההזמנות תומחרו"
+                    : `נותרו ${remaining} לשקילה`
+              }
+              highlight={activeTotal > 0 && remaining > 0}
+            />
           </div>
 
           {/* ─── מה הצעד הבא ─── */}
           <div className="card p-5">
             <h2 className="font-bold text-brand-slatedark mb-1">מה הצעד הבא</h2>
-            <p className="text-xs text-brand-slate/60 mb-3">
-              לפי מצב ההזמנות במכירה הזו
-            </p>
+            <p className="text-xs text-brand-slate/60 mb-3">לפי מצב ההזמנות במכירה הזו</p>
             <div className="space-y-1.5">
               <NextAction
                 count={waitingWeigh}
@@ -168,7 +188,7 @@ export default function Dashboard() {
                 href="/admin/orders"
                 cta="לרשימת ההזמנות"
               />
-              {waitingWeigh + priceSet + waitingPay + paid + readyPickup === 0 && (
+              {openActions === 0 && (
                 <p className="text-sm text-brand-slate/50 py-2">
                   אין פעולות פתוחות במכירה הזו.
                 </p>
@@ -185,10 +205,10 @@ export default function Dashboard() {
               </p>
               <div className="space-y-2">
                 {data.limitedWarnings.map((w: any) => (
-                  <div key={w.name} className="flex justify-between items-center text-sm">
-                    <span className="font-medium text-amber-900">{w.name}</span>
+                  <div key={w.name} className="flex justify-between gap-3 items-center text-sm">
+                    <span className="font-medium text-amber-900 min-w-0 truncate">{w.name}</span>
                     <span
-                      className={`font-bold ${
+                      className={`font-bold shrink-0 ${
                         w.level === "over" ? "text-red-700" : "text-amber-800"
                       }`}
                     >
@@ -238,19 +258,24 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* ─── פילוח מלא לפי סטטוס ─── */}
+          {/* ─── מצב ההזמנות (בלי מבוטלות) ─── */}
           <div className="card p-5">
-            <h2 className="font-bold text-brand-slatedark mb-3">מצב ההזמנות</h2>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(sc).length === 0 && (
-                <p className="text-zinc-400 text-sm">אין הזמנות במכירה הזו</p>
+            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+              <h2 className="font-bold text-brand-slatedark">מצב ההזמנות</h2>
+              {cancelled > 0 && (
+                <span className="text-xs text-brand-slate/50">
+                  בנוסף: {cancelled} הזמנות בוטלו (לא נכללות בסכומים)
+                </span>
               )}
-              {Object.entries(sc).map(([status, count]) => (
-                <span
-                  key={status}
-                  className="badge bg-brand-slate/10 text-brand-slatedark py-1"
-                >
-                  {STATUS_LABELS[status] ?? status}: <strong className="mr-1">{count as number}</strong>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {activeStatusEntries.length === 0 && (
+                <p className="text-zinc-400 text-sm">אין הזמנות פעילות במכירה הזו</p>
+              )}
+              {activeStatusEntries.map(([status, count]) => (
+                <span key={status} className="badge bg-brand-slate/10 text-brand-slatedark py-1">
+                  {STATUS_LABELS[status] ?? status}:{" "}
+                  <strong className="mr-1">{count as number}</strong>
                 </span>
               ))}
             </div>
@@ -279,21 +304,52 @@ function NextAction({
       className="flex items-center justify-between gap-3 p-2.5 rounded-lg hover:bg-amber-50 transition-colors"
     >
       <span className="flex items-center gap-2.5 min-w-0">
-        <span className="w-8 h-8 shrink-0 rounded-lg bg-brand-rust text-white grid place-items-center font-extrabold text-sm">
+        <span className="w-8 h-8 shrink-0 rounded-lg bg-[#c0461e] text-white grid place-items-center font-extrabold text-sm">
           {count}
         </span>
         <span className="text-sm text-brand-slatedark min-w-0">{label}</span>
       </span>
-      <span className="text-xs font-bold text-brand-rust shrink-0">{cta} ←</span>
+      <span className="text-xs font-bold text-[#c0461e] shrink-0">{cta} ←</span>
     </Link>
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+// Stat: צבעים מפורשים (hex) ולא utility של המותג, כדי שהכרטיס לעולם
+// לא ייצא "טקסט לבן על רקע לבן" אם class כלשהו לא נטען.
+function Stat({
+  label,
+  value,
+  sub,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  highlight?: boolean;
+}) {
   return (
-    <div className={`card p-4 ${accent ? "bg-brand-rust text-white" : ""}`}>
-      <div className={`text-sm ${accent ? "text-white/80" : "text-zinc-500"}`}>{label}</div>
-      <div className="text-xl font-extrabold mt-1">{value}</div>
+    <div
+      className="card p-4"
+      style={
+        highlight
+          ? { backgroundColor: "#c0461e", borderColor: "#c0461e", color: "#ffffff" }
+          : undefined
+      }
+    >
+      <div className="text-sm" style={{ color: highlight ? "rgba(255,255,255,0.85)" : "#71717a" }}>
+        {label}
+      </div>
+      <div className="text-xl font-extrabold mt-1" style={{ color: highlight ? "#ffffff" : "inherit" }}>
+        {value}
+      </div>
+      {sub && (
+        <div
+          className="text-[11px] mt-1"
+          style={{ color: highlight ? "rgba(255,255,255,0.8)" : "#a1a1aa" }}
+        >
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
