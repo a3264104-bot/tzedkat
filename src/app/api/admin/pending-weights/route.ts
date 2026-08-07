@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 
-// GET /api/admin/pending-weights
+// GET /api/admin/pending-weights?pricelistId=<id>
 //
 // מחזיר רשימת הזמנות שיש בהן פריטים שממתינים לשקילה.
 // "חסר משקל" = פריט שדורש שקילה (קרטון או בודדים) ואין לו actualWeight.
@@ -10,8 +10,10 @@ import { auth } from "@/lib/auth";
 // מסננים החוצה:
 //   - הזמנות שכבר בוטלו / הוחזרו / הושלמו
 //   - פריטים שלא דורשים שקילה (יחידות עם מחיר קבוע)
+//
+// 🆕 pricelistId (אופציונלי): מגביל למכירה מסוימת. נדרש כדי שהדשבורד
+//    (שמסונן למכירה) יציג את אותו מספר בדיוק שהמסך הזה מציג.
 
-// אימות admin - אותו pattern כמו שאר admin routes
 async function checkAdmin() {
   const session = await auth();
   if (!session?.user) return { ok: false as const, status: 401, error: "unauthorized" };
@@ -32,18 +34,22 @@ function needsWeighing(item: { unit: string; isSingle: boolean }): boolean {
   return item.unit === "קרטון" || item.isSingle;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const authCheck = await checkAdmin();
     if (!authCheck.ok) {
       return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
     }
 
+    const url = new URL(req.url);
+    const pricelistId = url.searchParams.get("pricelistId") || undefined;
+
     // טוענים הזמנות פעילות עם פריטים ללא משקל בפועל
     const orders = await prisma.order.findMany({
       where: {
         status: { notIn: ["CANCELLED", "COMPLETED", "REFUNDED"] },
         finalTotal: null, // הזמנה שעדיין לא נסגר עליה מחיר סופי
+        ...(pricelistId ? { pricelistId } : {}),
       },
       orderBy: [{ createdAt: "desc" }],
       select: {

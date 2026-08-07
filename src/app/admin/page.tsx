@@ -29,6 +29,10 @@ export default function Dashboard() {
   const [lists, setLists] = useState<Pricelist[] | null>(null);
   const [selected, setSelected] = useState<string>("");
   const [data, setData] = useState<any>(null);
+  const [pendingW, setPendingW] = useState<{
+    ordersCount: number;
+    totalMissingItems: number;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -47,6 +51,16 @@ export default function Dashboard() {
     setLoading(true);
     setErr("");
     const qs = pricelistId === ALL ? "" : `?pricelistId=${encodeURIComponent(pricelistId)}`;
+    // טוענים גם את מקור האמת של המשקלים הממתינים - כדי שהדשבורד יציג
+    // בדיוק את אותו מספר שמסך "משקלים ממתינים" מציג, ולא ניחוש מהסטטוס.
+    api(`/api/admin/pending-weights${qs}`)
+      .then((r: any) =>
+        setPendingW({
+          ordersCount: r?.ordersCount ?? 0,
+          totalMissingItems: r?.totalMissingItems ?? 0,
+        })
+      )
+      .catch(() => setPendingW(null));
     api(`/api/admin/reports${qs}`)
       .then(setData)
       .catch((e) => setErr(e.message))
@@ -73,6 +87,15 @@ export default function Dashboard() {
 
   const sc: Record<string, number> = data?.statusCounts ?? {};
   const waitingWeigh = sc.PENDING_REVIEW ?? 0;
+
+  // 🐛 תוקן סתירה: הדשבורד הציג "X ממתינות לשקילה" לפי הסטטוס PENDING_REVIEW,
+  // אבל מסך המשקלים הציג "אין משקלים ממתינים". שניהם צדקו - הסטטוס
+  // PENDING_REVIEW מכסה גם הזמנות *שכבר נשקלו* וממתינות רק לקביעת מחיר סופי.
+  // עכשיו מפרידים: מספר השקילות מגיע ממקור האמת (/pending-weights),
+  // והשאר מוצג כ"נשקלו - ממתינות לקביעת מחיר סופי", עם קישור למסך הנכון.
+  const realWeighOrders = pendingW?.ordersCount ?? 0;
+  const realWeighItems = pendingW?.totalMissingItems ?? 0;
+  const awaitingFinalPrice = Math.max(0, waitingWeigh - realWeighOrders);
   const priceSet = sc.FINAL_PRICE_SET ?? 0;
   const waitingPay = sc.PAYMENT_PENDING ?? 0;
   const paid = sc.PAID ?? 0;
@@ -90,7 +113,8 @@ export default function Dashboard() {
   // כדי שסכום הפילוח יתאים ל"הזמנות פעילות" למעלה.
   const activeStatusEntries = Object.entries(sc).filter(([s]) => s !== "CANCELLED");
 
-  const openActions = waitingWeigh + priceSet + waitingPay + paid + readyPickup;
+  const openActions =
+    realWeighOrders + awaitingFinalPrice + priceSet + waitingPay + paid + readyPickup;
 
   return (
     <div className="space-y-6">
@@ -159,10 +183,20 @@ export default function Dashboard() {
             <p className="text-xs text-brand-slate/60 mb-3">לפי מצב ההזמנות במכירה הזו</p>
             <div className="space-y-1.5">
               <NextAction
-                count={waitingWeigh}
-                label="הזמנות ממתינות לשקילה והזנת מחיר סופי"
+                count={realWeighOrders}
+                label={
+                  realWeighItems > 0
+                    ? `הזמנות עם ${realWeighItems} פריטים שממתינים לשקילה`
+                    : "הזמנות ממתינות לשקילה"
+                }
                 href="/admin/pending-weights"
                 cta="להזנת משקלים"
+              />
+              <NextAction
+                count={awaitingFinalPrice}
+                label="הזמנות שנשקלו — ממתינות לקביעת מחיר סופי"
+                href="/admin/orders"
+                cta="לרשימת ההזמנות"
               />
               <NextAction
                 count={priceSet}
