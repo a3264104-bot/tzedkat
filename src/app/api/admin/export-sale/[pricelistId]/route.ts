@@ -124,7 +124,16 @@ export async function GET(
     for (const it of order.items) {
       if (it.isCancelled) continue;
       itemsTotal++;
-      const w = it.agentEnteredWeight ? Number(it.agentEnteredWeight) : 0;
+      // 🐛 תוקן: הסיכום נבנה מ-agentEnteredWeight בלבד, בעוד גיליון הפריטים
+      // המפורט (למטה) משתמש ב-actualWeight. כלומר בתוך אותו קובץ אקסל,
+      // גיליון "פערי מוצרים" סתר את גיליון הפריטים.
+      // actualWeight הוא המשקל שנמסר בפועל וחויב עליו, כולל תיקוני מנהל -
+      // וזה מה שצריך להשוות מול תעודת המשלוח.
+      const w = it.actualWeight
+        ? Number(it.actualWeight)
+        : it.agentEnteredWeight
+          ? Number(it.agentEnteredWeight)
+          : 0;
       if (w > 0) {
         itemsEntered++;
         productWeightsUsed[it.productId] = (productWeightsUsed[it.productId] || 0) + w;

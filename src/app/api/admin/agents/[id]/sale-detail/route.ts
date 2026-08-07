@@ -57,13 +57,26 @@ export async function GET(
     return NextResponse.json({ error: "מחירון לא נמצא" }, { status: 404 });
   }
 
-  // הזמנות של הנקודה של הנציג במכירה זו
+  // הזמנות של *כל* נקודות הנציג במכירה זו.
+  // 🐛 תוקן: הסינון היה לפי agentPointId היחיד (deprecated), ולכן נציג
+  // המשויך לכמה נקודות הוצג עם חלק מההזמנות שלו בלבד.
+  const agentPointsRows = await prisma.agentPoint.findMany({
+    where: { agentId: id },
+    select: { pointId: true },
+  });
+  const agentPointIds =
+    agentPointsRows.length > 0
+      ? agentPointsRows.map((ap) => ap.pointId)
+      : agent.agentPointId
+        ? [agent.agentPointId]
+        : [];
+
   const whereOrders: any = {
     pricelistId,
     status: { notIn: ["CANCELLED"] },
   };
-  if (agent.agentPointId) {
-    whereOrders.pointId = agent.agentPointId;
+  if (agentPointIds.length > 0) {
+    whereOrders.pointId = { in: agentPointIds };
   }
 
   const orders = await prisma.order.findMany({
@@ -80,8 +93,12 @@ export async function GET(
   });
 
   // מזדמנים שלו במכירה
+  // 🐛 תוקן באג חמור: היה `where: { pricelistId, id }` - כלומר חיפש מזדמן
+  // שה-id שלו זהה ל-id של הנציג, מה שכמעט תמיד החזיר אפס תוצאות.
+  // כתוצאה מכך המסך הציג 0 מזדמנים ו-0₪ הכנסות מהם לכל נציג, וגם
+  // stats.totalRevenue יצא נמוך מדי. השדה הנכון הוא agentId.
   const walkins = await prisma.walkinOrder.findMany({
-    where: { pricelistId, id },
+    where: { pricelistId, agentId: id },
     orderBy: { createdAt: "desc" },
     include: {
       items: {

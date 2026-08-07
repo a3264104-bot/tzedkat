@@ -40,7 +40,7 @@ export async function GET(req: Request) {
       "שם לקוח": o.customerName,
       "טלפון": o.phone,
       "טלפון נוסף": o.phone2 ?? "",
-      "נקודת חלוקה": o.point.name,
+      "נקודת חלוקה": o.point?.name ?? o.pointNameSnapshot ?? "",
       "סטטוס": STATUS_LABELS[o.status] ?? o.status,
       "סה\"כ משוער": Number(o.estimatedTotal),
       "סה\"כ סופי": o.finalTotal ? Number(o.finalTotal) : "",
@@ -50,26 +50,53 @@ export async function GET(req: Request) {
     appendRTL(ws, "הזמנות");
     filename = "orders.xlsx";
   } else if (type === "products") {
-    const map = new Map<string, { name: string; unit: string; qty: number; total: number }>();
+    // 🐛 תוקן ערבוב יחידות: הקוד הישן עשה `qty += finalWeight ?? quantity`,
+    // כלומר חיבר קרטונים (2) עם ק"ג (16.86) לעמודה אחת - ואחרי שקילה
+    // הקרטונים "נעלמו" והוחלפו בק"ג. עכשיו עמודות נפרדות, זהה למסך הדוחות.
+    const map = new Map<
+      string,
+      {
+        name: string;
+        unit: string;
+        cartons: number;
+        singlesKg: number;
+        actualKg: number;
+        weighedCartons: number;
+        total: number;
+      }
+    >();
     for (const o of active) {
       for (const it of o.items) {
         const cur = map.get(it.productName) || {
           name: it.productName,
           unit: it.unit,
-          qty: 0,
+          cartons: 0,
+          singlesKg: 0,
+          actualKg: 0,
+          weighedCartons: 0,
           total: 0,
         };
-        cur.qty += Number(it.finalWeight ?? it.quantity);
+        const qty = Number(it.quantity);
+        const actual = it.actualWeight != null ? Number(it.actualWeight) : null;
+        if (it.isSingle) {
+          cur.singlesKg += qty;
+        } else {
+          cur.cartons += qty;
+          if (actual != null) cur.weighedCartons += qty;
+        }
+        if (actual != null) cur.actualKg += actual;
         cur.total += Number(it.finalPrice ?? it.estimatedPrice);
         map.set(it.productName, cur);
       }
     }
     const rows = Array.from(map.values())
-      .sort((a, b) => b.qty - a.qty)
+      .sort((a, b) => b.cartons + b.singlesKg - (a.cartons + a.singlesKg))
       .map((p) => ({
         "מוצר": p.name,
-        "סה\"כ כמות": Math.round(p.qty * 100) / 100,
-        "יחידה": p.unit,
+        "קרטונים להזמנה": Math.round(p.cartons * 1000) / 1000,
+        "ק\"ג בודדים": Math.round(p.singlesKg * 1000) / 1000,
+        "נשקל בפועל (ק\"ג)": Math.round(p.actualKg * 1000) / 1000,
+        "קרטונים שנשקלו": Math.round(p.weighedCartons * 1000) / 1000,
         "סה\"כ": Math.round(p.total * 100) / 100,
       }));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -83,18 +110,34 @@ export async function GET(req: Request) {
       points.get(o.point.name)!.push(o);
     }
     for (const [pointName, pts] of points) {
-      const map = new Map<string, { name: string; unit: string; qty: number }>();
+      // 🐛 תוקן ערבוב יחידות. הגיליון הזה נלקח לשטח לחלוקה, ולכן חשוב
+      // במיוחד שיהיה ברור מה קרטונים ומה ק"ג ולא מספר אחד מעורבב.
+      const map = new Map<
+        string,
+        { name: string; cartons: number; singlesKg: number; actualKg: number }
+      >();
       for (const o of pts) {
         for (const it of o.items) {
-          const cur = map.get(it.productName) || { name: it.productName, unit: it.unit, qty: 0 };
-          cur.qty += Number(it.finalWeight ?? it.quantity);
+          const cur =
+            map.get(it.productName) || {
+              name: it.productName,
+              cartons: 0,
+              singlesKg: 0,
+              actualKg: 0,
+            };
+          const qty = Number(it.quantity);
+          const actual = it.actualWeight != null ? Number(it.actualWeight) : null;
+          if (it.isSingle) cur.singlesKg += qty;
+          else cur.cartons += qty;
+          if (actual != null) cur.actualKg += actual;
           map.set(it.productName, cur);
         }
       }
       const rows = Array.from(map.values()).map((p) => ({
         "מוצר": p.name,
-        "כמות": Math.round(p.qty * 100) / 100,
-        "יחידה": p.unit,
+        "קרטונים": Math.round(p.cartons * 1000) / 1000,
+        "ק\"ג בודדים": Math.round(p.singlesKg * 1000) / 1000,
+        "נשקל בפועל (ק\"ג)": Math.round(p.actualKg * 1000) / 1000,
       }));
       const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ "מוצר": "—" }]);
       // sheet name max 31 chars
