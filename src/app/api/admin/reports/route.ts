@@ -32,20 +32,72 @@ export async function GET(req: Request) {
   }
   const byPoint = Array.from(byPointMap.values()).sort((a, b) => b.orders - a.orders);
 
-  // product summary (qty to prepare)
-  const prodMap = new Map<string, { name: string; unit: string; qty: number; total: number }>();
+  // ─── סיכום מוצרים ─────────────────────────────────────────────
+  // 🐛 תוקן ערבוב יחידות: הקוד הישן עשה `qty += finalWeight ?? quantity`,
+  // כלומר חיבר קרטונים (2) עם ק"ג (16.86) לאותו מספר, והציג אותו עם
+  // יחידה אחת. גרוע מזה - המספר "השתנה" תוך כדי המכירה: ברגע שפריט
+  // נשקל, הקרטונים שלו נעלמו והוחלפו בק"ג.
+  //
+  // המודל האמיתי (לפי תעודות הספק): כל שורה היא קרטונים + המשקל שלהם.
+  //   cartons      = כמות קרטונים שהוזמנה (יחידת ההזמנה מהספק)
+  //   singlesKg    = ק"ג של בודדים (מתומחרים בנפרד, יקר יותר לק"ג)
+  //   actualKg     = ק"ג שנשקלו בפועל (משני הסוגים)
+  const prodMap = new Map<
+    string,
+    {
+      name: string;
+      unit: string;
+      cartons: number;
+      singlesKg: number;
+      actualKg: number;
+      weighedCartons: number;
+      total: number;
+    }
+  >();
   for (const o of active) {
     for (const it of o.items) {
       const key = it.productName;
-      const cur = prodMap.get(key) || { name: it.productName, unit: it.unit, qty: 0, total: 0 };
-      cur.qty += Number(it.finalWeight ?? it.quantity);
+      const cur =
+        prodMap.get(key) || {
+          name: it.productName,
+          unit: it.unit,
+          cartons: 0,
+          singlesKg: 0,
+          actualKg: 0,
+          weighedCartons: 0,
+          total: 0,
+        };
+      const qty = Number(it.quantity);
+      const actual = it.actualWeight != null ? Number(it.actualWeight) : null;
+
+      if (it.isSingle) {
+        // בודדים: הכמות היא כבר ק"ג
+        cur.singlesKg += qty;
+      } else {
+        // קרטונים: הכמות היא מספר קרטונים
+        cur.cartons += qty;
+        if (actual != null) cur.weighedCartons += qty;
+      }
+      if (actual != null) cur.actualKg += actual;
+
       cur.total += Number(it.finalPrice ?? it.estimatedPrice);
       prodMap.set(key, cur);
     }
   }
-  const products = Array.from(prodMap.values()).sort((a, b) => b.qty - a.qty);
+  const products = Array.from(prodMap.values())
+    .map((p) => ({
+      ...p,
+      cartons: Math.round(p.cartons * 1000) / 1000,
+      singlesKg: Math.round(p.singlesKg * 1000) / 1000,
+      actualKg: Math.round(p.actualKg * 1000) / 1000,
+      total: Math.round(p.total * 100) / 100,
+    }))
+    .sort((a, b) => b.cartons + b.singlesKg - (a.cartons + a.singlesKg));
 
   // אזהרות כמות מוגבלת — סך הוזמן מול המגבלה שהמנהל הגדיר
+  // 🐛 תוקן: הספירה הייתה `finalWeight ?? quantity`, כלומר אחרי שקילה
+  // המערכת השוותה ק"ג מול מגבלה שמוגדרת ביחידות (limitedQtyAmount הוא Int),
+  // ויצרה אזהרות שווא. המגבלה נמדדת ביחידת ההזמנה - כמות, לא משקל.
   const limitedProducts = await prisma.product.findMany({
     where: { limitedQty: true, limitedQtyAmount: { not: null } },
     select: { id: true, name: true, unit: true, limitedQtyAmount: true },
@@ -54,7 +106,7 @@ export async function GET(req: Request) {
   for (const o of active) {
     for (const it of o.items) {
       const cur = orderedByProductId.get(it.productId) || 0;
-      orderedByProductId.set(it.productId, cur + Number(it.finalWeight ?? it.quantity));
+      orderedByProductId.set(it.productId, cur + Number(it.quantity));
     }
   }
   const limitedWarnings = limitedProducts

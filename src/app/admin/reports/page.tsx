@@ -1,5 +1,13 @@
 "use client";
 
+// מסך הדוחות למנהל.
+//
+// 🐛 תוקן: "סיכום מוצרים להכנה" הציג מספר אחד מעורבב (קרטונים + ק"ג יחד)
+//    עם יחידה אחת. עכשיו שלוש עמודות נפרדות: קרטונים להזמנה מהספק,
+//    ק"ג בודדים, ומה שנשקל בפועל.
+// 🐛 תוקן: הדוח הכספי סָפַר status === "DELIVERED" - סטטוס שלא קיים
+//    (הנכון הוא COMPLETED), ולכן "הזמנות שנמסרו" תמיד הציג 0.
+
 import { useEffect, useState } from "react";
 import { api, download } from "@/lib/client";
 import { STATUS_LABELS, fmt } from "@/lib/pricing";
@@ -53,11 +61,13 @@ export default function ReportsPage() {
             className="input max-w-[220px]"
             value={pricelistId}
             onChange={(e) => setPricelistId(e.target.value)}
+            aria-label="סינון לפי מכירה"
           >
             <option value="">כל המכירות</option>
             {pricelists.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
+                {p.status === "ACTIVE" ? " • פעילה" : ""}
               </option>
             ))}
           </select>
@@ -118,26 +128,37 @@ function LimitedWarnings({ warnings }: { warnings: any[] }) {
   return (
     <div className="card p-4 border-amber-300 bg-amber-50/60">
       <h3 className="font-bold text-amber-800 mb-2">⚠️ אזהרות כמות מוגבלת</h3>
+      <p className="text-xs text-amber-700/80 mb-2">
+        הכמות נמדדת ביחידת ההזמנה (קרטונים/יחידות), לא במשקל.
+      </p>
       <div className="space-y-1.5">
         {warnings.map((w) => (
           <div
             key={w.name}
-            className={`flex justify-between text-sm ${
+            className={`flex justify-between gap-3 text-sm ${
               w.level === "over" ? "text-red-700 font-semibold" : "text-amber-800"
             }`}
           >
-            <span>
+            <span className="min-w-0">
               {w.name}
               {w.level === "over" ? " — חריגה מהמגבלה!" : " — מתקרב למגבלה"}
             </span>
-            <span>
-              {w.ordered} / {w.limit} {w.unit}
+            <span className="shrink-0">
+              {w.ordered} / {w.limit}
             </span>
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+// שורת מוצר בפורמט קריא: מפריד קרטונים מבודדים
+function productQtyLabel(p: any): string {
+  const parts: string[] = [];
+  if (p.cartons > 0) parts.push(`${p.cartons} קרטון`);
+  if (p.singlesKg > 0) parts.push(`${p.singlesKg} ק"ג בודדים`);
+  return parts.length > 0 ? parts.join(" + ") : "—";
 }
 
 function SummaryReport({ data }: { data: any }) {
@@ -173,12 +194,10 @@ function SummaryReport({ data }: { data: any }) {
             {data.topProducts.map((p: any) => (
               <div
                 key={p.name}
-                className="flex justify-between text-sm border-b border-zinc-100 pb-1.5"
+                className="flex justify-between gap-3 text-sm border-b border-zinc-100 pb-1.5"
               >
-                <span>{p.name}</span>
-                <span className="font-semibold">
-                  {p.qty} {p.unit}
-                </span>
+                <span className="min-w-0 truncate">{p.name}</span>
+                <span className="font-semibold shrink-0">{productQtyLabel(p)}</span>
               </div>
             ))}
             {data.topProducts.length === 0 && (
@@ -205,8 +224,9 @@ function ProductsReport({ data, onExport }: { data: any; onExport: () => void })
           <thead>
             <tr>
               <th>מוצר</th>
-              <th>כמות להכנה</th>
-              <th>יחידה</th>
+              <th>קרטונים להזמנה</th>
+              <th>ק"ג בודדים</th>
+              <th>נשקל בפועל</th>
               <th>סה"כ</th>
             </tr>
           </thead>
@@ -214,14 +234,30 @@ function ProductsReport({ data, onExport }: { data: any; onExport: () => void })
             {data.products.map((p: any) => (
               <tr key={p.name}>
                 <td className="font-medium">{p.name}</td>
-                <td className="font-bold">{p.qty}</td>
-                <td>{p.unit}</td>
+                <td className="font-bold">{p.cartons > 0 ? `${p.cartons} קרטון` : "—"}</td>
+                <td className="font-bold">
+                  {p.singlesKg > 0 ? `${p.singlesKg} ק"ג` : "—"}
+                </td>
+                <td>
+                  {p.actualKg > 0 ? (
+                    <>
+                      <span className="font-medium">{p.actualKg} ק"ג</span>
+                      {p.cartons > 0 && (
+                        <span className="block text-xs text-zinc-400">
+                          {p.weighedCartons} מתוך {p.cartons} קרטונים נשקלו
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-zinc-400">טרם נשקל</span>
+                  )}
+                </td>
                 <td>{fmt(p.total)}</td>
               </tr>
             ))}
             {data.products.length === 0 && (
               <tr>
-                <td colSpan={4} className="text-center text-zinc-400 py-6">
+                <td colSpan={5} className="text-center text-zinc-400 py-6">
                   אין נתונים
                 </td>
               </tr>
@@ -229,6 +265,10 @@ function ProductsReport({ data, onExport }: { data: any; onExport: () => void })
           </tbody>
         </table>
       </div>
+      <p className="text-xs text-zinc-500">
+        קרטונים = יחידת ההזמנה מהספק (המשקל בפועל משתנה מקרטון לקרטון). בודדים
+        מתומחרים בנפרד לפי ק"ג. "נשקל בפועל" מתעדכן לאחר קליטת הסחורה והזנת המשקלים.
+      </p>
     </div>
   );
 }
@@ -318,24 +358,36 @@ function CustomersReport({ data, onExport }: { data: any; onExport: () => void }
 }
 
 function FinancialReport({ data }: { data: any }) {
-  const delivered = data.statusCounts?.DELIVERED ?? 0;
+  // 🐛 תוקן: היה DELIVERED (סטטוס שלא קיים) ולכן תמיד 0. הנכון: COMPLETED.
+  const delivered = data.statusCounts?.COMPLETED ?? 0;
   const cancelled = data.statusCounts?.CANCELLED ?? 0;
+  const paid = data.payStatusCounts?.PAID ?? 0;
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label="סך מכירות משוער" value={fmt(data.estimatedSales)} />
         <Stat label="סך מכירות סופי" value={fmt(data.finalSales)} />
+        <Stat label="הזמנות ששולמו" value={paid} />
         <Stat label="הזמנות שנמסרו" value={delivered} />
-        <Stat label="הזמנות שבוטלו" value={cancelled} />
       </div>
+
+      {cancelled > 0 && (
+        <p className="text-xs text-zinc-500">
+          בנוסף: {cancelled} הזמנות בוטלו (לא נכללות בסכומים).
+        </p>
+      )}
 
       <div className="card p-4">
         <h3 className="font-bold text-brand-slatedark mb-3">מכירות לפי נקודת חלוקה</h3>
         <div className="space-y-2">
           {data.byPoint.map((p: any) => (
-            <div key={p.name} className="flex justify-between text-sm border-b border-zinc-100 pb-1.5">
-              <span>{p.name}</span>
-              <span className="font-semibold">{fmt(p.total)}</span>
+            <div
+              key={p.name}
+              className="flex justify-between gap-3 text-sm border-b border-zinc-100 pb-1.5"
+            >
+              <span className="min-w-0 truncate">{p.name}</span>
+              <span className="font-semibold shrink-0">{fmt(p.total)}</span>
             </div>
           ))}
           {data.byPoint.length === 0 && <div className="text-zinc-400 text-sm">אין נתונים</div>}
@@ -346,14 +398,14 @@ function FinancialReport({ data }: { data: any }) {
         <h3 className="font-bold text-brand-slatedark mb-3">מכירות לפי מוצר</h3>
         <div className="space-y-2">
           {data.products.map((p: any) => (
-            <div key={p.name} className="flex justify-between text-sm border-b border-zinc-100 pb-1.5">
-              <span>
-                {p.name}{" "}
-                <span className="text-zinc-400">
-                  ({p.qty} {p.unit})
-                </span>
+            <div
+              key={p.name}
+              className="flex justify-between gap-3 text-sm border-b border-zinc-100 pb-1.5"
+            >
+              <span className="min-w-0">
+                {p.name} <span className="text-zinc-400">({productQtyLabel(p)})</span>
               </span>
-              <span className="font-semibold">{fmt(p.total)}</span>
+              <span className="font-semibold shrink-0">{fmt(p.total)}</span>
             </div>
           ))}
           {data.products.length === 0 && <div className="text-zinc-400 text-sm">אין נתונים</div>}
