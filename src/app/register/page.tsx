@@ -86,6 +86,10 @@ function RegisterPageInner() {
           password,
           defaultPointId: defaultPointId || null,
           agreedToEmails,
+          // §22: נשלח לשרת כדי שההסכמה תישמר עם חותמת זמן וגרסה.
+          // עד כה הסימון נבדק בטופס בלבד ולא נשלח כלל, כך שלא נשמרה
+          // שום הוכחה שהלקוח אישר את התנאים.
+          agreedToTerms,
         }),
       });
       const data = await res.json();

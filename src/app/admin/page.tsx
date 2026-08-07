@@ -104,7 +104,6 @@ export default function Dashboard() {
   const waitingPay = psc.PAYMENT_PENDING ?? 0;
   const chargeFailed = (psc.FAILED ?? 0) + (psc.CARD_UPDATE_NEEDED ?? 0);
   const paid = psc.PAID ?? 0;
-  const readyPickup = sc.READY_FOR_PICKUP ?? 0;
   const completed = sc.COMPLETED ?? 0;
   const cancelled = sc.CANCELLED ?? 0;
 
@@ -118,14 +117,11 @@ export default function Dashboard() {
   // כדי שסכום הפילוח יתאים ל"הזמנות פעילות" למעלה.
   const activeStatusEntries = Object.entries(sc).filter(([s]) => s !== "CANCELLED");
 
+  // readyPickup (READY_FOR_PICKUP) בכוונה *לא* נספר כאן: זו הזמנה שכבר
+  // סומנה כמוכנה וממתינה שהלקוח יגיע - זה מצב המתנה, לא פעולה שהמנהל
+  // צריך לעשות. הנציג יסמן מסירה כשהלקוח יגיע.
   const openActions =
-    realWeighOrders +
-    awaitingFinalPrice +
-    readyToCharge +
-    chargeFailed +
-    waitingPay +
-    paid +
-    readyPickup;
+    realWeighOrders + awaitingFinalPrice + readyToCharge + chargeFailed + waitingPay + paid;
 
   return (
     <div className="space-y-6">
@@ -229,13 +225,7 @@ export default function Dashboard() {
               />
               <NextAction
                 count={paid}
-                label="הזמנות ששולמו — אפשר לסמן מוכנות לחלוקה"
-                href="/admin/orders"
-                cta="לרשימת ההזמנות"
-              />
-              <NextAction
-                count={readyPickup}
-                label="הזמנות מוכנות לחלוקה"
+                label="הזמנות ששולמו — סמן שהן מוכנות לחלוקה"
                 href="/admin/orders"
                 cta="לרשימת ההזמנות"
               />
@@ -284,7 +274,7 @@ export default function Dashboard() {
                   <div key={p.name} className="flex justify-between gap-3 text-sm">
                     <span className="min-w-0 truncate">{p.name}</span>
                     <span className="text-zinc-500 shrink-0">
-                      {p.orders} הזמנות · {fmt(p.total)}
+                      <bdi>{p.orders}</bdi> הזמנות · {fmt(p.total)}
                     </span>
                   </div>
                 ))}

@@ -429,7 +429,7 @@ export default function SaleSummaryPage() {
                       {pt.pointName}
                     </span>
                     <span className="text-[10px] text-zinc-500 shrink-0">
-                      {pt.orderCount}
+                      <bdi>{pt.orderCount}</bdi>
                     </span>
                   </label>
                 );
@@ -447,14 +447,19 @@ export default function SaleSummaryPage() {
                 onClick={() => togglePointOpen(pt.pointId)}
                 className="w-full flex justify-between items-center text-right"
               >
-                <div>
-                  <span className="font-bold text-brand-slatedark">
+                <div className="min-w-0">
+                  {/* 🐛 תוקן בעיית RTL: שם הנקודה והמונה היו באותה שורה, ומכיוון
+                      שרוב שמות הנקודות מסתיימים במספר בית ("נדבורנא 34"),
+                      הדפדפן צירף אותו למונה שאחריו והציג "341 הזמנות"
+                      במקום "34" ואז "1 הזמנות". הפרדה לשתי שורות + בידוד
+                      דו-כיווני על המספרים מונע את ההידבקות. */}
+                  <div className="font-bold text-brand-slatedark">
                     {pt.city ? `${pt.city} — ` : ""}
                     {pt.pointName}
-                  </span>
-                  <span className="text-sm text-zinc-500 mr-2">
-                    {pt.orderCount} הזמנות · {pt.paidCount} שולמו
-                  </span>
+                  </div>
+                  <div className="text-sm text-zinc-500 mt-0.5">
+                    <bdi>{pt.orderCount}</bdi> הזמנות · <bdi>{pt.paidCount}</bdi> שולמו
+                  </div>
                 </div>
                 <span className="font-bold text-brand-rust">
                   {pt.finalTotal > 0 ? fmt(pt.finalTotal) : `~${fmt(pt.estimatedTotal)}`}

@@ -11,18 +11,29 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminPendingWeightsPage() {
   // כל הפריטים ללא משקל במכירה פעילה (או שבחלוקה)
+  //
+  // 🐛 תוקן: התנאי היה `product: { saleType: "WEIGHT" }` בלבד, אבל רוב
+  // המוצרים במערכת נמכרים בקרטונים (saleType = UNIT/PACKAGE עם
+  // priceType = PER_KG) - כלומר הם *כן* דורשים שקילה אבל סוננו החוצה.
+  // התוצאה: המסך הציג "אין משקלים ממתינים" גם כשהיו עשרות פריטים לשקול,
+  // בסתירה לדשבורד שספר אותם נכון.
+  //
+  // ההגדרה כאן זהה עכשיו ל-/api/admin/pending-weights: פריט דורש שקילה
+  // אם הוא נמכר בקרטון או שהוא בודדים.
+  //
+  // 🐛 תוקן גם סינון המכירה: התנאי היה status: "ACTIVE" בלבד, אבל בפועל
+  // המשקלים מוזנים *אחרי* סגירת המכירה - כשהסחורה מגיעה מהספק. כלומר
+  // המסך היה מתרוקן בדיוק ברגע שהוא הכי נחוץ. עכשיו כולל גם CLOSED,
+  // ומחריג רק מכירות שהסתיימו לגמרי (DONE).
   const items = await prisma.orderItem.findMany({
     where: {
       order: {
-        pricelist: { status: "ACTIVE" },
+        pricelist: { status: { in: ["ACTIVE", "CLOSED"] } },
         status: { notIn: ["CANCELLED", "COMPLETED"] },
       },
       actualWeight: null,
       isCancelled: false,
-      // רק פריטים שדורשים שקילה - saleType על המוצר עצמו
-      product: {
-        saleType: "WEIGHT",
-      },
+      OR: [{ unit: "קרטון" }, { isSingle: true }],
     },
     include: {
       order: {
@@ -69,7 +80,8 @@ export default async function AdminPendingWeightsPage() {
             <div className="text-4xl mb-3">✅</div>
             <p className="text-brand-slatedark font-semibold">אין משקלים ממתינים</p>
             <p className="text-xs text-zinc-500 mt-1">
-              כל הפריטים במכירות הפעילות שוקלו. המסך יתעדכן אוטומטית כשיפתחו הזמנות חדשות.
+              כל הפריטים שדורשים שקילה במכירות הפתוחות הוזנו. המסך יתעדכן
+              אוטומטית כשיתקבלו הזמנות חדשות או כשתיפתח מכירה נוספת.
             </p>
           </div>
         </main>

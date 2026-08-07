@@ -195,28 +195,46 @@ export default function OrderDetail() {
       </div>
 
       {/* status pills - PAID לא מופיע כאן בכוונה, ראה הסבר בהמשך */}
-      <div className="flex flex-wrap gap-1.5 no-print">
-        {MANUAL_STATUS_OPTIONS.map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatus(s)}
-            disabled={saving || (STATUSES_REQUIRING_PAYMENT.includes(s) && !isPaid)}
-            title={
-              STATUSES_REQUIRING_PAYMENT.includes(s) && !isPaid
-                ? "ניתן לעדכן רק אחרי תשלום"
-                : undefined
-            }
-            className={`badge px-3 py-1.5 ${
-              order.status === s
-                ? "bg-brand-rust text-white"
-                : STATUSES_REQUIRING_PAYMENT.includes(s) && !isPaid
-                  ? "bg-zinc-100 text-zinc-300 cursor-not-allowed"
-                  : "bg-white border border-zinc-200 text-zinc-600"
-            }`}
-          >
-            {STATUS_LABELS[s]}
-          </button>
-        ))}
+      {/* 🐛 תוקן: כפתורים חסומים היו text-zinc-300 על bg-zinc-100 - ניגודיות
+          של ~1.5:1, כלומר הטקסט נבלע ברקע והמנהל לא הצליח למצוא את
+          "מוכנה לחלוקה". בנוסף כל חמשת הכפתורים נראו זהים בלי היררכיה,
+          אז גם כשהפעולה הייתה זמינה שום דבר לא משך אליה את העין. */}
+      <div className="no-print">
+        <p className="text-xs font-bold text-zinc-500 mb-1.5">עדכון סטטוס ההזמנה</p>
+        <div className="flex flex-wrap gap-1.5">
+          {MANUAL_STATUS_OPTIONS.map((s) => {
+            const isCurrent = order.status === s;
+            const isBlocked = STATUSES_REQUIRING_PAYMENT.includes(s) && !isPaid;
+            // הפעולה הבאה המתבקשת: ההזמנה שולמה וטרם סומנה כמוכנה לחלוקה
+            const isNextAction = s === "READY_FOR_PICKUP" && isPaid && !isCurrent;
+            return (
+              <button
+                key={s}
+                onClick={() => setStatus(s)}
+                disabled={saving || isBlocked}
+                title={isBlocked ? "ניתן לעדכן רק אחרי תשלום" : undefined}
+                className={`badge px-3 py-1.5 transition-colors ${
+                  isCurrent
+                    ? "bg-brand-rust text-white font-bold"
+                    : isBlocked
+                      ? "bg-zinc-100 text-zinc-500 border border-zinc-200 cursor-not-allowed"
+                      : isNextAction
+                        ? "bg-emerald-600 text-white font-bold shadow-sm hover:bg-emerald-700"
+                        : "bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                }`}
+              >
+                {isCurrent && "✓ "}
+                {STATUS_LABELS[s]}
+                {isBlocked && " 🔒"}
+              </button>
+            );
+          })}
+        </div>
+        {isPaid && order.status !== "READY_FOR_PICKUP" && order.status !== "COMPLETED" && (
+          <p className="text-xs text-emerald-700 mt-1.5">
+            ההזמנה שולמה — אפשר לסמן אותה כמוכנה לחלוקה.
+          </p>
+        )}
       </div>
 
       {/* payment status panel */}

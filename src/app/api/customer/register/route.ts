@@ -13,7 +13,16 @@ const schema = z.object({
   defaultPointId: z.string().optional().nullable(),
   // הסכמה לקבלת מיילים - חובה אמיתית (חד-פעמית בהרשמה)
   agreedToEmails: z.boolean(),
+  // §22: הסכמה לתנאי השימוש ומדיניות הפרטיות - חובה.
+  // optional ב-zod בכוונה: קליינטים ישנים (טאב פתוח מלפני הפריסה) לא ישלחו
+  // את השדה, ואנחנו לא רוצים שההרשמה תיפול עם "נתונים שגויים" גנרי.
+  // האכיפה האמיתית נעשית למטה עם הודעה ברורה.
+  agreedToTerms: z.boolean().optional(),
 });
+
+// גרסת התנאים שהלקוח מאשר. יש לעדכן כשמשנים את עמוד התנאים באופן מהותי,
+// כדי שהתיעוד יראה לאיזו גרסה בדיוק כל לקוח הסכים.
+const TERMS_VERSION = "2026-08";
 
 export async function POST(req: Request) {
   try {
@@ -34,6 +43,14 @@ export async function POST(req: Request) {
     if (!data.agreedToEmails) {
       return NextResponse.json(
         { error: "יש לאשר את קבלת המיילים כדי להירשם" },
+        { status: 400 }
+      );
+    }
+
+    // §22: הסכמה לתנאי השימוש - חובה, ונשמרת עם חותמת זמן וגרסה.
+    if (!data.agreedToTerms) {
+      return NextResponse.json(
+        { error: "יש לאשר את תנאי השימוש ומדיניות הפרטיות כדי להירשם" },
         { status: 400 }
       );
     }
@@ -79,6 +96,10 @@ export async function POST(req: Request) {
         // תיעוד timestamp חשוב לרגולציה (GDPR/CAN-SPAM) ולהוכחת הסכמה במחלוקת
         agreedToEmails: true,
         agreedToEmailsAt: new Date(),
+        // §22: תיעוד ההסכמה לתנאי השימוש - ההוכחה שתידרש במחלוקת
+        agreedToTerms: true,
+        agreedToTermsAt: new Date(),
+        termsVersion: TERMS_VERSION,
       },
     });
 

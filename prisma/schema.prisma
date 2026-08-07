@@ -88,6 +88,17 @@ model Customer {
   agreedToEmails       Boolean   @default(false)
   // תאריך ההסכמה - חשוב לתיעוד רגולטורי (GDPR/CAN-SPAM) ולהוכחת הסכמה במחלוקת.
   agreedToEmailsAt     DateTime?
+
+  // §22: הסכמה לתנאי השימוש ולמדיניות הפרטיות.
+  // עד כה הצ'קבוקס נאכף בטופס ההרשמה בלבד ולא נשמר בשום מקום, כלומר לא
+  // הייתה שום הוכחה שהלקוח אישר. זו ההסכמה שמכסה את החיוב האוטומטי
+  // בכרטיס האשראי ואת מדיניות הביטולים - בדיוק מה שיידרש במחלוקת.
+  // termsVersion מאפשר לזהות *לאיזו גרסה* של התנאים הלקוח הסכים,
+  // כדי שעדכון עתידי של התנאים לא יטשטש את התיעוד ההיסטורי.
+  agreedToTerms        Boolean   @default(false)
+  agreedToTermsAt      DateTime?
+  termsVersion         String?
+
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }

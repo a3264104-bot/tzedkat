@@ -197,7 +197,7 @@ function SummaryReport({ data }: { data: any }) {
                 className="flex justify-between gap-3 text-sm border-b border-zinc-100 pb-1.5"
               >
                 <span className="min-w-0 truncate">{p.name}</span>
-                <span className="font-semibold shrink-0">{productQtyLabel(p)}</span>
+                <span className="font-semibold shrink-0"><bdi>{productQtyLabel(p)}</bdi></span>
               </div>
             ))}
             {data.topProducts.length === 0 && (
@@ -403,7 +403,7 @@ function FinancialReport({ data }: { data: any }) {
               className="flex justify-between gap-3 text-sm border-b border-zinc-100 pb-1.5"
             >
               <span className="min-w-0">
-                {p.name} <span className="text-zinc-400">({productQtyLabel(p)})</span>
+                {p.name} <span className="text-zinc-400">(<bdi>{productQtyLabel(p)}</bdi>)</span>
               </span>
               <span className="font-semibold shrink-0">{fmt(p.total)}</span>
             </div>

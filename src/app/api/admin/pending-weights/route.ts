@@ -49,6 +49,11 @@ export async function GET(req: Request) {
       where: {
         status: { notIn: ["CANCELLED", "COMPLETED", "REFUNDED"] },
         finalTotal: null, // הזמנה שעדיין לא נסגר עליה מחיר סופי
+        // מכירות פתוחות בלבד (פעילה או סגורה להזמנות אך טרם הסתיימה).
+        // המשקלים מוזנים אחרי סגירת המכירה - כשהסחורה מגיעה מהספק -
+        // ולכן CLOSED חייב להיכלל. אותו סינון בדיוק כמו במסך
+        // /admin/pending-weights, כדי ששני המקורות יציגו אותו מספר.
+        pricelist: { status: { in: ["ACTIVE", "CLOSED"] } },
         ...(pricelistId ? { pricelistId } : {}),
       },
       orderBy: [{ createdAt: "desc" }],
