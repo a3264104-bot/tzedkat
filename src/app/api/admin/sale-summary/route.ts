@@ -116,7 +116,17 @@ export async function GET(req: Request) {
       agg.totalQuantity += Number(it.quantity);
       if (it.isSingle) agg.singlesQuantity += Number(it.quantity);
       if (it.estimatedWeight != null) agg.totalEstimatedWeight += Number(it.estimatedWeight);
-      if (it.finalWeight != null) agg.totalActualWeight += Number(it.finalWeight);
+      // 🐛 תוקן: המקור היה finalWeight - שדה תאימות-לאחור שלא תמיד מתעדכן
+      // כשהמנהל מתקן משקל בביקורת המשקלים (שם מתעדכן actualWeight).
+      // actualWeight הוא המשקל שנמסר בפועל וחויב עליו; finalWeight נשאר
+      // כנפילה לרשומות ישנות בלבד.
+      const actualW =
+        it.actualWeight != null
+          ? Number(it.actualWeight)
+          : it.finalWeight != null
+            ? Number(it.finalWeight)
+            : null;
+      if (actualW != null) agg.totalActualWeight += actualW;
       agg.orderCount++;
     }
 

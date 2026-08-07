@@ -26,6 +26,32 @@ export function OrderRow({
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
+  const [markingDelivered, setMarkingDelivered] = useState(false);
+
+  const isDelivered = !!order.deliveredAt;
+
+  // §21: סימון מסירה. הנציג הוא היחיד שנמצא בנקודה ורואה מי לקח.
+  async function toggleDelivered() {
+    // ביטול דורש אישור - זה משנה סטטוס של הזמנה
+    if (isDelivered && !confirm(`לבטל את סימון המסירה של ${order.customerName}?`)) {
+      return;
+    }
+    setMarkingDelivered(true);
+    try {
+      const res = await fetch(`/api/agent/orders/${order.id}/deliver`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delivered: !isDelivered }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      onNeedsReload();
+    } catch (e: any) {
+      alert("שגיאה: " + e.message);
+    } finally {
+      setMarkingDelivered(false);
+    }
+  }
 
   // האם הוזנו כל המשקלים?
   const activeItems = order.items.filter((i) => !i.isCancelled);
@@ -111,7 +137,11 @@ export function OrderRow({
   }
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
+    <div
+      className={`bg-white rounded-xl border shadow-sm overflow-hidden ${
+        isDelivered ? "border-emerald-400 border-2" : "border-zinc-200"
+      }`}
+    >
       {/* Header - שם + טלפון + סטטוס */}
       <button
         onClick={() => setExpanded((v) => !v)}
@@ -123,6 +153,11 @@ export function OrderRow({
               {order.customerName}
             </span>
             <span className="text-xs text-zinc-400">#{order.orderNumber}</span>
+            {isDelivered && (
+              <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-bold">
+                ✓ נמסר
+              </span>
+            )}
             {allEntered ? (
               <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
                 ✓ מוזנים
@@ -172,6 +207,43 @@ export function OrderRow({
               onReplace={(id) => replaceProduct(item, id)}
             />
           ))}
+
+          {/* §21: סימון מסירה - הפעולה שהנציג עושה כשהלקוח מגיע ולוקח */}
+          {!readOnly && (
+            <div className="p-3 border-t border-zinc-100">
+              <button
+                onClick={toggleDelivered}
+                disabled={markingDelivered}
+                className={`w-full py-2.5 rounded-lg font-bold text-sm transition-colors disabled:opacity-50 ${
+                  isDelivered
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100"
+                    : "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                }`}
+              >
+                {markingDelivered
+                  ? "שומר..."
+                  : isDelivered
+                    ? "✓ נמסר — לחץ לביטול"
+                    : "סמן כנמסר ללקוח"}
+              </button>
+              {isDelivered && order.deliveredAt && (
+                <p className="text-[11px] text-zinc-500 text-center mt-1.5">
+                  נמסר ב-
+                  {new Date(order.deliveredAt).toLocaleString("he-IL", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              )}
+              {!allEntered && !isDelivered && (
+                <p className="text-[11px] text-amber-700 text-center mt-1.5">
+                  שים לב: עדיין לא הוזנו כל המשקלים בהזמנה הזו.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* טלפון-קליק לנוחות + קישור לפרטי הזמנה מלאים */}
           <div className="p-3 bg-zinc-50 flex items-center justify-between text-xs gap-2 flex-wrap">

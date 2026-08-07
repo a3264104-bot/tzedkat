@@ -268,6 +268,24 @@ export async function GET(
   // ─── התראות ─────────────────
   const alerts: Array<{ type: "info" | "warning" | "danger"; message: string }> = [];
 
+  // §21: הזמנות שנמסרו בפועל אך טרם שולמו - חשיפה כספית שהמנהל חייב לראות.
+  // לא חוסמים את הנציג מלסמן מסירה (הוא בשטח), אבל לא מסתירים את הפער.
+  const deliveredUnpaid = orders.filter(
+    (o) => (o as any).deliveredAt && o.paymentStatus !== "PAID"
+  );
+  if (deliveredUnpaid.length > 0) {
+    const sum = deliveredUnpaid.reduce(
+      (s, o) => s + Number(o.finalTotal ?? o.estimatedTotal ?? 0),
+      0
+    );
+    alerts.push({
+      type: "danger",
+      message: `${deliveredUnpaid.length} הזמנות נמסרו ללקוח אך טרם שולמו (₪${sum.toFixed(2)}): ${deliveredUnpaid
+        .map((o) => `#${o.orderNumber}`)
+        .join(", ")}`,
+    });
+  }
+
   const overAllocated = productComparison.filter((p) => p.status === "OVER");
   if (overAllocated.length > 0) {
     alerts.push({

@@ -21,6 +21,7 @@ type Data = {
     passwordPlain: string | null;
     point: { id: string; name: string; city: string | null } | null;
     agentPointId: string | null;
+    agentPoints: Array<{ id: string; name: string; city: string | null }>;
     canSetFinalPrice: boolean;
     canSendPaymentLink: boolean;
     commissionRateCarton: number;
@@ -231,13 +232,20 @@ export default function AgentProfileClient({ agentId }: { agentId: string }) {
                     </a>
                   </div>
                 )}
-                {agent.point ? (
-                  <div className="flex items-center gap-2">
+                {agent.agentPoints && agent.agentPoints.length > 0 ? (
+                  <div className="flex items-start gap-2">
                     <span className="text-zinc-500">📍</span>
-                    <span className="text-brand-slatedark font-medium">
-                      {agent.point.name}
-                      {agent.point.city && ` — ${agent.point.city}`}
-                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {agent.agentPoints.map((p) => (
+                        <span
+                          key={p.id}
+                          className="text-brand-slatedark font-medium bg-zinc-100 rounded-md px-2 py-0.5 text-sm"
+                        >
+                          {p.name}
+                          {p.city && <span className="text-zinc-500"> — {p.city}</span>}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
@@ -555,7 +563,11 @@ function EditModal({
   const [name, setName] = useState(agent.name);
   const [phone, setPhone] = useState(agent.phone || "");
   const [email, setEmail] = useState(agent.email || "");
-  const [pointId, setPointId] = useState(agent.agentPointId || "");
+  // 🆕 ריבוי נקודות: הנציג יכול להיות משויך לכמה נקודות חלוקה במקביל.
+  // נטען מ-agentPoints (עם נפילה לנקודה הישנה בתוך ה-API).
+  const [pointIds, setPointIds] = useState<string[]>(
+    agent.agentPoints?.map((p) => p.id) ?? (agent.agentPointId ? [agent.agentPointId] : [])
+  );
   const [cartonRate, setCartonRate] = useState(agent.commissionRateCarton.toString());
   const [singlesRate, setSinglesRate] = useState(agent.commissionRateSingles.toString());
   const [saving, setSaving] = useState(false);
@@ -574,7 +586,7 @@ function EditModal({
           name: name.trim(),
           phone: phone.trim(),
           email: email.trim() || null,
-          agentPointId: pointId || null,
+          agentPointIds: pointIds,
           commissionRateCarton: parseFloat(cartonRate) || 0,
           commissionRateSingles: parseFloat(singlesRate) || 0,
         }),
@@ -639,22 +651,52 @@ function EditModal({
             />
           </label>
 
-          <label className="block">
-            <span className="text-xs font-bold text-zinc-500">נקודת חלוקה</span>
-            <select
-              value={pointId}
-              onChange={(e) => setPointId(e.target.value)}
-              className="w-full mt-1 px-3 py-2 border border-zinc-300 rounded-lg text-sm bg-white"
-            >
-              <option value="">— ללא נקודה —</option>
-              {points.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                  {p.city && ` (${p.city})`}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="block">
+            <span className="text-xs font-bold text-zinc-500">
+              נקודות חלוקה{" "}
+              <span className="font-normal text-zinc-400">
+                (אפשר לבחור כמה)
+              </span>
+            </span>
+            <div className="mt-1 border border-zinc-300 rounded-lg divide-y divide-zinc-100 max-h-52 overflow-y-auto">
+              {points.length === 0 && (
+                <div className="px-3 py-2 text-sm text-zinc-400">
+                  אין נקודות חלוקה פעילות
+                </div>
+              )}
+              {points.map((p) => {
+                const checked = pointIds.includes(p.id);
+                return (
+                  <label
+                    key={p.id}
+                    className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-zinc-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setPointIds((prev) =>
+                          e.target.checked
+                            ? [...prev, p.id]
+                            : prev.filter((x) => x !== p.id)
+                        );
+                      }}
+                      className="w-4 h-4 accent-brand-rust shrink-0"
+                    />
+                    <span>
+                      {p.name}
+                      {p.city && <span className="text-zinc-400"> ({p.city})</span>}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-zinc-500 mt-1">
+              {pointIds.length === 0
+                ? "לא נבחרה נקודה — הנציג לא יראה הזמנות."
+                : `נבחרו ${pointIds.length} נקודות. הנציג יראה את ההזמנות והעמלות מכולן.`}
+            </p>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block">

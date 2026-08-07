@@ -249,6 +249,15 @@ model Order {
   pointNameSnapshot     String?
   deliveryDateSnapshot  String?
   pricelistNameSnapshot String?
+
+  // §21: סימון מסירה בפועל ע"י הנציג בנקודת החלוקה.
+  // המערכת לא יודעת לבד מי קיבל - הנציג הוא היחיד שנמצא שם ורואה את הלקוח.
+  // deliveredByAgentId הוא שדה חופשי בלי relation, בכוונה, כדי שהתיעוד
+  // "מי מסר" ישרוד גם אם הנציג יימחק מהמערכת בעתיד.
+  deliveredAt        DateTime?
+  deliveredByAgentId String?
+  deliveredNote      String?
+
   customerName    String
   phone           String
   phone2          String?

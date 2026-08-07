@@ -301,7 +301,12 @@ export default function Dashboard() {
                   <div key={p.name} className="flex justify-between gap-3 text-sm">
                     <span className="min-w-0 truncate">{p.name}</span>
                     <span className="text-zinc-500 shrink-0">
-                      {Math.round(p.qty * 100) / 100} {p.unit}
+                      {[
+                        p.cartons > 0 ? `${p.cartons} קרטון` : null,
+                        p.singlesKg > 0 ? `${p.singlesKg} ק"ג בודדים` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" + ") || "—"}
                     </span>
                   </div>
                 ))}

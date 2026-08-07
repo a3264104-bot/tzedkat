@@ -26,6 +26,10 @@ export async function GET(
       passwordPlain: true,
       agentPointId: true,
       agentPoint: { select: { id: true, name: true, city: true } },
+      // 🆕 כל הנקודות של הנציג (many-to-many דרך AgentPoint)
+      agentPoints: {
+        select: { point: { select: { id: true, name: true, city: true } } },
+      },
       agentCanSetFinalPrice: true,
       agentCanSendPaymentLink: true,
       commissionRateCarton: true,
@@ -96,6 +100,14 @@ export async function GET(
       passwordPlain: agent.passwordPlain,
       point: agent.agentPoint,
       agentPointId: agent.agentPointId,
+      // 🆕 כל הנקודות. אם עדיין אין רשומות AgentPoint (נציג ותיק שלא הועבר),
+      // נופלים לנקודה הישנה כדי שהטופס יציג את המצב הנוכחי נכון.
+      agentPoints:
+        agent.agentPoints.length > 0
+          ? agent.agentPoints.map((ap) => ap.point)
+          : agent.agentPoint
+            ? [agent.agentPoint]
+            : [],
       canSetFinalPrice: agent.agentCanSetFinalPrice,
       canSendPaymentLink: agent.agentCanSendPaymentLink,
       commissionRateCarton: Number(agent.commissionRateCarton),
@@ -185,9 +197,23 @@ export async function PATCH(
     }
     data.email = em;
   }
-  if ("agentPointId" in body) {
+  // 🆕 שיוך נציג לכמה נקודות חלוקה (many-to-many דרך AgentPoint).
+  // ה-UI שולח agentPointIds: string[]. שומרים על agentPointId הישן מסונכרן
+  // לנקודה הראשונה, לתאימות אחורה עם קוד שעדיין קורא אותו.
+  let newPointIds: string[] | null = null;
+  if (Array.isArray(body.agentPointIds)) {
+    newPointIds = (body.agentPointIds as unknown[])
+      .map((x) => String(x || "").trim())
+      .filter((x) => x.length > 0);
+    // מסירים כפילויות (ל-AgentPoint יש @@unique([agentId, pointId]))
+    newPointIds = Array.from(new Set(newPointIds));
+    data.agentPointId = newPointIds[0] ?? null;
+  } else if ("agentPointId" in body) {
+    // תאימות אחורה: קורא ישן ששולח נקודה יחידה
     data.agentPointId = body.agentPointId || null;
+    newPointIds = body.agentPointId ? [String(body.agentPointId)] : [];
   }
+
   if ("commissionRateCarton" in body) {
     const v = Number(body.commissionRateCarton);
     if (isNaN(v) || v < 0) {
@@ -209,10 +235,28 @@ export async function PATCH(
     data.agentCanSendPaymentLink = !!body.agentCanSendPaymentLink;
   }
 
-  if (Object.keys(data).length === 0) {
+  if (Object.keys(data).length === 0 && newPointIds === null) {
     return NextResponse.json({ error: "אין שדות לעדכון" }, { status: 400 });
   }
 
-  await prisma.customer.update({ where: { id }, data });
+  // עדכון הנציג + שיוכי הנקודות בטרנזקציה אחת, כדי שלא ייווצר מצב ביניים
+  // שבו הנציג עודכן אבל הנקודות לא (או להפך).
+  await prisma.$transaction(async (tx) => {
+    if (Object.keys(data).length > 0) {
+      await tx.customer.update({ where: { id }, data });
+    }
+    if (newPointIds !== null) {
+      // מוחקים את כל השיוכים הקיימים ויוצרים מחדש - פשוט ובטוח, כי הטבלה
+      // מכילה רק את הקשר עצמו (אין בה נתונים שאובדים במחיקה).
+      await tx.agentPoint.deleteMany({ where: { agentId: id } });
+      if (newPointIds.length > 0) {
+        await tx.agentPoint.createMany({
+          data: newPointIds.map((pointId) => ({ agentId: id, pointId })),
+          skipDuplicates: true,
+        });
+      }
+    }
+  });
+
   return NextResponse.json({ ok: true });
 }

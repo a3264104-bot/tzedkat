@@ -46,6 +46,11 @@ export type Order = {
   customerName: string;
   phone: string;
   status: string;
+  // §21: סימון מסירה בנקודת החלוקה
+  deliveredAt?: string | null;
+  deliveredByAgentId?: string | null;
+  deliveredNote?: string | null;
+  paymentStatus?: string;
   finalTotal: number | null;
   point: { id: string; name: string; city: string | null } | null;
   items: OrderItem[];
@@ -513,6 +518,33 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                 </FilterChip>
               </div>
             </div>
+
+            {/* §21: התקדמות המסירה בפועל - כמה לקוחות כבר הגיעו ולקחו */}
+            {data.orders.length > 0 && (
+              <div className="bg-white rounded-xl border border-zinc-200 p-3 mb-3">
+                <div className="flex items-center justify-between text-sm mb-1.5">
+                  <span className="font-bold text-brand-slatedark">מסירה ללקוחות</span>
+                  <span className="text-zinc-600">
+                    {data.orders.filter((o) => !!o.deliveredAt).length} מתוך{" "}
+                    {data.orders.length} נמסרו
+                  </span>
+                </div>
+                <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500 transition-all"
+                    style={{
+                      width: `${
+                        data.orders.length > 0
+                          ? (data.orders.filter((o) => !!o.deliveredAt).length /
+                              data.orders.length) *
+                            100
+                          : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
 
             {filteredOrders.length === 0 ? (
               <div className="bg-white rounded-2xl border border-zinc-200 p-8 text-center text-zinc-500">

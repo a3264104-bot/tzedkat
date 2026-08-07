@@ -164,6 +164,11 @@ export async function GET(
       customer: o.customer,
       point: o.point,
       status: o.status,
+      // §21: סימון מסירה - הנציג צריך לראות מה כבר נמסר
+      deliveredAt: o.deliveredAt?.toISOString() ?? null,
+      deliveredByAgentId: o.deliveredByAgentId,
+      deliveredNote: o.deliveredNote,
+      paymentStatus: o.paymentStatus,
       finalTotal: o.finalTotal ? Number(o.finalTotal) : null,
       items: o.items.map((it) => ({
         id: it.id,

@@ -69,6 +69,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/payments", label: "תשלומים", icon: "💳" },
       { href: "/admin/debts", label: "חובות לקוחות", icon: "💰" },
+      { href: "/admin/payment-audit", label: "יומן תשלומים", icon: "🧾" },
     ],
   },
   {
