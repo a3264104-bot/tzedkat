@@ -95,11 +95,25 @@ export async function GET(req: Request) {
   const customers = Array.from(custMap.values()).sort((a, b) => b.total - a.total);
 
   // status breakdown
+  // ⚠️ שים לב: statusCounts סופר את *כל* ההזמנות כולל מבוטלות, בעוד
+  // totalOrders סופר רק פעילות. הצרכן אחראי להפריד בתצוגה.
   const statusCounts: Record<string, number> = {};
   for (const o of orders) statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
 
-  const newOrders = orders
-    .filter((o) => o.status === "NEW")
+  // 🆕 פילוח לפי paymentStatus - שדה נפרד לגמרי מ-status.
+  // בלי זה, צרכנים שמחפשים PAYMENT_PENDING / PAID / READY_TO_CHARGE
+  // ב-statusCounts תמיד יקבלו 0, כי הערכים האלה חיים ב-paymentStatus.
+  // נספר רק הזמנות פעילות (בלי מבוטלות) כדי שיתאים ל-totalOrders.
+  const payStatusCounts: Record<string, number> = {};
+  for (const o of active) {
+    if (!o.paymentStatus) continue;
+    payStatusCounts[o.paymentStatus] = (payStatusCounts[o.paymentStatus] || 0) + 1;
+  }
+
+  // 🐛 תוקן: הסינון היה על status === "NEW" - סטטוס שלא קיים יותר
+  // (הוחלף ב-PENDING_REVIEW), ולכן הרשימה תמיד חזרה ריקה.
+  const newOrders = active
+    .filter((o) => o.status === "PENDING_REVIEW")
     .slice(0, 10)
     .map((o) => ({
       id: o.id,
@@ -118,6 +132,7 @@ export async function GET(req: Request) {
     products,
     customers,
     statusCounts,
+    payStatusCounts,
     newOrders,
     limitedWarnings,
     topProducts: products.slice(0, 5),

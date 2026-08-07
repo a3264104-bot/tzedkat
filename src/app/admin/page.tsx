@@ -96,9 +96,14 @@ export default function Dashboard() {
   const realWeighOrders = pendingW?.ordersCount ?? 0;
   const realWeighItems = pendingW?.totalMissingItems ?? 0;
   const awaitingFinalPrice = Math.max(0, waitingWeigh - realWeighOrders);
-  const priceSet = sc.FINAL_PRICE_SET ?? 0;
-  const waitingPay = sc.PAYMENT_PENDING ?? 0;
-  const paid = sc.PAID ?? 0;
+  // 🐛 תוקן: PAYMENT_PENDING ו-PAID הם ערכים של paymentStatus, לא של status.
+  // קודם נקראו מ-statusCounts (שסופר רק status) ולכן היו תמיד 0, ושתי
+  // השורות האלה ב"מה הצעד הבא" מעולם לא הופיעו.
+  const psc: Record<string, number> = data?.payStatusCounts ?? {};
+  const readyToCharge = psc.READY_TO_CHARGE ?? 0;
+  const waitingPay = psc.PAYMENT_PENDING ?? 0;
+  const chargeFailed = (psc.FAILED ?? 0) + (psc.CARD_UPDATE_NEEDED ?? 0);
+  const paid = psc.PAID ?? 0;
   const readyPickup = sc.READY_FOR_PICKUP ?? 0;
   const completed = sc.COMPLETED ?? 0;
   const cancelled = sc.CANCELLED ?? 0;
@@ -114,7 +119,13 @@ export default function Dashboard() {
   const activeStatusEntries = Object.entries(sc).filter(([s]) => s !== "CANCELLED");
 
   const openActions =
-    realWeighOrders + awaitingFinalPrice + priceSet + waitingPay + paid + readyPickup;
+    realWeighOrders +
+    awaitingFinalPrice +
+    readyToCharge +
+    chargeFailed +
+    waitingPay +
+    paid +
+    readyPickup;
 
   return (
     <div className="space-y-6">
@@ -199,10 +210,16 @@ export default function Dashboard() {
                 cta="לרשימת ההזמנות"
               />
               <NextAction
-                count={priceSet}
-                label="הזמנות עם מחיר סופי — מוכנות לחיוב"
+                count={readyToCharge}
+                label="הזמנות מוכנות לחיוב"
                 href="/admin/payments"
                 cta="למסך תשלומים"
+              />
+              <NextAction
+                count={chargeFailed}
+                label="חיובים שנכשלו או שדורשים עדכון כרטיס"
+                href="/admin/payments"
+                cta="לטיפול בחיובים"
               />
               <NextAction
                 count={waitingPay}
