@@ -32,6 +32,9 @@ export async function GET(
       },
       agentCanSetFinalPrice: true,
       agentCanSendPaymentLink: true,
+      // 🆕 הרשאות רגישות שעד כה ניתנו לעריכה רק ממסך הלקוחות
+      agentCanCharge: true,
+      agentCanUpdateCards: true,
       commissionRateCarton: true,
       commissionRateSingles: true,
       createdAt: true,
@@ -110,6 +113,8 @@ export async function GET(
             : [],
       canSetFinalPrice: agent.agentCanSetFinalPrice,
       canSendPaymentLink: agent.agentCanSendPaymentLink,
+      canCharge: agent.agentCanCharge,
+      canUpdateCards: agent.agentCanUpdateCards,
       commissionRateCarton: Number(agent.commissionRateCarton),
       commissionRateSingles: Number(agent.commissionRateSingles),
       createdAt: agent.createdAt.toISOString(),
@@ -233,6 +238,15 @@ export async function PATCH(
   }
   if ("agentCanSendPaymentLink" in body) {
     data.agentCanSendPaymentLink = !!body.agentCanSendPaymentLink;
+  }
+  // 🆕 הרשאות רגישות: חיוב כרטיס ועדכון פרטי כרטיס.
+  // נאכפות בשרת ב-/api/admin/charge ו-/api/customer/save-token בהתאמה,
+  // אבל עד כה ניתנו לעריכה רק ממסך הלקוחות ולא מפרופיל הנציג.
+  if ("agentCanCharge" in body) {
+    data.agentCanCharge = !!body.agentCanCharge;
+  }
+  if ("agentCanUpdateCards" in body) {
+    data.agentCanUpdateCards = !!body.agentCanUpdateCards;
   }
 
   if (Object.keys(data).length === 0 && newPointIds === null) {

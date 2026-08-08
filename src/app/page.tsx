@@ -373,16 +373,6 @@ export default async function Home() {
           </section>
         </div>
 
-        {/* יצירת קשר */}
-        <div className="mt-8 text-center">
-          <a
-            href="mailto:m5402088@gmail.com"
-            className="inline-flex items-center gap-2 text-brand-rust font-medium hover:underline"
-          >
-            <span aria-hidden="true">✉️</span>
-            <span>ליצירת קשר: m5402088@gmail.com</span>
-          </a>
-        </div>
       </div>
 
       {/* אנימציה של הכניסה למסך "יש לך הזמנה" */}

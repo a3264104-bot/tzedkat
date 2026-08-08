@@ -122,15 +122,28 @@ export function AccessibilityWidget() {
         aria-expanded={open}
         aria-haspopup="dialog"
       >
-        {/* אייקון נגישות אוניברסלי (person) */}
+        {/* סמל הנגישות הבינלאומי: ראש עגול, ידיים פרושות אופקית, רגליים
+            בזווית סימטרית. הגרסה הקודמת ציירה path מורכב עם פרופורציות
+            שגויות (ראש קטן מדי, ידיים לא סימטריות) והדמות נראתה מעוותת.
+            כאן כל איבר הוא צורה גיאומטרית נפרדת - סימטרי ומדויק בכל גודל. */}
         <svg
           className="w-8 h-8"
-          viewBox="0 0 24 24"
-          fill="currentColor"
+          viewBox="0 0 100 100"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={9}
+          strokeLinecap="round"
           aria-hidden="true"
         >
-          <circle cx="12" cy="4" r="2" />
-          <path d="M12 7c-2.5 0-4.5.5-6 1v2c1.2-.4 2.7-.7 4-.8v3l-1.5 6h2l1.5-5 1.5 5h2L18 12.2v-3c1.3.1 2.8.4 4 .8V8c-1.5-.5-3.5-1-6-1z" />
+          {/* ראש */}
+          <circle cx="50" cy="20" r="9" fill="currentColor" stroke="none" />
+          {/* ידיים - קו אופקי אחד, סימטרי */}
+          <line x1="22" y1="44" x2="78" y2="44" />
+          {/* גוף */}
+          <line x1="50" y1="38" x2="50" y2="62" />
+          {/* רגליים - שתי זוויות סימטריות */}
+          <line x1="50" y1="62" x2="34" y2="88" />
+          <line x1="50" y1="62" x2="66" y2="88" />
         </svg>
       </button>
 

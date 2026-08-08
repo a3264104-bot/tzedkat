@@ -24,6 +24,8 @@ type Data = {
     agentPoints: Array<{ id: string; name: string; city: string | null }>;
     canSetFinalPrice: boolean;
     canSendPaymentLink: boolean;
+    canCharge: boolean;
+    canUpdateCards: boolean;
     commissionRateCarton: number;
     commissionRateSingles: number;
     createdAt: string;
@@ -570,6 +572,12 @@ function EditModal({
   );
   const [cartonRate, setCartonRate] = useState(agent.commissionRateCarton.toString());
   const [singlesRate, setSinglesRate] = useState(agent.commissionRateSingles.toString());
+  // 🆕 הרשאות הנציג. עד כה הן היו ניתנות לעריכה רק ממסך הלקוחות,
+  // למרות שזה המסך הטבעי לניהול נציג.
+  const [canSetFinalPrice, setCanSetFinalPrice] = useState(!!agent.canSetFinalPrice);
+  const [canSendPaymentLink, setCanSendPaymentLink] = useState(!!agent.canSendPaymentLink);
+  const [canCharge, setCanCharge] = useState(!!agent.canCharge);
+  const [canUpdateCards, setCanUpdateCards] = useState(!!agent.canUpdateCards);
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -589,6 +597,10 @@ function EditModal({
           agentPointIds: pointIds,
           commissionRateCarton: parseFloat(cartonRate) || 0,
           commissionRateSingles: parseFloat(singlesRate) || 0,
+          agentCanSetFinalPrice: canSetFinalPrice,
+          agentCanSendPaymentLink: canSendPaymentLink,
+          agentCanCharge: canCharge,
+          agentCanUpdateCards: canUpdateCards,
         }),
       });
       const json = await res.json();
@@ -725,6 +737,43 @@ function EditModal({
                 className="w-full mt-1 px-3 py-2 border border-zinc-300 rounded-lg text-sm text-center font-bold"
               />
             </label>
+          </div>
+
+          {/* 🆕 הרשאות הנציג.
+              עד כה ארבע ההרשאות היו ניתנות לעריכה רק ממסך הלקוחות, למרות
+              שזה המסך הטבעי לניהול נציג. כולן נאכפות בשרת:
+              agentCanCharge ב-/api/admin/charge,
+              agentCanUpdateCards ב-/api/customer/save-token. */}
+          <div>
+            <span className="text-xs font-bold text-zinc-500">הרשאות</span>
+            <div className="mt-1 border border-zinc-300 rounded-lg divide-y divide-zinc-100">
+              <PermToggle
+                checked={canSetFinalPrice}
+                onChange={setCanSetFinalPrice}
+                label="לקבוע מחיר סופי"
+                hint="הנציג יוכל לסגור מחיר להזמנה אחרי שקילה"
+              />
+              <PermToggle
+                checked={canSendPaymentLink}
+                onChange={setCanSendPaymentLink}
+                label="לשלוח קישור תשלום"
+                hint="שליחת לינק תשלום ללקוח"
+              />
+              <PermToggle
+                checked={canCharge}
+                onChange={setCanCharge}
+                label="לחייב כרטיס אשראי"
+                hint="הנציג יוכל לגבות כסף מהכרטיס השמור של הלקוח"
+                sensitive
+              />
+              <PermToggle
+                checked={canUpdateCards}
+                onChange={setCanUpdateCards}
+                label="לעדכן פרטי כרטיס"
+                hint="עדכון כרטיס אשראי של לקוח בשם הלקוח"
+                sensitive
+              />
+            </div>
           </div>
         </div>
 
@@ -870,5 +919,46 @@ function CredentialsBlock({
         )}
       </div>
     </div>
+  );
+}
+
+// שורת הרשאה בטופס עריכת הנציג.
+// sensitive מסמן הרשאות שנוגעות ישירות בכסף/כרטיסי אשראי - הן מקבלות
+// הדגשה ויזואלית כדי שלא יסומנו בהיסח הדעת.
+function PermToggle({
+  checked,
+  onChange,
+  label,
+  hint,
+  sensitive,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  hint: string;
+  sensitive?: boolean;
+}) {
+  return (
+    <label
+      className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-zinc-50 ${
+        checked && sensitive ? "bg-amber-50" : ""
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className={`w-4 h-4 mt-0.5 shrink-0 ${
+          sensitive ? "accent-amber-600" : "accent-brand-rust"
+        }`}
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-brand-slatedark">
+          {label}
+          {sensitive && <span className="text-amber-700 text-xs mr-1">רגיש</span>}
+        </span>
+        <span className="block text-[11px] text-zinc-500">{hint}</span>
+      </span>
+    </label>
   );
 }
