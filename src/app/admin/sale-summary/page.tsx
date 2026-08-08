@@ -153,8 +153,89 @@ export default function SaleSummaryPage() {
     downloadCsv(`סיכום-מוצרים-${data.pricelist.name}.csv`, rows);
   }
 
-  function exportPointCsv(point: PointRow) {
-    if (!data) return;
+  // ─── טבלת הזמנה לספק: מוצר × נקודת חלוקה ───────────────────────
+  // למה: הייצוא הקיים ("רשימת איסוף") נותן שורה לכל *לקוח* - מצוין
+  // לחלוקה בנקודה, אבל חסר תועלת כשצריך להזמין מהספק. כדי להזמין צריך
+  // את הצבירה ההפוכה: כמה קרטונים מכל מוצר, ואיך הם מתפצלים לנקודות.
+  //
+  // קרטונים ובודדים מופיעים בשורות נפרדות בכוונה - הם יחידות שונות
+  // (קרטון מול ק"ג) ושורות הזמנה שונות מול הספק, ואסור לחבר ביניהן.
+  // תא ריק = המוצר הזה לא מוזמן לנקודה הזו, כלומר אין מה לשלוח לשם.
+  type MatrixRow = {
+    key: string;
+    productName: string;
+    isSingle: boolean;
+    unitLabel: string;
+    total: number;
+    byPoint: Record<string, number>;
+  };
+
+  function buildOrderMatrix(): { rows: MatrixRow[]; points: PointRow[] } {
+    if (!data) return { rows: [], points: [] };
+    const visible = data.points.filter(
+      (pt) => visiblePointIds === null || visiblePointIds.has(pt.pointId)
+    );
+    const map = new Map<string, MatrixRow>();
+
+    for (const pt of visible) {
+      for (const o of pt.orders) {
+        for (const it of o.items) {
+          // מפתח מורכב: אותו מוצר בקרטונים ובבודדים = שתי שורות
+          const key = `${it.productName}__${it.isSingle ? "S" : "C"}`;
+          let row = map.get(key);
+          if (!row) {
+            row = {
+              key,
+              productName: it.productName,
+              isSingle: it.isSingle,
+              unitLabel: it.isSingle
+                ? it.unit === "יחידה" || it.unit === "יחידות"
+                  ? "יח'"
+                  : 'ק"ג'
+                : "קרטון",
+              total: 0,
+              byPoint: {},
+            };
+            map.set(key, row);
+          }
+          const qty = Number(it.quantity);
+          row.total += qty;
+          row.byPoint[pt.pointId] = (row.byPoint[pt.pointId] || 0) + qty;
+        }
+      }
+    }
+
+    const rows = Array.from(map.values())
+      .map((r) => ({
+        ...r,
+        total: Math.round(r.total * 1000) / 1000,
+        byPoint: Object.fromEntries(
+          Object.entries(r.byPoint).map(([k, v]) => [k, Math.round(v * 1000) / 1000])
+        ),
+      }))
+      // קרטונים קודם (זה מה שמזמינים), ובתוך כל קבוצה לפי כמות יורדת
+      .sort((a, b) => {
+        if (a.isSingle !== b.isSingle) return a.isSingle ? 1 : -1;
+        return b.total - a.total;
+      });
+
+    return { rows, points: visible };
+  }
+
+  function exportOrderMatrixCsv() {
+    const { rows, points } = buildOrderMatrix();
+    if (rows.length === 0) return;
+    const header = ["מוצר", "יחידה", 'סה"כ להזמנה', ...points.map((p) => p.pointName)];
+    const body = rows.map((r) => [
+      r.productName,
+      r.unitLabel,
+      String(r.total),
+      ...points.map((p) => (r.byPoint[p.pointId] ? String(r.byPoint[p.pointId]) : "")),
+    ]);
+    downloadCsv(`הזמנה-לספק-${data?.pricelist.name || "מכירה"}.csv`, [header, ...body]);
+  }
+
+  function exportPointCsv(point: PointRow) {    if (!data) return;
     const rows: string[][] = [
       ["הזמנה", "שם", "טלפון", "סטטוס", "תשלום", "פריטים", 'סה"כ'],
       ...point.orders.map((o) => [
@@ -367,6 +448,76 @@ export default function SaleSummaryPage() {
           </table>
         </div>
       </div>
+
+      {/* ─── טבלת הזמנה לספק: מוצר × נקודה ─── */}
+      {(() => {
+        const { rows: matrixRows, points: matrixPoints } = buildOrderMatrix();
+        if (matrixRows.length === 0) return null;
+        return (
+          <div>
+            <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+              <div>
+                <h2 className="text-lg font-bold text-brand-slatedark">
+                  הזמנה לספק — לפי מוצר ונקודה
+                </h2>
+                <p className="text-xs text-zinc-500">
+                  סה״כ להזמנה מהספק, ואיך הכמות מתפצלת לנקודות. תא ריק = לא
+                  מוזמן לנקודה הזו.
+                </p>
+              </div>
+              <button onClick={exportOrderMatrixCsv} className="btn-ghost btn-sm no-print">
+                ⬇ ייצוא לאקסל
+              </button>
+            </div>
+
+            <div className="table-wrap">
+              <table className="admin">
+                <thead>
+                  <tr>
+                    <th>מוצר</th>
+                    <th>יחידה</th>
+                    <th className="text-center">סה״כ להזמנה</th>
+                    {matrixPoints.map((p) => (
+                      <th key={p.pointId} className="text-center whitespace-nowrap">
+                        {p.pointName}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {matrixRows.map((r) => (
+                    <tr key={r.key} className={r.isSingle ? "bg-amber-50/40" : ""}>
+                      <td className="font-medium">
+                        {r.productName}
+                        {r.isSingle && (
+                          <span className="text-xs text-amber-700 mr-1">(בודדים)</span>
+                        )}
+                      </td>
+                      <td className="text-zinc-500 text-xs">{r.unitLabel}</td>
+                      <td className="text-center font-extrabold text-brand-rust">
+                        <bdi>{r.total}</bdi>
+                      </td>
+                      {matrixPoints.map((p) => (
+                        <td key={p.pointId} className="text-center">
+                          {r.byPoint[p.pointId] ? (
+                            <bdi className="font-medium">{r.byPoint[p.pointId]}</bdi>
+                          ) : (
+                            <span className="text-zinc-300">—</span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-zinc-500 mt-1.5">
+              שורות בודדים מסומנות בצהוב — הן נמדדות בק״ג/יחידות ולא בקרטונים,
+              ולכן מופיעות בנפרד.
+            </p>
+          </div>
+        );
+      })()}
 
       {/* פירוט לפי נקודה */}
       <div>
