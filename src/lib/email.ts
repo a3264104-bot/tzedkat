@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/pricing";
+import { hebrewDateFull } from "@/lib/hebrew-date-lib";
 
 const FROM_ADDRESS = "צדקת רבותינו <orders@tzidkat.com>";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://tzidkat.com";
@@ -17,6 +18,18 @@ async function getSettings() {
     settings = await prisma.systemSettings.create({ data: { id: "singleton" } });
   }
   return settings;
+}
+
+// סינון HTML לפני הזרקה לתבנית. שמות לקוחות והערות הם טקסט חופשי
+// שהמשתמש מזין, ובלי סינון תו כמו < שובר את מבנה המייל.
+// זהה למימוש ב-nedarim-emails.ts.
+function escapeHtml(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 type OrderItemLike = {
@@ -84,7 +97,7 @@ function itemsRows(items: OrderItemLike[], useFinal = false) {
         : '<span style="background:#fed7aa;color:#9a3412;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:bold;margin-right:6px;">קרטון</span>';
       return `<tr style="border-bottom:1px solid #eee;">
         <td style="padding:10px;text-align:right;">
-          <div><strong>${it.productName}</strong>${singleBadge}</div>
+          <div><strong>${escapeHtml(it.productName)}</strong>${singleBadge}</div>
         </td>
         <td style="padding:10px;text-align:center;font-weight:bold;color:#3f3f46;">${qtyLabel}</td>
         <td style="padding:10px;text-align:center;font-size:12px;color:#71717a;">${wLabel}</td>
@@ -128,18 +141,19 @@ export async function sendAdminOrderNotification(
     const body = `
       <p style="font-size:16px;"><strong>הזמנה חדשה #${order.orderNumber}</strong></p>
       <table style="width:100%;font-size:14px;margin-bottom:16px;">
-        <tr><td style="padding:4px 0;color:#666;">לקוח:</td><td><strong>${order.customerName}</strong></td></tr>
+        <tr><td style="padding:4px 0;color:#666;">לקוח:</td><td><strong>${escapeHtml(order.customerName)}</strong></td></tr>
         <tr><td style="padding:4px 0;color:#666;">טלפון:</td><td dir="ltr" align="right">${order.phone}</td></tr>
         ${order.phone2 ? `<tr><td style="padding:4px 0;color:#666;">טלפון נוסף:</td><td dir="ltr" align="right">${order.phone2}</td></tr>` : ""}
         ${customerEmail ? `<tr><td style="padding:4px 0;color:#666;">מייל:</td><td dir="ltr" align="right">${customerEmail}</td></tr>` : ""}
-        <tr><td style="padding:4px 0;color:#666;">נקודה:</td><td>${order.pointNameSnapshot ?? ""}</td></tr>
-        ${order.deliveryDateSnapshot ? `<tr><td style="padding:4px 0;color:#666;">תאריך חלוקה:</td><td>${order.deliveryDateSnapshot}</td></tr>` : ""}
-        ${order.notes ? `<tr><td style="padding:4px 0;color:#666;">הערות:</td><td>${order.notes}</td></tr>` : ""}
+        <tr><td style="padding:4px 0;color:#666;">נקודה:</td><td>${escapeHtml(order.pointNameSnapshot ?? "")}</td></tr>
+        ${order.deliveryDateSnapshot ? `<tr><td style="padding:4px 0;color:#666;">תאריך חלוקה:</td><td>${escapeHtml(order.deliveryDateSnapshot)}</td></tr>` : ""}
+        ${order.notes ? `<tr><td style="padding:4px 0;color:#666;">הערות:</td><td>${escapeHtml(order.notes)}</td></tr>` : ""}
       </table>
       <table style="width:100%;border-collapse:collapse;font-size:14px;">
         <thead><tr style="background:#FFE000;">
           <th style="padding:8px;text-align:right;">מוצר</th>
           <th style="padding:8px;text-align:center;">כמות</th>
+          <th style="padding:8px;text-align:center;">משקל</th>
           <th style="padding:8px;text-align:left;">משוער</th>
         </tr></thead>
         <tbody>${itemsRows(order.items)}</tbody>
@@ -174,7 +188,7 @@ export async function sendCustomerOrderConfirmation(
     if (!settings.sendEmailToCustomer) return { ok: true };
 
     const body = `
-      <p>שלום ${order.customerName},</p>
+      <p>שלום ${escapeHtml(order.customerName)},</p>
       <p>הזמנתך התקבלה בהצלחה! מספר הזמנה: <strong>#${order.orderNumber}</strong></p>
       <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;">
         <thead><tr style="background:#FFE000;">
@@ -186,12 +200,13 @@ export async function sendCustomerOrderConfirmation(
         <tbody>${itemsRows(order.items)}</tbody>
       </table>
       <p style="font-size:16px;text-align:left;"><strong>סה"כ משוער: ${fmt(Number(order.estimatedTotal))}</strong></p>
-      ${order.pointNameSnapshot ? `<p>נקודת חלוקה: <strong>${order.pointNameSnapshot}</strong></p>` : ""}
-      ${order.deliveryDateSnapshot ? `<p>תאריך חלוקה: <strong>${order.deliveryDateSnapshot}</strong></p>` : ""}
+      ${order.pointNameSnapshot ? `<p>נקודת חלוקה: <strong>${escapeHtml(order.pointNameSnapshot)}</strong></p>` : ""}
+      ${order.deliveryDateSnapshot ? `<p>תאריך חלוקה: <strong>${escapeHtml(order.deliveryDateSnapshot)}</strong></p>` : ""}
       <div style="background:#fff8d8;border-radius:10px;padding:14px;margin-top:16px;">
         <p style="color:#9A3412;font-size:13px;margin:0;">
-          <strong>שים לב:</strong> המחיר המוצג הוא מחיר משוער בלבד. המחיר הסופי ייקבע לאחר שקילה בפועל.
-          יום לפני החלוקה תקבל תזכורת עם שעת החלוקה במיקום שבחרת.
+          <strong>שים לב:</strong> המחיר המוצג הוא מחיר משוער בלבד. המחיר הסופי ייקבע
+          לאחר שקילה בפועל, והכרטיס השמור שלך יחויב בסכום הסופי באופן אוטומטי.
+          נשלח לך אישור תשלום במייל לאחר החיוב.
         </p>
       </div>`;
 
@@ -207,7 +222,17 @@ export async function sendCustomerOrderConfirmation(
   }
 }
 
-/** מייל ללקוח: מחיר סופי נקבע + קישור לתשלום. */
+/**
+ * מייל ללקוח: מחיר סופי + קישור תשלום.
+ *
+ * ⚠️ שליחה ידנית בלבד — לא נשלח אוטומטית כשנקבע מחיר סופי.
+ * הסיבה: החיוב במערכת אוטומטי מהכרטיס השמור, ולכן מייל שמבקש מהלקוח
+ * "להשלים תשלום" בזמן שהמערכת עומדת לחייב אותו בעצמה הוא מבלבל ועלול
+ * לגרום לתשלום כפול.
+ *
+ * המקום הנכון שלו: תזכורת יזומה מהמנהל במסך החובות, ללקוח שמסיבה כלשהי
+ * לא חויב אוטומטית ונשאר חייב.
+ */
 export async function sendFinalPriceEmail(
   order: OrderLike,
   customerEmail: string
@@ -217,7 +242,7 @@ export async function sendFinalPriceEmail(
     if (!settings.sendEmailToCustomer) return { ok: true };
 
     const body = `
-      <p>שלום ${order.customerName},</p>
+      <p>שלום ${escapeHtml(order.customerName)},</p>
       <p>המחיר הסופי להזמנה <strong>#${order.orderNumber}</strong> נקבע לאחר שקילה.</p>
       <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;">
         <thead><tr style="background:#FFE000;">
@@ -255,21 +280,30 @@ export async function sendFinalPriceEmail(
 export async function sendPaymentConfirmedEmail(
   order: OrderLike,
   customerEmail: string,
-  paymentMethodLabel: string
+  paymentMethodLabel: string,
+  cardLast4?: string | null
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const settings = await getSettings();
     if (!settings.sendEmailToCustomer) return { ok: true };
 
     const body = `
-      <p>שלום ${order.customerName},</p>
+      <p>שלום ${escapeHtml(order.customerName)},</p>
       <p>התשלום עבור הזמנה <strong>#${order.orderNumber}</strong> התקבל בהצלחה. תודה!</p>
       <div style="background:#dcfce7;border-radius:10px;padding:16px;margin:16px 0;text-align:center;">
         <p style="color:#15803d;font-size:16px;margin:0;"><strong>✓ שולם (${paymentMethodLabel})</strong></p>
         <p style="color:#15803d;font-size:14px;margin:4px 0 0;">${fmt(Number(order.finalTotal))}</p>
+        ${
+          cardLast4
+            ? `<p style="color:#15803d;font-size:13px;margin:4px 0 0;" dir="ltr">כרטיס ****${cardLast4}</p>`
+            : ""
+        }
       </div>
-      ${order.pointNameSnapshot ? `<p>נקודת חלוקה: <strong>${order.pointNameSnapshot}</strong></p>` : ""}
-      ${order.deliveryDateSnapshot ? `<p>תאריך חלוקה: <strong>${order.deliveryDateSnapshot}</strong></p>` : ""}`;
+      ${order.pointNameSnapshot ? `<p>נקודת חלוקה: <strong>${escapeHtml(order.pointNameSnapshot)}</strong></p>` : ""}
+      ${order.deliveryDateSnapshot ? `<p>תאריך חלוקה: <strong>${escapeHtml(order.deliveryDateSnapshot)}</strong></p>` : ""}
+      <p style="color:#888;font-size:12px;margin-top:16px;">
+        ניתן לצפות בפרטי ההזמנה בכל עת ב<a href="${APP_URL}/account" style="color:#C0461E;">אזור האישי</a>.
+      </p>`;
 
     await getResend().emails.send({
       from: FROM_ADDRESS,
@@ -282,6 +316,123 @@ export async function sendPaymentConfirmedEmail(
     return { ok: false, error: String(e?.message || e).slice(0, 500) };
   }
 }
+/**
+ * מייל תזכורת לפני יום החלוקה.
+ *
+ * נשלח ידנית ע"י המנהל (כפתור בסיכום המכירה), ולא אוטומטית - למערכת אין
+ * תשתית תזמון (cron), והמנהל ממילא יודע מתי הסחורה מגיעה.
+ *
+ * מציג תאריך עברי+לועזי מלא באותו פורמט שהלקוח רואה באתר, ולא "מחר" -
+ * כי הלקוח שומר את המייל וחוזר אליו, ו"מחר" הופך לחסר משמעות.
+ */
+export async function sendDeliveryReminderEmail(params: {
+  to: string;
+  customerName: string;
+  orderNumber: number;
+  pointName: string;
+  pointAddress?: string | null;
+  deliveryHours?: string | null;
+  deliveryDate: Date | string | null;
+  deliveryDateText?: string | null;
+  items?: OrderItemLike[];
+  estimatedTotal?: number | null;
+  finalTotal?: number | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+    if (!settings.sendEmailToCustomer) return { ok: true };
+
+    const {
+      to,
+      customerName,
+      orderNumber,
+      pointName,
+      pointAddress,
+      deliveryHours,
+      deliveryDate,
+      deliveryDateText,
+      items,
+      estimatedTotal,
+      finalTotal,
+    } = params;
+
+    // תאריך עברי+לועזי. אם אין deliveryDate תקין - נופלים לטקסט החופשי
+    // של המחירון, כדי שהמייל לא ייצא בלי תאריך בכלל.
+    const dateLine = hebrewDateFull(deliveryDate) || deliveryDateText || null;
+
+    const amount = finalTotal != null ? finalTotal : estimatedTotal;
+    const amountIsFinal = finalTotal != null;
+
+    const body = `
+      <p>שלום ${escapeHtml(customerName)},</p>
+      <p>תזכורת: ההזמנה שלך <strong>#${orderNumber}</strong> ממתינה לאיסוף.</p>
+
+      <div style="background:#fff8d8;border-radius:10px;padding:16px;margin:16px 0;border-right:4px solid #C0461E;">
+        ${
+          dateLine
+            ? `<p style="margin:0 0 10px;font-size:16px;color:#9A3412;">
+                 <strong>מועד החלוקה:</strong><br/>${escapeHtml(dateLine)}
+               </p>`
+            : ""
+        }
+        <p style="margin:0;font-size:15px;">
+          <strong>נקודת חלוקה:</strong><br/>${escapeHtml(pointName)}
+        </p>
+        ${
+          pointAddress
+            ? `<p style="margin:8px 0 0;font-size:14px;color:#52525B;">כתובת: ${escapeHtml(pointAddress)}</p>`
+            : ""
+        }
+        ${
+          deliveryHours
+            ? `<p style="margin:8px 0 0;font-size:14px;color:#52525B;"><strong>שעות החלוקה:</strong> ${escapeHtml(deliveryHours)}</p>`
+            : ""
+        }
+      </div>
+
+      ${
+        items && items.length > 0
+          ? `<p style="font-size:14px;color:#666;margin-top:20px;">פרטי ההזמנה שלך:</p>
+             <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:12px;">
+               <thead><tr style="background:#FFE000;">
+                 <th style="padding:8px;text-align:right;">מוצר</th>
+                 <th style="padding:8px;text-align:center;">כמות</th>
+                 <th style="padding:8px;text-align:center;">משקל</th>
+                 <th style="padding:8px;text-align:left;">מחיר</th>
+               </tr></thead>
+               <tbody>${itemsRows(items, amountIsFinal)}</tbody>
+             </table>`
+          : ""
+      }
+
+      ${
+        amount != null
+          ? `<p style="font-size:15px;text-align:left;">
+               ${amountIsFinal ? "סכום ההזמנה" : "סכום משוער"}: <strong>${fmt(Number(amount))}</strong>
+             </p>`
+          : ""
+      }
+
+      <p style="color:#52525B;font-size:14px;">
+        אין צורך להביא מזומן — החיוב מתבצע אוטומטית בכרטיס השמור.
+      </p>
+
+      <p style="color:#888;font-size:12px;margin-top:16px;">
+        לפרטי ההזמנה המלאים ניתן להיכנס ל<a href="${APP_URL}/account" style="color:#C0461E;">אזור האישי</a>.
+      </p>`;
+
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to,
+      subject: `תזכורת: חלוקת הזמנה #${orderNumber} — צדקת רבותינו`,
+      html: baseTemplate("תזכורת לקראת החלוקה", body),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}
+
 export async function sendBroadcastEmail(
   customerName: string,
   customerEmail: string,

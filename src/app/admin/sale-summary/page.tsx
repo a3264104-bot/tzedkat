@@ -153,6 +153,50 @@ export default function SaleSummaryPage() {
     downloadCsv(`סיכום-מוצרים-${data.pricelist.name}.csv`, rows);
   }
 
+  // ─── §23: תזכורת חלוקה ללקוחות ───────────────────────────────
+  // שליחה יזומה. לפני השליחה מציגים למנהל בדיוק כמה לקוחות יקבלו
+  // וכמה נשארים בחוץ בלי מייל - זה מייל לעשרות אנשים ולא כדאי
+  // לגלות אחרי מי קיבל.
+  const [reminderBusy, setReminderBusy] = useState(false);
+
+  async function sendDeliveryReminder() {
+    if (!data) return;
+    setReminderBusy(true);
+    try {
+      const pid = data.pricelist.id;
+      const preview = await api(`/api/admin/delivery-reminder?pricelistId=${pid}`);
+      if (preview.recipientCount === 0) {
+        alert("אין לקוחות עם כתובת מייל במכירה הזו.");
+        return;
+      }
+      const warnDate = preview.hasDeliveryDate
+        ? ""
+        : "\n\n⚠️ למכירה זו לא הוגדר תאריך חלוקה — המייל יישלח בלי התאריך העברי.";
+      const warnNoMail =
+        preview.noEmailCount > 0
+          ? `\n(${preview.noEmailCount} לקוחות ללא מייל לא יקבלו)`
+          : "";
+      const ok = confirm(
+        `לשלוח תזכורת חלוקה ל-${preview.recipientCount} לקוחות?${warnNoMail}${warnDate}`
+      );
+      if (!ok) return;
+
+      const res = await api("/api/admin/delivery-reminder", {
+        method: "POST",
+        body: JSON.stringify({ pricelistId: pid }),
+      });
+      alert(
+        `נשלחו ${res.sent} תזכורות.` +
+          (res.failed ? `\n${res.failed} נכשלו.` : "") +
+          (res.noEmail ? `\n${res.noEmail} לקוחות ללא מייל.` : "")
+      );
+    } catch (e: any) {
+      alert("שגיאה: " + e.message);
+    } finally {
+      setReminderBusy(false);
+    }
+  }
+
   // ─── טבלת הזמנה לספק: מוצר × נקודת חלוקה ───────────────────────
   // למה: הייצוא הקיים ("רשימת איסוף") נותן שורה לכל *לקוח* - מצוין
   // לחלוקה בנקודה, אבל חסר תועלת כשצריך להזמין מהספק. כדי להזמין צריך
@@ -281,6 +325,14 @@ export default function SaleSummaryPage() {
             {data.pricelist.deliveryDateText && ` · חלוקה: ${data.pricelist.deliveryDateText}`}
           </p>
         </div>
+        <button
+          onClick={sendDeliveryReminder}
+          disabled={reminderBusy}
+          className="btn-ghost btn-sm no-print"
+          title="שליחת תזכורת ללקוחות עם מועד ומיקום החלוקה"
+        >
+          {reminderBusy ? "שולח..." : "✉ שלח תזכורת חלוקה"}
+        </button>
         <button onClick={() => window.print()} className="btn-ghost btn-sm no-print">
           🖨 הדפסה
         </button>

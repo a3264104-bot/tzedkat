@@ -22,14 +22,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const b = await req.json();
 
-  // making active deactivates others
-  if (b.status === "ACTIVE") {
-    await prisma.pricelist.updateMany({
-      where: { status: "ACTIVE", NOT: { id } },
-      data: { status: "CLOSED" },
-    });
-  }
-
   const data: any = {};
   for (const k of ["name", "status", "notes", "deliveryDateText"]) {
     if (k in b) data[k] = b[k];
@@ -41,7 +33,38 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if ("deliveryDate" in b) data.deliveryDate = b.deliveryDate ? new Date(b.deliveryDate) : null;
   if ("deliveryDateEnd" in b) data.deliveryDateEnd = b.deliveryDateEnd ? new Date(b.deliveryDateEnd) : null;
 
-  const list = await prisma.pricelist.update({ where: { id }, data });
+  // §23: תאריך חלוקה חובה בהפעלת מכירה.
+  // למה: הלקוח לא אמור להזמין בלי לדעת מתי יקבל, ותזכורת החלוקה
+  // מחשבת את התאריך העברי מהשדה הזה - בלעדיו היא נשלחת בלי תאריך.
+  // לא נאכף על טיוטה (DRAFT), כדי לא לחסום עבודה על מכירה בהכנה.
+  if (b.status === "ACTIVE") {
+    const existing = await prisma.pricelist.findUnique({
+      where: { id },
+      select: { deliveryDate: true },
+    });
+    // התאריך יכול להגיע בגוף הבקשה (נקבע עכשיו) או להיות שמור כבר
+    const effectiveDate =
+      "deliveryDate" in b ? data.deliveryDate : existing?.deliveryDate ?? null;
+    if (!effectiveDate) {
+      return NextResponse.json(
+        { error: "לא ניתן להפעיל מכירה בלי תאריך חלוקה. יש לקבוע תאריך תחילה." },
+        { status: 400 }
+      );
+    }
+  }
+
+  // השבתת מכירות אחרות מתבצעת יחד עם העדכון בטרנזקציה אחת.
+  // 🐛 תוקן: קודם ה-updateMany רץ *לפני* העדכון, ואם העדכון נכשל
+  // (למשל ולידציה או שגיאת DB) מכירה אחרת כבר נסגרה לחינם.
+  const list = await prisma.$transaction(async (tx) => {
+    if (b.status === "ACTIVE") {
+      await tx.pricelist.updateMany({
+        where: { status: "ACTIVE", NOT: { id } },
+        data: { status: "CLOSED" },
+      });
+    }
+    return tx.pricelist.update({ where: { id }, data });
+  });
 
   // update product membership / prices
   if (b.products) {
