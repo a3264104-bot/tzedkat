@@ -152,6 +152,14 @@ export async function GET(req: Request) {
   const statusCounts: Record<string, number> = {};
   for (const o of orders) statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
 
+  // §24: פילוח לפי מקור ההזמנה - כמה מגיע מהאתר, מהטלפון, ומנציגים.
+  // מודד את האימוץ של הערוץ הטלפוני בפועל.
+  const sourceCounts: Record<string, number> = {};
+  for (const o of active) {
+    const src = (o as any).source || "WEB";
+    sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+  }
+
   // 🆕 פילוח לפי paymentStatus - שדה נפרד לגמרי מ-status.
   // בלי זה, צרכנים שמחפשים PAYMENT_PENDING / PAID / READY_TO_CHARGE
   // ב-statusCounts תמיד יקבלו 0, כי הערכים האלה חיים ב-paymentStatus.
@@ -185,6 +193,7 @@ export async function GET(req: Request) {
     customers,
     statusCounts,
     payStatusCounts,
+    sourceCounts,
     newOrders,
     limitedWarnings,
     topProducts: products.slice(0, 5),

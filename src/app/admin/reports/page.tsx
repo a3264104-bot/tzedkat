@@ -189,6 +189,37 @@ function SummaryReport({ data }: { data: any }) {
         </div>
 
         <div className="card p-4">
+          <h3 className="font-bold text-brand-slatedark mb-1">מקור ההזמנות</h3>
+          <p className="text-xs text-zinc-500 mb-3">דרך איזה ערוץ הגיעו ההזמנות</p>
+          <div className="space-y-2">
+            {Object.entries((data.sourceCounts ?? {}) as Record<string, number>).map(
+              ([src, n]) => (
+                <div
+                  key={src}
+                  className="flex justify-between text-sm border-b border-zinc-100 pb-1.5"
+                >
+                  <span>
+                    {src === "PHONE"
+                      ? "מערכת טלפונית"
+                      : src === "AGENT"
+                        ? "נציג"
+                        : src === "ADMIN"
+                          ? "מנהל"
+                          : "האתר"}
+                  </span>
+                  <span className="font-semibold">
+                    <bdi>{n}</bdi>
+                  </span>
+                </div>
+              )
+            )}
+            {Object.keys(data.sourceCounts ?? {}).length === 0 && (
+              <div className="text-zinc-400 text-sm">אין נתונים</div>
+            )}
+          </div>
+        </div>
+
+        <div className="card p-4">
           <h3 className="font-bold text-brand-slatedark mb-3">מוצרים מובילים</h3>
           <div className="space-y-2">
             {data.topProducts.map((p: any) => (

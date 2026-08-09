@@ -26,6 +26,7 @@ type Data = {
     canSendPaymentLink: boolean;
     canCharge: boolean;
     canUpdateCards: boolean;
+    canResetPassword: boolean;
     commissionRateCarton: number;
     commissionRateSingles: number;
     createdAt: string;
@@ -578,6 +579,7 @@ function EditModal({
   const [canSendPaymentLink, setCanSendPaymentLink] = useState(!!agent.canSendPaymentLink);
   const [canCharge, setCanCharge] = useState(!!agent.canCharge);
   const [canUpdateCards, setCanUpdateCards] = useState(!!agent.canUpdateCards);
+  const [canResetPassword, setCanResetPassword] = useState(!!agent.canResetPassword);
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -601,6 +603,7 @@ function EditModal({
           agentCanSendPaymentLink: canSendPaymentLink,
           agentCanCharge: canCharge,
           agentCanUpdateCards: canUpdateCards,
+          agentCanResetPassword: canResetPassword,
         }),
       });
       const json = await res.json();
@@ -771,6 +774,13 @@ function EditModal({
                 onChange={setCanUpdateCards}
                 label="לעדכן פרטי כרטיס"
                 hint="עדכון כרטיס אשראי של לקוח בשם הלקוח"
+                sensitive
+              />
+              <PermToggle
+                checked={canResetPassword}
+                onChange={setCanResetPassword}
+                label="לאפס סיסמה ללקוח"
+                hint="נדרש ללקוחות טלפוניים שאין להם מייל ולא יכולים לאפס בעצמם"
                 sensitive
               />
             </div>

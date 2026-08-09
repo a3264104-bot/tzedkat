@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+import { auth } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 
 const ALLOWED_FIELDS = [
@@ -26,15 +27,90 @@ const ALLOWED_FIELDS = [
   "cardNeedsUpdate",
 ] as const;
 
+// §24: נציג עם הרשאת agentCanResetPassword יכול לאפס סיסמה ללקוח -
+// ורק את זה. הצורך: לקוח שנרשם בטלפון מקבל סיסמה אקראית שאיש לא יודע,
+// ולרוב אין לו מייל, כך ש"שכחתי סיסמה" לא עוזר. הנציג ממילא מדבר איתו
+// כדי לעדכן כרטיס, ובאותה שיחה יכול למסור סיסמה.
+//
+// ההגבלות: רק passwordPlain (לא שם/טלפון/הרשאות), ורק ללקוח בנקודות
+// של הנציג. כל שדה אחר בבקשה נדחה.
+async function resolveActor(body: any) {
+  const admin = await requireAdmin();
+  if (admin.ok) return { ok: true as const, isAdmin: true, agentId: null as string | null };
+
+  const session = await auth();
+  const role = (session?.user as any)?.role;
+  const userId = (session?.user as any)?.id as string | undefined;
+  if (!session?.user || role !== "AGENT" || !userId) {
+    return { ok: false as const, res: admin.res };
+  }
+
+  const agent = await prisma.customer.findUnique({
+    where: { id: userId },
+    select: { agentCanResetPassword: true },
+  });
+  if (!agent?.agentCanResetPassword) {
+    return { ok: false as const, res: admin.res };
+  }
+
+  // הנציג רשאי *רק* לאפס סיסמה. אם הבקשה מכילה שדה אחר - נדחית.
+  const keys = Object.keys(body).filter((k) => k !== "passwordPlain");
+  if (keys.length > 0 || !body.passwordPlain) {
+    return {
+      ok: false as const,
+      res: NextResponse.json(
+        { error: "נציג רשאי לאפס סיסמה בלבד" },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { ok: true as const, isAdmin: false, agentId: userId };
+}
+
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const g = await requireAdmin();
-  if (!g.ok) return g.res;
-
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
+
+  const actor = await resolveActor(body);
+  if (!actor.ok) return actor.res;
+
+  // נציג - מוודאים שהלקוח שייך לאחת מנקודותיו
+  if (!actor.isAdmin && actor.agentId) {
+    const agent = await prisma.customer.findUnique({
+      where: { id: actor.agentId },
+      select: {
+        agentPointId: true,
+        agentPoints: { select: { pointId: true } },
+      },
+    });
+    const pointIds =
+      agent && agent.agentPoints.length > 0
+        ? agent.agentPoints.map((ap) => ap.pointId)
+        : agent?.agentPointId
+          ? [agent.agentPointId]
+          : [];
+    if (pointIds.length > 0) {
+      const target = await prisma.customer.findUnique({
+        where: { id },
+        select: { defaultPointId: true },
+      });
+      const belongs =
+        (target?.defaultPointId != null && pointIds.includes(target.defaultPointId)) ||
+        (await prisma.order.count({
+          where: { customerId: id, pointId: { in: pointIds } },
+        })) > 0;
+      if (!belongs) {
+        return NextResponse.json(
+          { error: "אין הרשאה - הלקוח אינו משויך לנקודות שלך" },
+          { status: 403 }
+        );
+      }
+    }
+  }
 
   const data: any = {};
 

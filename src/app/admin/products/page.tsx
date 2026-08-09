@@ -13,6 +13,9 @@ type Product = {
   category: Cat;
   cartonPrice: string;
   allowSingles: boolean;
+  // §24: תפריט טלפוני
+  phoneEnabled?: boolean;
+  phoneKey?: number | null;
   singleSurcharge: string | null;
   singlesMode: string; // "KG" (default) | "UNITS" - מצב בודדים (סלומון = UNITS)
   singleUnitPrice: string | null; // מחיר קבוע ליחידה בבודדים (רק ב-UNITS)
@@ -174,6 +177,12 @@ export default function ProductsPage() {
       kashrutId: editing.kashrutId || null,
       isFeatured: editing.isFeatured ?? false,
       highlightNote: editing.highlightNote || null,
+      // §24: זמינות בתפריט הטלפוני + מקש קבוע לבחירה
+      phoneEnabled: editing.phoneEnabled ?? true,
+      phoneKey:
+        editing.phoneKey != null && String(editing.phoneKey) !== ""
+          ? parseInt(String(editing.phoneKey), 10)
+          : null,
     };
     if (editing.id) {
       await api(`/api/admin/products/${editing.id}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -747,6 +756,51 @@ export default function ProductsPage() {
                   </p>
                 </div>
               </label>
+
+              {/* §24: תפריט טלפוני. בלי ההגדרות האלה אין שליטה על מה
+                  שהלקוח שומע בשיחה - כל המוצרים היו נקראים בתפריט אחד ארוך. */}
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={editing.phoneEnabled ?? true}
+                  onChange={(e) => setEditing({ ...editing, phoneEnabled: e.target.checked })}
+                  className="h-4 w-4 accent-brand-rust"
+                />
+                <div>
+                  <span>📞 זמין בהזמנה טלפונית</span>
+                  <p className="text-xs text-zinc-400 font-normal">
+                    כשמסומן — המוצר יוקרא בתפריט הקולי. כדאי לכבות במוצרים
+                    שקשה להסביר בטלפון.
+                  </p>
+                </div>
+              </label>
+              {(editing.phoneEnabled ?? true) && (
+                <label className="block">
+                  <span className="text-xs font-bold text-zinc-500">
+                    מקש בתפריט הטלפוני{" "}
+                    <span className="font-normal text-zinc-400">(אופציונלי)</span>
+                  </span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="99"
+                    value={editing.phoneKey ?? ""}
+                    onChange={(e) =>
+                      setEditing({
+                        ...editing,
+                        phoneKey: e.target.value === "" ? null : parseInt(e.target.value, 10),
+                      })
+                    }
+                    placeholder="לדוגמה 1"
+                    className="w-full mt-1 px-3 py-2 border border-zinc-300 rounded-lg text-sm"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    קובע את סדר ההקראה בתפריט. מומלץ לשמור על מספר קבוע לאורך זמן
+                    כדי שלקוחות קבועים יזכרו אותו. ללא מספר — המוצר יופיע בסוף
+                    לפי סדר אלפביתי.
+                  </p>
+                </label>
+              )}
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"

@@ -35,6 +35,7 @@ export async function GET(
       // 🆕 הרשאות רגישות שעד כה ניתנו לעריכה רק ממסך הלקוחות
       agentCanCharge: true,
       agentCanUpdateCards: true,
+      agentCanResetPassword: true,
       commissionRateCarton: true,
       commissionRateSingles: true,
       createdAt: true,
@@ -115,6 +116,7 @@ export async function GET(
       canSendPaymentLink: agent.agentCanSendPaymentLink,
       canCharge: agent.agentCanCharge,
       canUpdateCards: agent.agentCanUpdateCards,
+      canResetPassword: agent.agentCanResetPassword,
       commissionRateCarton: Number(agent.commissionRateCarton),
       commissionRateSingles: Number(agent.commissionRateSingles),
       createdAt: agent.createdAt.toISOString(),
@@ -247,6 +249,9 @@ export async function PATCH(
   }
   if ("agentCanUpdateCards" in body) {
     data.agentCanUpdateCards = !!body.agentCanUpdateCards;
+  }
+  if ("agentCanResetPassword" in body) {
+    data.agentCanResetPassword = !!body.agentCanResetPassword;
   }
 
   if (Object.keys(data).length === 0 && newPointIds === null) {

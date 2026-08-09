@@ -41,6 +41,8 @@ export async function GET(req: Request) {
       "טלפון": o.phone,
       "טלפון נוסף": o.phone2 ?? "",
       "נקודת חלוקה": o.point?.name ?? o.pointNameSnapshot ?? "",
+      // §24: מקור ההזמנה - מאפשר לנתח כמה הזמנות מגיעות מכל ערוץ
+      "מקור": o.source === "PHONE" ? "טלפון" : o.source === "AGENT" ? "נציג" : o.source === "ADMIN" ? "מנהל" : "אתר",
       "סטטוס": STATUS_LABELS[o.status] ?? o.status,
       "סה\"כ משוער": Number(o.estimatedTotal),
       "סה\"כ סופי": o.finalTotal ? Number(o.finalTotal) : "",

@@ -275,6 +275,10 @@ export async function POST(req: Request) {
         pointId: data.pointId,
         customerId,
         placedByAgentId,
+        // §24: מקור ההזמנה. נקבע בשרת לפי מי שמחובר בפועל ולא לפי מה
+        // שנשלח מהלקוח, כדי שהתיעוד יהיה אמין.
+        // הזמנה טלפונית נוצרת דרך endpoint נפרד ומסמנת PHONE שם.
+        source: placedByAgentId ? (role === "ADMIN" ? "ADMIN" : "AGENT") : "WEB",
         // snapshot של מה שהלקוח ראה בזמן ההזמנה
         pointNameSnapshot: plPoint.point.name,
         // §6: תאריך חלוקה חריג של הנקודה עדיף על תאריך המחירון

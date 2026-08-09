@@ -32,6 +32,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     "allowPersonalOrder",
     "isActive",
     "sortOrder",
+    // §24: תפריט טלפוני - בלי אלה הטופס שולח והשרת מתעלם בשקט
+    "phoneEnabled",
+    "phoneKey",
   ]) {
     if (k in b) data[k] = b[k];
   }

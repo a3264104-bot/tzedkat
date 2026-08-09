@@ -359,6 +359,23 @@ export default function OrderDetail() {
         <Info label="נקודת חלוקה" value={order.point.name} />
         <Info label="תאריך חלוקה" value={order.pricelist?.deliveryDateText ?? "—"} />
         <Info label="תאריך הזמנה" value={new Date(order.createdAt).toLocaleString("he-IL")} />
+        {/* §24: מקור ההזמנה - חשוב לתחקור, במיוחד בהזמנות טלפוניות
+            שבהן אין למנהל שום דרך אחרת לדעת איך ההזמנה נוצרה. */}
+        <Info
+          label="מקור ההזמנה"
+          value={
+            order.source === "PHONE"
+              ? "מערכת טלפונית"
+              : order.source === "AGENT"
+                ? "נציג"
+                : order.source === "ADMIN"
+                  ? "מנהל"
+                  : "האתר"
+          }
+        />
+        {order.phoneCallId && (
+          <Info label="מזהה שיחה" value={order.phoneCallId} />
+        )}
         {order.notes && <Info label="הערות לקוח" value={order.notes} />}
       </div>
 

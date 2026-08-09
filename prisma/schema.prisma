@@ -65,12 +65,22 @@ model Customer {
   agentCanCharge Boolean @default(false)
   // הרשאה לעדכן פרטי אשראי של לקוח (החלפת token)
   agentCanUpdateCards Boolean @default(false)
+  // §24: איפוס סיסמה ללקוח. נדרש בעיקר ללקוחות טלפוניים - הם נרשמים
+  // בשיחה עם סיסמה אקראית שאיש לא יודע, ולרוב בלי מייל, כך ש"שכחתי
+  // סיסמה" לא עוזר להם. הנציג ממילא מדבר איתם כדי לעדכן כרטיס.
+  // כבוי כברירת מחדל: סיסמה נותנת גישה מלאה לחשבון ולהיסטוריה, וזה
+  // סוג גישה שונה מעדכון כרטיס.
+  agentCanResetPassword Boolean @default(false)
   // עמלת נציג לפי ק"ג - קרטונים ובודדים בנפרד
   // ברירת מחדל: 1 ש"ח לק"ג לקרטונים, 4 ש"ח לק"ג לבודדים (1 בסיסי + 3 תוספת)
   commissionRateCarton  Decimal @default(1) @db.Decimal(10, 2)
   commissionRateSingles Decimal @default(4) @db.Decimal(10, 2)
   orders               Order[]
   personalRequests     PersonalRequest[]
+  // §24: מערכת טלפונית
+  phoneDrafts          PhoneOrderDraft[]
+  phoneMessages        PhoneMessage[]
+  phoneSignupRequests  PhoneSignupRequest[]
   // §20: מכירות ותשלומים של הנציג
   agentSaleSummaries   AgentSaleSummary[]
   agentPayments        AgentPayment[]
@@ -118,6 +128,12 @@ model Product {
   category      Category @relation(fields: [categoryId], references: [id])
   // מחיר קרטון הוא ברירת המחדל המוצגת מהמחירון
   cartonPrice   Decimal  @db.Decimal(10, 2)
+  // §24: תפריט טלפוני. phoneKey = הספרה שהלקוח מקיש לבחירת המוצר בתפריט
+  // הקולי (קבוע לאורך זמן כדי שלקוחות קבועים יזכרו אותו).
+  // phoneEnabled = האם להציע את המוצר בטלפון בכלל.
+  phoneKey      Int?
+  phoneEnabled  Boolean  @default(true)
+
   // האם המוצר תומך בקנייה בבודדים (בשר/דגים) עם תוספת לק"ג
   allowSingles  Boolean  @default(false)
   // תוספת מחיר לבודדים לק"ג (ברירת מחדל 3 ש"ח, ניתן לעריכה גלובלית/למוצר)
@@ -178,6 +194,7 @@ model DeliveryPoint {
   agents       Customer[] @relation("AgentPoint") // 🔴 DEPRECATED: נציגים המוגבלים לנקודה זו (single). נשאר לתאימות.
   // 🆕 קשר many-to-many: כל הנציגים המשויכים לנקודה דרך AgentPoint
   agentPoints  AgentPoint[] @relation("PointAgents")
+  phoneSignupRequests PhoneSignupRequest[]
   personalProducts PersonalProduct[] @relation("PersonalProductPoint") // §9: מוצרים אישיים בנקודה זו
   createdAt    DateTime @default(now())
 }
@@ -256,6 +273,16 @@ model Order {
   // כל הזמנה משויכת ללקוח רשום (אין יותר הזמנת אורח)
   customerId      String
   customer        Customer @relation(fields: [customerId], references: [id])
+  // §24: מקור ההזמנה - מאיפה היא הגיעה בפועל.
+  // WEB   = הלקוח הזמין בעצמו באתר
+  // PHONE = הזמנה שהתקבלה במערכת הטלפונית (ימות המשיח)
+  // AGENT = נציג הזמין בשם הלקוח
+  // ADMIN = המנהל יצר ידנית
+  // משלים את placedByAgentId: הוא אומר *מי* הזמין, source אומר *דרך מה*.
+  source          String   @default("WEB")
+  // מזהה השיחה בימות המשיח (ApiCallId) - לתחקור הזמנה טלפונית מול הלוגים
+  phoneCallId     String?
+
   // snapshot של מה שהלקוח ראה/הזין בזמן ההזמנה (לתיעוד - לא משתנה גם אם הלקוח עצמו ישתנה אחר כך)
   pointNameSnapshot     String?
   deliveryDateSnapshot  String?
@@ -593,4 +620,109 @@ model Kashrut {
   products  Product[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// §24: מערכת טלפונית (ימות המשיח)
+// ═══════════════════════════════════════════════════════════════════
+
+// טיוטת הזמנה טלפונית - מצב השיחה בזמן אמת.
+//
+// למה טבלה ולא פרמטרים ב-URL: ימות שולחים בכל קריאה את כל הנתונים
+// שנאספו, אבל לקוח שבוחר 5 מוצרים מייצר URL ארוך שעלול להישבר.
+// בנוסף, טיוטה שמורה מאפשרת לתחקר שיחות שהתנתקו באמצע ולראות
+// איפה לקוחות נתקעים.
+//
+// המחיקה: ימות שולחים hangup=yes בניתוק, ואז הטיוטה נמחקת אם ההזמנה
+// לא הושלמה. טיוטות יתומות (ניתוק שלא דווח) מנוקות לפי createdAt.
+model PhoneOrderDraft {
+  id            String   @id @default(cuid())
+  // ApiCallId של ימות - מזהה ייחודי לאורך כל השיחה
+  callId        String   @unique
+  phone         String
+  customerId    String?
+  customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  pricelistId   String?
+  // הפריטים שנבחרו עד כה, כ-JSON:
+  // [{ productId, productName, isSingle, quantity, unitPrice, estimatedPrice }]
+  // JSON ולא טבלת בת, כי זו טיוטה זמנית שנמחקת בסיום ואין צורך בשאילתות עליה.
+  itemsJson     String?
+  // ההזמנה שנוצרה בסוף (אם הושלמה) - לתיעוד ולמניעת יצירה כפולה
+  orderId       String?
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([phone])
+  @@index([createdAt])
+}
+
+// הודעה שלקוח השאיר במערכת הטלפונית.
+//
+// מיועד לשני מצבים: לקוח לא רשום שמבקש שיחזרו אליו, ולקוח רשום
+// שרוצה למסור משהו שלא נכנס לתפריט. המנהל מטפל בהן מהאתר.
+model PhoneMessage {
+  id           String   @id @default(cuid())
+  phone        String
+  callId       String?
+  customerId   String?
+  customer     Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  // נתיב ההקלטה בימות (אם הלקוח הקליט) או תמלול
+  recordingPath String?
+  transcript   String?
+  // סוג הפנייה: CALLBACK = מבקש שיחזרו אליו, GENERAL = הודעה כללית
+  kind         String   @default("GENERAL")
+  // טיפול: NEW -> HANDLED
+  status       String   @default("NEW")
+  handledAt    DateTime?
+  handledBy    String?
+  adminNote    String?
+  createdAt    DateTime @default(now())
+
+  @@index([status])
+  @@index([phone])
+}
+
+// בקשת פתיחת חשבון שהתקבלה במערכת הטלפונית.
+//
+// זו לא "הודעה" אלא *משימה מנוהלת*: לקוח שנרשם בטלפון לא יכול להזמין
+// עד שנציג ייצור איתו קשר ויעדכן פרטי אשראי (אין דרך להזין כרטיס
+// בטלפון בלי לעבור בסולק). הטבלה מחזיקה את מצב הטיפול.
+//
+// השיוך הוא לפי *נקודת חלוקה* ולא לנציג ספציפי - הבקשה מופיעה לכל
+// נציג שמשויך לאותה נקודה. assignedAgentId הוא עקיפה ידנית של המנהל
+// כשהוא רוצה שנציג מסוים יטפל.
+//
+// הלקוח נוצר כבר בשלב הרישום הטלפוני (בלי טוקן), ולכן customerId
+// מלא מההתחלה. הוא חסום מהזמנה ממילא כל עוד אין paymentToken.
+model PhoneSignupRequest {
+  id            String   @id @default(cuid())
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  phone         String
+  customerName  String
+  // נקודת החלוקה שהלקוח בחר בשיחה - זהו גם השיוך לטיפול
+  pointId       String
+  point         DeliveryPoint @relation(fields: [pointId], references: [id])
+  // עקיפה ידנית: המנהל משייך נציג ספציפי במקום "כל נציגי הנקודה"
+  assignedAgentId String?
+  assignedAt      DateTime?
+
+  // NEW -> ASSIGNED -> CONTACTED -> COMPLETED / FAILED
+  // COMPLETED נקבע אוטומטית כשנוצר ללקוח paymentToken.
+  status        String   @default("NEW")
+  contactedAt   DateTime?
+  contactedBy   String?
+  completedAt   DateTime?
+  // סיבה כשהטיפול נכשל (לא עונה, ויתר, מספר שגוי)
+  failReason    String?
+  note          String?
+
+  callId        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@index([pointId])
+  @@index([customerId])
 }

@@ -26,6 +26,19 @@ const statusColor: Record<string, string> = {
 
 type Pricelist = { id: string; name: string; status: string };
 
+// §24: מקור ההזמנה - מאיפה היא הגיעה בפועל.
+// WEB לא מקבל תגית: זו ברירת המחדל וזה רק היה מרעיש את הטבלה.
+const SOURCE_LABELS: Record<string, string> = {
+  PHONE: "טלפון",
+  AGENT: "נציג",
+  ADMIN: "מנהל",
+};
+const SOURCE_COLORS: Record<string, string> = {
+  PHONE: "bg-indigo-100 text-indigo-700",
+  AGENT: "bg-teal-100 text-teal-700",
+  ADMIN: "bg-zinc-200 text-zinc-700",
+};
+
 const ALL = "__all__";
 
 export default function OrdersPage() {
@@ -191,6 +204,7 @@ export default function OrdersPage() {
                 <th>#</th>
                 <th>תאריך</th>
                 <th>לקוח</th>
+                <th>מקור</th>
                 <th>טלפון</th>
                 <th>נקודה</th>
                 <th>משוער</th>
@@ -207,6 +221,17 @@ export default function OrdersPage() {
                     {new Date(o.createdAt).toLocaleDateString("he-IL")}
                   </td>
                   <td className="font-medium">{o.customerName}</td>
+                  <td>
+                    {o.source && o.source !== "WEB" ? (
+                      <span
+                        className={`badge ${SOURCE_COLORS[o.source] ?? "bg-zinc-100 text-zinc-600"}`}
+                      >
+                        {SOURCE_LABELS[o.source] ?? o.source}
+                      </span>
+                    ) : (
+                      <span className="text-zinc-300 text-xs">אתר</span>
+                    )}
+                  </td>
                   <td className="text-zinc-500" dir="ltr">
                     {o.phone}
                   </td>

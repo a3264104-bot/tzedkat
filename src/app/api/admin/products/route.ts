@@ -48,6 +48,9 @@ export async function POST(req: Request) {
       limitedQtyAmount: b.limitedQtyAmount ?? null,
       isActive: b.isActive ?? true,
       sortOrder: b.sortOrder ?? 0,
+      // §24: תפריט טלפוני
+      phoneEnabled: b.phoneEnabled ?? true,
+      phoneKey: b.phoneKey ?? null,
     },
   });
   return NextResponse.json(product);
