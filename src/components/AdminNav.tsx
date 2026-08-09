@@ -30,11 +30,9 @@ const NAV_GROUPS: NavGroup[] = [
     label: "הכנה",
     icon: "🗂️",
     step: 1,
-    hint: "לפני פתיחת המכירה",
+    hint: "פתיחת מכירה חדשה",
     items: [
       { href: "/admin/pricelists", label: "מחירונים / מכירות", icon: "💵" },
-      { href: "/admin/products", label: "מוצרים", icon: "🥩" },
-      { href: "/admin/kashrut", label: "כשרויות", icon: "🏷️" },
       { href: "/admin/points", label: "נקודות חלוקה", icon: "📍" },
     ],
   },
@@ -44,10 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: "🧾",
     step: 2,
     hint: "לקוחות מזמינים",
-    items: [
-      { href: "/admin/orders", label: "הזמנות", icon: "🧾" },
-      { href: "/admin/sale-control", label: "בקרת מכירה", icon: "📊" },
-    ],
+    items: [{ href: "/admin/orders", label: "הזמנות", icon: "🧾" }],
   },
   {
     id: "intake",
@@ -58,6 +53,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/delivery-notes", label: "תעודות משלוח", icon: "📄" },
       { href: "/admin/pending-weights", label: "משקלים ממתינים", icon: "⚖️" },
+      // בקרת מכירה משווה תעודות משלוח מול מה שחולק בפועל - ולכן היא
+      // שייכת לשלב הזה. בשלב ② היא ריקה כי עוד לא הגיעה סחורה.
+      { href: "/admin/sale-control", label: "בקרת מכירה", icon: "📊" },
     ],
   },
   {
@@ -69,6 +67,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/payments", label: "תשלומים", icon: "💳" },
       { href: "/admin/debts", label: "חובות לקוחות", icon: "💰" },
+      { href: "/admin/agent-debts", label: "חובות נציגים", icon: "🧮" },
       { href: "/admin/payment-audit", label: "יומן תשלומים", icon: "🧾" },
     ],
   },
@@ -81,7 +80,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/sale-summary", label: "סיכום מכירה", icon: "📑" },
       { href: "/admin/reports", label: "דוחות", icon: "📈" },
-      { href: "/admin/agent-debts", label: "חובות נציגים", icon: "🧮" },
     ],
   },
   {
@@ -91,6 +89,10 @@ const NAV_GROUPS: NavGroup[] = [
     step: null,
     hint: "לא תלוי במכירה",
     items: [
+      // קטלוג המוצרים יציב ולא משתנה בכל מכירה, ולכן הוא ניהול שוטף
+      // ולא חלק מהכנת המכירה.
+      { href: "/admin/products", label: "מוצרים", icon: "🥩" },
+      { href: "/admin/kashrut", label: "כשרויות", icon: "🏷️" },
       { href: "/admin/customers", label: "לקוחות", icon: "🧑" },
       { href: "/admin/phone-signups", label: "בקשות מהטלפון", icon: "📞" },
       { href: "/admin/agents", label: "נציגים", icon: "🧑‍💼" },
