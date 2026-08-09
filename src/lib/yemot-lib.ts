@@ -57,8 +57,13 @@ export function yemotResponse(text: string): Response {
  */
 export function sanitizeTts(text: string): string {
   return String(text ?? "")
+    // נקודה ומקף הם מפרידים בפרוטוקול של ימות - חייבים לצאת
     .replace(/[.\-–—]/g, " ")
+    // & ו-= מפרידים בין פקודות
     .replace(/[&=]/g, " ")
+    // גרשיים ומרכאות: לא שוברים את הפרוטוקול אבל מנוע ההקראה
+    // עלול להגות אותם או להיתקע. שמות נקודות כמו 'בית יעקב"' נפוצים.
+    .replace(/["'`׳״]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -152,14 +157,35 @@ export function read(prompt: string, opts: ReadOptions): string {
   return `read=${prompt}=${parts.join(",")}`;
 }
 
+/**
+ * בקשת הקלטה שתתומלל לטקסט (זיהוי דיבור).
+ *
+ * 🐛 קודם זה נעשה ע"י read() רגיל ואז .replace() על המחרוזת שנוצרה -
+ * פתרון שביר שנשבר בשקט אם סדר הערכים משתנה, ואז נשלח max=0 שאינו חוקי.
+ * כאן הפורמט נבנה ישירות: <שם>,<שימוש-חוזר>,voice
+ */
+export function readVoice(prompt: string, name: string): string {
+  return `read=${prompt}=${name},,voice`;
+}
+
 /** מעבר לשלוחה אחרת */
 export function goToFolder(folder: string): string {
   return `go_to_folder=${folder}`;
 }
 
-/** ניתוק השיחה (חזרה לשלוחה הראשית) */
+/**
+ * סיום השיחה אחרי השמעת הודעה.
+ *
+ * 🐛 היה כאן `go_to_folder=hangup` - ימות מצפים בפקודה הזו ל*שלוחה*
+ * (מספר או נתיב כמו /1), לא למילה "hangup". התוצאה: ימות לא זיהו את
+ * התשובה כחוקית והשמיעו M1607 "אין מענה משרת API".
+ *
+ * הדרך הנכונה: לא להוסיף פקודת ניתוק כלל. אחרי id_list_message ימות
+ * מסיימים את השלוחה לבד ומתנהגים לפי api_end_goto (ברירת מחדל: חזרה
+ * שלב אחד אחורה). לניתוק מלא מגדירים בשלוחה api_end_goto=hangup.
+ */
 export function hangup(): string {
-  return "go_to_folder=hangup";
+  return "";
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -21,8 +21,8 @@ import {
   say,
   sayNumber,
   read,
+  readVoice,
   normalizePhone,
-  hangup,
   messages,
 } from "@/lib/yemot-lib";
 import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
@@ -63,7 +63,7 @@ async function handle(req: Request): Promise<Response> {
 
   if (!phone) {
     return yemotResponse(
-      playMessage(say("אירעה שגיאה בזיהוי המספר")) + "&" + hangup()
+      playMessage(say("אירעה שגיאה בזיהוי המספר"))
     );
   }
 
@@ -101,7 +101,7 @@ async function handle(req: Request): Promise<Response> {
             ? "בקשתך לפתיחת חשבון נקלטה ונציג יחזור אליך בהקדם לאימות פרטי האשראי"
             : "כדי לבצע הזמנות יש צורך באימות פרטי אשראי. נציג יחזור אליך בהקדם"
         )
-      ) + "&" + hangup()
+      )
     );
   }
 
@@ -153,7 +153,7 @@ async function handleUnregistered(
       data: { phone, callId: callId || null, kind: "CALLBACK", status: "NEW" },
     });
     return yemotResponse(
-      playMessage(say("הודעתך נקלטה, נחזור אליך בהקדם. תודה")) + "&" + hangup()
+      playMessage(say("הודעתך נקלטה, נחזור אליך בהקדם. תודה"))
     );
   }
 
@@ -170,7 +170,7 @@ async function handleUnregistered(
   if (!p.CITY) {
     if (cityList.length === 0) {
       return yemotResponse(
-        playMessage(say("אין נקודות חלוקה פעילות כרגע")) + "&" + hangup()
+        playMessage(say("אין נקודות חלוקה פעילות כרגע"))
       );
     }
     const menu = cityList.map((c, i) => say(`ל${c} הקש ${i + 1}`));
@@ -187,7 +187,7 @@ async function handleUnregistered(
   const cityIdx = parseInt(p.CITY, 10) - 1;
   const city = cityList[cityIdx];
   if (!city) {
-    return yemotResponse(playMessage(say("בחירה לא חוקית")) + "&" + hangup());
+    return yemotResponse(playMessage(say("בחירה לא חוקית")));
   }
 
   // שלב 2: נקודה בעיר. אם יש רק אחת - נבחרת אוטומטית.
@@ -215,17 +215,13 @@ async function handleUnregistered(
   }
 
   if (!pointId) {
-    return yemotResponse(playMessage(say("בחירה לא חוקית")) + "&" + hangup());
+    return yemotResponse(playMessage(say("בחירה לא חוקית")));
   }
 
   // שלב 3: הקלטת שם
   if (!p.NAME) {
     return yemotResponse(
-      read(say("אנא אמור את שמך המלא לאחר הצליל"), {
-        name: "NAME",
-        max: 0,
-        min: 0,
-      }).replace(",,0,0,7,No,,,,,,,,,no", ",,voice")
+      readVoice(say("אנא אמור את שמך המלא לאחר הצליל"), "NAME")
     );
   }
 
@@ -236,7 +232,7 @@ async function handleUnregistered(
   const already = await prisma.customer.findUnique({ where: { phone } });
   if (already) {
     return yemotResponse(
-      playMessage(say("החשבון כבר קיים במערכת, נציג יחזור אליך")) + "&" + hangup()
+      playMessage(say("החשבון כבר קיים במערכת, נציג יחזור אליך"))
     );
   }
 
@@ -275,7 +271,7 @@ async function handleUnregistered(
       say("החשבון נפתח בהצלחה"),
       say("לצורך אישור החשבון ועדכון פרטי האשראי נציג יחזור אליך בהקדם"),
       say("תודה ולהתראות")
-    ) + "&" + hangup()
+    )
   );
 }
 
@@ -299,7 +295,7 @@ async function handleMyOrders(customerId: string): Promise<Response> {
 
   if (orders.length === 0) {
     return yemotResponse(
-      playMessage(say("אין לך הזמנות במערכת")) + "&" + hangup()
+      playMessage(say("אין לך הזמנות במערכת"))
     );
   }
 
@@ -316,7 +312,7 @@ async function handleMyOrders(customerId: string): Promise<Response> {
     if (o.deliveryDateSnapshot) parts.push(say(`בתאריך ${o.deliveryDateSnapshot}`));
   }
 
-  return yemotResponse(playMessage(...parts) + "&" + hangup());
+  return yemotResponse(playMessage(...parts));
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -325,15 +321,14 @@ async function handleMyOrders(customerId: string): Promise<Response> {
 async function handleMyPoint(customer: any): Promise<Response> {
   if (!customer.defaultPoint) {
     return yemotResponse(
-      playMessage(say("לא הוגדרה עבורך נקודת חלוקה, נציג יחזור אליך")) +
-        "&" + hangup()
+      playMessage(say("לא הוגדרה עבורך נקודת חלוקה, נציג יחזור אליך"))
     );
   }
   return yemotResponse(
     playMessage(
       say(`נקודת החלוקה שלך היא ${customer.defaultPoint.name}`),
       say("לשינוי נקודת החלוקה יש לפנות לנציג")
-    ) + "&" + hangup()
+    )
   );
 }
 
@@ -354,18 +349,18 @@ async function handleOrder(
 
   if (!pricelist) {
     return yemotResponse(
-      playMessage(say("אין כרגע מכירה פעילה")) + "&" + hangup()
+      playMessage(say("אין כרגע מכירה פעילה"))
     );
   }
   const now = new Date();
   if (pricelist.closeDate && now > pricelist.closeDate) {
     return yemotResponse(
-      playMessage(say("מועד ההרשמה למכירה הסתיים")) + "&" + hangup()
+      playMessage(say("מועד ההרשמה למכירה הסתיים"))
     );
   }
   if (pricelist.openDate && now < pricelist.openDate) {
     return yemotResponse(
-      playMessage(say("ההרשמה למכירה טרם נפתחה")) + "&" + hangup()
+      playMessage(say("ההרשמה למכירה טרם נפתחה"))
     );
   }
 
@@ -383,14 +378,13 @@ async function handleOrder(
       playMessage(
         say("כבר קיימת לך הזמנה במכירה זו"),
         say("לשינוי ההזמנה יש לפנות לנציג")
-      ) + "&" + hangup()
+      )
     );
   }
 
   if (!customer.defaultPointId) {
     return yemotResponse(
-      playMessage(say("לא הוגדרה עבורך נקודת חלוקה, נציג יחזור אליך")) +
-        "&" + hangup()
+      playMessage(say("לא הוגדרה עבורך נקודת חלוקה, נציג יחזור אליך"))
     );
   }
 
@@ -413,7 +407,7 @@ async function handleOrder(
     if (p.CONFIRM !== "1") {
       await prisma.phoneOrderDraft.delete({ where: { id: draft.id } }).catch(() => null);
       return yemotResponse(
-        playMessage(say("ההזמנה בוטלה")) + "&" + hangup()
+        playMessage(say("ההזמנה בוטלה"))
       );
     }
     return finalizeOrder(draft.id, items, customer, pricelist, callId);
@@ -432,7 +426,7 @@ async function handleOrder(
 
   if (catList.length === 0) {
     return yemotResponse(
-      playMessage(say("אין מוצרים זמינים להזמנה טלפונית")) + "&" + hangup()
+      playMessage(say("אין מוצרים זמינים להזמנה טלפונית"))
     );
   }
 
@@ -450,7 +444,7 @@ async function handleOrder(
 
   const catId = catList[parseInt(p.CAT, 10) - 1]?.[0];
   if (!catId) {
-    return yemotResponse(playMessage(say("בחירה לא חוקית")) + "&" + hangup());
+    return yemotResponse(playMessage(say("בחירה לא חוקית")));
   }
 
   // ─── בחירת מוצר ───
@@ -487,7 +481,7 @@ async function handleOrder(
 
   if (prods.length === 0) {
     return yemotResponse(
-      playMessage(say("אין מוצרים בקטגוריה זו")) + "&" + hangup()
+      playMessage(say("אין מוצרים בקטגוריה זו"))
     );
   }
 
@@ -505,7 +499,7 @@ async function handleOrder(
 
   const chosen = prods[parseInt(p.PROD, 10) - 1];
   if (!chosen) {
-    return yemotResponse(playMessage(say("בחירה לא חוקית")) + "&" + hangup());
+    return yemotResponse(playMessage(say("בחירה לא חוקית")));
   }
   const prod = chosen.product;
 
@@ -539,7 +533,7 @@ async function handleOrder(
 
   const qty = parseInt(p.QTY, 10);
   if (!qty || qty <= 0) {
-    return yemotResponse(playMessage(say("כמות לא חוקית")) + "&" + hangup());
+    return yemotResponse(playMessage(say("כמות לא חוקית")));
   }
 
   // ─── חישוב מחיר - בדיוק כמו באתר ───
@@ -620,7 +614,7 @@ async function finalizeOrder(
   callId: string
 ): Promise<Response> {
   if (items.length === 0) {
-    return yemotResponse(playMessage(say("לא נבחרו מוצרים")) + "&" + hangup());
+    return yemotResponse(playMessage(say("לא נבחרו מוצרים")));
   }
 
   // הגנה מפני יצירה כפולה - ימות עלולים לשלוח את אותה בקשה שוב
@@ -630,7 +624,7 @@ async function finalizeOrder(
   });
   if (draft?.orderId) {
     return yemotResponse(
-      playMessage(say("ההזמנה כבר נקלטה")) + "&" + hangup()
+      playMessage(say("ההזמנה כבר נקלטה"))
     );
   }
 
@@ -694,7 +688,7 @@ async function finalizeOrder(
       say("שקלים"),
       say("המחיר הסופי ייקבע לאחר שקילה"),
       say("תודה ולהתראות")
-    ) + "&" + hangup()
+    )
   );
 }
 
@@ -704,7 +698,7 @@ export async function GET(req: Request) {
   } catch (e: any) {
     console.error("[phone-ivr] error:", e);
     return yemotResponse(
-      playMessage(say("אירעה שגיאה, נסה שוב מאוחר יותר")) + "&" + hangup()
+      playMessage(say("אירעה שגיאה, נסה שוב מאוחר יותר"))
     );
   }
 }
