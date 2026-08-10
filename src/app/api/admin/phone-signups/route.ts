@@ -90,7 +90,33 @@ export async function GET(req: Request) {
   const counts: Record<string, number> = {};
   for (const r of rows) counts[r.status] = (counts[r.status] || 0) + 1;
 
+  // §25: הודעות שלקוחות השאירו בשיחה. נכתבו ל-DB מהיום הראשון אבל לא
+  // הייתה שום דרך לראות אותן - אותו דפוס של "נכתב ואף אחד לא קורא".
+  // מוצגות כאן ולא במסך נפרד, כי זה אותו הקשר: פניות שהגיעו מהטלפון.
+  const messages = await prisma.phoneMessage.findMany({
+    where: acc.role === "ADMIN" ? {} : { status: "NEW" },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+    include: {
+      customer: { select: { id: true, name: true } },
+    },
+  });
+
   return NextResponse.json({
+    messages: messages.map((m) => ({
+      id: m.id,
+      phone: m.phone,
+      customerName: m.customer?.name ?? null,
+      customerId: m.customerId,
+      kind: m.kind,
+      status: m.status,
+      transcript: m.transcript,
+      recordingPath: m.recordingPath,
+      adminNote: m.adminNote,
+      createdAt: m.createdAt.toISOString(),
+      handledAt: m.handledAt?.toISOString() ?? null,
+    })),
+    newMessagesCount: messages.filter((m) => m.status === "NEW").length,
     isAgent: acc.pointIds !== null,
     counts,
     rows: rows.map((r) => ({
@@ -134,6 +160,28 @@ export async function PATCH(req: Request) {
   const action = String(body.action || "").trim();
   if (!id || !action) {
     return NextResponse.json({ error: "חסרים פרטים" }, { status: 400 });
+  }
+
+  // §25: סימון הודעה כטופלה נוגע בטבלה אחרת (PhoneMessage) ולכן
+  // מטופל לפני בדיקת הבקשה - אחרת החיפוש ב-phoneSignupRequest ייכשל.
+  if (action === "message_handled") {
+    const msg = await prisma.phoneMessage.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!msg) {
+      return NextResponse.json({ error: "הודעה לא נמצאה" }, { status: 404 });
+    }
+    await prisma.phoneMessage.update({
+      where: { id },
+      data: {
+        status: "HANDLED",
+        handledAt: new Date(),
+        handledBy: acc.userId,
+        ...(body.note ? { adminNote: String(body.note).slice(0, 1000) } : {}),
+      },
+    });
+    return NextResponse.json({ ok: true });
   }
 
   const existing = await prisma.phoneSignupRequest.findUnique({

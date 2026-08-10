@@ -19,13 +19,19 @@ import {
   yemotResponse,
   playMessage,
   say,
+  prompt,
   sayNumber,
+  sayDigits,
   read,
   readVoice,
   normalizePhone,
   messages,
 } from "@/lib/yemot-lib";
 import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
+import {
+  sendCustomerOrderConfirmation,
+  sendAdminOrderNotification,
+} from "@/lib/email";
 
 type DraftItem = {
   productId: string;
@@ -105,15 +111,82 @@ async function handle(req: Request): Promise<Response> {
     );
   }
 
-  // ═══ תפריט ראשי ═══
+  // ═══ §26: הזמנה פתוחה במכירה הנוכחית ═══
+  // "פתוחה" = נוצרה, לא בוטלה, ו*טרם נמסרה*. deliveredAt הוא הקובע
+  // ולא הסטטוס: אחרי שהנציג סימן מסירה הלקוח חוזר לתפריט הרגיל ויכול
+  // להזמין במכירה הבאה, גם אם הסטטוס עדיין לא התעדכן לגמרי.
+  const activeSale = await prisma.pricelist.findFirst({
+    where: { status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+
+  const openOrder = activeSale
+    ? await prisma.order.findFirst({
+        where: {
+          customerId: customer.id,
+          pricelistId: activeSale.id,
+          status: { notIn: ["CANCELLED"] },
+          deliveredAt: null,
+        },
+        select: {
+          id: true,
+          orderNumber: true,
+          estimatedTotal: true,
+          finalTotal: true,
+          status: true,
+          pointId: true,
+          deliveryDateSnapshot: true,
+        },
+      })
+    : null;
+
+  // ─── תפריט כשיש הזמנה פתוחה ───
+  if (openOrder) {
+    if (!p.OPEN) {
+      const total =
+        openOrder.finalTotal != null
+          ? Number(openOrder.finalTotal)
+          : Number(openOrder.estimatedTotal);
+      const isFinal = openOrder.finalTotal != null;
+
+      return yemotResponse(
+        read(
+          messages(
+            say(`שלום ${customer.name}`),
+            prompt("has_open_order", "יש לך הזמנה פתוחה במכירה הנוכחית"),
+            prompt(
+              isFinal ? "summary_final" : "summary_estimated",
+              isFinal ? "סכום סופי" : "סכום משוער"
+            ),
+            sayNumber(Math.round(total)),
+            prompt("shekels", "שקלים"),
+            openOrder.deliveryDateSnapshot
+              ? say(`מועד החלוקה ${openOrder.deliveryDateSnapshot}`)
+              : "",
+            prompt(
+              "menu_open_order",
+              "לשמיעת פרטי ההזמנה הקש 1. לשינוי ההזמנה הקש 2. לביטול ההזמנה הקש 3. לשמיעת נקודת החלוקה הקש 4"
+            )
+          ),
+          { name: "OPEN", max: 1, min: 1, allowed: "1234" }
+        )
+      );
+    }
+
+    if (p.OPEN === "1") return handleMyOrders(customer.id);
+    if (p.OPEN === "2") return handleChangeRequest(openOrder.pointId);
+    if (p.OPEN === "3") return handleCancelOrder(p, openOrder, customer);
+    if (p.OPEN === "4") return handleMyPoint(customer);
+  }
+
+  // ═══ תפריט ראשי (אין הזמנה פתוחה) ═══
   if (!p.MENU) {
     return yemotResponse(
       read(
         messages(
           say(`שלום ${customer.name}`),
-          say("לביצוע הזמנה הקש 1"),
-          say("לשמיעת ההזמנות שלך הקש 2"),
-          say("לשמיעת נקודת החלוקה שלך הקש 3")
+          prompt("menu_main", "לביצוע הזמנה הקש 1, לשמיעת ההזמנות שלך הקש 2, לשמיעת נקודת החלוקה שלך הקש 3")
         ),
         { name: "MENU", max: 1, min: 1, allowed: "123" }
       )
@@ -138,9 +211,7 @@ async function handleUnregistered(
     return yemotResponse(
       read(
         messages(
-          say("שלום, המספר שלך אינו רשום במערכת"),
-          say("לפתיחת חשבון הקש 1"),
-          say("להשארת הודעה הקש 2")
+          prompt("menu_unregistered", "שלום, המספר שלך אינו רשום במערכת. לפתיחת חשבון הקש 1, להשארת הודעה הקש 2")
         ),
         { name: "NEW", max: 1, min: 1, allowed: "12" }
       )
@@ -153,7 +224,7 @@ async function handleUnregistered(
       data: { phone, callId: callId || null, kind: "CALLBACK", status: "NEW" },
     });
     return yemotResponse(
-      playMessage(say("הודעתך נקלטה, נחזור אליך בהקדם. תודה"))
+      playMessage(prompt("message_saved", "הודעתך נקלטה, נחזור אליך בהקדם. תודה"))
     );
   }
 
@@ -175,7 +246,7 @@ async function handleUnregistered(
     }
     const menu = cityList.map((c, i) => say(`ל${c} הקש ${i + 1}`));
     return yemotResponse(
-      read(messages(say("בחר עיר"), ...menu), {
+      read(messages(prompt("choose_city", "בחר עיר"), ...menu), {
         name: "CITY",
         max: 2,
         min: 1,
@@ -187,7 +258,7 @@ async function handleUnregistered(
   const cityIdx = parseInt(p.CITY, 10) - 1;
   const city = cityList[cityIdx];
   if (!city) {
-    return yemotResponse(playMessage(say("בחירה לא חוקית")));
+    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
   }
 
   // שלב 2: נקודה בעיר. אם יש רק אחת - נבחרת אוטומטית.
@@ -203,7 +274,7 @@ async function handleUnregistered(
   } else if (!p.POINT) {
     const menu = points.map((pt, i) => say(`ל${pt.name} הקש ${i + 1}`));
     return yemotResponse(
-      read(messages(say("בחר נקודת חלוקה"), ...menu), {
+      read(messages(prompt("choose_point", "בחר נקודת חלוקה"), ...menu), {
         name: "POINT",
         max: 2,
         min: 1,
@@ -215,13 +286,56 @@ async function handleUnregistered(
   }
 
   if (!pointId) {
-    return yemotResponse(playMessage(say("בחירה לא חוקית")));
+    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
   }
 
   // שלב 3: הקלטת שם
   if (!p.NAME) {
     return yemotResponse(
-      readVoice(say("אנא אמור את שמך המלא לאחר הצליל"), "NAME")
+      readVoice(prompt("ask_name", "אנא אמור את שמך המלא לאחר הצליל"), "NAME")
+    );
+  }
+
+  // ─── §25 שלב 4: הסכמה לתנאי השימוש ───
+  // באתר הלקוח מסמן צ'קבוקס ואנחנו שומרים agreedToTerms עם חותמת זמן.
+  // בטלפון אי אפשר להקריא את כל התנאים - אדם ינתק. לכן: אישור קצר,
+  // ומי שרוצה לשמוע תמצית מקיש 2. ההסכמה נשמרת עם termsVersion נפרד
+  // שמסמן שהיא ניתנה בטלפון ולא באתר.
+  if (!p.TERMS) {
+    return yemotResponse(
+      read(
+        messages(
+          prompt(
+            "terms_ask",
+            "בפתיחת החשבון אתה מאשר את תנאי השימוש ומדיניות הפרטיות. לאישור והמשך הקש 1. לשמיעת התנאים הקש 2"
+          )
+        ),
+        { name: "TERMS", max: 1, min: 1, allowed: "12" }
+      )
+    );
+  }
+
+  if (p.TERMS === "2") {
+    // הקראת התמצית ואז חזרה לאישור. מאפסים את TERMS כדי שהשאלה
+    // תישאל שוב - ימות שולחים את כל הפרמטרים שנאספו, אז בלי איפוס
+    // הוא היה נתקע בלולאה.
+    return yemotResponse(
+      read(
+        messages(
+          prompt(
+            "terms_full",
+            "תנאי השימוש: ההזמנה מחייבת אימות כרטיס אשראי. המחיר המוצג הוא משוער בלבד, והמחיר הסופי נקבע לאחר שקילה בפועל. הכרטיס השמור יחויב אוטומטית בסכום הסופי. ניתן לבטל או לשנות הזמנה עד למועד סגירת המכירה. התנאים המלאים מפורטים באתר"
+          ),
+          prompt("terms_confirm", "לאישור התנאים ופתיחת החשבון הקש 1")
+        ),
+        { name: "TERMS", max: 1, min: 1, allowed: "1" }
+      )
+    );
+  }
+
+  if (p.TERMS !== "1") {
+    return yemotResponse(
+      playMessage(prompt("terms_declined", "החשבון לא נפתח. תודה ולהתראות"))
     );
   }
 
@@ -249,8 +363,14 @@ async function handleUnregistered(
       isActivated: false,
       defaultPointId: pointId,
       hasSeenOrderIntro: true,
-      // אין הסכמה מפורשת בטלפון - נאספת כשהנציג משלים את הרישום
+      // אין הסכמה מפורשת למיילים בטלפון - נאספת כשהנציג משלים את הרישום
       agreedToEmails: false,
+      // §25: הסכמה לתנאי השימוש ניתנה בשיחה (הקשה 1 אחרי ההקראה).
+      // termsVersion נפרד מזה של האתר, כדי שיהיה ברור בתיעוד שההסכמה
+      // ניתנה קולית ולא בטופס.
+      agreedToTerms: true,
+      agreedToTermsAt: new Date(),
+      termsVersion: "phone-2026-08",
     },
     select: { id: true },
   });
@@ -268,9 +388,114 @@ async function handleUnregistered(
 
   return yemotResponse(
     playMessage(
-      say("החשבון נפתח בהצלחה"),
-      say("לצורך אישור החשבון ועדכון פרטי האשראי נציג יחזור אליך בהקדם"),
-      say("תודה ולהתראות")
+      prompt("signup_done", "החשבון נפתח בהצלחה. לצורך אישור החשבון ועדכון פרטי האשראי נציג יחזור אליך בהקדם. תודה ולהתראות")
+    )
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// §26: בקשת שינוי הזמנה - הפניה לנציג של הנקודה
+// ─────────────────────────────────────────────────────────────
+// שינוי פריטים בטלפון מורכב ומועד לטעויות, ולכן הלקוח מופנה לנציג.
+// אבל "פנה לנציג" בלי מספר הוא משפט ריק - במיוחד ללקוח טלפוני שאין
+// לו מייל ולא נכנס לאתר. לכן מקריאים את המספר בפועל.
+async function handleChangeRequest(pointId: string): Promise<Response> {
+  // הנציגים של הנקודה. many-to-many, עם נפילה לשיוך הישן.
+  const links = await prisma.agentPoint.findMany({
+    where: { pointId },
+    select: { agent: { select: { name: true, phone: true } } },
+    take: 3,
+  });
+  let agents = links.map((l) => l.agent).filter((a) => a?.phone);
+
+  if (agents.length === 0) {
+    const legacy = await prisma.customer.findMany({
+      where: { role: "AGENT", agentPointId: pointId },
+      select: { name: true, phone: true },
+      take: 3,
+    });
+    agents = legacy.filter((a) => a.phone);
+  }
+
+  if (agents.length === 0) {
+    return yemotResponse(
+      playMessage(
+        prompt(
+          "change_no_agent",
+          "לשינוי ההזמנה יש לפנות לנציג. לא נמצא נציג משויך לנקודה שלך, אנא פנה למוקד"
+        )
+      )
+    );
+  }
+
+  const parts: string[] = [
+    prompt("change_via_agent", "לשינוי ההזמנה יש לפנות לנציג של נקודת החלוקה שלך"),
+  ];
+  for (const a of agents) {
+    if (a.name) parts.push(say(`הנציג ${a.name}`));
+    parts.push(prompt("agent_phone_is", "מספר הטלפון"));
+    // ספרה-ספרה, אחרת המנוע יקריא "חמש מאות שלושים ואלפיים" וזה לא ניתן לרישום
+    parts.push(sayDigits(String(a.phone).replace(/\D/g, "")));
+  }
+
+  return yemotResponse(playMessage(...parts));
+}
+
+// ─────────────────────────────────────────────────────────────
+// §26: ביטול הזמנה
+// ─────────────────────────────────────────────────────────────
+// ביטול בטוח לביצוע בטלפון: הוא לא יוצר חיוב והוא הפיך - הלקוח יכול
+// להזמין מחדש מיד. לכן מאפשרים אותו, בניגוד לעריכה.
+// דורש אישור כפול כדי שהקשה מקרית לא תמחק הזמנה.
+async function handleCancelOrder(
+  p: Record<string, string>,
+  order: { id: string; orderNumber: number; status: string },
+  customer: any
+): Promise<Response> {
+  // הזמנה ששולמה כבר - לא מבטלים בטלפון, צריך החזר כספי
+  if (order.status === "PAID" || order.status === "COMPLETED") {
+    return yemotResponse(
+      playMessage(
+        prompt(
+          "cancel_paid",
+          "לא ניתן לבטל בטלפון הזמנה ששולמה. אנא פנה לנציג"
+        )
+      )
+    );
+  }
+
+  if (!p.CANCEL) {
+    return yemotResponse(
+      read(
+        messages(
+          prompt(
+            "cancel_confirm",
+            "האם אתה בטוח שברצונך לבטל את ההזמנה? לאישור הביטול הקש 1. לחזרה הקש 2"
+          )
+        ),
+        { name: "CANCEL", max: 1, min: 1, allowed: "12" }
+      )
+    );
+  }
+
+  if (p.CANCEL !== "1") {
+    return yemotResponse(
+      playMessage(prompt("cancel_aborted", "ההזמנה לא בוטלה. תודה"))
+    );
+  }
+
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      status: "CANCELLED",
+      internalNotes: `בוטלה ע"י הלקוח במערכת הטלפונית ${new Date().toLocaleString("he-IL")}`,
+    },
+  });
+
+  return yemotResponse(
+    playMessage(
+      prompt("cancel_done", "ההזמנה בוטלה בהצלחה"),
+      prompt("cancel_reorder", "ניתן להזמין מחדש בכל עת עד לסגירת המכירה")
     )
   );
 }
@@ -349,7 +574,7 @@ async function handleOrder(
 
   if (!pricelist) {
     return yemotResponse(
-      playMessage(say("אין כרגע מכירה פעילה"))
+      playMessage(prompt("no_sale", "אין כרגע מכירה פעילה"))
     );
   }
   const now = new Date();
@@ -406,11 +631,86 @@ async function handleOrder(
   if (p.CONFIRM) {
     if (p.CONFIRM !== "1") {
       await prisma.phoneOrderDraft.delete({ where: { id: draft.id } }).catch(() => null);
-      return yemotResponse(
-        playMessage(say("ההזמנה בוטלה"))
-      );
+      return yemotResponse(playMessage(prompt("order_cancelled", "ההזמנה בוטלה")));
     }
     return finalizeOrder(draft.id, items, customer, pricelist, callId);
+  }
+
+  // ─── §25 סיכום ואישור: הלקוח בחר לסיים ───
+  // הפער הכי חמור שהיה: לקוח סיים הזמנה בלי לדעת שיחייבו לו את הכרטיס.
+  // באתר זה מופיע במייל האישור; בטלפון חייב להיאמר בקול לפני האישור.
+  // סיום: המשתמש הקיש 2 באחד מסבבי "מוצר נוסף". בודקים את הסבב
+  // האחרון שהושלם (items.length - 1) ולא שם קבוע.
+  const lastRound = items.length - 1;
+  if (lastRound >= 0 && p[`MORE${lastRound}`] === "2") {
+    if (items.length === 0) {
+      return yemotResponse(
+        playMessage(prompt("no_items", "לא נבחרו מוצרים. ההזמנה בוטלה"))
+      );
+    }
+
+    const point = await prisma.deliveryPoint.findUnique({
+      where: { id: customer.defaultPointId },
+      select: { name: true, address: true, deliveryHours: true },
+    });
+    const plFee = await prisma.pricelist.findUnique({
+      where: { id: pricelist.id },
+      select: { orderFee: true, deliveryDateText: true },
+    });
+    const orderFee = Number(plFee?.orderFee || 0);
+    const total =
+      Math.round((items.reduce((a, i) => a + i.estimatedPrice, 0) + orderFee) * 100) / 100;
+
+    const parts: string[] = [prompt("summary_intro", "סיכום ההזמנה שלך")];
+
+    for (const it of items) {
+      parts.push(
+        say(
+          it.isSingle
+            ? `${it.quantity} קילוגרם בודדים של ${it.productName}`
+            : it.quantity === 1
+              ? `קרטון אחד של ${it.productName}`
+              : `${it.quantity} קרטונים של ${it.productName}`
+        )
+      );
+    }
+
+    // ד': פרטי הנקודה - באתר הלקוח רואה כתובת ושעות, בטלפון הוא שמע רק שם
+    if (point?.name) {
+      parts.push(say(`נקודת החלוקה שלך ${point.name}`));
+      if (point.address) parts.push(say(`בכתובת ${point.address}`));
+      if (point.deliveryHours) parts.push(say(`שעות החלוקה ${point.deliveryHours}`));
+    }
+    if (plFee?.deliveryDateText) {
+      parts.push(say(`מועד החלוקה ${plFee.deliveryDateText}`));
+    }
+
+    parts.push(prompt("summary_estimated", "סכום משוער"));
+    parts.push(sayNumber(Math.round(total)));
+    parts.push(prompt("shekels", "שקלים"));
+
+    // ג': סטיות משקל בבודדים - הודעה שקיימת באתר ב-OrderFlow
+    if (items.some((i) => i.isSingle)) {
+      parts.push(
+        prompt(
+          "singles_note",
+          "שים לב, במוצרים הנמכרים בבודדים המשקל בפועל עשוי להיות שונה במעט מהכמות שביקשת"
+        )
+      );
+    }
+
+    // א': הסכמה מפורשת לחיוב האוטומטי
+    parts.push(
+      prompt(
+        "charge_notice",
+        "המחיר הסופי ייקבע לאחר שקילה בפועל, והכרטיס השמור שלך יחויב אוטומטית בסכום הסופי"
+      )
+    );
+    parts.push(prompt("confirm_ask", "לאישור ההזמנה והחיוב הקש 1. לביטול הקש 2"));
+
+    return yemotResponse(
+      read(messages(...parts), { name: "CONFIRM", max: 1, min: 1, allowed: "12" })
+    );
   }
 
   // ─── בחירת קטגוריה ───
@@ -430,11 +730,21 @@ async function handleOrder(
     );
   }
 
-  if (!p.CAT) {
+  // §25: מספר הסבב הנוכחי. ימות שולחים בכל בקשה את *כל* הפרמטרים
+  // שנאספו בשיחה, כולל של סבבים קודמים. בלי שם ייחודי לכל סבב, אחרי
+  // בחירת "מוצר נוסף" הקוד היה רואה את CAT/PROD/QTY הישנים, מדלג על
+  // השאלות, ומוסיף את אותו מוצר שוב ושוב בלולאה אינסופית.
+  const round = items.length;
+  const kCat = `CAT${round}`;
+  const kProd = `PROD${round}`;
+  const kMode = `MODE${round}`;
+  const kQty = `QTY${round}`;
+
+  if (!p[kCat]) {
     const menu = catList.map(([, name], i) => say(`ל${name} הקש ${i + 1}`));
     return yemotResponse(
-      read(messages(say("בחר קטגוריה"), ...menu), {
-        name: "CAT",
+      read(messages(prompt("choose_category", "בחר קטגוריה"), ...menu), {
+        name: kCat,
         max: 2,
         min: 1,
         allowed: catList.map((_, i) => String(i + 1)).join("."),
@@ -442,9 +752,9 @@ async function handleOrder(
     );
   }
 
-  const catId = catList[parseInt(p.CAT, 10) - 1]?.[0];
+  const catId = catList[parseInt(p[kCat], 10) - 1]?.[0];
   if (!catId) {
-    return yemotResponse(playMessage(say("בחירה לא חוקית")));
+    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
   }
 
   // ─── בחירת מוצר ───
@@ -485,11 +795,11 @@ async function handleOrder(
     );
   }
 
-  if (!p.PROD) {
+  if (!p[kProd]) {
     const menu = prods.map((pp, i) => say(`ל${pp.product.name} הקש ${i + 1}`));
     return yemotResponse(
-      read(messages(say("בחר מוצר"), ...menu), {
-        name: "PROD",
+      read(messages(prompt("choose_product", "בחר מוצר"), ...menu), {
+        name: kProd,
         max: 2,
         min: 1,
         allowed: prods.map((_, i) => String(i + 1)).join("."),
@@ -497,41 +807,41 @@ async function handleOrder(
     );
   }
 
-  const chosen = prods[parseInt(p.PROD, 10) - 1];
+  const chosen = prods[parseInt(p[kProd], 10) - 1];
   if (!chosen) {
-    return yemotResponse(playMessage(say("בחירה לא חוקית")));
+    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
   }
   const prod = chosen.product;
 
   // ─── קרטון או בודדים ───
   let isSingle = false;
   if (prod.allowSingles) {
-    if (!p.MODE) {
+    if (!p[kMode]) {
       return yemotResponse(
         read(
           messages(
-            say("בחר אופן רכישה"),
-            say("לקרטון הקש 1"),
-            say("לבודדים הקש 2")
+            prompt("choose_mode", "בחר אופן רכישה: לקרטון הקש 1, לבודדים הקש 2")
           ),
-          { name: "MODE", max: 1, min: 1, allowed: "12" }
+          { name: kMode, max: 1, min: 1, allowed: "12" }
         )
       );
     }
-    isSingle = p.MODE === "2";
+    isSingle = p[kMode] === "2";
   }
 
   // ─── כמות ───
-  if (!p.QTY) {
-    const prompt = isSingle
-      ? say("כמה קילוגרם תרצה")
-      : say("כמה קרטונים תרצה");
+  if (!p[kQty]) {
+    // ⚠️ שם המשתנה חייב להיות שונה מ-prompt: משתנה מקומי בשם זהה מצל
+    // על הפונקציה המיובאת וגורם לקריאה רקורסיבית ולקריסה.
+    const qtyPrompt = isSingle
+      ? prompt("ask_qty_kg", "כמה קילוגרם תרצה")
+      : prompt("ask_qty_carton", "כמה קרטונים תרצה");
     return yemotResponse(
-      read(prompt, { name: "QTY", max: 3, min: 1, playback: "Number" })
+      read(qtyPrompt, { name: kQty, max: 3, min: 1, playback: "Number" })
     );
   }
 
-  const qty = parseInt(p.QTY, 10);
+  const qty = parseInt(p[kQty], 10);
   if (!qty || qty <= 0) {
     return yemotResponse(playMessage(say("כמות לא חוקית")));
   }
@@ -595,10 +905,9 @@ async function handleOrder(
     read(
       messages(
         ...confirmParts,
-        say("להוספת מוצר נוסף הקש 1"),
-        say("לסיום ההזמנה הקש 2")
+        prompt("more_or_finish", "להוספת מוצר נוסף הקש 1, לסיום ההזמנה הקש 2")
       ),
-      { name: "MORE", max: 1, min: 1, allowed: "12" }
+      { name: `MORE${round}`, max: 1, min: 1, allowed: "12" }
     )
   );
 }
@@ -678,6 +987,31 @@ async function finalizeOrder(
     data: { orderId: order.id, completedAt: new Date() },
   });
 
+  // §25: מיילים - בדיוק כמו בהזמנה מהאתר.
+  // בלי זה המנהל לא יודע שהגיעה הזמנה, והלקוח נשאר בלי תיעוד כתוב
+  // של מה שהזמין בשיחה.
+  //
+  // השליחה עטופה ב-catch ולא חוסמת: אם Resend נופל, ההזמנה כבר נשמרה
+  // ב-DB ואסור שהלקוח ישמע "אירעה שגיאה" בסוף שיחה מוצלחת.
+  try {
+    const full = await prisma.order.findUnique({
+      where: { id: order.id },
+      include: {
+        items: true,
+        customer: { select: { email: true } },
+        point: { select: { name: true } },
+      },
+    });
+    if (full) {
+      if (full.customer?.email) {
+        await sendCustomerOrderConfirmation(full as any, full.customer.email);
+      }
+      await sendAdminOrderNotification(full as any, full.customer?.email ?? null);
+    }
+  } catch (e) {
+    console.error("[phone-ivr] email send failed (order was saved):", e);
+  }
+
   return yemotResponse(
     playMessage(
       say("ההזמנה נקלטה בהצלחה"),
@@ -698,7 +1032,7 @@ export async function GET(req: Request) {
   } catch (e: any) {
     console.error("[phone-ivr] error:", e);
     return yemotResponse(
-      playMessage(say("אירעה שגיאה, נסה שוב מאוחר יותר"))
+      playMessage(prompt("error", "אירעה שגיאה, נסה שוב מאוחר יותר"))
     );
   }
 }

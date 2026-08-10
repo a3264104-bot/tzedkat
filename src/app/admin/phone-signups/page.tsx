@@ -12,6 +12,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/client";
+import { UpdateCardButton } from "@/components/UpdateCardButton";
 
 type Row = {
   id: string;
@@ -77,6 +78,7 @@ function fmtDate(iso: string | null): string {
 export default function PhoneSignupsPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [messages, setMessages] = useState<any[]>([]);
   const [isAgent, setIsAgent] = useState(false);
   const [filter, setFilter] = useState("open");
   const [loading, setLoading] = useState(true);
@@ -96,6 +98,7 @@ export default function PhoneSignupsPage() {
       }
       setRows(list);
       setCounts(res.counts ?? {});
+      setMessages(res.messages ?? []);
       setIsAgent(!!res.isAgent);
     } catch (e: any) {
       setErr(e.message);
@@ -137,9 +140,14 @@ export default function PhoneSignupsPage() {
         </p>
       </div>
 
-      {openCount > 0 && (
+      {(openCount > 0 || messages.some((m) => m.status === "NEW")) && (
         <div className="card p-3 border-amber-300 bg-amber-50 text-sm text-amber-900">
-          {openCount} בקשות ממתינות לטיפול.
+          {openCount > 0 && <span>{openCount} בקשות ממתינות לטיפול. </span>}
+          {messages.filter((m) => m.status === "NEW").length > 0 && (
+            <span>
+              {messages.filter((m) => m.status === "NEW").length} הודעות חדשות מהטלפון.
+            </span>
+          )}
         </div>
       )}
 
@@ -262,11 +270,24 @@ export default function PhoneSignupsPage() {
                     <a href={`tel:${r.phone}`} className="btn-ghost btn-sm">
                       📞 חייג
                     </a>
+                    {/* 🐛 תוקן: הקישור הוביל למסך הלקוחות, שבו אין בכלל
+                        אפשרות לעדכן אשראי - הוא עורך שם/טלפון/הרשאות בלבד.
+                        UpdateCardButton פותח את טופס נדרים המאובטח בשם הלקוח,
+                        וזה בדיוק מה שהנציג צריך תוך כדי השיחה איתו. */}
+                    <UpdateCardButton
+                      customerId={r.customerId}
+                      hasCurrentCard={r.hasToken}
+                      cardLast4={r.cardLast4}
+                      buttonLabel="💳 עדכון כרטיס"
+                      buttonClassName="btn-primary btn-sm"
+                      onSuccess={load}
+                    />
                     <Link
                       href={`/admin/customers?q=${encodeURIComponent(r.phone)}`}
-                      className="btn-primary btn-sm"
+                      className="btn-ghost btn-sm"
+                      title="לאיפוס סיסמה כדי שהלקוח יוכל להיכנס לאתר בעצמו"
                     >
-                      עדכון כרטיס ←
+                      כרטיס לקוח
                     </Link>
                     {r.status !== "CONTACTED" && (
                       <button
@@ -314,6 +335,76 @@ export default function PhoneSignupsPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* §25: הודעות שלקוחות השאירו בשיחה.
+          עד כה הן נכתבו ל-DB ואף אחד לא יכול היה לראות אותן. */}
+      {messages.length > 0 && (
+        <div className="pt-4 border-t border-zinc-200">
+          <h2 className="text-lg font-bold text-brand-slatedark mb-1">
+            הודעות מהטלפון
+          </h2>
+          <p className="text-sm text-brand-slate/60 mb-3">
+            לקוחות שהשאירו הודעה או ביקשו שיחזרו אליהם
+          </p>
+          <div className="space-y-2">
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`card p-3 ${m.status === "NEW" ? "border-amber-300" : ""}`}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-brand-slatedark" dir="ltr">
+                        {m.phone}
+                      </span>
+                      {m.customerName && (
+                        <span className="text-sm text-zinc-600">{m.customerName}</span>
+                      )}
+                      <span
+                        className={`badge ${
+                          m.status === "NEW"
+                            ? "bg-amber-100 text-amber-800"
+                            : "bg-zinc-100 text-zinc-500"
+                        }`}
+                      >
+                        {m.status === "NEW" ? "חדש" : "טופל"}
+                      </span>
+                      {m.kind === "CALLBACK" && (
+                        <span className="text-xs text-zinc-500">ביקש שיחזרו אליו</span>
+                      )}
+                    </div>
+                    {m.transcript && (
+                      <p className="text-sm text-zinc-700 mt-1">{m.transcript}</p>
+                    )}
+                    {m.adminNote && (
+                      <p className="text-xs text-zinc-500 mt-1">הערה: {m.adminNote}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-zinc-400">{fmtDate(m.createdAt)}</span>
+                    <a href={`tel:${m.phone}`} className="btn-ghost btn-sm">
+                      📞
+                    </a>
+                    {m.status === "NEW" && (
+                      <button
+                        onClick={() => {
+                          const note = prompt("הערה (אופציונלי):");
+                          act(m.id, "message_handled", note ? { note } : undefined);
+                        }}
+                        disabled={busyId === m.id}
+                        className="btn-ghost btn-sm"
+                      >
+                        סמן כטופל
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
