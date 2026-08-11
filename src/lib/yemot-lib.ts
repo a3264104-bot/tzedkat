@@ -97,7 +97,7 @@ export function sayDigits(n: number | string): string {
  * הם משמיעים שגיאה. לכן להדליק רק אחרי שכל 16 הקבצים הועלו לשלוחה.
  * רשימת הקבצים המלאה: RECORDINGS.md
  */
-export const USE_RECORDINGS = false;
+export const USE_RECORDINGS = true;
 
 /**
  * הודעה קבועה. מחזירה קובץ שמע אם המתג דלוק, אחרת הקראת טקסט.
