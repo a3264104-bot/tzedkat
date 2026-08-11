@@ -228,7 +228,10 @@ async function handle(req: Request): Promise<Response> {
       read(
         messages(
           say(`שלום ${customer.name}`),
-          prompt("menu_main", "לביצוע הזמנה הקש 1, לשמיעת ההזמנות שלך הקש 2, לשמיעת נקודת החלוקה שלך הקש 3")
+          prompt(
+            "menu_main",
+            "ברוכים הבאים לצדקת רבותינו. לביצוע הזמנה הקש 1, לשמיעת ההזמנות שלך הקש 2, לשמיעת נקודת החלוקה שלך הקש 3"
+          )
         ),
         { name: "MENU", max: 1, min: 1, allowed: "123" }
       )
@@ -254,7 +257,10 @@ async function handleUnregistered(
     return yemotResponse(
       read(
         messages(
-          prompt("menu_unregistered", "שלום, המספר שלך אינו רשום במערכת. לפתיחת חשבון הקש 1, להשארת הודעה הקש 2")
+          prompt(
+            "menu_unregistered",
+            "ברוכים הבאים לצדקת רבותינו. המספר שלך אינו רשום במערכת. לפתיחת חשבון הקש 1, להשארת הודעה הקש 2"
+          )
         ),
         { name: "NEW", max: 1, min: 1, allowed: "12" }
       )
