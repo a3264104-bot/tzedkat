@@ -69,7 +69,7 @@ async function handle(req: Request): Promise<Response> {
 
   if (!phone) {
     return yemotResponse(
-      playMessage(say("אירעה שגיאה בזיהוי המספר"))
+      playMessage(prompt("id_error", "אירעה שגיאה בזיהוי המספר"))
     );
   }
 
@@ -141,6 +141,42 @@ async function handle(req: Request): Promise<Response> {
       })
     : null;
 
+  // ─── §30: הודעה למתקשרים ───
+  // מוקראת פעם אחת בכניסה, לפני התפריט. הסינון כפול ומכוון:
+  //   1. רק ללקוח שיש לו הזמנה פעילה במכירה - למי שלא הזמין העדכון
+  //      לא רלוונטי ורק מבלבל.
+  //   2. רק אם ההודעה מיועדת לנקודה שלו (או גלובלית) - "החלוקה בקרלין
+  //      נדחתה" לא צריך להישמע ללקוח מנדבורנא.
+  // ANNOUNCED מסמן שכבר הושמעה, כדי שלא תחזור בכל שלב בשיחה.
+  if (openOrder && !p.ANNOUNCED) {
+    const now2 = new Date();
+    const ann = await prisma.phoneAnnouncement.findFirst({
+      where: {
+        pricelistId: activeSale!.id,
+        isActive: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now2 } }],
+        // גלובלית או ספציפית לנקודה של הלקוח
+        AND: [{ OR: [{ pointId: null }, { pointId: openOrder.pointId }] }],
+      },
+      // הודעה ספציפית לנקודה גוברת על גלובלית
+      orderBy: [{ pointId: "desc" }, { createdAt: "desc" }],
+      select: { text: true },
+    });
+
+    if (ann?.text) {
+      return yemotResponse(
+        read(
+          messages(
+            prompt("announcement_intro", "הודעה חשובה"),
+            say(ann.text),
+            prompt("announcement_continue", "להמשך הקש 1")
+          ),
+          { name: "ANNOUNCED", max: 1, min: 1, allowed: "1" }
+        )
+      );
+    }
+  }
+
   // ─── תפריט כשיש הזמנה פתוחה ───
   if (openOrder) {
     if (!p.OPEN) {
@@ -175,7 +211,7 @@ async function handle(req: Request): Promise<Response> {
     }
 
     if (p.OPEN === "1") return handleMyOrders(customer.id);
-    if (p.OPEN === "2") return handleChangeRequest(openOrder.pointId);
+    if (p.OPEN === "2") return handleEditOrder(p, openOrder, customer);
     if (p.OPEN === "3") return handleCancelOrder(p, openOrder, customer);
     if (p.OPEN === "4") return handleMyPoint(customer);
   }
@@ -241,7 +277,7 @@ async function handleUnregistered(
   if (!p.CITY) {
     if (cityList.length === 0) {
       return yemotResponse(
-        playMessage(say("אין נקודות חלוקה פעילות כרגע"))
+        playMessage(prompt("no_points", "אין נקודות חלוקה פעילות כרגע"))
       );
     }
     const menu = cityList.map((c, i) => say(`ל${c} הקש ${i + 1}`));
@@ -346,7 +382,7 @@ async function handleUnregistered(
   const already = await prisma.customer.findUnique({ where: { phone } });
   if (already) {
     return yemotResponse(
-      playMessage(say("החשבון כבר קיים במערכת, נציג יחזור אליך"))
+      playMessage(prompt("account_exists", "החשבון כבר קיים במערכת, נציג יחזור אליך"))
     );
   }
 
@@ -394,17 +430,209 @@ async function handleUnregistered(
 }
 
 // ─────────────────────────────────────────────────────────────
-// §26: בקשת שינוי הזמנה - הפניה לנציג של הנקודה
+// §27: עריכת הזמנה קיימת בטלפון
 // ─────────────────────────────────────────────────────────────
-// שינוי פריטים בטלפון מורכב ומועד לטעויות, ולכן הלקוח מופנה לנציג.
-// אבל "פנה לנציג" בלי מספר הוא משפט ריק - במיוחד ללקוח טלפוני שאין
-// לו מייל ולא נכנס לאתר. לכן מקריאים את המספר בפועל.
-async function handleChangeRequest(pointId: string): Promise<Response> {
-  // הנציגים של הנקודה. many-to-many, עם נפילה לשיוך הישן.
+// הלקוח עובר על הפריטים אחד-אחד ובוחר מה לעשות עם כל אחד.
+//
+// למה זה בטוח: כל פעולה משנה פריט *אחד* ומיד מחשבת מחדש את הסכום,
+// כך שאין מצב ביניים לא עקבי. אין כאן "עגלה זמנית" - כל שינוי נשמר
+// מיד, בדיוק כמו עריכה באתר.
+//
+// הניווט: ITEM = אינדקס הפריט הנוכחי, ACT = הפעולה עליו. שניהם
+// נושאים סיומת מספרית כדי שפרמטרים של פריט קודם לא ייקראו שוב.
+async function handleEditOrder(
+  p: Record<string, string>,
+  order: { id: string; orderNumber: number; status: string; pointId: string },
+  customer: any
+): Promise<Response> {
+  // הזמנה ששולמה - שינוי דורש התחשבנות מחדש, מפנים לנציג
+  if (order.status === "PAID" || order.status === "COMPLETED") {
+    return handleChangeRequest(order.pointId);
+  }
+
+  // §28: מועד אחרון לעריכה - אותה מגבלה שקיימת באתר. בלי הבדיקה הזו
+  // לקוח היה יכול לשנות הזמנה אחרי שהמנהל כבר הזמין מהספק לפי הכמויות.
+  const plDead = await prisma.order.findUnique({
+    where: { id: order.id },
+    select: { pricelist: { select: { editDeadline: true, closeDate: true } } },
+  });
+  const deadline =
+    plDead?.pricelist?.editDeadline ?? plDead?.pricelist?.closeDate ?? null;
+  if (deadline && new Date() > deadline) {
+    return yemotResponse(
+      playMessage(
+        prompt("edit_deadline_passed", "המועד לשינוי ההזמנה חלף. לשינוי יש לפנות לנציג"),
+        ...(await agentPhoneParts(order.pointId))
+      )
+    );
+  }
+
+  const items = await prisma.orderItem.findMany({
+    where: { orderId: order.id, isCancelled: false },
+    orderBy: { id: "asc" },
+    select: {
+      id: true,
+      productName: true,
+      quantity: true,
+      unitPrice: true,
+      isSingle: true,
+      unit: true,
+    },
+  });
+
+  if (items.length === 0) {
+    // כל הפריטים נמחקו - ההזמנה מתבטלת, בדיוק כמו באתר
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        status: "CANCELLED",
+        internalNotes: `בוטלה אוטומטית - כל הפריטים נמחקו בשיחה ${new Date().toLocaleString("he-IL")}`,
+      },
+    });
+    return yemotResponse(
+      playMessage(
+        prompt("edit_all_removed", "כל הפריטים נמחקו וההזמנה בוטלה"),
+        prompt("cancel_reorder", "ניתן להזמין מחדש בכל עת עד לסגירת המכירה")
+      )
+    );
+  }
+
+  const idx = parseInt(p.ITEM || "0", 10);
+
+  // סיימנו לעבור על כל הפריטים
+  if (idx >= items.length) {
+    const total = await recalcOrderTotal(order.id);
+    return yemotResponse(
+      playMessage(
+        prompt("edit_done", "השינויים נשמרו"),
+        prompt("summary_estimated", "סכום משוער"),
+        sayNumber(Math.round(total)),
+        prompt("shekels", "שקלים")
+      )
+    );
+  }
+
+  const it = items[idx];
+  const kAct = `ACT${idx}`;
+  const kQtyNew = `NEWQ${idx}`;
+
+  // הקראת הפריט ושאלה מה לעשות
+  if (!p[kAct]) {
+    return yemotResponse(
+      read(
+        messages(
+          say(
+            it.isSingle
+              ? `${Number(it.quantity)} ${it.unit} של ${it.productName}`
+              : Number(it.quantity) === 1
+                ? `קרטון אחד של ${it.productName}`
+                : `${Number(it.quantity)} קרטונים של ${it.productName}`
+          ),
+          prompt(
+            "edit_item_menu",
+            "להשארת הפריט כמו שהוא הקש 1. לשינוי הכמות הקש 2. למחיקת הפריט הקש 3"
+          )
+        ),
+        { name: kAct, max: 1, min: 1, allowed: "123" }
+      )
+    );
+  }
+
+  // 1 = השאר כמו שהוא, ממשיכים לפריט הבא
+  // המשך לפריט הבא: קריאה רקורסיבית עם ITEM מעודכן, במקום פקודת
+  // ניווט. פשוט יותר ולא תלוי בתחביר של ימות.
+  if (p[kAct] === "1") {
+    return handleEditOrder({ ...p, ITEM: String(idx + 1) }, order, customer);
+  }
+
+  // 3 = מחיקה
+  if (p[kAct] === "3") {
+    await prisma.orderItem.delete({ where: { id: it.id } });
+    await recalcOrderTotal(order.id);
+    // אחרי מחיקה האינדקס *לא* מתקדם: הפריט הבא תופס את מקומו ברשימה,
+    // ואם נתקדם נדלג עליו. מאפסים גם את ACT כדי שהשאלה תישאל מחדש.
+    const cleaned = { ...p };
+    delete cleaned[kAct];
+    return handleEditOrder(cleaned, order, customer);
+  }
+
+  // 2 = שינוי כמות
+  if (!p[kQtyNew]) {
+    return yemotResponse(
+      read(
+        prompt(
+          it.isSingle ? "ask_qty_kg" : "ask_qty_carton",
+          it.isSingle ? "כמה קילוגרם תרצה" : "כמה קרטונים תרצה"
+        ),
+        { name: kQtyNew, max: 3, min: 1, playback: "Number" }
+      )
+    );
+  }
+
+  const newQty = parseInt(p[kQtyNew], 10);
+  if (!newQty || newQty <= 0) {
+    // כמות 0 = מחיקה, זהה להתנהגות באתר
+    await prisma.orderItem.delete({ where: { id: it.id } });
+  } else {
+    await prisma.orderItem.update({
+      where: { id: it.id },
+      data: {
+        quantity: newQty,
+        estimatedPrice: Math.round(Number(it.unitPrice) * newQty * 100) / 100,
+      },
+    });
+  }
+  await recalcOrderTotal(order.id);
+
+  // אם הכמות אופסה הפריט נמחק - אותו טיפול כמו במחיקה ידנית
+  if (!newQty || newQty <= 0) {
+    const cleaned = { ...p };
+    delete cleaned[kAct];
+    delete cleaned[kQtyNew];
+    return handleEditOrder(cleaned, order, customer);
+  }
+  return handleEditOrder({ ...p, ITEM: String(idx + 1) }, order, customer);
+}
+
+/**
+ * חישוב מחדש של סכום ההזמנה אחרי שינוי פריטים.
+ * חייב לרוץ אחרי *כל* שינוי, אחרת ההזמנה תישאר עם סכום ישן והלקוח
+ * יחויב בסכום שגוי.
+ */
+async function recalcOrderTotal(orderId: string): Promise<number> {
+  const rows = await prisma.orderItem.findMany({
+    where: { orderId, isCancelled: false },
+    select: { estimatedPrice: true },
+  });
+  const ord = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { pricelist: { select: { orderFee: true } } },
+  });
+  const fee = Number(ord?.pricelist?.orderFee || 0);
+  const total =
+    Math.round((rows.reduce((s, r) => s + Number(r.estimatedPrice ?? 0), 0) + fee) * 100) / 100;
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { estimatedTotal: total },
+  });
+  return total;
+}
+
+/**
+ * §31: הודעות עם מספר הטלפון של הנציג המשויך לנקודה.
+ *
+ * כל מקום שאומר "פנה לנציג" חייב להשמיע גם את המספר - ללקוח טלפוני
+ * אין דרך אחרת למצוא אותו. הפונקציה משותפת כדי שלא יהיה מקום אחד
+ * שמפנה לנציג בלי מספר.
+ *
+ * המספר מוקרא ספרה-ספרה: sayNumber היה אומר "חמישים מיליון..." וזה
+ * בלתי אפשרי לרישום.
+ */
+async function agentPhoneParts(pointId: string): Promise<string[]> {
   const links = await prisma.agentPoint.findMany({
     where: { pointId },
     select: { agent: { select: { name: true, phone: true } } },
-    take: 3,
+    take: 2,
   });
   let agents = links.map((l) => l.agent).filter((a) => a?.phone);
 
@@ -412,33 +640,48 @@ async function handleChangeRequest(pointId: string): Promise<Response> {
     const legacy = await prisma.customer.findMany({
       where: { role: "AGENT", agentPointId: pointId },
       select: { name: true, phone: true },
-      take: 3,
+      take: 2,
     });
     agents = legacy.filter((a) => a.phone);
   }
+  if (agents.length === 0) return [];
 
-  if (agents.length === 0) {
+  const out: string[] = [];
+  for (const a of agents) {
+    if (a.name) out.push(say(`הנציג ${a.name}`));
+    out.push(prompt("agent_phone_is", "מספר הטלפון"));
+    out.push(sayDigits(String(a.phone).replace(/\D/g, "")));
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────
+// §26: בקשת שינוי הזמנה - הפניה לנציג של הנקודה
+// ─────────────────────────────────────────────────────────────
+// שינוי פריטים בטלפון מורכב ומועד לטעויות, ולכן הלקוח מופנה לנציג.
+// אבל "פנה לנציג" בלי מספר הוא משפט ריק - במיוחד ללקוח טלפוני שאין
+// לו מייל ולא נכנס לאתר. לכן מקריאים את המספר בפועל.
+async function handleChangeRequest(pointId: string): Promise<Response> {
+  const phoneParts = await agentPhoneParts(pointId);
+
+  if (phoneParts.length === 0) {
+    // אין נציג משויך - מפנים לאפשרות הביטול במקום להשאיר בלי מוצא
     return yemotResponse(
       playMessage(
         prompt(
-          "change_no_agent",
-          "לשינוי ההזמנה יש לפנות לנציג. לא נמצא נציג משויך לנקודה שלך, אנא פנה למוקד"
+          "no_agent_use_cancel",
+          "לא נמצא נציג משויך לנקודה שלך. ניתן לבטל את ההזמנה מהתפריט הראשי ולהזמין מחדש"
         )
       )
     );
   }
 
-  const parts: string[] = [
-    prompt("change_via_agent", "לשינוי ההזמנה יש לפנות לנציג של נקודת החלוקה שלך"),
-  ];
-  for (const a of agents) {
-    if (a.name) parts.push(say(`הנציג ${a.name}`));
-    parts.push(prompt("agent_phone_is", "מספר הטלפון"));
-    // ספרה-ספרה, אחרת המנוע יקריא "חמש מאות שלושים ואלפיים" וזה לא ניתן לרישום
-    parts.push(sayDigits(String(a.phone).replace(/\D/g, "")));
-  }
-
-  return yemotResponse(playMessage(...parts));
+  return yemotResponse(
+    playMessage(
+      prompt("change_via_agent", "לשינוי ההזמנה יש לפנות לנציג של נקודת החלוקה שלך"),
+      ...phoneParts
+    )
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -449,19 +692,18 @@ async function handleChangeRequest(pointId: string): Promise<Response> {
 // דורש אישור כפול כדי שהקשה מקרית לא תמחק הזמנה.
 async function handleCancelOrder(
   p: Record<string, string>,
-  order: { id: string; orderNumber: number; status: string },
+  order: { id: string; orderNumber: number; status: string; pointId: string },
   customer: any
 ): Promise<Response> {
   // הזמנה ששולמה כבר - לא מבטלים בטלפון, צריך החזר כספי
   if (order.status === "PAID" || order.status === "COMPLETED") {
-    return yemotResponse(
-      playMessage(
-        prompt(
-          "cancel_paid",
-          "לא ניתן לבטל בטלפון הזמנה ששולמה. אנא פנה לנציג"
-        )
-      )
-    );
+    // §31: כל "פנה לנציג" חייב לכלול את המספר בפועל, אחרת זו הנחיה
+    // ריקה - במיוחד ללקוח טלפוני שאין לו דרך אחרת למצוא אותו.
+    const parts: string[] = [
+      prompt("cancel_paid", "לא ניתן לבטל בטלפון הזמנה ששולמה"),
+    ];
+    parts.push(...(await agentPhoneParts(order.pointId)));
+    return yemotResponse(playMessage(...parts));
   }
 
   if (!p.CANCEL) {
@@ -520,7 +762,7 @@ async function handleMyOrders(customerId: string): Promise<Response> {
 
   if (orders.length === 0) {
     return yemotResponse(
-      playMessage(say("אין לך הזמנות במערכת"))
+      playMessage(prompt("no_orders", "אין לך הזמנות במערכת"))
     );
   }
 
@@ -532,7 +774,7 @@ async function handleMyOrders(customerId: string): Promise<Response> {
     parts.push(sayNumber(o.orderNumber));
     parts.push(say(isFinal ? "סכום סופי" : "סכום משוער"));
     parts.push(sayNumber(Math.round(total)));
-    parts.push(say("שקלים"));
+    parts.push(prompt("shekels", "שקלים"));
     if (o.pointNameSnapshot) parts.push(say(`בנקודה ${o.pointNameSnapshot}`));
     if (o.deliveryDateSnapshot) parts.push(say(`בתאריך ${o.deliveryDateSnapshot}`));
   }
@@ -546,15 +788,30 @@ async function handleMyOrders(customerId: string): Promise<Response> {
 async function handleMyPoint(customer: any): Promise<Response> {
   if (!customer.defaultPoint) {
     return yemotResponse(
-      playMessage(say("לא הוגדרה עבורך נקודת חלוקה, נציג יחזור אליך"))
+      playMessage(prompt("no_point_assigned", "לא הוגדרה עבורך נקודת חלוקה, נציג יחזור אליך"))
     );
   }
-  return yemotResponse(
-    playMessage(
-      say(`נקודת החלוקה שלך היא ${customer.defaultPoint.name}`),
-      say("לשינוי נקודת החלוקה יש לפנות לנציג")
-    )
-  );
+  const pt = customer.defaultPoint;
+  const parts: string[] = [
+    prompt("your_point_is", "נקודת החלוקה שלך"),
+    say(pt.name),
+  ];
+  // §27: כתובת ושעות - עד כה הוקרא רק שם הנקודה, וזה לא מספיק ללקוח
+  // שצריך להגיע לשם בפועל.
+  if (pt.city) parts.push(say(`בעיר ${pt.city}`));
+  if (pt.address) {
+    parts.push(prompt("point_address", "הכתובת"));
+    parts.push(say(pt.address));
+  }
+  if (pt.deliveryHours) {
+    parts.push(prompt("point_hours", "שעות החלוקה"));
+    parts.push(say(pt.deliveryHours));
+  }
+  parts.push(prompt("point_change_agent", "לשינוי נקודת החלוקה יש לפנות לנציג"));
+  // §31: מספר הנציג בפועל, לא רק "פנה לנציג"
+  if (pt.id) parts.push(...(await agentPhoneParts(pt.id)));
+
+  return yemotResponse(playMessage(...parts));
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -580,12 +837,12 @@ async function handleOrder(
   const now = new Date();
   if (pricelist.closeDate && now > pricelist.closeDate) {
     return yemotResponse(
-      playMessage(say("מועד ההרשמה למכירה הסתיים"))
+      playMessage(prompt("sale_closed", "מועד ההרשמה למכירה הסתיים"))
     );
   }
   if (pricelist.openDate && now < pricelist.openDate) {
     return yemotResponse(
-      playMessage(say("ההרשמה למכירה טרם נפתחה"))
+      playMessage(prompt("sale_not_open", "ההרשמה למכירה טרם נפתחה"))
     );
   }
 
@@ -599,17 +856,22 @@ async function handleOrder(
     select: { orderNumber: true },
   });
   if (existing) {
+    // הלקוח כבר הזמין - מפנים לתפריט ההזמנה הפתוחה שבו יש עריכה
+    // וביטול, במקום "פנה לנציג" שהוא מיותר עכשיו.
     return yemotResponse(
       playMessage(
-        say("כבר קיימת לך הזמנה במכירה זו"),
-        say("לשינוי ההזמנה יש לפנות לנציג")
+        prompt("order_exists", "כבר קיימת לך הזמנה במכירה זו"),
+        prompt(
+          "order_exists_menu",
+          "לצפייה בהזמנה, לשינוי או לביטול, נתק והתקשר שוב לתפריט הראשי"
+        )
       )
     );
   }
 
   if (!customer.defaultPointId) {
     return yemotResponse(
-      playMessage(say("לא הוגדרה עבורך נקודת חלוקה, נציג יחזור אליך"))
+      playMessage(prompt("no_point_assigned", "לא הוגדרה עבורך נקודת חלוקה, נציג יחזור אליך"))
     );
   }
 
@@ -675,11 +937,13 @@ async function handleOrder(
       );
     }
 
-    // ד': פרטי הנקודה - באתר הלקוח רואה כתובת ושעות, בטלפון הוא שמע רק שם
+    // §29: בסיכום מוקרא רק שם הנקודה ומועד החלוקה - בלי כתובת ושעות.
+    // הסיבה: הסיכום כבר מכיל 15+ הודעות, וכל תוספת מאריכה את ההקראה
+    // הרצופה לפני שהלקוח יכול להקיש. הכתובת והשעות רלוונטיות ביום
+    // החלוקה ולא ברגע ההזמנה, והן זמינות במלואן בתפריט "נקודת החלוקה
+    // שלי" ובצינתוק התזכורת שנשלח לפני החלוקה.
     if (point?.name) {
       parts.push(say(`נקודת החלוקה שלך ${point.name}`));
-      if (point.address) parts.push(say(`בכתובת ${point.address}`));
-      if (point.deliveryHours) parts.push(say(`שעות החלוקה ${point.deliveryHours}`));
     }
     if (plFee?.deliveryDateText) {
       parts.push(say(`מועד החלוקה ${plFee.deliveryDateText}`));
@@ -726,7 +990,7 @@ async function handleOrder(
 
   if (catList.length === 0) {
     return yemotResponse(
-      playMessage(say("אין מוצרים זמינים להזמנה טלפונית"))
+      playMessage(prompt("no_products", "אין מוצרים זמינים להזמנה טלפונית"))
     );
   }
 
@@ -777,6 +1041,8 @@ async function handleOrder(
           singleUnitPrice: true,
           avgWeightPerUnit: true,
           phoneKey: true,
+          limitedQty: true,
+          limitedQtyAmount: true,
         },
       },
     },
@@ -791,7 +1057,7 @@ async function handleOrder(
 
   if (prods.length === 0) {
     return yemotResponse(
-      playMessage(say("אין מוצרים בקטגוריה זו"))
+      playMessage(prompt("no_products_cat", "אין מוצרים בקטגוריה זו"))
     );
   }
 
@@ -813,20 +1079,82 @@ async function handleOrder(
   }
   const prod = chosen.product;
 
-  // ─── קרטון או בודדים ───
+  // ─── §27 קרטון או בודדים, עם משקל ומחיר ───
+  // הלקוח צריך לדעת *מה הוא מקבל וכמה זה עולה* לפני שהוא בוחר, בדיוק
+  // כמו באתר. המספרים משתנים לכל מוצר ולכן הם TTS, והטקסט סביבם
+  // מוקלט - לכן ההודעות מפוצלות ל-pre/mid/post.
+  //
+  // התמחור זהה לאתר: קרטון מוצג במחיר המלא של הקרטון (מחיר לק"ג כפול
+  // המשקל המשוער), ובודדים לפי מחיר לק"ג.
+  const cartonBase = Number(chosen.price ?? prod.cartonPrice);
+  const avgW = prod.avgWeightPerUnit != null ? Number(prod.avgWeightPerUnit) : null;
+  const cartonTotal =
+    prod.priceType === "PER_KG" && avgW
+      ? Math.round(cartonBase * avgW)
+      : Math.round(cartonBase);
+
   let isSingle = false;
   if (prod.allowSingles) {
     if (!p[kMode]) {
-      return yemotResponse(
-        read(
-          messages(
-            prompt("choose_mode", "בחר אופן רכישה: לקרטון הקש 1, לבודדים הקש 2")
-          ),
-          { name: kMode, max: 1, min: 1, allowed: "12" }
+      const parts: string[] = [];
+
+      if (avgW) {
+        parts.push(prompt("mode_carton_pre", "לקניה לפי קרטון במשקל משוער של"));
+        parts.push(sayNumber(Math.round(avgW)));
+        parts.push(prompt("mode_carton_mid", "קילו, במחיר"));
+      } else {
+        parts.push(prompt("mode_carton_nowt", "לקניה לפי קרטון במחיר"));
+      }
+      parts.push(sayNumber(cartonTotal));
+      parts.push(prompt("mode_carton_post", "שקלים, הקש 1"));
+
+      // מחיר הבודדים כולל כבר את התוספת, ולכן מוצג כמחיר סופי אחד.
+      // "מחיר + תוספת" היו שני מספרים והלקוח לא היה יודע מה לשלם.
+      const singlePrice = effectiveUnitPrice(
+        cartonBase,
+        true,
+        Number(pricelist.singleSurcharge),
+        prod.singlesMode,
+        prod.singleUnitPrice != null ? Number(prod.singleUnitPrice) : null
+      );
+      const byUnits = prod.singlesMode === "UNITS";
+      parts.push(
+        prompt(
+          byUnits ? "mode_singles_unit_pre" : "mode_singles_pre",
+          byUnits ? "לקניה לפי יחידות במחיר" : "לקניה לפי קילו בודדים במחיר"
         )
+      );
+      parts.push(sayNumber(Math.round(singlePrice)));
+      parts.push(
+        prompt(
+          byUnits ? "mode_singles_unit_post" : "mode_singles_post",
+          byUnits ? "שקלים ליחידה, הקש 2" : "שקלים לקילו, הקש 2"
+        )
+      );
+
+      return yemotResponse(
+        read(messages(...parts), { name: kMode, max: 1, min: 1, allowed: "12" })
       );
     }
     isSingle = p[kMode] === "2";
+  } else if (!p[kQty]) {
+    // מוצר ללא בודדים: אין תפריט בחירה, אבל הלקוח עדיין צריך לשמוע
+    // מה המחיר לפני שהוא נוקב בכמות. משולב בשאלת הכמות עצמה.
+    const info: string[] = [];
+    if (avgW) {
+      info.push(prompt("carton_only_pre", "קרטון במשקל משוער של"));
+      info.push(sayNumber(Math.round(avgW)));
+      // אותו טקסט כמו במסלול הבחירה - משתמשים באותו קובץ ולא מקליטים פעמיים
+      info.push(prompt("mode_carton_mid", "קילו, במחיר"));
+    } else {
+      info.push(prompt("carton_only_nowt", "מחיר לקרטון"));
+    }
+    info.push(sayNumber(cartonTotal));
+    info.push(prompt("shekels", "שקלים"));
+    info.push(prompt("ask_qty_carton", "כמה קרטונים תרצה"));
+    return yemotResponse(
+      read(messages(...info), { name: kQty, max: 3, min: 1, playback: "Number" })
+    );
   }
 
   // ─── כמות ───
@@ -843,20 +1171,58 @@ async function handleOrder(
 
   const qty = parseInt(p[kQty], 10);
   if (!qty || qty <= 0) {
-    return yemotResponse(playMessage(say("כמות לא חוקית")));
+    return yemotResponse(playMessage(prompt("invalid_qty", "כמות לא חוקית")));
+  }
+
+  // §28: מגבלת כמות למוצר - אותה בדיקה שקיימת באתר. בלי זה הלקוח
+  // הטלפוני היה מזמין בחופשיות ויוצר חריגה שהמנהל מגלה רק בדיעבד.
+  if (prod.limitedQty && prod.limitedQtyAmount != null) {
+    const agg = await prisma.orderItem.aggregate({
+      where: {
+        productId: prod.id,
+        isCancelled: false,
+        order: { pricelistId: pricelist.id, status: { notIn: ["CANCELLED"] } },
+      },
+      _sum: { quantity: true },
+    });
+    const already = Number(agg._sum.quantity ?? 0);
+    const remaining = prod.limitedQtyAmount - already;
+    if (remaining <= 0) {
+      return yemotResponse(
+        playMessage(
+          prompt("qty_sold_out", "המוצר אזל מהמלאי במכירה זו"),
+          prompt("qty_choose_other", "ניתן לבחור מוצר אחר")
+        )
+      );
+    }
+    if (qty > remaining) {
+      return yemotResponse(
+        read(
+          messages(
+            prompt("qty_limited_pre", "לא ניתן להזמין כמות זו. נותרו רק"),
+            sayNumber(Math.floor(remaining)),
+            prompt("qty_limited_post", "יחידות. אנא הקש כמות מחדש")
+          ),
+          { name: kQty, max: 3, min: 1, playback: "Number" }
+        )
+      );
+    }
   }
 
   // ─── חישוב מחיר - בדיוק כמו באתר ───
-  const base = Number(chosen.price ?? prod.cartonPrice);
+  // משתמש ב-cartonBase ו-avgW שחושבו למעלה לצורך ההקראה, כדי שהמחיר
+  // שהלקוח *שמע* יהיה בדיוק המחיר שנשמר בהזמנה. שני חישובים נפרדים
+  // היו יוצרים סיכון שאחד ישתנה והשני לא, והלקוח יחויב בסכום אחר
+  // ממה שאושר לו בשיחה.
   const surcharge = Number(pricelist.singleSurcharge);
   const unitPrice = effectiveUnitPrice(
-    base,
+    cartonBase,
     isSingle,
     surcharge,
     prod.singlesMode,
     prod.singleUnitPrice != null ? Number(prod.singleUnitPrice) : null
   );
-  const avgWeight = prod.avgWeightPerUnit != null ? Number(prod.avgWeightPerUnit) : null;
+  const avgWeight = avgW;
   const isSinglesKg = isSingle && prod.priceType === "PER_KG";
   const est = isSinglesKg
     ? Math.round(unitPrice * qty * 100) / 100
@@ -896,9 +1262,9 @@ async function handleOrder(
     ),
   ];
   if (estWeight && !isSingle) {
-    confirmParts.push(say("במשקל משוער של"));
+    confirmParts.push(prompt("est_weight_of", "במשקל משוער של"));
     confirmParts.push(sayNumber(Math.round(estWeight)));
-    confirmParts.push(say("קילוגרם"));
+    confirmParts.push(prompt("kilogram", "קילוגרם"));
   }
 
   return yemotResponse(
@@ -923,7 +1289,7 @@ async function finalizeOrder(
   callId: string
 ): Promise<Response> {
   if (items.length === 0) {
-    return yemotResponse(playMessage(say("לא נבחרו מוצרים")));
+    return yemotResponse(playMessage(prompt("no_items", "לא נבחרו מוצרים")));
   }
 
   // הגנה מפני יצירה כפולה - ימות עלולים לשלוח את אותה בקשה שוב
@@ -933,7 +1299,7 @@ async function finalizeOrder(
   });
   if (draft?.orderId) {
     return yemotResponse(
-      playMessage(say("ההזמנה כבר נקלטה"))
+      playMessage(prompt("order_already_saved", "ההזמנה כבר נקלטה"))
     );
   }
 
@@ -1012,16 +1378,37 @@ async function finalizeOrder(
     console.error("[phone-ivr] email send failed (order was saved):", e);
   }
 
+  // §28: מועד אחרון לשינוי - הלקוח צריך לדעת עד מתי הוא יכול לערוך.
+  const deadlineInfo = await prisma.pricelist.findUnique({
+    where: { id: pricelist.id },
+    select: { editDeadline: true, closeDate: true },
+  });
+  const dl = deadlineInfo?.editDeadline ?? deadlineInfo?.closeDate ?? null;
+  const dlParts: string[] = [];
+  if (dl) {
+    dlParts.push(prompt("edit_until", "ניתן לשנות או לבטל את ההזמנה עד"));
+    dlParts.push(
+      say(
+        dl.toLocaleDateString("he-IL", {
+          weekday: "long",
+          day: "numeric",
+          month: "numeric",
+        })
+      )
+    );
+  }
+
   return yemotResponse(
     playMessage(
-      say("ההזמנה נקלטה בהצלחה"),
-      say("מספר ההזמנה שלך"),
+      prompt("order_saved", "ההזמנה נקלטה בהצלחה"),
+      prompt("your_order_number", "מספר ההזמנה שלך"),
       sayNumber(order.orderNumber),
-      say("סכום משוער"),
+      prompt("summary_estimated", "סכום משוער"),
       sayNumber(Math.round(total)),
-      say("שקלים"),
-      say("המחיר הסופי ייקבע לאחר שקילה"),
-      say("תודה ולהתראות")
+      prompt("shekels", "שקלים"),
+      prompt("final_price_note", "המחיר הסופי ייקבע לאחר שקילה"),
+      ...dlParts,
+      prompt("thanks", "תודה ולהתראות")
     )
   );
 }

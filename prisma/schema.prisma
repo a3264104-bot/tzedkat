@@ -195,6 +195,7 @@ model DeliveryPoint {
   // 🆕 קשר many-to-many: כל הנציגים המשויכים לנקודה דרך AgentPoint
   agentPoints  AgentPoint[] @relation("PointAgents")
   phoneSignupRequests PhoneSignupRequest[]
+  phoneAnnouncements  PhoneAnnouncement[]
   personalProducts PersonalProduct[] @relation("PersonalProductPoint") // §9: מוצרים אישיים בנקודה זו
   createdAt    DateTime @default(now())
 }
@@ -240,6 +241,7 @@ model Pricelist {
   deliveryNotes     DeliveryNote[]
   walkinOrders      WalkinOrder[]
   agentPayments     AgentPayment[]
+  phoneAnnouncements PhoneAnnouncement[]
   createdAt     DateTime @default(now())
 }
 
@@ -725,4 +727,34 @@ model PhoneSignupRequest {
   @@index([status])
   @@index([pointId])
   @@index([customerId])
+}
+
+// §30: הודעה קולית למתקשרים למערכת הטלפונית.
+//
+// למה: לקוח טלפוני אין לו מייל, ולכן עדכונים ("החלוקה נדחתה לשעה 18:00")
+// לא מגיעים אליו. ההודעה מוקראת בכניסה לשיחה, ומשמשת גם כיעד לצינתוק -
+// הלקוח רואה שיחה שלא נענתה, מתקשר חזרה, ושומע את העדכון.
+//
+// הסינון קריטי: הודעה לא רלוונטית גרועה מאין הודעה. מוקראת רק למי
+// שיש לו הזמנה פעילה במכירה, ורק אם היא מיועדת לנקודה שלו.
+// pointId ריק = הודעה גלובלית לכל הנקודות במכירה.
+model PhoneAnnouncement {
+  id           String   @id @default(cuid())
+  pricelistId  String
+  pricelist    Pricelist @relation(fields: [pricelistId], references: [id], onDelete: Cascade)
+  // null = כל הנקודות במכירה
+  pointId      String?
+  point        DeliveryPoint? @relation(fields: [pointId], references: [id], onDelete: Cascade)
+
+  text         String
+  isActive     Boolean  @default(true)
+  // תפוגה אוטומטית: הודעה על חלוקה של אתמול לא צריכה להישמע היום
+  expiresAt    DateTime?
+
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([pricelistId, isActive])
+  @@index([pointId])
 }

@@ -174,7 +174,7 @@ export default function SaleSummaryPage() {
         : "\n\n⚠️ למכירה זו לא הוגדר תאריך חלוקה — המייל יישלח בלי התאריך העברי.";
       const warnNoMail =
         preview.noEmailCount > 0
-          ? `\n(${preview.noEmailCount} לקוחות ללא מייל לא יקבלו)`
+          ? `\n(${preview.noEmailCount} לקוחות ללא מייל יקבלו צינתוק קולי)`
           : "";
       const ok = confirm(
         `לשלוח תזכורת חלוקה ל-${preview.recipientCount} לקוחות?${warnNoMail}${warnDate}`
@@ -186,9 +186,13 @@ export default function SaleSummaryPage() {
         body: JSON.stringify({ pricelistId: pid }),
       });
       alert(
-        `נשלחו ${res.sent} תזכורות.` +
+        `נשלחו ${res.sent} תזכורות במייל.` +
+          (res.voiceSent ? `\n${res.voiceSent} צינתוקים קוליים ללקוחות ללא מייל.` : "") +
           (res.failed ? `\n${res.failed} נכשלו.` : "") +
-          (res.noEmail ? `\n${res.noEmail} לקוחות ללא מייל.` : "")
+          (res.voiceFailed ? `\n${res.voiceFailed} צינתוקים נכשלו.` : "") +
+          (res.voiceSkipped
+            ? `\n\n⚠️ הצינתוקים לא נשלחו - חסרות הגדרות YEMOT_USER ו-YEMOT_PASSWORD.`
+            : "")
       );
     } catch (e: any) {
       alert("שגיאה: " + e.message);

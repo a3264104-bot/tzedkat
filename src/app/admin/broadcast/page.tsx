@@ -24,6 +24,10 @@ export default function AdminBroadcastPage() {
   // תוכן ההודעה
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  // §32: האם ליצור גם הודעה קולית שתוקרא למתקשרים למערכת הטלפונית.
+  // דלוק כברירת מחדל - רוב הברודקסטים הם עדכונים תפעוליים שרלוונטיים
+  // גם ללקוחות הטלפוניים, שאין להם מייל בכלל.
+  const [alsoPhone, setAlsoPhone] = useState(true);
 
   // מצב הבחירה
   const [mode, setMode] = useState<"all" | "point" | "manual">("all");
@@ -140,6 +144,7 @@ export default function AdminBroadcastPage() {
           mode,
           pointIds: mode === "point" ? Array.from(selectedPointIds) : [],
           customerIds: mode === "manual" ? Array.from(selectedCustomerIds) : [],
+          alsoPhone,
         }),
       });
       const data = await res.json();
@@ -217,6 +222,30 @@ export default function AdminBroadcastPage() {
             {message.length}/5000 · שורות חדשות יישמרו במייל
           </div>
         </div>
+
+        {/* §32: הודעה קולית מקבילה. לקוחות שנרשמו בטלפון לרוב אין להם
+            מייל, וזו הדרך היחידה שהעדכון יגיע אליהם. */}
+        <label className="flex items-start gap-2.5 p-3 rounded-lg bg-amber-50 border border-amber-200 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={alsoPhone}
+            onChange={(e) => setAlsoPhone(e.target.checked)}
+            className="w-4 h-4 mt-0.5 shrink-0 accent-brand-rust"
+          />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-brand-slatedark">
+              📞 גם כהודעה קולית למתקשרים
+            </span>
+            <span className="block text-xs text-zinc-600 mt-0.5">
+              ההודעה תוקרא בטלפון ללקוחות שהזמינו במכירה הפעילה. חשוב במיוחד
+              ללקוחות שנרשמו בטלפון ואין להם מייל.
+              {mode === "point" && " ההודעה תוקרא רק בנקודות שנבחרו."}
+            </span>
+            <span className="block text-xs text-amber-800 mt-1">
+              ההודעה תפוג אוטומטית בסוף יום החלוקה.
+            </span>
+          </span>
+        </label>
       </div>
 
       {/* בחירת נמענים */}

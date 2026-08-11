@@ -108,8 +108,39 @@ export const USE_RECORDINGS = false;
  * @param text הטקסט שיוקרא כשהמתג כבוי
  */
 export function prompt(file: string, text: string): string {
-  return USE_RECORDINGS ? `f-${file}` : say(text);
+  if (!USE_RECORDINGS) return say(text);
+  // הודעות שסומנו כנדירות נשארות בהקראה ממוחשבת גם כשהמתג דלוק -
+  // אין טעם להקליט הודעות שגיאה שרוב הלקוחות לעולם לא ישמעו.
+  if (TTS_ONLY.has(file)) return say(text);
+  return `f-${file}`;
 }
+
+/**
+ * הודעות שנשארות ב-TTS תמיד ואין צורך להקליט אותן.
+ *
+ * הקריטריון: מסלולי *שגיאה* בלבד - תקלת זיהוי, קלט לא חוקי, מוצר שאזל.
+ * לקוח רגיל לא מגיע אליהם.
+ *
+ * מה שלא נכנס לכאן בכוונה: הודעות על מצב המכירה (אין מכירה פעילה /
+ * ההרשמה הסתיימה / טרם נפתחה). הן נפוצות מאוד - בין מכירה למכירה אין
+ * מכירה פעילה במשך ימים, וכל מי שמתקשר שומע אותן.
+ *
+ * אם מוסיפים כאן שם - להסיר אותו גם מ-RECORDINGS.md.
+ */
+const TTS_ONLY = new Set<string>([
+  "id_error",
+  "error",
+  "invalid_choice",
+  "invalid_qty",
+  "no_points",
+  "no_products",
+  "no_products_cat",
+  "account_exists",
+  "order_already_saved",
+  "no_point_assigned",
+  "no_agent_use_cancel",
+  "no_items",
+]);
 
 /** שרשור כמה הודעות ברצף - מופרדות בנקודה לפי הפרוטוקול */
 export function messages(...parts: string[]): string {

@@ -19,6 +19,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { sendBroadcastEmail } from "@/lib/email";
+import {
+  createPhoneAnnouncement,
+  expiryForDelivery,
+} from "@/lib/announcement-helper";
 
 const BATCH_SIZE = 8; // מיילים בבת אחת
 const BATCH_DELAY_MS = 1200; // המתנה בין batches (Resend rate limit)
@@ -93,10 +97,42 @@ export async function POST(req: Request) {
     console.error("[broadcast] async send error:", err);
   });
 
+  // §32: הודעה קולית מקבילה, כדי שגם לקוח בלי מייל יקבל את העדכון
+  // כשיתקשר. נוצרת רק אם המנהל ביקש - לא כל ברודקסט רלוונטי לטלפון
+  // (למשל מייל שיווקי כללי).
+  let announcementCreated = false;
+  if (body?.alsoPhone) {
+    const activeSale = await prisma.pricelist.findFirst({
+      where: { status: "ACTIVE" },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, deliveryDate: true },
+    });
+    if (activeSale) {
+      // בברודקסט לפי נקודות - הודעה נפרדת לכל נקודה, כדי שהסינון
+      // בשיחה יעבוד. בשאר המצבים הודעה אחת גלובלית.
+      const targets =
+        mode === "point" && pointIds.length > 0 ? pointIds : [null];
+      for (const pt of targets) {
+        const res = await createPhoneAnnouncement({
+          pricelistId: activeSale.id,
+          pointId: pt,
+          // הכותרת והתוכן יחד, כי בטלפון אין "נושא" נפרד
+          text: `${subject}. ${message}`,
+          expiresAt: expiryForDelivery(activeSale.deliveryDate),
+          createdBy: g.session?.user?.email ?? null,
+        });
+        if (res.ok) announcementCreated = true;
+      }
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     recipientCount: recipients.length,
-    message: `השליחה החלה לרקע. ${recipients.length} מיילים יישלחו בקצב מבוקר.`,
+    announcementCreated,
+    message:
+      `השליחה החלה לרקע. ${recipients.length} מיילים יישלחו בקצב מבוקר.` +
+      (announcementCreated ? " ההודעה תוקרא גם למתקשרים למערכת הטלפונית." : ""),
   });
 }
 
