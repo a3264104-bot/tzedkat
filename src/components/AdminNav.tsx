@@ -95,7 +95,6 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/kashrut", label: "כשרויות", icon: "🏷️" },
       { href: "/admin/customers", label: "לקוחות", icon: "🧑" },
       { href: "/admin/phone-signups", label: "בקשות מהטלפון", icon: "📞" },
-      { href: "/admin/phone-announcements", label: "הודעות למתקשרים", icon: "📢" },
       { href: "/admin/agents", label: "נציגים", icon: "🧑‍💼" },
       { href: "/admin/personal-requests", label: "בקשות אישיות", icon: "💬" },
       { href: "/admin/broadcast", label: "שליחת מייל ללקוחות", icon: "📧" },

@@ -129,17 +129,11 @@ export function prompt(file: string, text: string): string {
  */
 const TTS_ONLY = new Set<string>([
   "id_error",
-  "error",
-  "invalid_choice",
-  "invalid_qty",
-  "no_points",
-  "no_products",
-  "no_products_cat",
   "account_exists",
-  "order_already_saved",
   "no_point_assigned",
-  "no_agent_use_cancel",
-  "no_items",
+  // נקודה בלי נציג משויך - לא אמור לקרות, אבל בלי ההודעה הלקוח
+  // היה שומע "פנה לנציג" ואז שקט.
+  "no_agent_call_office",
 ]);
 
 /** שרשור כמה הודעות ברצף - מופרדות בנקודה לפי הפרוטוקול */

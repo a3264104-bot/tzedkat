@@ -36,6 +36,8 @@ import {
 type DraftItem = {
   productId: string;
   productName: string;
+  // §33: נשמר בטיוטה כדי שהסיכום יקריא אותה בלי שאילתה נוספת
+  kashrut?: string | null;
   isSingle: boolean;
   quantity: number;
   unitPrice: number;
@@ -213,7 +215,11 @@ async function handle(req: Request): Promise<Response> {
     if (p.OPEN === "1") return handleMyOrders(customer.id);
     if (p.OPEN === "2") return handleEditOrder(p, openOrder, customer);
     if (p.OPEN === "3") return handleCancelOrder(p, openOrder, customer);
-    if (p.OPEN === "4") return handleMyPoint(customer);
+    if (p.OPEN === "4")
+      return handleMyPoint(customer, p, {
+        id: openOrder.id,
+        pricelistId: activeSale?.id ?? null,
+      });
   }
 
   // ═══ תפריט ראשי (אין הזמנה פתוחה) ═══
@@ -230,7 +236,8 @@ async function handle(req: Request): Promise<Response> {
   }
 
   if (p.MENU === "2") return handleMyOrders(customer.id);
-  if (p.MENU === "3") return handleMyPoint(customer);
+  // אין הזמנה פתוחה כאן (התפריט הרגיל)
+  if (p.MENU === "3") return handleMyPoint(customer, p, null);
   return handleOrder(p, customer, callId);
 }
 
@@ -445,9 +452,18 @@ async function handleEditOrder(
   order: { id: string; orderNumber: number; status: string; pointId: string },
   customer: any
 ): Promise<Response> {
-  // הזמנה ששולמה - שינוי דורש התחשבנות מחדש, מפנים לנציג
+  // הזמנה ששולמה - שינוי דורש התחשבנות מחדש, ולכן מפנים לנציג עם
+  // המספר שלו. אותו נוסח כמו בביטול הזמנה ששולמה - זה אותו מצב.
   if (order.status === "PAID" || order.status === "COMPLETED") {
-    return handleChangeRequest(order.pointId);
+    const phoneParts = await agentPhoneParts(order.pointId);
+    return yemotResponse(
+      playMessage(
+        prompt("paid_contact_agent", "הזמנה ששולמה ניתן לשנות רק דרך הנציג"),
+        ...(phoneParts.length > 0
+          ? phoneParts
+          : [prompt("no_agent_call_office", "לא נמצא נציג משויך, אנא פנה למוקד")])
+      )
+    );
   }
 
   // §28: מועד אחרון לעריכה - אותה מגבלה שקיימת באתר. בלי הבדיקה הזו
@@ -656,35 +672,6 @@ async function agentPhoneParts(pointId: string): Promise<string[]> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// §26: בקשת שינוי הזמנה - הפניה לנציג של הנקודה
-// ─────────────────────────────────────────────────────────────
-// שינוי פריטים בטלפון מורכב ומועד לטעויות, ולכן הלקוח מופנה לנציג.
-// אבל "פנה לנציג" בלי מספר הוא משפט ריק - במיוחד ללקוח טלפוני שאין
-// לו מייל ולא נכנס לאתר. לכן מקריאים את המספר בפועל.
-async function handleChangeRequest(pointId: string): Promise<Response> {
-  const phoneParts = await agentPhoneParts(pointId);
-
-  if (phoneParts.length === 0) {
-    // אין נציג משויך - מפנים לאפשרות הביטול במקום להשאיר בלי מוצא
-    return yemotResponse(
-      playMessage(
-        prompt(
-          "no_agent_use_cancel",
-          "לא נמצא נציג משויך לנקודה שלך. ניתן לבטל את ההזמנה מהתפריט הראשי ולהזמין מחדש"
-        )
-      )
-    );
-  }
-
-  return yemotResponse(
-    playMessage(
-      prompt("change_via_agent", "לשינוי ההזמנה יש לפנות לנציג של נקודת החלוקה שלך"),
-      ...phoneParts
-    )
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
 // §26: ביטול הזמנה
 // ─────────────────────────────────────────────────────────────
 // ביטול בטוח לביצוע בטלפון: הוא לא יוצר חיוב והוא הפיך - הלקוח יכול
@@ -701,8 +688,14 @@ async function handleCancelOrder(
     // ריקה - במיוחד ללקוח טלפוני שאין לו דרך אחרת למצוא אותו.
     const parts: string[] = [
       prompt("cancel_paid", "לא ניתן לבטל בטלפון הזמנה ששולמה"),
+      prompt("paid_contact_agent", "הזמנה ששולמה ניתן לשנות רק דרך הנציג"),
     ];
-    parts.push(...(await agentPhoneParts(order.pointId)));
+    const ph = await agentPhoneParts(order.pointId);
+    parts.push(
+      ...(ph.length > 0
+        ? ph
+        : [prompt("no_agent_call_office", "לא נמצא נציג משויך, אנא פנה למוקד")])
+    );
     return yemotResponse(playMessage(...parts));
   }
 
@@ -785,7 +778,13 @@ async function handleMyOrders(customerId: string): Promise<Response> {
 // ─────────────────────────────────────────────────────────────
 // נקודת החלוקה שלי
 // ─────────────────────────────────────────────────────────────
-async function handleMyPoint(customer: any): Promise<Response> {
+async function handleMyPoint(
+  customer: any,
+  p: Record<string, string> = {},
+  // ההזמנה הפתוחה, אם יש. נדרשת כדי להעביר גם אותה לנקודה החדשה -
+  // בלי זה הלקוח היה מגיע לנקודה אחת והסחורה שלו למקום אחר.
+  openOrder: { id: string; pricelistId: string | null } | null = null
+): Promise<Response> {
   if (!customer.defaultPoint) {
     return yemotResponse(
       playMessage(prompt("no_point_assigned", "לא הוגדרה עבורך נקודת חלוקה, נציג יחזור אליך"))
@@ -807,11 +806,138 @@ async function handleMyPoint(customer: any): Promise<Response> {
     parts.push(prompt("point_hours", "שעות החלוקה"));
     parts.push(say(pt.deliveryHours));
   }
-  parts.push(prompt("point_change_agent", "לשינוי נקודת החלוקה יש לפנות לנציג"));
-  // §31: מספר הנציג בפועל, לא רק "פנה לנציג"
-  if (pt.id) parts.push(...(await agentPhoneParts(pt.id)));
+  // §34: הגבול לשינוי נקודה הוא *מועד סגירת השינויים*, לא עצם קיום
+  // ההזמנה. כל עוד המכירה פתוחה, שום דבר לא נשלח לספק ולא פוצל
+  // לנקודות - ולכן שינוי בטוח, ואם יש הזמנה היא עוברת איתו.
+  // אחרי המועד הסחורה כבר מוקצית ורק נציג יכול לטפל.
+  let canChange = true;
+  if (openOrder?.pricelistId) {
+    const pl = await prisma.pricelist.findUnique({
+      where: { id: openOrder.pricelistId },
+      select: { editDeadline: true, closeDate: true },
+    });
+    const dl = pl?.editDeadline ?? pl?.closeDate ?? null;
+    if (dl && new Date() > dl) canChange = false;
+  }
 
-  return yemotResponse(playMessage(...parts));
+  if (!canChange) {
+    parts.push(
+      prompt(
+        "point_change_closed",
+        "המועד לשינוי ההזמנה חלף ולא ניתן לשנות את נקודת החלוקה. לשינוי יש לפנות לנציג"
+      )
+    );
+    if (pt.id) parts.push(...(await agentPhoneParts(pt.id)));
+    return yemotResponse(playMessage(...parts));
+  }
+
+  // ─── שינוי עצמאי ───
+  if (!p.CHPOINT) {
+    parts.push(prompt("point_change_offer", "לשינוי נקודת החלוקה הקש 1"));
+    return yemotResponse(
+      read(messages(...parts), { name: "CHPOINT", max: 1, min: 1, allowed: "1" })
+    );
+  }
+
+  // בחירת עיר
+  const cities = await prisma.deliveryPoint.findMany({
+    where: { isActive: true },
+    select: { city: true },
+    distinct: ["city"],
+    orderBy: { city: "asc" },
+  });
+  const cityList = cities.map((c) => c.city).filter(Boolean) as string[];
+
+  if (!p.NEWCITY) {
+    if (cityList.length === 0) {
+      return yemotResponse(
+        playMessage(prompt("no_points", "אין נקודות חלוקה פעילות כרגע"))
+      );
+    }
+    return yemotResponse(
+      read(
+        messages(
+          prompt("choose_city", "בחר עיר"),
+          ...cityList.map((c, i) => say(`ל${c} הקש ${i + 1}`))
+        ),
+        {
+          name: "NEWCITY",
+          max: 2,
+          min: 1,
+          allowed: cityList.map((_, i) => String(i + 1)).join("."),
+        }
+      )
+    );
+  }
+
+  const city = cityList[parseInt(p.NEWCITY, 10) - 1];
+  if (!city) {
+    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
+  }
+
+  const pts = await prisma.deliveryPoint.findMany({
+    where: { isActive: true, city },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
+  let newPointId: string | null = null;
+  if (pts.length === 1) {
+    newPointId = pts[0].id;
+  } else if (!p.NEWPOINT) {
+    return yemotResponse(
+      read(
+        messages(
+          prompt("choose_point", "בחר נקודת חלוקה"),
+          ...pts.map((x, i) => say(`ל${x.name} הקש ${i + 1}`))
+        ),
+        {
+          name: "NEWPOINT",
+          max: 2,
+          min: 1,
+          allowed: pts.map((_, i) => String(i + 1)).join("."),
+        }
+      )
+    );
+  } else {
+    newPointId = pts[parseInt(p.NEWPOINT, 10) - 1]?.id ?? null;
+  }
+
+  if (!newPointId) {
+    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
+  }
+
+  const chosenPoint = pts.find((x) => x.id === newPointId);
+
+  // עדכון הלקוח + ההזמנה הפתוחה בטרנזקציה. אם רק אחד מהם היה
+  // מתעדכן, הלקוח היה מגיע לנקודה אחת והסחורה למקום אחר.
+  await prisma.$transaction(async (tx) => {
+    await tx.customer.update({
+      where: { id: customer.id },
+      data: { defaultPointId: newPointId },
+    });
+    if (openOrder?.id) {
+      await tx.order.update({
+        where: { id: openOrder.id },
+        data: {
+          pointId: newPointId,
+          // ה-snapshot חייב להתעדכן גם: הוא מה שמוצג בכל המסכים
+          // ובמיילים, ואם יישאר ישן הוא יסתור את הנקודה בפועל.
+          pointNameSnapshot: chosenPoint?.name ?? null,
+        },
+      });
+    }
+  });
+
+  return yemotResponse(
+    playMessage(
+      prompt("point_changed", "נקודת החלוקה שלך עודכנה"),
+      say(chosenPoint?.name ?? ""),
+      openOrder?.id
+        ? prompt("point_changed_order", "ההזמנה הפעילה שלך הועברה לנקודה זו")
+        : prompt("point_changed_note", "ההזמנה הבאה שלך תשויך לנקודה זו")
+    )
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -926,13 +1052,15 @@ async function handleOrder(
     const parts: string[] = [prompt("summary_intro", "סיכום ההזמנה שלך")];
 
     for (const it of items) {
+      // הכשרות בסיכום כדי שהלקוח יאשר בדיוק את מה שהזמין
+      const kSuffix = it.kashrut ? ` בכשרות ${it.kashrut}` : "";
       parts.push(
         say(
           it.isSingle
-            ? `${it.quantity} קילוגרם בודדים של ${it.productName}`
+            ? `${it.quantity} קילוגרם בודדים של ${it.productName}${kSuffix}`
             : it.quantity === 1
-              ? `קרטון אחד של ${it.productName}`
-              : `${it.quantity} קרטונים של ${it.productName}`
+              ? `קרטון אחד של ${it.productName}${kSuffix}`
+              : `${it.quantity} קרטונים של ${it.productName}${kSuffix}`
         )
       );
     }
@@ -1043,6 +1171,10 @@ async function handleOrder(
           phoneKey: true,
           limitedQty: true,
           limitedQtyAmount: true,
+          // §33: כשרות - הלקוח חייב לדעת לפני שהוא בוחר, במיוחד כשיש
+          // שני מוצרים דומים בכשרויות שונות.
+          kashrut: true,
+          kashrutRef: { select: { name: true } },
         },
       },
     },
@@ -1062,7 +1194,16 @@ async function handleOrder(
   }
 
   if (!p[kProd]) {
-    const menu = prods.map((pp, i) => say(`ל${pp.product.name} הקש ${i + 1}`));
+    // §33: שם המוצר + הכשרות שלו. בלי זה לקוח שרואה שני מוצרים דומים
+    // בתפריט לא יודע במה לבחור.
+    const menu = prods.map((pp, i) => {
+      const k = pp.product.kashrutRef?.name || pp.product.kashrut || "";
+      return say(
+        k
+          ? `ל${pp.product.name} בכשרות ${k} הקש ${i + 1}`
+          : `ל${pp.product.name} הקש ${i + 1}`
+      );
+    });
     return yemotResponse(
       read(messages(prompt("choose_product", "בחר מוצר"), ...menu), {
         name: kProd,
@@ -1240,6 +1381,7 @@ async function handleOrder(
   items.push({
     productId: prod.id,
     productName: prod.name,
+    kashrut: prod.kashrutRef?.name || prod.kashrut || null,
     isSingle,
     quantity: qty,
     unitPrice,
