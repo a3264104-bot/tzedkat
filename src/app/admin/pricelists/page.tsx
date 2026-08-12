@@ -49,8 +49,19 @@ export default function PricelistsPage() {
       )
         return;
     }
-    await api(`/api/admin/pricelists/${l.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-    load();
+    // 🐛 תוקן: הקריאה הייתה בלי try/catch, ולכן שגיאות מהשרת נבלעו
+    // בשקט - המנהל לחץ "הפעל", כלום לא קרה, ולא הייתה שום אינדיקציה
+    // למה. הכי בולט באכיפת תאריך החלוקה (400) שהחזירה הודעה ברורה
+    // שאיש לא ראה.
+    try {
+      await api(`/api/admin/pricelists/${l.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      load();
+    } catch (e: any) {
+      alert(e.message || "שגיאה בעדכון הסטטוס");
+    }
   }
   async function duplicate(l: Pricelist) {
     await api("/api/admin/pricelists", {

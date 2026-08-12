@@ -28,6 +28,17 @@ export default function AdminBroadcastPage() {
   // דלוק כברירת מחדל - רוב הברודקסטים הם עדכונים תפעוליים שרלוונטיים
   // גם ללקוחות הטלפוניים, שאין להם מייל בכלל.
   const [alsoPhone, setAlsoPhone] = useState(true);
+  // §36: מתי ההודעה הקולית מפסיקה להישמע. חובה - הודעה כמו "החלוקה
+  // נדחתה לשעה 18:00" שממשיכה להישמע מחרתיים היא שקר. במייל אין בעיה
+  // כי הוא מגיע פעם אחת, אבל הודעה קולית נשמעת בכל שיחה.
+  // ברירת מחדל: סוף היום הנוכחי.
+  const [phoneExpiry, setPhoneExpiry] = useState(() => {
+    const d = new Date();
+    d.setHours(23, 59, 0, 0);
+    // פורמט datetime-local: YYYY-MM-DDTHH:mm
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  });
 
   // מצב הבחירה
   const [mode, setMode] = useState<"all" | "point" | "manual">("all");
@@ -117,6 +128,10 @@ export default function AdminBroadcastPage() {
       alert("יש להזין כותרת");
       return;
     }
+    if (alsoPhone && !phoneExpiry) {
+      alert("יש לקבוע מתי ההודעה הקולית מפסיקה להישמע");
+      return;
+    }
     if (!message.trim()) {
       alert("יש להזין תוכן הודעה");
       return;
@@ -145,6 +160,7 @@ export default function AdminBroadcastPage() {
           pointIds: mode === "point" ? Array.from(selectedPointIds) : [],
           customerIds: mode === "manual" ? Array.from(selectedCustomerIds) : [],
           alsoPhone,
+          phoneExpiry: alsoPhone ? phoneExpiry : null,
         }),
       });
       const data = await res.json();
@@ -241,11 +257,26 @@ export default function AdminBroadcastPage() {
               ללקוחות שנרשמו בטלפון ואין להם מייל.
               {mode === "point" && " ההודעה תוקרא רק בנקודות שנבחרו."}
             </span>
-            <span className="block text-xs text-amber-800 mt-1">
-              ההודעה תפוג אוטומטית בסוף יום החלוקה.
-            </span>
           </span>
         </label>
+
+        {alsoPhone && (
+          <label className="block px-3">
+            <span className="text-xs font-bold text-zinc-500">
+              עד מתי ההודעה תושמע בטלפון
+            </span>
+            <input
+              type="datetime-local"
+              value={phoneExpiry}
+              onChange={(e) => setPhoneExpiry(e.target.value)}
+              className="input mt-1 max-w-xs"
+            />
+            <p className="text-xs text-zinc-600 mt-1">
+              אחרי מועד זה ההודעה מפסיקה להישמע אוטומטית. חשוב במיוחד בעדכונים
+              על שעות — הודעה על שינוי בחלוקה של היום לא צריכה להישמע מחר.
+            </p>
+          </label>
+        )}
       </div>
 
       {/* בחירת נמענים */}

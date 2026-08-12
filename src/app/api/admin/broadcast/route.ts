@@ -118,7 +118,13 @@ export async function POST(req: Request) {
           pointId: pt,
           // הכותרת והתוכן יחד, כי בטלפון אין "נושא" נפרד
           text: `${subject}. ${message}`,
-          expiresAt: expiryForDelivery(activeSale.deliveryDate),
+          // §36: התפוגה נקבעת ע"י המנהל בטופס ולא לפי תאריך החלוקה.
+          // הודעה כללית ("החלוקה נדחתה לשעה 18:00") לא קשורה בהכרח
+          // ליום החלוקה, ולכן ברירת מחדל לפיו הייתה משאירה אותה
+          // באוויר ימים אחרי שכבר לא רלוונטית.
+          expiresAt: body?.phoneExpiry
+            ? new Date(body.phoneExpiry)
+            : expiryForDelivery(activeSale.deliveryDate),
           createdBy: g.session?.user?.email ?? null,
         });
         if (res.ok) announcementCreated = true;
