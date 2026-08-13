@@ -12,10 +12,11 @@
 // הגנות:
 //   - רק ADMIN יכול לשלוח
 //   - Resend Free tier: 100 מיילים בשעה. משלחים בקצב 8 בשנייה עם פאוזה כל batch.
-//   - קריאה fire-and-forget: מחזירים 200 מיד עם count, השליחה עצמה רצה ברקע.
-//     אחרת - הבקשה תזרוק timeout ב-Vercel לפני שהשליחה תסתיים.
+//   - השליחה רצה ברקע דרך waitUntil: מחזירים 200 מיד עם count,
+//     ו-Vercel ממתין לסיום המשימה במקום לקטוע אותה.
 
 import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { sendBroadcastEmail } from "@/lib/email";
@@ -92,10 +93,17 @@ export async function POST(req: Request) {
   // המרת טקסט → HTML (שמירת שורות חדשות, escape בסיסי)
   const messageHtml = escapeHtml(message).replace(/\n/g, "<br/>");
 
-  // Fire and forget: אין await, השליחה רצה ברקע
-  sendBroadcastAsync(recipients, subject, messageHtml).catch((err) => {
-    console.error("[broadcast] async send error:", err);
-  });
+  // 🐛 תוקן: הקריאה הייתה fire-and-forget בלי await, וב-Vercel זה נקטע
+  // ברגע שה-route מחזיר תשובה - המיילים פשוט לא נשלחו.
+  //
+  // כאן לא ניתן פשוט להוסיף await: שליחה למאות נמענים בקצב מבוקר
+  // עלולה לחרוג מזמן הריצה. waitUntil הוא הפתרון הנכון - הוא מבטיח
+  // ש-Vercel ימתין לסיום המשימה גם אחרי שהתשובה נשלחה.
+  waitUntil(
+    sendBroadcastAsync(recipients, subject, messageHtml).catch((err) => {
+      console.error("[broadcast] async send error:", err);
+    })
+  );
 
   // §32: הודעה קולית מקבילה, כדי שגם לקוח בלי מייל יקבל את העדכון
   // כשיתקשר. נוצרת רק אם המנהל ביקש - לא כל ברודקסט רלוונטי לטלפון

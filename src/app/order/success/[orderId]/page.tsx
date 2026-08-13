@@ -233,6 +233,26 @@ export default async function OrderSuccessPage({
           <div className="divide-y divide-zinc-100">
             {activeItems.map((item) => {
               const isCarton = !item.isSingle;
+              // 🐛 תוקן: הקוד הניח שכל מה שאינו "בודדים" הוא קרטון, אבל
+              // מוצרים ארוזים ("בקר טחון 500 ג'") נמכרים ביחידות והוצגו
+              // כ"2 קרטונים" במקום "2 יחידות". התווית נלקחת עכשיו משדה
+              // unit של הפריט, שהוא מקור האמת.
+              const unitLabel = (item.unit || "").trim();
+              const isPack =
+                isCarton && unitLabel !== "" && unitLabel !== "קרטון";
+              // ריבוי בעברית. ⚠️ אות סופית חייבת להשתנות לצורתה הרגילה
+              // לפני תוספת הסיומת - "קרטון"+"ים" נותן "קרטוןים" שהוא
+              // שגוי, וזה בדיוק המקור ל"קרטוןם" שהופיע ללקוחות.
+              const pluralize = (u: string, n: number) => {
+                if (n <= 1) return u;
+                if (u.endsWith("ה")) return u.slice(0, -1) + "ות";
+                const finals: Record<string, string> = {
+                  "ם": "מ", "ן": "נ", "ץ": "צ", "ף": "פ", "ך": "כ",
+                };
+                const last = u.slice(-1);
+                const base = finals[last] ? u.slice(0, -1) + finals[last] : u;
+                return base + "ים";
+              };
               const finalWeight = item.finalWeight
                 ? Number(item.finalWeight)
                 : item.actualWeight
@@ -272,7 +292,7 @@ export default async function OrderSuccessPage({
                           </span>
                           {isCarton ? (
                             <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">
-                              קרטון
+                              {isPack ? unitLabel : "קרטון"}
                             </span>
                           ) : (
                             <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">
@@ -302,8 +322,8 @@ export default async function OrderSuccessPage({
                           <span className="text-zinc-500">הוזמן: </span>
                           <span className="font-bold text-brand-slatedark">
                             {isCarton
-                              ? `${qty} קרטון${qty > 1 ? "ים" : ""}`
-                              : `${qty} ק"ג`}
+                              ? `${qty} ${pluralize(isPack ? unitLabel : "קרטון", qty)}`
+                              : `${qty} ${unitLabel === "יחידה" || unitLabel === "יחידות" ? pluralize("יחידה", qty) : 'ק"ג'}`}
                           </span>
                         </div>
 

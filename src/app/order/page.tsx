@@ -25,8 +25,35 @@ export default async function OrderPage({
   const customerId = (session.user as any).id as string;
   const customerRecord = await prisma.customer.findUnique({ where: { id: customerId } });
   if (!customerRecord) {
-    // מצב קצה: יש session תקין אבל הלקוח נמחק מהמסד בינתיים - מחזירים להתחברות מחדש
-    redirect("/login?callbackUrl=/order");
+    // 🐛 תוקן לולאת הפניה: זה קורה כשמתחברים דרך /admin/login, שמשתמש
+    // בטבלת Admin נפרדת מ-Customer. ה-session תקין אבל אין לקוח עם
+    // המזהה הזה, ולכן ההפניה ל-login החזירה את המשתמש להתחבר שוב
+    // ושוב בלי שום הסבר.
+    return (
+      <main className="min-h-screen bg-brand-yellow flex items-center justify-center p-6">
+        <div className="card p-8 text-center max-w-md">
+          <p className="text-lg font-bold text-brand-slatedark">
+            מסך ההזמנה מיועד ללקוחות
+          </p>
+          <p className="text-sm text-brand-slate/70 mt-2">
+            התחברת כמנהל המערכת, ולחשבון הזה אין פרופיל לקוח. כדי להזמין
+            בשם לקוח יש להשתמש במסך הנציג — כך ההזמנה גם תתועד כהזמנה
+            שבוצעה על ידך.
+          </p>
+          <div className="flex flex-wrap gap-2 justify-center mt-5">
+            <Link href="/agent" className="btn-primary">
+              למסך הנציג
+            </Link>
+            <Link href="/admin" className="btn-ghost">
+              לניהול
+            </Link>
+          </div>
+          <p className="text-xs text-zinc-500 mt-4">
+            לצפייה במסך כפי שהלקוח רואה אותו, יש להתחבר עם חשבון לקוח רגיל.
+          </p>
+        </div>
+      </main>
+    );
   }
 
   const pricelist = await prisma.pricelist.findFirst({

@@ -19,6 +19,7 @@
     "@hebcal/core": "^6.7.0",
     "@prisma/client": "^6.1.0",
     "@supabase/supabase-js": "^2.110.0",
+    "@vercel/functions": "^3.9.3",
     "bcryptjs": "^2.4.3",
     "exceljs": "^4.4.0",
     "next": "15.5.19",

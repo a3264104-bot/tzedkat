@@ -208,7 +208,89 @@ export default function AdminNav() {
       <div className="my-3 border-t border-brand-slate/15"></div>
 
       <NavLink item={SETTINGS_ITEM} active={isActive(SETTINGS_ITEM.href)} />
+
+      {/* §37: זהות והתנתקות.
+          למה זה חשוב כאן: יש שתי טבלאות משתמשים נפרדות (Admin ו-Customer),
+          ואפשר להיות מחובר לאחת ולא לשנייה. בלי חיווי מי מחובר, משתמש
+          שנתקע בהפניה חוזרת אין לו דרך להבין מה קורה או להחליף חשבון. */}
+      <SessionBox />
     </nav>
+  );
+}
+
+function SessionBox() {
+  const [who, setWho] = useState<{ name?: string; email?: string; role?: string } | null>(
+    null
+  );
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    // קריאה ישירה ל-endpoint במקום useSession, כדי לא להיות תלויים
+    // בכך ש-SessionProvider עוטף את הפריסה של הניהול.
+    fetch("/api/auth/session")
+      .then((r) => r.json())
+      .then((d) => setWho(d?.user ?? null))
+      .catch(() => setWho(null));
+  }, []);
+
+  async function logout() {
+    if (!confirm("להתנתק מהחשבון?")) return;
+    setBusy(true);
+    try {
+      // signOut של Auth.js דורש CSRF token
+      const csrf = await fetch("/api/auth/csrf").then((r) => r.json());
+      await fetch("/api/auth/signout", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          csrfToken: csrf.csrfToken,
+          callbackUrl: "/login",
+        }),
+      });
+      window.location.href = "/login";
+    } catch {
+      // גם אם משהו נכשל, מעבירים ל-login - שם אפשר להתחבר מחדש
+      window.location.href = "/login";
+    }
+  }
+
+  const roleLabel =
+    who?.role === "ADMIN" ? "מנהל" : who?.role === "AGENT" ? "נציג" : "לקוח";
+
+  return (
+    <div className="mt-4 pt-3 border-t border-brand-slate/15">
+      {who && (
+        <div className="px-3 pb-2">
+          <p className="text-[11px] text-brand-slate/50">מחובר כ</p>
+          <p className="text-sm font-bold text-brand-slatedark truncate">
+            {who.name || who.email || "משתמש"}
+          </p>
+          <span className="inline-block mt-1 text-[10px] bg-brand-slate/10 text-brand-slate rounded px-1.5 py-0.5">
+            {roleLabel}
+          </span>
+        </div>
+      )}
+
+      {/* מעבר מהיר למסך הנציג - רלוונטי למי שהוא גם מנהל וגם נציג */}
+      {(who?.role === "ADMIN" || who?.role === "AGENT") && (
+        <Link
+          href="/agent"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-brand-slatedark hover:bg-brand-slate/10 transition-colors"
+        >
+          <span className="text-base">🧑‍💼</span>
+          <span>מסך הנציג</span>
+        </Link>
+      )}
+
+      <button
+        onClick={logout}
+        disabled={busy}
+        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50"
+      >
+        <span className="text-base">🚪</span>
+        <span>{busy ? "מתנתק..." : "התנתקות"}</span>
+      </button>
+    </div>
   );
 }
 

@@ -298,11 +298,18 @@ export async function POST(req: Request) {
       include: { point: true, items: true },
     });
 
-    // שליחת מיילים - לא חוסמת את ההצלחה אפילו אם נכשלת
-    // (לוגיקת המייל המלאה תיבנה בנפרד כשיהיה Resend + SystemSettings מחוברים)
-    sendOrderNotificationsAsync(order, customer, pricelist).catch((err) => {
-      console.error("order notification error (non-blocking):", err);
-    });
+    // 🐛 תוקן באג סביבתי: הקריאה הייתה ללא await ("fire and forget").
+    // ב-Vercel זה *לא עובד* - ברגע שה-route מחזיר תשובה הפונקציה
+    // מסתיימת, וכל עבודה שרצה ברקע נקטעת באמצע. התוצאה: המיילים לא
+    // נשלחו כלל, ובלי שום שגיאה בלוגים כי הקוד לא הספיק לרוץ.
+    //
+    // עכשיו ממתינים לשליחה. ה-try/catch הפנימי מבטיח שכישלון במייל
+    // לא יפיל את ההזמנה - היא כבר נשמרה ב-DB.
+    try {
+      await sendOrderNotificationsAsync(order, customer, pricelist);
+    } catch (err) {
+      console.error("[orders] email send failed (order was saved):", err);
+    }
 
     return NextResponse.json({ ok: true, orderNumber: order.orderNumber, id: order.id });
   } catch (e: any) {
