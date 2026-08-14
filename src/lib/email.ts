@@ -70,8 +70,21 @@ function qtyDisplay(it: OrderItemLike): string {
     }
     return `${qty} ק"ג`;
   }
-  // קרטון
-  return qty === 1 ? "1 קרטון" : `${qty} קרטונים`;
+  // 🐛 תוקן: הקוד הניח שכל מה שאינו "בודדים" הוא קרטון, ומוצר ארוז
+  // ("בקר טחון 500 ג'") הוצג ללקוח כ"2 קרטונים" במקום "2 יחידות".
+  const u = (it.unit || "").trim();
+  const packUnit = u && u !== 'ק"ג' ? u : "קרטון";
+  return `${qty} ${pluralizeHe(packUnit, qty)}`;
+}
+
+// ריבוי בעברית. אות סופית חייבת להשתנות לפני הסיומת:
+// "קרטון"+"ים" נותן "קרטוןים" שהוא שגוי.
+function pluralizeHe(u: string, n: number): string {
+  if (n <= 1) return u;
+  if (u.endsWith("ה")) return u.slice(0, -1) + "ות";
+  const finals: Record<string, string> = { "ם": "מ", "ן": "נ", "ץ": "צ", "ף": "פ", "ך": "כ" };
+  const last = u.slice(-1);
+  return (finals[last] ? u.slice(0, -1) + finals[last] : u) + "ים";
 }
 
 // חישוב תצוגת משקל - סופי או משוער
@@ -94,7 +107,7 @@ function itemsRows(items: OrderItemLike[], useFinal = false) {
       const wLabel = weightDisplay(it);
       const singleBadge = it.isSingle
         ? '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:bold;margin-right:6px;">בודדים</span>'
-        : '<span style="background:#fed7aa;color:#9a3412;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:bold;margin-right:6px;">קרטון</span>';
+        : `<span style="background:#fed7aa;color:#9a3412;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:bold;margin-right:6px;">${escapeHtml((it.unit || "").trim() && (it.unit || "").trim() !== 'ק"ג' ? (it.unit as string).trim() : "קרטון")}</span>`;
       return `<tr style="border-bottom:1px solid #eee;">
         <td style="padding:10px;text-align:right;">
           <div><strong>${escapeHtml(it.productName)}</strong>${singleBadge}</div>

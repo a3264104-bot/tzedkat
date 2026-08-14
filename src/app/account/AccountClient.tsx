@@ -66,6 +66,23 @@ const statusColors: Record<string, string> = {
   CANCELLED: "bg-red-100 text-red-600",
 };
 
+// יחידת האריזה של הפריט. ברירת מחדל "קרטון" לפריטים ישנים שאין
+// להם unit, אבל מוצר ארוז נמכר ביחידות ולא בקרטונים.
+function packUnit(unit?: string | null): string {
+  const u = (unit || "").trim();
+  return u && u !== 'ק"ג' ? u : "קרטון";
+}
+
+// ריבוי בעברית. אות סופית חייבת להשתנות לפני הסיומת:
+// "קרטון"+"ים" נותן "קרטוןים" שהוא שגוי.
+function pluralizeUnit(u: string, n: number): string {
+  if (n <= 1) return u;
+  if (u.endsWith("ה")) return u.slice(0, -1) + "ות";
+  const finals: Record<string, string> = { "ם": "מ", "ן": "נ", "ץ": "צ", "ף": "פ", "ך": "כ" };
+  const last = u.slice(-1);
+  return (finals[last] ? u.slice(0, -1) + finals[last] : u) + "ים";
+}
+
 export function AccountClient({
   customer,
   orders,
@@ -655,7 +672,7 @@ export function AccountClient({
                                 </span>
                               ) : (
                                 <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold shrink-0">
-                                  קרטון
+                                  {packUnit(item.unit)}
                                 </span>
                               )}
                             </div>
@@ -669,8 +686,11 @@ export function AccountClient({
                                   }
                                   return `${qty} ק"ג`;
                                 }
-                                // קרטון - תמיד "קרטון" (לא unit של המוצר)
-                                return qty === 1 ? "1 קרטון" : `${qty} קרטונים`;
+                                // 🐛 תוקן: הקוד קבע "תמיד קרטון" והתעלם מ-unit
+                                // של המוצר. מוצר ארוז ("בקר טחון 500 ג'")
+                                // הוצג כ"2 קרטונים" במקום "2 יחידות".
+                                const u = packUnit(item.unit);
+                                return `${qty} ${pluralizeUnit(u, qty)}`;
                               })()}
                             </div>
                           </div>
