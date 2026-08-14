@@ -49,6 +49,9 @@ export async function GET(req: Request) {
       unit: string;
       cartons: number;
       singlesKg: number;
+      // §38: יחידת ההזמנה בפועל. מוצר ארוז ("בקר טחון 500 ג'") נמכר
+      // ביחידות ולא בקרטונים, והוצג כ"2 קרטון" בדשבורד.
+      unitLabel: string;
       actualKg: number;
       weighedCartons: number;
       total: number;
@@ -63,6 +66,7 @@ export async function GET(req: Request) {
           unit: it.unit,
           cartons: 0,
           singlesKg: 0,
+          unitLabel: it.unit || "קרטון",
           actualKg: 0,
           weighedCartons: 0,
           total: 0,
@@ -89,6 +93,7 @@ export async function GET(req: Request) {
       ...p,
       cartons: Math.round(p.cartons * 1000) / 1000,
       singlesKg: Math.round(p.singlesKg * 1000) / 1000,
+      unitLabel: p.unitLabel,
       actualKg: Math.round(p.actualKg * 1000) / 1000,
       total: Math.round(p.total * 100) / 100,
     }))

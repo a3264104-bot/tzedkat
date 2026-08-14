@@ -49,6 +49,10 @@ export default function OrdersPage() {
   const [fPricelist, setFPricelist] = useState("");
   const [fPoint, setFPoint] = useState("");
   const [fStatus, setFStatus] = useState("");
+  // §39: חיפוש חופשי וסינון תשלום. שניהם מסוננים בצד הלקוח על הרשימה
+  // שכבר נטענה - כך אין קריאת רשת בכל הקלדה, והתגובה מיידית.
+  const [q, setQ] = useState("");
+  const [fPay, setFPay] = useState("");
 
   // טעינת רשימת המכירות + ברירת מחדל (המכירה הפעילה)
   useEffect(() => {
@@ -101,7 +105,25 @@ export default function OrdersPage() {
   };
 
   const currentList = lists?.find((l) => l.id === fPricelist) ?? null;
-  const hasSubFilter = !!fPoint || !!fStatus;
+  const hasSubFilter = !!fPoint || !!fStatus || !!q.trim() || !!fPay;
+
+  // סינון מקומי: חיפוש חופשי + מצב תשלום
+  const shown = orders.filter((o) => {
+    if (fPay === "PAID" && o.paymentStatus !== "PAID") return false;
+    if (fPay === "UNPAID" && o.paymentStatus === "PAID") return false;
+    const t = q.trim().toLowerCase();
+    if (!t) return true;
+    return (
+      String(o.orderNumber).includes(t) ||
+      (o.customerName || "").toLowerCase().includes(t) ||
+      (o.phone || "").includes(t)
+    );
+  });
+
+  // סיכום כספי של מה שמוצג - המנהל צריך לדעת כמה כסף מול העיניים
+  const sumEst = shown.reduce((a, o) => a + Number(o.estimatedTotal || 0), 0);
+  const sumFinal = shown.reduce((a, o) => a + Number(o.finalTotal || 0), 0);
+  const unpaidCount = shown.filter((o) => o.paymentStatus !== "PAID").length;
 
   return (
     <div className="space-y-5">
@@ -168,11 +190,32 @@ export default function OrdersPage() {
           ))}
         </select>
 
+        <select
+          className="input max-w-[150px]"
+          value={fPay}
+          onChange={(e) => setFPay(e.target.value)}
+          aria-label="סינון לפי תשלום"
+        >
+          <option value="">תשלום: הכל</option>
+          <option value="PAID">שולם</option>
+          <option value="UNPAID">טרם שולם</option>
+        </select>
+
+        <input
+          className="input max-w-[200px]"
+          placeholder="חיפוש: שם, טלפון, מספר"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          aria-label="חיפוש בהזמנות"
+        />
+
         {hasSubFilter && (
           <button
             onClick={() => {
               setFPoint("");
               setFStatus("");
+              setQ("");
+              setFPay("");
             }}
             className="btn-ghost btn-sm"
           >
@@ -181,13 +224,36 @@ export default function OrdersPage() {
         )}
 
         {!loading && (
-          <span className="text-sm text-brand-slate/60 mr-auto">{orders.length} הזמנות</span>
+          <span className="text-sm text-brand-slate/60 mr-auto">
+            <bdi>{shown.length}</bdi> הזמנות
+            {shown.length !== orders.length && ` מתוך ${orders.length}`}
+          </span>
         )}
       </div>
 
+      {!loading && shown.length > 0 && (
+        <div className="card p-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+          <span>
+            <span className="text-zinc-500">סה״כ משוער:</span>{" "}
+            <strong>{fmt(sumEst)}</strong>
+          </span>
+          {sumFinal > 0 && (
+            <span>
+              <span className="text-zinc-500">סה״כ סופי:</span>{" "}
+              <strong>{fmt(sumFinal)}</strong>
+            </span>
+          )}
+          {unpaidCount > 0 && (
+            <span className="text-amber-800">
+              <bdi>{unpaidCount}</bdi> טרם שולמו
+            </span>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <p className="text-zinc-500">טוען...</p>
-      ) : orders.length === 0 ? (
+      ) : shown.length === 0 ? (
         <div className="card p-6 text-center">
           <p className="text-brand-slatedark font-medium">אין הזמנות שתואמות לסינון</p>
           <p className="text-sm text-brand-slate/60 mt-1">
@@ -214,7 +280,7 @@ export default function OrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => (
+              {shown.map((o) => (
                 <tr key={o.id}>
                   <td className="font-bold">{o.orderNumber}</td>
                   <td className="text-zinc-500 whitespace-nowrap">

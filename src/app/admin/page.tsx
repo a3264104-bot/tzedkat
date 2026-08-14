@@ -25,6 +25,16 @@ type Pricelist = {
 
 const ALL = "__all__";
 
+// ריבוי בעברית עם טיפול באות סופית: "קרטון"+"ים" נותן "קרטוןים"
+// שהוא שגוי, ולכן ן->נ לפני הסיומת.
+function pluralizeUnit(u: string, n: number): string {
+  if (n <= 1) return u;
+  if (u.endsWith("ה")) return u.slice(0, -1) + "ות";
+  const finals: Record<string, string> = { "ם": "מ", "ן": "נ", "ץ": "צ", "ף": "פ", "ך": "כ" };
+  const last = u.slice(-1);
+  return (finals[last] ? u.slice(0, -1) + finals[last] : u) + "ים";
+}
+
 export default function Dashboard() {
   const [lists, setLists] = useState<Pricelist[] | null>(null);
   const [selected, setSelected] = useState<string>("");
@@ -291,8 +301,12 @@ export default function Dashboard() {
                   <div key={p.name} className="flex justify-between gap-3 text-sm">
                     <span className="min-w-0 truncate">{p.name}</span>
                     <span className="text-zinc-500 shrink-0">
+                      {/* §38: התווית לפי unit האמיתי. מוצר ארוז נמכר
+                          ביחידות והוצג כ"קרטון". */}
                       {[
-                        p.cartons > 0 ? `${p.cartons} קרטון` : null,
+                        p.cartons > 0
+                          ? `${p.cartons} ${pluralizeUnit(p.unitLabel || "קרטון", p.cartons)}`
+                          : null,
                         p.singlesKg > 0 ? `${p.singlesKg} ק"ג בודדים` : null,
                       ]
                         .filter(Boolean)

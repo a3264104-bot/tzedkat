@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
+import { AddAgentButton } from "./AddAgentButton";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,7 @@ export default async function AdminAgentsPage() {
           <h1 className="font-extrabold text-brand-slatedark">
             👥 נציגים ומנהלים
           </h1>
+          <AddAgentButton />
         </div>
       </header>
 
@@ -211,7 +213,8 @@ export default async function AdminAgentsPage() {
               אין נציגים או מנהלים במערכת
             </p>
             <p className="text-xs text-zinc-500 mt-1">
-              הוסף לקוחות עם role=AGENT בטבלה מ-Prisma Studio
+              נציג הוא לקוח קיים שהוגדר כנציג. השתמש בכפתור "הוסף נציג"
+              למעלה כדי לבחור לקוח ולהפוך אותו לנציג.
             </p>
           </div>
         )}
