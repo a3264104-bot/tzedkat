@@ -15,6 +15,22 @@ type Props = {
   onNeedsReload: () => void;
 };
 
+// יחידת האריזה של הפריט. מוצר ארוז נמכר ביחידות ולא בקרטונים.
+function packUnit(unit?: string | null): string {
+  const u = (unit || "").trim();
+  return u && u !== 'ק"ג' ? u : "קרטון";
+}
+
+// ריבוי בעברית. אות סופית חייבת להשתנות לפני הסיומת:
+// "קרטון"+"ים" נותן "קרטוןים" שהוא שגוי.
+function pluralizeHe(u: string, n: number): string {
+  if (n <= 1) return u;
+  if (u.endsWith("ה")) return u.slice(0, -1) + "ות";
+  const finals: Record<string, string> = { "ם": "מ", "ן": "נ", "ץ": "צ", "ף": "פ", "ך": "כ" };
+  const last = u.slice(-1);
+  return (finals[last] ? u.slice(0, -1) + finals[last] : u) + "ים";
+}
+
 export function OrderRow({
   order,
   availableProducts,
@@ -368,12 +384,30 @@ function ItemRow({
             )}
           </div>
           <div className="text-xs text-zinc-500 mt-0.5">
-            הוזמן: {item.isSingle ? `${item.quantity} ק"ג` : `${item.quantity} קרטון${item.quantity > 1 ? "ים" : ""}`}
+            {/* 🐛 תוקן שני באגים בשורה אחת:
+                1. מוצר ארוז ("בקר טחון 500 ג'") הוצג כ"קרטון" - והנציג
+                   שוקל לפי מה שהוא רואה, כך שטעות כאן נכנסת לחיוב.
+                2. "קרטון"+"ים" נותן "קרטוןים" - אות סופית חייבת
+                   להשתנות לפני הסיומת. */}
+            הוזמן:{" "}
+            {item.isSingle
+              ? item.unit === "יחידה" || item.unit === "יחידות"
+                ? `${item.quantity} ${pluralizeHe("יחידה", item.quantity)}`
+                : `${item.quantity} ק"ג`
+              : `${item.quantity} ${pluralizeHe(packUnit(item.unit), item.quantity)}`}
             {originalWeight && !item.isSingle && (
               <span> (~{originalWeight.toFixed(2)} ק"ג משוער)</span>
             )}
             {" · "}
-            ₪{item.unitPrice.toFixed(2)} ל{item.isSingle ? "ק״ג" : (item.unit === 'ק"ג' ? "ק״ג" : "יח׳")}
+            {/* תווית המחיר לפי היחידה האמיתית ולא "יח׳" גנרי */}
+            ₪{item.unitPrice.toFixed(2)} ל
+            {item.isSingle
+              ? item.unit === "יחידה" || item.unit === "יחידות"
+                ? "יחידה"
+                : "ק״ג"
+              : item.unit === 'ק"ג'
+                ? "ק״ג"
+                : packUnit(item.unit)}
           </div>
         </div>
       </div>
