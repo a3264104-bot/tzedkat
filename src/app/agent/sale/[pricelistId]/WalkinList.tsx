@@ -293,6 +293,13 @@ function WalkinCard({
             {walkin.customerPhone && `${walkin.customerPhone} · `}
             {walkin.items.length} פריטים · ₪{walkin.totalAmount.toFixed(2)}
           </div>
+          {/* §44: הנקודה שאליה שויך המזדמן. חשוב בפירוט העמלות - מזדמן
+              בלי שיוך נספר תחת "ללא נקודה" ולא נזקף לאף נקודה. */}
+          {walkin.pointName && (
+            <div className="text-[10px] text-zinc-400 mt-0.5">
+              📍 {walkin.pointName}
+            </div>
+          )}
           {walkin.customerEmail && (
             <div className="text-[10px] text-zinc-400 mt-0.5" dir="ltr">
               📧 {walkin.customerEmail}
@@ -452,6 +459,16 @@ function WalkinForm({
   const [saving, setSaving] = useState(false);
   const [productSearch, setProductSearch] = useState<Record<number, string>>({});
 
+  // §44: שיוך המזדמן לנקודת חלוקה.
+  // נציג עם נקודה אחת משויך אוטומטית בשרת ולא נשאל כלל.
+  // נציג עם כמה נקודות - השרת מחזיר needsPoint עם רשימת הנקודות שלו,
+  // ואז מוצג בורר. הגישה הזו חוסכת קריאת רשת לרוב הנציגים, ומגדירה
+  // את עצמה: אם ישויך לנקודה נוספת בעתיד, הבורר יופיע לבד.
+  const [pointOptions, setPointOptions] = useState<
+    { id: string; name: string; city: string | null }[] | null
+  >(null);
+  const [pointId, setPointId] = useState("");
+
   // חישוב סכום כולל
   const total = items.reduce((sum, it) => {
     const product = availableProducts.find((p) => p.productId === it.productId);
@@ -489,6 +506,11 @@ function WalkinForm({
       alert("יש להוסיף לפחות פריט אחד עם משקל");
       return;
     }
+    // אם כבר הוצג בורר נקודות, חובה לבחור
+    if (pointOptions && pointOptions.length > 0 && !pointId) {
+      alert("יש לבחור נקודת חלוקה");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/agent/walkin", {
@@ -496,6 +518,7 @@ function WalkinForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pricelistId,
+          pointId: pointId || null,
           customerName: customerName.trim(),
           customerPhone: customerPhone.trim() || null,
           customerEmail: customerEmail.trim() || null,
@@ -507,6 +530,15 @@ function WalkinForm({
         }),
       });
       const json = await res.json();
+
+      // §44: השרת מבקש לבחור נקודה. לא שולחים שוב אוטומטית - הנציג
+      // צריך לבחור במודע, כי השיוך קובע לאיזו נקודה נזקפת העמלה.
+      if (!res.ok && json.needsPoint && Array.isArray(json.points)) {
+        setPointOptions(json.points);
+        alert("יש לבחור באיזו נקודת חלוקה נרשם המזדמן");
+        return;
+      }
+
       if (!res.ok) throw new Error(json.error || "שגיאה");
       onSuccess();
     } catch (e: any) {
@@ -566,6 +598,34 @@ function WalkinForm({
             className="w-full px-3 py-2 border border-zinc-300 rounded-lg text-sm"
           />
         </label>
+
+        {/* §44: בורר נקודה - מוצג רק כשהשרת ביקש (נציג רב-נקודתי) */}
+        {pointOptions && pointOptions.length > 0 && (
+          <label className="block">
+            <div className="text-xs font-bold text-zinc-500 mb-1">
+              נקודת חלוקה *{" "}
+              <span className="font-normal text-zinc-400">
+                — באיזו נקודה נרשם המזדמן
+              </span>
+            </div>
+            <select
+              value={pointId}
+              onChange={(e) => setPointId(e.target.value)}
+              className="w-full px-3 py-2 border-2 border-amber-400 bg-amber-50 rounded-lg text-sm font-medium"
+            >
+              <option value="">בחר נקודה</option>
+              {pointOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.city ? ` — ${p.city}` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-zinc-500 mt-1">
+              השיוך קובע לאיזו נקודה תיזקף העמלה בפירוט.
+            </p>
+          </label>
+        )}
 
         {/* פריטים */}
         <div>

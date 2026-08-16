@@ -101,6 +101,8 @@ export async function GET(
     where: { pricelistId, agentId: id },
     orderBy: { createdAt: "desc" },
     include: {
+      // §44: הנקודה שאליה שויך המזדמן - נדרשת לפירוט העמלות
+      point: { select: { id: true, name: true } },
       items: {
         include: {
           product: { select: { id: true, name: true, unit: true } },
@@ -204,6 +206,8 @@ export async function GET(
     walkins: walkins.map((w) => ({
       id: w.id,
       walkinNumber: w.walkinNumber,
+      pointId: w.pointId,
+      pointName: (w as any).point?.name ?? null,
       customerName: w.customerName,
       customerPhone: w.customerPhone,
       customerEmail: w.customerEmail,

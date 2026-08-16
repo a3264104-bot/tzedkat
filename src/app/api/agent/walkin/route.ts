@@ -108,10 +108,51 @@ export async function POST(req: Request) {
     paymentReceived = paymentMethod === "CASH" || paymentMethod === "CARD_TERMINAL";
   }
 
+  // §44: שיוך המזדמן לנקודת חלוקה.
+  // נציג עם נקודה אחת - משויך אוטומטית בלי לשאול.
+  // נציג עם כמה נקודות - חייב לבחור, אחרת ההתחשבנות לפי נקודה שגויה.
+  const apList = await prisma.agentPoint.findMany({
+    where: { agentId: g.agent.id },
+    select: { pointId: true },
+  });
+  const myPoints =
+    apList.length > 0
+      ? apList.map((r) => r.pointId)
+      : g.agent.agentPointId
+        ? [g.agent.agentPointId]
+        : [];
+
+  let walkinPointId: string | null = null;
+  if (body.pointId) {
+    walkinPointId = String(body.pointId);
+    if (myPoints.length > 0 && !myPoints.includes(walkinPointId)) {
+      return NextResponse.json(
+        { error: "הנקודה שנבחרה אינה משויכת אליך" },
+        { status: 403 }
+      );
+    }
+  } else if (myPoints.length === 1) {
+    walkinPointId = myPoints[0];
+  } else if (myPoints.length > 1) {
+    return NextResponse.json(
+      {
+        error: "יש לבחור נקודת חלוקה",
+        needsPoint: true,
+        points: await prisma.deliveryPoint.findMany({
+          where: { id: { in: myPoints } },
+          select: { id: true, name: true, city: true },
+          orderBy: { name: "asc" },
+        }),
+      },
+      { status: 400 }
+    );
+  }
+
   const walkin = await prisma.walkinOrder.create({
     data: {
       pricelistId,
       agentId: g.agent.id,
+      pointId: walkinPointId,
       customerName,
       customerPhone,
       customerEmail,
@@ -128,6 +169,8 @@ export async function POST(req: Request) {
           product: { select: { id: true, name: true, unit: true } },
         },
       },
+      // §44: הנקודה נדרשת לפירוט העמלות לפי נקודה
+      point: { select: { id: true, name: true } },
     },
   });
 
@@ -139,6 +182,8 @@ export async function POST(req: Request) {
     walkin: {
       id: walkin.id,
       walkinNumber: walkin.walkinNumber,
+      pointId: walkin.pointId,
+      pointName: walkin.point?.name ?? null,
       customerName: walkin.customerName,
       customerPhone: walkin.customerPhone,
       customerEmail: walkin.customerEmail,
@@ -177,7 +222,20 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
   const rateSingles = Number(agent.commissionRateSingles);
 
   const whereOrders: any = { pricelistId, status: { notIn: ["CANCELLED"] } };
-  if (agent.agentPointId) whereOrders.pointId = agent.agentPointId;
+  // 🐛 תוקן: הסינון היה לפי agentPointId היחיד (deprecated), ולכן
+  // נציג המשויך לכמה נקודות קיבל עמלה על נקודה אחת בלבד. אותו באג
+  // שתוקן כבר ב-agent-guard ובמסך המכירה, ונשאר כאן.
+  const apRows = await prisma.agentPoint.findMany({
+    where: { agentId },
+    select: { pointId: true },
+  });
+  const agentPointIds =
+    apRows.length > 0
+      ? apRows.map((r) => r.pointId)
+      : agent.agentPointId
+        ? [agent.agentPointId]
+        : [];
+  if (agentPointIds.length > 0) whereOrders.pointId = { in: agentPointIds };
 
   const orders = await prisma.order.findMany({
     where: whereOrders,

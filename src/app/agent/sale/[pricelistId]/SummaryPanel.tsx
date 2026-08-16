@@ -1,7 +1,7 @@
 "use client";
 
 // §20: פאנל סיכום וסגירת המכירה
-// מציג: סה"כ ק"ג + עמלה + השוואה לתעודות משלוח + סימון פערים + סגירה
+// מציג: סה"כ ק"ג + עמלה + פירוט לפי נקודה + השוואה לתעודות משלוח + סגירה
 
 import { useState } from "react";
 import type { Order, Walkin } from "./AgentSaleClient";
@@ -216,6 +216,14 @@ export function SummaryPanel({
         </div>
       </div>
 
+      {/* §43: פירוט לפי נקודת חלוקה */}
+      <PointBreakdown
+        orders={orders}
+        walkins={walkins}
+        rateCarton={commissionRateCarton}
+        rateSingles={commissionRateSingles}
+      />
+
       {/* השוואה לתעודות משלוח */}
       {deliveryNotes.length > 0 && (
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -354,6 +362,182 @@ export function SummaryPanel({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// §43: פירוט לפי נקודת חלוקה
+// ═══════════════════════════════════════════════════════════════════
+// נציג המשויך לכמה נקודות צריך לראות כמה כל נקודה הניבה - גם כדי
+// לבדוק את עצמו, וגם כדי להתחשבן מול המנהל לפי נקודה.
+//
+// §44: מזדמנים משויכים לנקודה מרגע שנוסף WalkinOrder.pointId, ולכן
+// נכללים בפירוט. מזדמן ישן בלי שיוך מקובץ תחת "ללא נקודה" - עדיף
+// מלנחש שיוך שגוי שייצור התחשבנות שגויה.
+
+type PointRow = {
+  pointId: string;
+  pointName: string;
+  cartonWeight: number;
+  singlesWeight: number;
+  customers: number;
+  delivered: number;
+  totalOrders: number;
+  walkinsCount: number;
+  commission: number;
+};
+
+function calculatePointBreakdown(
+  orders: Order[],
+  walkins: Walkin[],
+  rateCarton: number,
+  rateSingles: number
+): PointRow[] {
+  const m = new Map<string, PointRow>();
+
+  const blank = (id: string, name: string): PointRow => ({
+    pointId: id,
+    pointName: name,
+    cartonWeight: 0,
+    singlesWeight: 0,
+    customers: 0,
+    delivered: 0,
+    totalOrders: 0,
+    walkinsCount: 0,
+    commission: 0,
+  });
+
+  for (const o of orders) {
+    const id = o.point?.id ?? "__none__";
+    const name = o.point?.name ?? "ללא נקודה";
+    let row = m.get(id);
+    if (!row) {
+      row = blank(id, name);
+      m.set(id, row);
+    }
+    row.totalOrders++;
+    if (o.deliveredAt) row.delivered++;
+
+    let hasData = false;
+    for (const it of o.items) {
+      if (it.isCancelled) continue;
+      // agentEnteredWeight ולא actualWeight: העמלה על מה שהנציג שקל,
+      // לא על תיקוני מנהל. זהה לחישוב ב-liveSummary.
+      const w = it.agentEnteredWeight || 0;
+      if (w > 0) {
+        hasData = true;
+        if (it.isSingle) row.singlesWeight += w;
+        else row.cartonWeight += w;
+      }
+    }
+    if (hasData) row.customers++;
+  }
+
+  for (const w of walkins) {
+    const id = (w as any).pointId ?? "__none__";
+    const name = (w as any).pointName ?? "ללא נקודה";
+    let row = m.get(id);
+    if (!row) {
+      row = blank(id, name);
+      m.set(id, row);
+    }
+    row.walkinsCount++;
+    for (const it of w.items) {
+      if (it.isSingle) row.singlesWeight += it.weight;
+      else row.cartonWeight += it.weight;
+    }
+  }
+
+  for (const row of m.values()) {
+    row.commission = row.cartonWeight * rateCarton + row.singlesWeight * rateSingles;
+  }
+
+  return Array.from(m.values()).sort((a, b) =>
+    a.pointName.localeCompare(b.pointName, "he")
+  );
+}
+
+function PointBreakdown({
+  orders,
+  walkins,
+  rateCarton,
+  rateSingles,
+}: {
+  orders: Order[];
+  walkins: Walkin[];
+  rateCarton: number;
+  rateSingles: number;
+}) {
+  const rows = calculatePointBreakdown(orders, walkins, rateCarton, rateSingles);
+  // מוצג רק כשיש יותר מנקודה אחת - אחרת זו כפילות של הסיכום הכללי
+  if (rows.length <= 1) return null;
+
+  const totalCommission = rows.reduce((s, r) => s + r.commission, 0);
+
+  return (
+    <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-3 bg-zinc-50 border-b border-zinc-100">
+        <h3 className="font-extrabold text-brand-slatedark">פירוט לפי נקודת חלוקה</h3>
+        <p className="text-xs text-zinc-500 mt-0.5">
+          {rows.length} נקודות · העמלה מחושבת על המשקלים שהזנת
+        </p>
+      </div>
+
+      <div className="p-4 space-y-3">
+        {rows.map((r) => (
+          <div key={r.pointId} className="border border-zinc-200 rounded-xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-bold text-brand-slatedark">📍 {r.pointName}</span>
+              <span className="text-lg font-extrabold text-emerald-600">
+                ₪{r.commission.toFixed(2)}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-orange-50 rounded-lg p-2">
+                <div className="text-[10px] text-brand-rust font-bold">קרטונים</div>
+                <div className="font-extrabold text-brand-rust">
+                  {r.cartonWeight.toFixed(2)} ק״ג
+                </div>
+                <div className="text-[10px] text-zinc-500">
+                  × ₪{rateCarton} = ₪{(r.cartonWeight * rateCarton).toFixed(2)}
+                </div>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-2">
+                <div className="text-[10px] text-amber-800 font-bold">בודדים</div>
+                <div className="font-extrabold text-amber-800">
+                  {r.singlesWeight.toFixed(2)} ק״ג
+                </div>
+                <div className="text-[10px] text-zinc-500">
+                  × ₪{rateSingles} = ₪{(r.singlesWeight * rateSingles).toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 mt-2 text-xs text-zinc-600 flex-wrap">
+              <span>
+                <bdi>{r.customers}</bdi> לקוחות שוקלו
+              </span>
+              <span>
+                נמסרו <bdi>{r.delivered}</bdi> מתוך <bdi>{r.totalOrders}</bdi>
+              </span>
+              {r.walkinsCount > 0 && (
+                <span>
+                  <bdi>{r.walkinsCount}</bdi> מזדמנים
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+
+        <div className="border-t-2 border-zinc-200 pt-3 flex items-center justify-between">
+          <span className="font-bold text-brand-slatedark">סה״כ עמלה</span>
+          <span className="text-2xl font-extrabold text-emerald-600">
+            ₪{totalCommission.toFixed(2)}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

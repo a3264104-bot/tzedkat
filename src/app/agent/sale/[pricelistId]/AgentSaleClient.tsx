@@ -59,6 +59,9 @@ export type Order = {
 export type Walkin = {
   id: string;
   walkinNumber: number;
+  // §44: שיוך לנקודת חלוקה - נדרש לפירוט העמלות לפי נקודה
+  pointId?: string | null;
+  pointName?: string | null;
   customerName: string;
   customerPhone: string | null;
   customerEmail: string | null;
@@ -152,6 +155,10 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
   const [filter, setFilter] = useState("");
   // סינון: הכל / רק ממתינים / רק מוזנים
   const [filterMode, setFilterMode] = useState<"all" | "pending" | "done">("all");
+  // §42: סינון לפי נקודת חלוקה. נציג יכול להיות משויך לכמה נקודות,
+  // וביום החלוקה הוא עובד בנקודה אחת בכל פעם - רשימה מעורבבת של שתי
+  // נקודות אינה שמישה בשטח.
+  const [filterPoint, setFilterPoint] = useState<string>("");
   // מצב תצוגה: כרטיסים או טבלה מהירה (Excel-like)
   const [viewMode, setViewMode] = useState<"cards" | "table">("table");
 
@@ -261,6 +268,11 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
     if (!data) return [];
     let list = data.orders;
 
+    // סינון לפי נקודה - ראשון, כדי שהמונים של השאר ישקפו את הנקודה
+    if (filterPoint) {
+      list = list.filter((o) => o.point?.id === filterPoint);
+    }
+
     // סינון לפי סטטוס
     if (filterMode === "pending") {
       list = list.filter((o) => {
@@ -293,7 +305,21 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
     }
 
     return list;
-  }, [data, filter, filterMode]);
+  }, [data, filter, filterMode, filterPoint]);
+
+  // הנקודות שיש להן הזמנות במכירה זו. נגזר מההזמנות עצמן ולא משדה
+  // agent.point, שהוא השדה הישן ומחזיק נקודה אחת בלבד.
+  const pointsInSale = useMemo(() => {
+    if (!data) return [] as { id: string; name: string; count: number }[];
+    const m = new Map<string, { id: string; name: string; count: number }>();
+    for (const o of data.orders) {
+      if (!o.point) continue;
+      const cur = m.get(o.point.id) || { id: o.point.id, name: o.point.name, count: 0 };
+      cur.count++;
+      m.set(o.point.id, cur);
+    }
+    return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name, "he"));
+  }, [data]);
 
   // סטטיסטיקות לתגי הסינון
   const orderStats = useMemo(() => {
@@ -376,9 +402,12 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
             <div className="font-extrabold text-brand-slatedark text-sm">
               {data.pricelist.name}
             </div>
-            {data.agent.point && (
+            {/* §42: כל הנקודות ולא רק agent.point היחיד */}
+            {pointsInSale.length > 0 && (
               <div className="text-xs text-brand-slate">
-                נקודה: {data.agent.point.name}
+                {pointsInSale.length === 1
+                  ? `נקודה: ${pointsInSale[0].name}`
+                  : `${pointsInSale.length} נקודות חלוקה`}
               </div>
             )}
           </div>
@@ -494,6 +523,29 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                   </button>
                 </div>
               </div>
+              {/* בורר נקודה - מוצג רק כשיש יותר מאחת */}
+              {pointsInSale.length > 1 && (
+                <div className="flex gap-1.5 flex-wrap pb-2 border-b border-zinc-100">
+                  <FilterChip
+                    active={filterPoint === ""}
+                    onClick={() => setFilterPoint("")}
+                    color="slate"
+                  >
+                    כל הנקודות · {data.orders.length}
+                  </FilterChip>
+                  {pointsInSale.map((pt) => (
+                    <FilterChip
+                      key={pt.id}
+                      active={filterPoint === pt.id}
+                      onClick={() => setFilterPoint(pt.id)}
+                      color="rust"
+                    >
+                      📍 {pt.name} · {pt.count}
+                    </FilterChip>
+                  ))}
+                </div>
+              )}
+
               <div className="flex gap-1.5">
                 <FilterChip
                   active={filterMode === "all"}
@@ -525,8 +577,9 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                 <div className="flex items-center justify-between text-sm mb-1.5">
                   <span className="font-bold text-brand-slatedark">מסירה ללקוחות</span>
                   <span className="text-zinc-600">
-                    {data.orders.filter((o) => !!o.deliveredAt).length} מתוך{" "}
-                    {data.orders.length} נמסרו
+                    {filteredOrders.filter((o) => !!o.deliveredAt).length} מתוך{" "}
+                    {filteredOrders.length} נמסרו
+                    {filterPoint && " בנקודה זו"}
                   </span>
                 </div>
                 <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
@@ -534,9 +587,9 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                     className="h-full bg-emerald-500 transition-all"
                     style={{
                       width: `${
-                        data.orders.length > 0
-                          ? (data.orders.filter((o) => !!o.deliveredAt).length /
-                              data.orders.length) *
+                        filteredOrders.length > 0
+                          ? (filteredOrders.filter((o) => !!o.deliveredAt).length /
+                              filteredOrders.length) *
                             100
                           : 0
                       }%`,
@@ -671,13 +724,14 @@ function FilterChip({
 }: {
   active: boolean;
   onClick: () => void;
-  color: "slate" | "amber" | "emerald";
+  color: "slate" | "amber" | "emerald" | "rust";
   children: React.ReactNode;
 }) {
   const activeColors = {
     slate: "bg-brand-slatedark text-white",
     amber: "bg-amber-500 text-white",
     emerald: "bg-emerald-600 text-white",
+    rust: "bg-brand-rust text-white",
   }[color];
   return (
     <button

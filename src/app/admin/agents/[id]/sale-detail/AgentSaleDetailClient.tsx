@@ -6,6 +6,9 @@
 // - כל ההזמנות שהוא טיפל בהן
 // - כל המזדמנים שהוא הזין
 // - סיכום כספי + עמלות + היסטוריית תשלומים
+//
+// §43: פירוט לפי נקודת חלוקה - נציג יכול להיות משויך לכמה נקודות,
+// והמנהל צריך לראות כמה כל נקודה הניבה כדי להתחשבן איתו לפי נקודה.
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -66,6 +69,9 @@ type Data = {
   walkins: Array<{
     id: string;
     walkinNumber: number;
+    // §44: שיוך לנקודת חלוקה - נדרש לפירוט העמלות
+    pointId?: string | null;
+    pointName?: string | null;
     customerName: string;
     customerPhone: string | null;
     customerEmail: string | null;
@@ -136,6 +142,9 @@ export default function AgentSaleDetailClient({
     identifier: string;
   } | null>(null);
   const [resetting, setResetting] = useState(false);
+  // §43: סינון לפי נקודה - כשנציג עובד בכמה נקודות, המנהל צריך
+  // לבחון כל אחת בנפרד
+  const [filterPoint, setFilterPoint] = useState("");
 
   const load = useCallback(async () => {
     if (!pricelistId) {
@@ -213,6 +222,16 @@ export default function AgentSaleDetailClient({
 
   const { agent, pricelist, stats, orders, walkins, summary, payments } = data;
 
+  // §43: הנקודות שיש להן פעילות. נגזר מההזמנות והמזדמנים בפועל ולא
+  // משדה agent.point, שהוא השדה הישן ומחזיק נקודה אחת בלבד.
+  const pointsInSale = collectPoints(orders, walkins);
+  const shownOrders = filterPoint
+    ? orders.filter((o) => o.point?.id === filterPoint)
+    : orders;
+  const shownWalkins = filterPoint
+    ? walkins.filter((w) => (w.pointId ?? "__none__") === filterPoint)
+    : walkins;
+
   return (
     <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
       <header className="bg-brand-yellow border-b-4 border-brand-rust/20 sticky top-0 z-30">
@@ -271,14 +290,31 @@ export default function AgentSaleDetailClient({
                     </a>
                   </div>
                 )}
-                {agent.point && (
-                  <div className="flex items-center gap-2">
+                {/* §43: כל הנקודות שבהן פעל, ולא רק agent.point היחיד */}
+                {pointsInSale.length > 0 ? (
+                  <div className="flex items-start gap-2">
                     <span className="text-zinc-500">📍</span>
-                    <span className="text-brand-slatedark font-medium">
-                      {agent.point.name}
-                      {agent.point.city && ` — ${agent.point.city}`}
-                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {pointsInSale.map((p) => (
+                        <span
+                          key={p.id}
+                          className="text-brand-slatedark font-medium bg-zinc-100 rounded px-1.5 py-0.5 text-xs"
+                        >
+                          {p.name}
+                        </span>
+                      ))}
+                    </div>
                   </div>
+                ) : (
+                  agent.point && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-zinc-500">📍</span>
+                      <span className="text-brand-slatedark font-medium">
+                        {agent.point.name}
+                        {agent.point.city && ` — ${agent.point.city}`}
+                      </span>
+                    </div>
+                  )
                 )}
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-zinc-500">💰</span>
@@ -377,6 +413,14 @@ export default function AgentSaleDetailClient({
           />
         </div>
 
+        {/* §43: פירוט לפי נקודת חלוקה */}
+        <PointBreakdown
+          orders={orders}
+          walkins={walkins}
+          rateCarton={agent.commissionRateCarton}
+          rateSingles={agent.commissionRateSingles}
+        />
+
         {/* מזומן שאסף (אם רלוונטי) */}
         {stats.walkinCash > 0 && (
           <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-center gap-3">
@@ -393,28 +437,262 @@ export default function AgentSaleDetailClient({
           </div>
         )}
 
+        {/* §43: בורר נקודה לרשימות - מוצג רק כשיש יותר מאחת */}
+        {pointsInSale.length > 1 && (
+          <div className="bg-white rounded-xl border border-zinc-200 p-3 flex gap-1.5 flex-wrap">
+            <PointChip
+              active={filterPoint === ""}
+              onClick={() => setFilterPoint("")}
+            >
+              כל הנקודות · {orders.length + walkins.length}
+            </PointChip>
+            {pointsInSale.map((p) => (
+              <PointChip
+                key={p.id}
+                active={filterPoint === p.id}
+                onClick={() => setFilterPoint(p.id)}
+              >
+                📍 {p.name} · {p.count}
+              </PointChip>
+            ))}
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
           <div className="flex border-b border-zinc-200 bg-zinc-50">
             <TabBtn active={tab === "orders"} onClick={() => setTab("orders")}>
-              הזמנות ({orders.length})
+              הזמנות ({shownOrders.length})
             </TabBtn>
             <TabBtn active={tab === "walkins"} onClick={() => setTab("walkins")}>
-              מזדמנים ({walkins.length})
+              מזדמנים ({shownWalkins.length})
             </TabBtn>
             <TabBtn active={tab === "payments"} onClick={() => setTab("payments")}>
               תשלומים ({payments.length})
             </TabBtn>
           </div>
 
-          {tab === "orders" && <OrdersTab orders={orders} />}
-          {tab === "walkins" && <WalkinsTab walkins={walkins} />}
+          {tab === "orders" && <OrdersTab orders={shownOrders} />}
+          {tab === "walkins" && <WalkinsTab walkins={shownWalkins} />}
           {tab === "payments" && (
             <PaymentsTab payments={payments} summary={summary} />
           )}
         </div>
       </main>
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// §43: פירוט לפי נקודת חלוקה
+// ═══════════════════════════════════════════════════════════════════
+
+type PointRow = {
+  id: string;
+  name: string;
+  cartonWeight: number;
+  singlesWeight: number;
+  orders: number;
+  walkins: number;
+  revenue: number;
+  commission: number;
+};
+
+// רשימת הנקודות שבהן הייתה פעילות, עם מונה לכל אחת
+function collectPoints(
+  orders: Data["orders"],
+  walkins: Data["walkins"]
+): { id: string; name: string; count: number }[] {
+  const m = new Map<string, { id: string; name: string; count: number }>();
+  for (const o of orders) {
+    const id = o.point?.id ?? "__none__";
+    const name = o.point?.name ?? "ללא נקודה";
+    const cur = m.get(id) || { id, name, count: 0 };
+    cur.count++;
+    m.set(id, cur);
+  }
+  for (const w of walkins) {
+    const id = w.pointId ?? "__none__";
+    const name = w.pointName ?? "ללא נקודה";
+    const cur = m.get(id) || { id, name, count: 0 };
+    cur.count++;
+    m.set(id, cur);
+  }
+  return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name, "he"));
+}
+
+function calculateBreakdown(
+  orders: Data["orders"],
+  walkins: Data["walkins"],
+  rateCarton: number,
+  rateSingles: number
+): PointRow[] {
+  const m = new Map<string, PointRow>();
+  const blank = (id: string, name: string): PointRow => ({
+    id,
+    name,
+    cartonWeight: 0,
+    singlesWeight: 0,
+    orders: 0,
+    walkins: 0,
+    revenue: 0,
+    commission: 0,
+  });
+
+  for (const o of orders) {
+    const id = o.point?.id ?? "__none__";
+    const name = o.point?.name ?? "ללא נקודה";
+    let row = m.get(id);
+    if (!row) {
+      row = blank(id, name);
+      m.set(id, row);
+    }
+    row.orders++;
+    for (const it of o.items) {
+      if (it.isCancelled) continue;
+      // agentEnteredWeight ולא actualWeight: העמלה על מה שהנציג שקל,
+      // לא על תיקוני מנהל. זהה לחישוב במסך הנציג.
+      const w = it.agentEnteredWeight || 0;
+      if (w > 0) {
+        if (it.isSingle) row.singlesWeight += w;
+        else row.cartonWeight += w;
+      }
+      row.revenue += it.finalPrice || 0;
+    }
+  }
+
+  for (const w of walkins) {
+    const id = w.pointId ?? "__none__";
+    const name = w.pointName ?? "ללא נקודה";
+    let row = m.get(id);
+    if (!row) {
+      row = blank(id, name);
+      m.set(id, row);
+    }
+    row.walkins++;
+    row.revenue += w.totalAmount;
+    for (const it of w.items) {
+      if (it.isSingle) row.singlesWeight += it.weight;
+      else row.cartonWeight += it.weight;
+    }
+  }
+
+  for (const row of m.values()) {
+    row.commission = row.cartonWeight * rateCarton + row.singlesWeight * rateSingles;
+  }
+
+  return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name, "he"));
+}
+
+function PointBreakdown({
+  orders,
+  walkins,
+  rateCarton,
+  rateSingles,
+}: {
+  orders: Data["orders"];
+  walkins: Data["walkins"];
+  rateCarton: number;
+  rateSingles: number;
+}) {
+  const rows = calculateBreakdown(orders, walkins, rateCarton, rateSingles);
+  // מוצג רק כשיש יותר מנקודה אחת - אחרת זו כפילות של הסטטיסטיקות
+  if (rows.length <= 1) return null;
+
+  const totalCommission = rows.reduce((s, r) => s + r.commission, 0);
+  const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+
+  return (
+    <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-3 bg-zinc-50 border-b border-zinc-100">
+        <h3 className="font-extrabold text-brand-slatedark">פירוט לפי נקודת חלוקה</h3>
+        <p className="text-xs text-zinc-500 mt-0.5">
+          {rows.length} נקודות · העמלה מחושבת על המשקלים שהנציג הזין
+        </p>
+      </div>
+
+      <div className="p-4 space-y-3">
+        {rows.map((r) => (
+          <div key={r.id} className="border border-zinc-200 rounded-xl p-3">
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <span className="font-bold text-brand-slatedark">📍 {r.name}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-zinc-600">
+                  הכנסה ₪{r.revenue.toFixed(2)}
+                </span>
+                <span className="text-lg font-extrabold text-emerald-600">
+                  עמלה ₪{r.commission.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-orange-50 rounded-lg p-2">
+                <div className="text-[10px] text-brand-rust font-bold">קרטונים</div>
+                <div className="font-extrabold text-brand-rust">
+                  {r.cartonWeight.toFixed(2)} ק״ג
+                </div>
+                <div className="text-[10px] text-zinc-500">
+                  × ₪{rateCarton} = ₪{(r.cartonWeight * rateCarton).toFixed(2)}
+                </div>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-2">
+                <div className="text-[10px] text-amber-800 font-bold">בודדים</div>
+                <div className="font-extrabold text-amber-800">
+                  {r.singlesWeight.toFixed(2)} ק״ג
+                </div>
+                <div className="text-[10px] text-zinc-500">
+                  × ₪{rateSingles} = ₪{(r.singlesWeight * rateSingles).toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 mt-2 text-xs text-zinc-600 flex-wrap">
+              <span>
+                <bdi>{r.orders}</bdi> הזמנות
+              </span>
+              {r.walkins > 0 && (
+                <span>
+                  <bdi>{r.walkins}</bdi> מזדמנים
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+
+        <div className="border-t-2 border-zinc-200 pt-3 flex items-center justify-between flex-wrap gap-2">
+          <span className="font-bold text-brand-slatedark">
+            סה״כ · הכנסה ₪{totalRevenue.toFixed(2)}
+          </span>
+          <span className="text-2xl font-extrabold text-emerald-600">
+            עמלה ₪{totalCommission.toFixed(2)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PointChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+        active
+          ? "bg-brand-rust text-white shadow-sm"
+          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -511,6 +789,12 @@ function OrderCard({ order }: { order: Data["orders"][number] }) {
                 ממתין
               </span>
             )}
+            {/* §43: הנקודה של ההזמנה - חשוב בתצוגה מאוחדת */}
+            {order.point && (
+              <span className="text-[10px] bg-zinc-100 text-zinc-600 px-2 py-0.5 rounded-full">
+                📍 {order.point.name}
+              </span>
+            )}
           </div>
           <div className="text-xs text-zinc-500 mt-0.5" dir="ltr">
             {order.phone} · {activeItems.length} פריטים
@@ -567,7 +851,12 @@ function OrderCard({ order }: { order: Data["orders"][number] }) {
                   )}
                 </div>
                 <div className="text-xs text-zinc-500">
-                  הוזמן: {item.isSingle ? `${item.quantity} ק"ג` : `${item.quantity} קרטון`}
+                  {/* יחידה לפי unit האמיתי: מוצר ארוז נמכר ביחידות ולא
+                      בקרטונים, והוצג כ"2 קרטון" */}
+                  הוזמן:{" "}
+                  {item.isSingle
+                    ? `${item.quantity} ק"ג`
+                    : `${item.quantity} ${packUnitLabel(item.unit)}`}
                   {item.agentEnteredWeight ? (
                     <>
                       {" · "}
@@ -606,6 +895,13 @@ function OrderCard({ order }: { order: Data["orders"][number] }) {
   );
 }
 
+// יחידת האריזה. מוצר ארוז ("בקר טחון 500 ג'") נמכר ביחידות ולא
+// בקרטונים, והוצג בטעות כ"קרטון".
+function packUnitLabel(unit?: string | null): string {
+  const u = (unit || "").trim();
+  return u && u !== 'ק"ג' ? u : "קרטון";
+}
+
 function WalkinsTab({ walkins }: { walkins: Data["walkins"] }) {
   if (walkins.length === 0) {
     return (
@@ -631,6 +927,12 @@ function WalkinsTab({ walkins }: { walkins: Data["walkins"] }) {
               {PAYMENT_ICONS[w.paymentMethod]} {PAYMENT_LABELS[w.paymentMethod]}
               {!w.paymentReceived && " — ממתין"}
             </span>
+            {/* §44: הנקודה שאליה שויך המזדמן */}
+            {w.pointName && (
+              <span className="text-[10px] bg-zinc-100 text-zinc-600 px-2 py-0.5 rounded-full">
+                📍 {w.pointName}
+              </span>
+            )}
             {w.summarySentAt && (
               <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">
                 ✓ נשלח

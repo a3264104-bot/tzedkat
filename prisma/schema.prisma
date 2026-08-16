@@ -195,6 +195,7 @@ model DeliveryPoint {
   // 🆕 קשר many-to-many: כל הנציגים המשויכים לנקודה דרך AgentPoint
   agentPoints  AgentPoint[] @relation("PointAgents")
   phoneSignupRequests PhoneSignupRequest[]
+  walkinOrders WalkinOrder[]
   phoneAnnouncements  PhoneAnnouncement[]
   personalProducts PersonalProduct[] @relation("PersonalProductPoint") // §9: מוצרים אישיים בנקודה זו
   createdAt    DateTime @default(now())
@@ -279,6 +280,7 @@ model Order {
   // WEB   = הלקוח הזמין בעצמו באתר
   // PHONE = הזמנה שהתקבלה במערכת הטלפונית (ימות המשיח)
   // AGENT = נציג הזמין בשם הלקוח
+  // EXCEL = הלקוח מילא קובץ אקסל ושלח במייל
   // ADMIN = המנהל יצר ידנית
   // משלים את placedByAgentId: הוא אומר *מי* הזמין, source אומר *דרך מה*.
   source          String   @default("WEB")
@@ -549,6 +551,16 @@ model WalkinOrder {
   pricelist       Pricelist @relation(fields: [pricelistId], references: [id])
   agentId         String
   agent           Customer  @relation("WalkinAgent", fields: [agentId], references: [id])
+
+  // §44: נקודת החלוקה שבה נרשם המזדמן.
+  // עד כה המזדמן היה מקושר לנציג בלבד, ולכן לא ניתן היה לשייך אותו
+  // לנקודה - מה שהשאיר אותו מחוץ לכל פירוט לפי נקודה, כולל בחישוב
+  // העמלות מול הנציג.
+  // אופציונלי בכוונה: מזדמנים שנוצרו לפני השינוי יישארו בלי שיוך,
+  // ועדיף להציג אותם כ"ללא נקודה" מאשר לנחש שיוך שגוי.
+  pointId         String?
+  point           DeliveryPoint? @relation(fields: [pointId], references: [id])
+
   // פרטי הלקוח - שם חובה, טלפון אופציונלי (אבל מומלץ ל-SMS)
   customerName    String
   customerPhone   String?
