@@ -14,6 +14,11 @@ type OrderItem = {
   quantity: number;
   isSingle: boolean;
   imageUrl: string | null;
+  // §49: משקלים. estimatedWeight הוא הערכה ומוצג עם "כ-",
+  // actualWeight הוא עובדה אחרי שקילה ומוצג בדיוק.
+  // אופציונליים כי הזמנות ישנות עשויות להגיע בלעדיהם.
+  estimatedWeight?: number | null;
+  actualWeight?: number | null;
 };
 
 type Order = {
@@ -693,6 +698,18 @@ export function AccountClient({
                                 return `${qty} ${pluralizeUnit(u, qty)}`;
                               })()}
                             </div>
+                            {/* §49: משקל. אחרי שקילה מוצג המשקל המדויק,
+                                ולפניה ההערכה עם "כ-" - כדי שהלקוח לא
+                                יגיע לחלוקה ויצפה בדיוק לכמות המשוערת. */}
+                            {item.actualWeight != null ? (
+                              <div className="text-[11px] text-emerald-700 font-medium">
+                                נשקל: {item.actualWeight.toFixed(2)} ק"ג
+                              </div>
+                            ) : item.estimatedWeight != null ? (
+                              <div className="text-[11px] text-zinc-500">
+                                משקל משוער: כ-{item.estimatedWeight.toFixed(1)} ק"ג
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       ))}

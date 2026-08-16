@@ -55,6 +55,30 @@ export async function GET() {
       finalTotal: o.finalTotal != null ? Number(o.finalTotal) : null,
       createdAt: o.createdAt,
       itemCount: o.items.length,
+      // §49: פירוט הפריטים כולל משקלים.
+      //
+      // עד כה הוחזר רק itemCount, ולכן האזור האישי הציג "2 קרטונים"
+      // בלי שום משקל - הלקוח לא ידע כמה ק"ג הוא מקבל, ולא ראה את
+      // ההבדל בין המשקל המשוער לזה שנשקל בפועל.
+      //
+      // שני השדות מוחזרים בנפרד בכוונה: estimatedWeight הוא הערכה
+      // שמוצגת עם "כ-", ו-actualWeight הוא עובדה שמוצגת בדיוק.
+      items: o.items.map((it) => ({
+        id: it.id,
+        productName: it.productName,
+        unit: it.unit,
+        isSingle: it.isSingle,
+        isCancelled: it.isCancelled,
+        quantity: Number(it.quantity),
+        estimatedWeight: it.estimatedWeight != null ? Number(it.estimatedWeight) : null,
+        actualWeight:
+          it.actualWeight != null
+            ? Number(it.actualWeight)
+            : it.finalWeight != null
+              ? Number(it.finalWeight)
+              : null,
+        finalPrice: it.finalPrice != null ? Number(it.finalPrice) : null,
+      })),
     })),
   });
 }

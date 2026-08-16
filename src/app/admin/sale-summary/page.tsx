@@ -520,10 +520,27 @@ export default function SaleSummaryPage() {
                   סה״כ להזמנה מהספק, ואיך הכמות מתפצלת לנקודות. תא ריק = לא
                   מוזמן לנקודה הזו.
                 </p>
+                <p className="text-xs text-emerald-700 mt-1 font-medium">
+                  להזמנה בפועל מהחברה — הורד את קובץ ההזמנה לספק. יש בו גיליון
+                  לכל נקודה, ועמודה שבה ממירים יחידות ובודדים לקרטונים.
+                </p>
               </div>
-              <button onClick={exportOrderMatrixCsv} className="btn-ghost btn-sm no-print">
-                ⬇ ייצוא לאקסל
-              </button>
+              <div className="flex gap-2 no-print">
+                {/* §50: קובץ ההזמנה לספק. גיליון לכל נקודה, עם עמודת
+                    ההמרה הידנית מיחידות/בודדים לקרטונים - וזו העמודה
+                    שממנה משדרים לחברה בפועל. */}
+                <button
+                  onClick={() =>
+                    (window.location.href = `/api/admin/supplier-export?pricelistId=${data.pricelist.id}`)
+                  }
+                  className="btn-primary btn-sm bg-emerald-600 hover:bg-emerald-700"
+                >
+                  📗 קובץ הזמנה לספק
+                </button>
+                <button onClick={exportOrderMatrixCsv} className="btn-ghost btn-sm">
+                  ⬇ ייצוא טבלה זו
+                </button>
+              </div>
             </div>
 
             <div className="table-wrap">
