@@ -4,13 +4,11 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/client";
 import {
-  STATUS_LABELS,
-  MANUAL_STATUS_OPTIONS,
-  STATUSES_REQUIRING_PAYMENT,
   PAYMENT_METHOD_LABELS,
   fmt,
 } from "@/lib/pricing";
 import { payStatusLabel } from "@/lib/pay-status-lib";
+import { OrderStatusPanel } from "@/components/OrderStatusPanel";
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
@@ -60,11 +58,8 @@ export default function OrderDetail() {
   const hasFinalTotal = order.finalTotal !== null && order.finalTotal !== undefined;
 
   async function setStatus(status: string) {
-    // הגנה כפולה: גם בצד שרת, אבל גם כאן כדי לתת פידבק מיידי
-    if (STATUSES_REQUIRING_PAYMENT.includes(status) && !isPaid) {
-      alert("לא ניתן לעדכן סטטוס זה לפני שההזמנה שולמה (אונליין או מזומן).");
-      return;
-    }
+    // ההגנה על סדר השלבים נעשית בפאנל המצב (הוא לא מציג פעולה
+    // חסומה) ובצד השרת. אין צורך בבדיקה כפולה כאן.
     setSaving(true);
     await api(`/api/admin/orders/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
     await load();
@@ -118,6 +113,67 @@ export default function OrderDetail() {
     }
   }
 
+  // §47: סימון מסירה מהמנהל.
+  // עד כה רק הנציג יכול היה לסמן, והמנהל לא ראה זאת כלל.
+  // חשוב מכך: הסימון מעדכן גם את status ל-COMPLETED, אחרת הדשבורד
+  // המשיך לדרוש "סמן מוכן לחלוקה" על הזמנה שכבר נמסרה.
+  async function markDelivered() {
+    const note = prompt("הערה על המסירה (אופציונלי):");
+    if (note === null) return;
+    setSaving(true);
+    try {
+      await api(`/api/admin/orders/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ markDelivered: true, deliveredNote: note || null }),
+      });
+      await load();
+    } catch (e: any) {
+      alert(e.message || "שגיאה בסימון המסירה");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function undoDelivered() {
+    if (!confirm("לבטל את סימון המסירה?")) return;
+    setSaving(true);
+    try {
+      await api(`/api/admin/orders/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ markDelivered: false }),
+      });
+      await load();
+    } catch (e: any) {
+      alert(e.message || "שגיאה");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ביטול הזמנה. שונה ממחיקה: ההזמנה נשמרת לתיעוד ולדוחות,
+  // רק מסומנת כבוטלה ויוצאת מכל הספירות.
+  async function cancelOrder() {
+    const paid = order.paymentStatus === "PAID";
+    const msg = paid
+      ? `לבטל את הזמנה #${order.orderNumber}?\n\n⚠️ ההזמנה כבר שולמה (${fmt(Number(order.amountPaid || order.finalTotal))}).\nהביטול לא מבצע החזר כספי - יש לטפל בכך מול נדרים בנפרד.`
+      : `לבטל את הזמנה #${order.orderNumber}?\n\nההזמנה תישמר לתיעוד אך תצא מכל הספירות והדוחות.`;
+    if (!confirm(msg)) return;
+    const reason = prompt("סיבת הביטול (תישמר בהערות הפנימיות):");
+    if (reason === null) return;
+    setSaving(true);
+    try {
+      await api(`/api/admin/orders/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "CANCELLED", cancelReason: reason || null }),
+      });
+      await load();
+    } catch (e: any) {
+      alert(e.message || "שגיאה בביטול");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveAll() {
     setSaving(true);
     const items = order.items.map((it: any) => ({
@@ -158,11 +214,6 @@ export default function OrderDetail() {
     load();
   }
 
-  async function deleteOrder() {
-    if (!confirm("למחוק את ההזמנה לצמיתות?")) return;
-    await api(`/api/admin/orders/${id}`, { method: "DELETE" });
-    router.push("/admin/orders");
-  }
 
   function whatsapp() {
     const lines = order.items
@@ -188,54 +239,23 @@ export default function OrderDetail() {
           <button onClick={whatsapp} className="btn-ghost btn-sm">
             וואטסאפ
           </button>
-          <button onClick={deleteOrder} className="btn-ghost btn-sm text-red-600">
-            מחק
-          </button>
+          {/* מחיקה לצמיתות הוסרה מהכותרת: ביטול הזמנה (בפאנל המצב)
+              הוא הפעולה הנכונה כמעט תמיד - הוא שומר תיעוד. מחיקה
+              מוחלטת נשארה זמינה רק בפעולות הנוספות. */}
         </div>
       </div>
 
-      {/* status pills - PAID לא מופיע כאן בכוונה, ראה הסבר בהמשך */}
-      {/* 🐛 תוקן: כפתורים חסומים היו text-zinc-300 על bg-zinc-100 - ניגודיות
-          של ~1.5:1, כלומר הטקסט נבלע ברקע והמנהל לא הצליח למצוא את
-          "מוכנה לחלוקה". בנוסף כל חמשת הכפתורים נראו זהים בלי היררכיה,
-          אז גם כשהפעולה הייתה זמינה שום דבר לא משך אליה את העין. */}
-      <div className="no-print">
-        <p className="text-xs font-bold text-zinc-500 mb-1.5">עדכון סטטוס ההזמנה</p>
-        <div className="flex flex-wrap gap-1.5">
-          {MANUAL_STATUS_OPTIONS.map((s) => {
-            const isCurrent = order.status === s;
-            const isBlocked = STATUSES_REQUIRING_PAYMENT.includes(s) && !isPaid;
-            // הפעולה הבאה המתבקשת: ההזמנה שולמה וטרם סומנה כמוכנה לחלוקה
-            const isNextAction = s === "READY_FOR_PICKUP" && isPaid && !isCurrent;
-            return (
-              <button
-                key={s}
-                onClick={() => setStatus(s)}
-                disabled={saving || isBlocked}
-                title={isBlocked ? "ניתן לעדכן רק אחרי תשלום" : undefined}
-                className={`badge px-3 py-1.5 transition-colors ${
-                  isCurrent
-                    ? "bg-brand-rust text-white font-bold"
-                    : isBlocked
-                      ? "bg-zinc-100 text-zinc-500 border border-zinc-200 cursor-not-allowed"
-                      : isNextAction
-                        ? "bg-emerald-600 text-white font-bold shadow-sm hover:bg-emerald-700"
-                        : "bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                }`}
-              >
-                {isCurrent && "✓ "}
-                {STATUS_LABELS[s]}
-                {isBlocked && " 🔒"}
-              </button>
-            );
-          })}
-        </div>
-        {isPaid && order.status !== "READY_FOR_PICKUP" && order.status !== "COMPLETED" && (
-          <p className="text-xs text-emerald-700 mt-1.5">
-            ההזמנה שולמה — אפשר לסמן אותה כמוכנה לחלוקה.
-          </p>
-        )}
-      </div>
+      {/* §47: פאנל מצב מסודר במקום שורת כפתורים של כל הסטטוסים.
+          הפירוט המלא בקומפוננטה עצמה. */}
+      <OrderStatusPanel
+        order={order}
+        saving={saving}
+        onSetStatus={setStatus}
+        onMarkDelivered={markDelivered}
+        onUndoDelivered={undoDelivered}
+        onCancel={cancelOrder}
+      />
+
 
       {/* payment status panel */}
       <div className="card p-5 no-print">
@@ -366,6 +386,8 @@ export default function OrderDetail() {
           value={
             order.source === "PHONE"
               ? "מערכת טלפונית"
+              : order.source === "EXCEL"
+                ? "קובץ אקסל במייל"
               : order.source === "AGENT"
                 ? "נציג"
                 : order.source === "ADMIN"

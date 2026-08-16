@@ -368,8 +368,12 @@ export default async function OrderSuccessPage({
                                 <span className="text-zinc-500">
                                   משקל משוער:{" "}
                                 </span>
+                                {/* §49: "כ-" לפני המספר. התווית "משקל
+                                    משוער" לבדה לא מספיקה - המספר עצמו
+                                    נקרא כעובדה, והלקוח מגיע לחלוקה
+                                    ומצפה בדיוק לכמות הזו. */}
                                 <span className="text-brand-slatedark">
-                                  {estWeight.toFixed(1)} ק"ג
+                                  כ-{estWeight.toFixed(1)} ק"ג
                                 </span>
                               </div>
                             )}

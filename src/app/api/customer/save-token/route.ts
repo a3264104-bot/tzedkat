@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { chargeToken } from "@/lib/nedarim-lib";
 
 // POST /api/customer/save-token
 //
@@ -8,13 +9,25 @@ import { auth } from "@/lib/auth";
 // עם Status=OK ו-Token. במצב CreateToken, נדרים לא שולחים webhook
 // (כי אין חיוב) — הטוקן מגיע רק דרך postMessage.
 //
-// Body: { token: string, lastNum?: string, tokef?: string }
+// Body: { token: string, lastNum?: string, tokef?: string, customerId?: string }
 //
-// אבטחה:
-//   - רק משתמש מחובר
-//   - הטוקן חייב להיות מחרוזת לא ריקה
-//   - לא שומרים מזהים שאינם טוקן (TransactionId, UID וכד') — רק מה שנדרים
-//     מציינים במפורש כ-Token בתשובת CreateToken
+// ═══════════════════════════════════════════════════════════════════
+// §46: חיוב אימות של 1₪
+// ═══════════════════════════════════════════════════════════════════
+// 🐛 הבאג שתוקן: PaymentType=CreateToken ב-iframe *יוצר טוקן בלי
+// לחייב* - ה-Amount=1 מוצג ללקוח אך לא נגבה. במקביל charge/route
+// קיזז 1₪ מההזמנה הראשונה בהנחה שהוא חויב. התוצאה: כל לקוח חדש
+// קיבל שקל הנחה שמעולם לא שילם.
+//
+// הפתרון: מיד אחרי שהטוקן מתקבל, מחייבים איתו 1₪ בפועל - דרך
+// chargeToken, אותו נתיב שכבר עובד בחיוב הזמנות.
+//
+// למה זה גם משפר את האבטחה: טוקן שנוצר אינו מוכיח שהכרטיס בר-חיוב.
+// חיוב של שקל אחד מגלה כרטיס חסום או פג-תוקף *באימות*, ולא אחרי
+// שהסחורה כבר חולקה.
+//
+// אם החיוב נכשל - הלקוח לא מסומן כמאומת (cardVerifiedAt נשאר ריק)
+// והטוקן לא נשמר. זו כל מטרת האימות.
 
 export async function POST(req: Request) {
   try {
@@ -79,6 +92,80 @@ export async function POST(req: Request) {
       }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // §46: חיוב אימות של 1₪
+    // ═══════════════════════════════════════════════════════════════
+    const customer = await prisma.customer.findUnique({
+      where: { id: targetCustomerId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        creditVerificationCharged: true,
+        paymentToken: true,
+      },
+    });
+    if (!customer) {
+      return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 404 });
+    }
+
+    // מחייבים פעם אחת בלבד בחיי הלקוח. החלפת כרטיס אצל לקוח שכבר
+    // אומת לא מחייבת שוב - אחרת היו נצברים קיזוזים כפולים.
+    const needsVerificationCharge = !customer.creditVerificationCharged;
+    let verificationTxnId: string | null = null;
+
+    if (needsVerificationCharge) {
+      // בלי תוקף החיוב ייכשל בוודאות - עדיף לחסום כאן עם הודעה ברורה
+      if (!tokef) {
+        return NextResponse.json(
+          {
+            error:
+              "חסר תוקף כרטיס. יש להזין את התוקף בפורמט MMYY כדי שנוכל לאמת את הכרטיס.",
+          },
+          { status: 400 }
+        );
+      }
+
+      console.log(
+        `[save-token] Charging 1 ILS verification for customer=${targetCustomerId}`
+      );
+
+      const charge = await chargeToken({
+        token,
+        tokef,
+        amount: 1,
+        orderRef: `VERIFY-${targetCustomerId.slice(-8)}`,
+        avourText: "אימות כרטיס אשראי - נזקף לזכות ההזמנה הראשונה",
+        clientName: customer.name,
+        phone: customer.phone || undefined,
+        email: customer.email || undefined,
+        tashloumim: 1,
+      });
+
+      if (!charge.ok) {
+        // ⚠️ הכרטיס לא בר-חיוב. לא שומרים טוקן ולא מסמנים כמאומת -
+        // זו בדיוק המטרה של האימות. עדיף לגלות כאן מאשר אחרי החלוקה.
+        console.warn(
+          `[save-token] ❌ Verification charge FAILED for customer=${targetCustomerId}: ${charge.error}`
+        );
+        return NextResponse.json(
+          {
+            error:
+              charge.error ||
+              "הכרטיס נדחה באימות. יש לנסות כרטיס אחר או לפנות לחברת האשראי.",
+            cardProblem: true,
+          },
+          { status: 400 }
+        );
+      }
+
+      verificationTxnId = charge.transactionId ?? null;
+      console.log(
+        `[save-token] ✅ Verification charged 1 ILS, txn=${verificationTxnId}`
+      );
+    }
+
     // שמירת הטוקן + סימון הלקוח כמאומת
     await prisma.customer.update({
       where: { id: targetCustomerId },
@@ -88,6 +175,9 @@ export async function POST(req: Request) {
         ...(tokef ? { cardExpiry: tokef } : {}),
         cardVerifiedAt: new Date(),
         cardNeedsUpdate: false,
+        // §46: creditVerificationCharged נשאר false בכוונה!
+        // הוא מסמן שהקיזוז *נוצל*, לא שהחיוב בוצע. charge/route
+        // מקזז את השקל בהזמנה הראשונה ורק אז מסמן true.
       },
     });
 
@@ -126,10 +216,18 @@ export async function POST(req: Request) {
     });
 
     console.log(
-      `[save-token] Token saved for customer=${targetCustomerId} (by ${sessionUserId}) last4=${lastNum || "none"} tokef=${tokef || "MISSING"} promotedOrders=${promotedCount}`
+      `[save-token] Token saved for customer=${targetCustomerId} (by ${sessionUserId}) ` +
+        `last4=${lastNum || "none"} tokef=${tokef || "MISSING"} ` +
+        `verificationCharge=${needsVerificationCharge ? verificationTxnId || "OK" : "skipped"} ` +
+        `promotedOrders=${promotedCount}`
     );
 
-    return NextResponse.json({ ok: true, promotedOrders: promotedCount });
+    return NextResponse.json({
+      ok: true,
+      promotedOrders: promotedCount,
+      verificationCharged: needsVerificationCharge,
+      verificationTransactionId: verificationTxnId,
+    });
   } catch (e: any) {
     console.error("POST /api/customer/save-token exception:", e);
     return NextResponse.json({ error: "שגיאת שרת" }, { status: 500 });

@@ -175,6 +175,32 @@ export async function GET(req: Request) {
     payStatusCounts[o.paymentStatus] = (payStatusCounts[o.paymentStatus] || 0) + 1;
   }
 
+  // §47: ספירות משולבות status + paymentStatus + deliveredAt.
+  //
+  // 🐛 הבאג שתוקן: הדשבורד הציג "X הזמנות ששולמו - סמן שהן מוכנות
+  // לחלוקה" לפי payStatusCounts.PAID בלבד. הספירה הזו כוללת גם הזמנות
+  // שכבר סומנו מוכנות וגם כאלה שכבר נמסרו ללקוח - ולכן המספר לא ירד
+  // אף פעם, ונראה כאילו שום סימון לא עובד.
+  //
+  // אי אפשר להצליב את זה בצד הלקוח: statusCounts ו-payStatusCounts
+  // הן שתי ספירות נפרדות, ואין דרך לדעת מהן כמה הזמנות עומדות בשני
+  // התנאים יחד. לכן הספירה נעשית כאן, על הרשומות עצמן.
+  const needsMarkReady = active.filter(
+    (o) =>
+      o.paymentStatus === "PAID" &&
+      !o.deliveredAt &&
+      o.status !== "READY_FOR_PICKUP" &&
+      o.status !== "COMPLETED"
+  ).length;
+
+  // הזמנות שמוכנות וממתינות שהלקוח יגיע. לא פעולה למנהל אלא מצב
+  // המתנה - מוצג כמידע, לא כמשימה.
+  const awaitingPickup = active.filter(
+    (o) => !o.deliveredAt && o.status === "READY_FOR_PICKUP"
+  ).length;
+
+  const deliveredCount = active.filter((o) => !!o.deliveredAt).length;
+
   // 🐛 תוקן: הסינון היה על status === "NEW" - סטטוס שלא קיים יותר
   // (הוחלף ב-PENDING_REVIEW), ולכן הרשימה תמיד חזרה ריקה.
   const newOrders = active
@@ -198,6 +224,10 @@ export async function GET(req: Request) {
     customers,
     statusCounts,
     payStatusCounts,
+    // §47: ספירות משולבות - ראה הסבר למעלה
+    needsMarkReady,
+    awaitingPickup,
+    deliveredCount,
     sourceCounts,
     newOrders,
     limitedWarnings,

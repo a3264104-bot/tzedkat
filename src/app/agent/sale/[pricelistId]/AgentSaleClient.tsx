@@ -111,7 +111,11 @@ export type SaleData = {
   agent: {
     id: string;
     name: string;
+    // deprecated - נשמר לתאימות אחורה
     point: { id: string; name: string; city: string | null } | null;
+    // §45: כל הנקודות של הנציג. הבורר נגזר מכאן ולא מההזמנות, כדי
+    // שיופיע גם כשעדיין אין הזמנות בנקודה מסוימת.
+    points?: { id: string; name: string; city: string | null }[];
     commissionRateCarton: number;
     commissionRateSingles: number;
   };
@@ -312,6 +316,21 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
   const pointsInSale = useMemo(() => {
     if (!data) return [] as { id: string; name: string; count: number }[];
     const m = new Map<string, { id: string; name: string; count: number }>();
+
+    // §45: מתחילים מנקודות הנציג עצמו. קודם הבורר נגזר מההזמנות
+    // בלבד, ולכן נציג עם שתי נקודות שאין בהן עדיין הזמנות לא ראה
+    // אותו כלל - ולא ידע שיש לו יותר מנקודה אחת.
+    const declared = data.agent.points?.length
+      ? data.agent.points
+      : data.agent.point
+        ? [data.agent.point]
+        : [];
+    for (const p of declared) {
+      m.set(p.id, { id: p.id, name: p.name, count: 0 });
+    }
+
+    // ואז סופרים הזמנות. נקודה שיש בה הזמנות אך אינה ברשימת הנציג
+    // (למשל אחרי שינוי שיוך) עדיין תוצג, כדי שההזמנות לא ייעלמו.
     for (const o of data.orders) {
       if (!o.point) continue;
       const cur = m.get(o.point.id) || { id: o.point.id, name: o.point.name, count: 0 };

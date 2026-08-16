@@ -37,6 +37,19 @@ export async function GET(
     whereOrders.pointId = { in: g.agentPointIds };
   }
 
+  // §45: פרטי כל הנקודות של הנציג.
+  // למה זה נדרש: המסך גזר את בורר הנקודות מההזמנות בפועל, ולכן נציג
+  // עם שתי נקודות שאין בהן עדיין הזמנות לא ראה בורר כלל - ולא ידע
+  // שיש לו יותר מנקודה אחת. עכשיו הבורר נגזר מהרשימה הזו.
+  const myPoints =
+    g.agentPointIds.length > 0
+      ? await prisma.deliveryPoint.findMany({
+          where: { id: { in: g.agentPointIds } },
+          select: { id: true, name: true, city: true },
+          orderBy: { name: "asc" },
+        })
+      : [];
+
   const orders = await prisma.order.findMany({
     where: {
       ...whereOrders,
@@ -79,6 +92,8 @@ export async function GET(
           product: { select: { id: true, name: true, unit: true } },
         },
       },
+      // §44: הנקודה שאליה שויך המזדמן - נדרשת לפירוט העמלות לפי נקודה
+      point: { select: { id: true, name: true } },
     },
   });
 
@@ -152,7 +167,10 @@ export async function GET(
     agent: {
       id: g.agent.id,
       name: g.agent.name,
+      // deprecated - נשמר לתאימות אחורה
       point: g.agent.agentPoint,
+      // §45: כל הנקודות. מקור האמת לבורר הנקודות במסך.
+      points: myPoints,
       commissionRateCarton: Number(g.agent.commissionRateCarton),
       commissionRateSingles: Number(g.agent.commissionRateSingles),
     },
@@ -202,6 +220,9 @@ export async function GET(
     walkins: walkins.map((w) => ({
       id: w.id,
       walkinNumber: w.walkinNumber,
+      // §44: שיוך לנקודה
+      pointId: w.pointId,
+      pointName: w.point?.name ?? null,
       customerName: w.customerName,
       customerPhone: w.customerPhone,
       customerEmail: w.customerEmail,

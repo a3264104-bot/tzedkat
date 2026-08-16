@@ -59,6 +59,53 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (k in b) data[k] = b[k];
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // §47: סימון מסירה ללקוח
+  // ═══════════════════════════════════════════════════════════════
+  // deliveredAt הוא מקור האמת למסירה - הוא העובדה בשטח (הלקוח לקח),
+  // בעוד status הוא סימון ידני.
+  //
+  // 🐛 הבאג שתוקן: סימון מסירה (ע"י הנציג) לא עדכן את status, ולכן
+  // הדשבורד המשיך לדרוש "סמן מוכן לחלוקה" על הזמנה שכבר נמסרה
+  // ללקוח. עכשיו שני השדות מתעדכנים יחד - COMPLETED הוא הסטטוס
+  // שאחרי מסירה, ואין יותר שני מסלולי מצב שסותרים זה את זה.
+  if ("markDelivered" in b) {
+    if (b.markDelivered) {
+      // מסירה מחייבת תשלום - אחרת נמסרה סחורה בלי שנגבה עליה
+      if (current.paymentStatus !== "PAID") {
+        return NextResponse.json(
+          {
+            error:
+              "לא ניתן לסמן מסירה לפני שההזמנה שולמה. אם הלקוח שילם במזומן, יש לסמן זאת תחילה.",
+          },
+          { status: 400 }
+        );
+      }
+      data.deliveredAt = new Date();
+      data.deliveredNote = b.deliveredNote ? String(b.deliveredNote).slice(0, 500) : null;
+      // הסטטוס נגזר מהמסירה ולא נקבע בנפרד
+      data.status = "COMPLETED";
+    } else {
+      data.deliveredAt = null;
+      data.deliveredNote = null;
+      data.deliveredByAgentId = null;
+      // חוזרים לשלב שלפני המסירה
+      if (current.status === "COMPLETED") data.status = "READY_FOR_PICKUP";
+    }
+  }
+
+  // §47: ביטול הזמנה. שונה ממחיקה - ההזמנה נשמרת לתיעוד ולדוחות.
+  // סיבת הביטול נשמרת בהערות הפנימיות עם חותמת זמן ושם המבטל, כי
+  // בלעדיה אי אפשר לדעת בדיעבד למה הזמנה בוטלה.
+  if (b.status === "CANCELLED" && b.cancelReason) {
+    const stamp = new Date().toLocaleString("he-IL");
+    const by = g.session?.user?.email ?? "מנהל";
+    const line = `[${stamp}] בוטלה ע"י ${by}: ${String(b.cancelReason).slice(0, 300)}`;
+    data.internalNotes = current.internalNotes
+      ? `${current.internalNotes}\n${line}`
+      : line;
+  }
+
   // status: אסור לקבוע PAID דרך ה-PATCH הכללי הזה (זה נעשה רק ע"י cash-payment endpoint או webhook).
   // גם אסור לעבור לסטטוסים שדורשים תשלום (READY_FOR_PICKUP/COMPLETED) אם ההזמנה לא שולמה.
   if ("status" in b) {
@@ -68,13 +115,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         { status: 400 }
       );
     }
-    if (STATUSES_REQUIRING_PAYMENT.includes(b.status) && current.paymentStatus !== "PAID") {
+    // הבדיקה מדלגת כשהסטטוס נגזר מסימון מסירה - שם כבר נבדק שההזמנה שולמה
+    if (
+      !("markDelivered" in b) &&
+      STATUSES_REQUIRING_PAYMENT.includes(b.status) &&
+      current.paymentStatus !== "PAID"
+    ) {
       return NextResponse.json(
         { error: "לא ניתן לעדכן סטטוס זה לפני שההזמנה שולמה" },
         { status: 400 }
       );
     }
-    data.status = b.status;
+    // markDelivered קובע את הסטטוס בעצמו - לא נותנים ל-body לדרוס אותו
+    if (!("markDelivered" in b)) data.status = b.status;
   }
 
   // update items (final weight / final price / quantity / add / remove)

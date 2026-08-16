@@ -113,9 +113,17 @@ export default function Dashboard() {
   const readyToCharge = psc.READY_TO_CHARGE ?? 0;
   const waitingPay = psc.PAYMENT_PENDING ?? 0;
   const chargeFailed = (psc.FAILED ?? 0) + (psc.CARD_UPDATE_NEEDED ?? 0);
-  const paid = psc.PAID ?? 0;
   const completed = sc.COMPLETED ?? 0;
   const cancelled = sc.CANCELLED ?? 0;
+
+  // §47: ספירות משולבות מהשרת.
+  // 🐛 קודם השורה "הזמנות ששולמו - סמן שהן מוכנות לחלוקה" השתמשה
+  // ב-psc.PAID, שסופר *כל* הזמנה ששולמה - כולל כאלה שכבר סומנו
+  // מוכנות וכולל כאלה שכבר נמסרו. לכן המספר לא ירד אף פעם, וכל
+  // סימון נראה כאילו לא עבד.
+  const needsMarkReady = data?.needsMarkReady ?? 0;
+  const awaitingPickup = data?.awaitingPickup ?? 0;
+  const deliveredCount = data?.deliveredCount ?? 0;
 
   // "תומחרו" = כל מה שעבר את שלב השקילה (כלומר כבר לא ממתין לשקילה),
   // מתוך ההזמנות הפעילות בלבד.
@@ -131,7 +139,7 @@ export default function Dashboard() {
   // סומנה כמוכנה וממתינה שהלקוח יגיע - זה מצב המתנה, לא פעולה שהמנהל
   // צריך לעשות. הנציג יסמן מסירה כשהלקוח יגיע.
   const openActions =
-    realWeighOrders + awaitingFinalPrice + readyToCharge + chargeFailed + waitingPay + paid;
+    realWeighOrders + awaitingFinalPrice + readyToCharge + chargeFailed + waitingPay + needsMarkReady;
 
   return (
     <div className="space-y-6">
@@ -234,7 +242,7 @@ export default function Dashboard() {
                 cta="למסך תשלומים"
               />
               <NextAction
-                count={paid}
+                count={needsMarkReady}
                 label="הזמנות ששולמו — סמן שהן מוכנות לחלוקה"
                 href="/admin/orders"
                 cta="לרשימת ההזמנות"
@@ -243,6 +251,23 @@ export default function Dashboard() {
                 <p className="text-sm text-brand-slate/50 py-2">
                   אין פעולות פתוחות במכירה הזו.
                 </p>
+              )}
+
+              {/* §47: מצב החלוקה - מידע ולא משימה. הזמנה שסומנה מוכנה
+                  ממתינה שהלקוח יגיע, וזו לא פעולה שהמנהל צריך לעשות. */}
+              {(awaitingPickup > 0 || deliveredCount > 0) && (
+                <div className="mt-3 pt-3 border-t border-zinc-100 flex flex-wrap gap-x-5 gap-y-1 text-xs text-brand-slate/70">
+                  {awaitingPickup > 0 && (
+                    <span>
+                      <bdi>{awaitingPickup}</bdi> מוכנות וממתינות שהלקוח יגיע
+                    </span>
+                  )}
+                  {deliveredCount > 0 && (
+                    <span className="text-emerald-700">
+                      <bdi>{deliveredCount}</bdi> כבר נמסרו ✓
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>

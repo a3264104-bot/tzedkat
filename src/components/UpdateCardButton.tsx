@@ -10,9 +10,17 @@
 //
 // הflow:
 // 1. לחיצה על הכפתור פותחת Modal עם iframe של נדרים
-// 2. הלקוח מזין פרטי כרטיס + מפצה על תוקף
-// 3. אישור → 1 ש"ח יורד לאימות + נשמר טוקן חדש (מחליף ישן)
+// 2. הלקוח מזין פרטי כרטיס + תוקף
+// 3. אישור → נוצר טוקן → השרת מחייב 1₪ לאימות → נשמר
 // 4. onSuccess נקראת אחרי הצלחה
+//
+// §46: חשוב להבין את חלוקת התפקידים.
+// ה-iframe במצב PaymentType=CreateToken *יוצר טוקן בלבד ואינו מחייב* -
+// ה-Amount שנשלח אליו מוצג ללקוח אך לא נגבה. חיוב האימות של 1₪
+// מתבצע בשרת (save-token) עם הטוקן שהתקבל.
+//
+// לכן: אם החיוב שם נכשל, הכרטיס אינו בר-חיוב, השרת מחזיר cardProblem
+// והלקוח מקבל הודעה ברורה במקום להיות מסומן כמאומת בטעות.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -65,6 +73,7 @@ export function UpdateCardButton({
       {open && (
         <UpdateCardModal
           customerId={customerId}
+          hasCurrentCard={hasCurrentCard}
           onClose={() => setOpen(false)}
           onSuccess={() => {
             setOpen(false);
@@ -81,10 +90,12 @@ export function UpdateCardButton({
 // ═════════════════════════════════════════════════════════
 function UpdateCardModal({
   customerId,
+  hasCurrentCard,
   onClose,
   onSuccess,
 }: {
   customerId: string;
+  hasCurrentCard?: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -93,6 +104,9 @@ function UpdateCardModal({
     "idle"
   );
   const [error, setError] = useState<string | null>(null);
+  // §46: שגיאת כרטיס נדחה מקבלת טיפול נפרד - היא לא תקלה טכנית
+  // אלא מידע שהלקוח חייב לפעול לפיו
+  const [cardRejected, setCardRejected] = useState(false);
   const [cardTokef, setCardTokef] = useState(""); // MMYY
   // ref יציב לגישה מתוך postMessage listener (נמנע מ-stale closure)
   const cardTokefRef = useRef("");
@@ -120,7 +134,9 @@ function UpdateCardModal({
     })();
   }, [customerId]);
 
-  // URL של iframe נדרים - זהה לזה של OrderFlow
+  // URL של iframe נדרים - זהה לזה של OrderFlow.
+  // §46: Amount=1 נשאר לתצוגה בלבד. במצב CreateToken נדרים אינם
+  // מחייבים - החיוב בפועל מתבצע בשרת אחרי קבלת הטוקן.
   const iframeUrl =
     "https://www.matara.pro/nedarimplus/iframe?" +
     new URLSearchParams({
@@ -186,9 +202,9 @@ function UpdateCardModal({
       if (name !== "TransactionResponse") return;
 
       console.log("[UpdateCard] TransactionResponse:", value);
-      const status = String(value?.Status || "").toLowerCase();
-      const isError = status === "error" || status === "err" || status === "fail";
-      const isOk = status === "ok" || status === "success";
+      const respStatus = String(value?.Status || "").toLowerCase();
+      const isError = respStatus === "error" || respStatus === "err" || respStatus === "fail";
+      const isOk = respStatus === "ok" || respStatus === "success";
 
       if (isError) {
         setStatus("error");
@@ -199,9 +215,9 @@ function UpdateCardModal({
       }
 
       if (!isOk) {
-        console.warn("[UpdateCard] unknown status:", status, value);
+        console.warn("[UpdateCard] unknown status:", respStatus, value);
         setStatus("error");
-        setError(`סטטוס לא מזוהה מנדרים: ${status || "(ריק)"}`);
+        setError(`סטטוס לא מזוהה מנדרים: ${respStatus || "(ריק)"}`);
         return;
       }
 
@@ -225,7 +241,7 @@ function UpdateCardModal({
       console.log(
         `[UpdateCard] ✅ Token received: ${receivedToken.slice(0, 6)}..., tokef: ${
           receivedTokef || "MISSING!"
-        }, saving...`
+        }, saving + charging verification...`
       );
 
       try {
@@ -248,11 +264,18 @@ function UpdateCardModal({
         } else {
           console.error("[UpdateCard] Failed to save token:", saveData);
           setStatus("error");
-          setError(
-            `הטוקן התקבל מנדרים אבל שמירתו נכשלה: ${
-              saveData.error || "שגיאה לא ידועה"
-            }`
-          );
+          // §46: כרטיס שנדחה בחיוב האימות - הודעה ברורה ופעולה ברורה,
+          // לא הודעת שגיאה טכנית שהלקוח לא יודע מה לעשות איתה.
+          if (saveData.cardProblem) {
+            setCardRejected(true);
+            setError(saveData.error || "הכרטיס נדחה על ידי חברת האשראי");
+          } else {
+            setError(
+              `הטוקן התקבל מנדרים אבל שמירתו נכשלה: ${
+                saveData.error || "שגיאה לא ידועה"
+              }`
+            );
+          }
         }
       } catch (fetchErr: any) {
         console.error("[UpdateCard] Network error saving token:", fetchErr);
@@ -280,6 +303,7 @@ function UpdateCardModal({
       return;
     }
     setError(null);
+    setCardRejected(false);
     setStatus("verifying");
 
     // שליחת ההוראה לנדרים - חייבים לכלול את כל הפרמטרים ב-Value!
@@ -345,18 +369,61 @@ function UpdateCardModal({
                 </svg>
               </div>
               <p className="font-extrabold text-brand-slatedark text-lg">
-                הכרטיס עודכן בהצלחה!
+                הכרטיס אומת בהצלחה!
               </p>
               <p className="text-sm text-zinc-500 mt-1">
                 מהחיוב הבא ואילך ישתמש בכרטיס החדש
               </p>
+            </div>
+          ) : cardRejected ? (
+            // §46: מסך כרטיס נדחה - זו לא תקלה טכנית אלא מידע לפעולה
+            <div className="text-center py-6">
+              <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-red-100 flex items-center justify-center">
+                <svg
+                  className="w-9 h-9 text-red-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+              <p className="font-extrabold text-brand-slatedark text-lg">
+                הכרטיס לא אושר
+              </p>
+              <p className="text-sm text-zinc-600 mt-2 max-w-xs mx-auto">{error}</p>
+              <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900 text-right max-w-sm mx-auto">
+                <div className="font-bold mb-1">מה עכשיו?</div>
+                <ul className="space-y-1 pr-4 list-disc">
+                  <li>ודא שפרטי הכרטיס והתוקף הוזנו נכון</li>
+                  <li>נסה כרטיס אחר</li>
+                  <li>אם הכרטיס תקין, פנה לחברת האשראי — ייתכן שיש חסימה</li>
+                </ul>
+              </div>
+              <button
+                onClick={() => {
+                  setCardRejected(false);
+                  setError(null);
+                  setStatus("idle");
+                }}
+                className="mt-4 px-5 py-2.5 rounded-xl bg-brand-rust text-white font-bold"
+              >
+                נסה שוב
+              </button>
             </div>
           ) : (
             <>
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900">
                 <div className="font-bold mb-1">🔒 תשלום מאובטח</div>
                 <ul className="space-y-1 pr-4 list-disc">
-                  <li>יחויב 1 ש"ח לאימות הכרטיס (נזקף לזכותך)</li>
+                  {/* §46: הניסוח מדויק - החיוב אכן מתבצע, ומקוזז
+                      בהזמנה הראשונה. אצל לקוח שכבר אומת אין חיוב נוסף. */}
+                  {hasCurrentCard ? (
+                    <li>החלפת כרטיס בלבד — לא יבוצע חיוב</li>
+                  ) : (
+                    <li>יחויב 1 ש"ח לאימות הכרטיס — יקוזז מההזמנה הראשונה</li>
+                  )}
                   <li>נשמר טוקן מוצפן - לא רואים את פרטי הכרטיס</li>
                   <li>מהחיוב הבא לא צריך להזין שוב פרטים</li>
                 </ul>
@@ -404,7 +471,7 @@ function UpdateCardModal({
           )}
         </div>
 
-        {status !== "success" && (
+        {status !== "success" && !cardRejected && (
           <div className="sticky bottom-0 bg-white border-t border-zinc-200 p-4 flex gap-2">
             <button
               onClick={onClose}
