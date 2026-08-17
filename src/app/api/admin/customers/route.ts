@@ -9,6 +9,11 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") || "").trim();
+  // §52: ברירת המחדל מציגה גם לקוחות שהושבתו, עם תגית.
+  // המנהל צריך לראות אותם כדי להפעיל מחדש או לבדוק היסטוריה -
+  // הסתרה מוחלטת הייתה הופכת אותם לבלתי נגישים.
+  // includeInactive=false מסתיר אותם למי שרוצה רשימה נקייה.
+  const includeInactive = searchParams.get("includeInactive") !== "false";
 
   const searchFilter = q
     ? {
@@ -21,7 +26,10 @@ export async function GET(req: Request) {
     : {};
 
   const customers = await prisma.customer.findMany({
-    where: searchFilter, // בלי סינון role - להראות הכל, גם נציגים ומנהלים
+    where: {
+      ...searchFilter, // בלי סינון role - להראות הכל, גם נציגים ומנהלים
+      ...(includeInactive ? {} : { isActive: true }),
+    },
     include: {
       defaultPoint: { select: { name: true, city: true } },
       _count: { select: { orders: true } },
@@ -51,6 +59,12 @@ export async function GET(req: Request) {
       cardNeedsUpdate: c.cardNeedsUpdate,
       passwordPlain: c.passwordPlain,
       role: c.role,
+      // §52: מצב פעילות - לתגית ברשימה ולכפתור ההשבתה במודל.
+      // לקוח לא פעיל: לא מקבל מיילים, לא נכלל בברודקסט ובתזכורות,
+      // ולא יכול לבצע הזמנה. ההיסטוריה שלו נשמרת במלואה.
+      isActive: c.isActive,
+      deactivatedAt: c.deactivatedAt,
+      deactivatedReason: c.deactivatedReason,
       // deprecated - נשמר לתאימות אחורה עד שכל ה-UI ידע להשתמש ב-agentPoints[]
       agentPointId: c.agentPointId,
       // 🆕 רשימת כל הנקודות שהנציג משויך אליהן

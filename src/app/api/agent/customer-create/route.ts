@@ -89,10 +89,7 @@ export async function POST(req: Request) {
 
   // ─── קביעת נקודת ברירת המחדל של הלקוח, עם אכיפת שייכות לנציג ───
   // נציג יכול לשייך לקוח חדש *רק* לאחת מנקודות החלוקה שלו.
-  // ADMIN לא מוגבל. נציג ללא נקודות כלל - נחסם (אין לו נקודה לשייך אליה).
-  //
-  // טוענים את כל נקודות הנציג (many-to-many דרך AgentPoint), עם נפילה
-  // ל-agentPointId הישן אם עדיין לא הועבר.
+  // ADMIN לא מוגבל. נציג ללא נקודות כלל - נחסם.
   let effectivePointId: string | null = defaultPointId;
 
   if (role === "ADMIN") {
@@ -130,10 +127,32 @@ export async function POST(req: Request) {
         );
       }
       effectivePointId = defaultPointId;
-    } else {
-      // לא צוינה נקודה - נופלים לנקודה הראשונה של הנציג.
-      // (ה-UI הנוכחי לא שולח נקודה; הבחירה האמיתית קורית בזמן ההזמנה ב-OrderFlow.)
+    } else if (agentPointIds.length === 1) {
+      // נקודה אחת - משייכים אוטומטית בלי לשאול
       effectivePointId = agentPointIds[0];
+    } else {
+      // §55: 🐛 תוקן - נציג רב-נקודתי חייב לבחור.
+      //
+      // הבאג הקודם: `effectivePointId = agentPointIds[0]` - נפילה שקטה
+      // לנקודה הראשונה. נציג עם שתי נקודות יצר לקוחות תמיד בראשונה,
+      // בלי לדעת. defaultPointId הוא מה שקובע איפה הלקוח מקבל את
+      // הסחורה, ולכן זו לא בחירה שאפשר לנחש.
+      //
+      // מחזירים 400 עם רשימת הנקודות, וה-UI מציג בורר - אותה גישה
+      // כמו במזדמנים (§44).
+      const points = await prisma.deliveryPoint.findMany({
+        where: { id: { in: agentPointIds } },
+        select: { id: true, name: true, city: true },
+        orderBy: { name: "asc" },
+      });
+      return NextResponse.json(
+        {
+          error: "יש לבחור נקודת חלוקה ללקוח",
+          needsPoint: true,
+          points,
+        },
+        { status: 400 }
+      );
     }
   }
 
@@ -152,6 +171,9 @@ export async function POST(req: Request) {
       passwordPlain: null,
       role: "CUSTOMER",
       isActivated: false,
+      // §52: לקוח חדש תמיד פעיל. השדה קיים כדי שהשבתה עתידית
+      // תעבוד, והברירה כאן מפורשת ולא נשענת על ברירת המחדל בסכמה.
+      isActive: true,
       createdByAgentId: agentId,
       defaultPointId: effectivePointId,
       // דילוג על מסך "ברוכים הבאים" - כי הנציג יזמין עבורו
@@ -169,11 +191,17 @@ export async function POST(req: Request) {
       phone: true,
       email: true,
       defaultPointId: true,
+      defaultPoint: { select: { name: true } },
     },
   });
+
+  console.log(
+    `[agent-customer-create] ${role} ${agentId} created customer ${customer.id} at point ${customer.defaultPoint?.name ?? "none"}`
+  );
 
   return NextResponse.json({
     ok: true,
     customer,
+    pointName: customer.defaultPoint?.name ?? null,
   });
 }

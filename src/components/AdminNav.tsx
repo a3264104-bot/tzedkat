@@ -95,6 +95,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/kashrut", label: "כשרויות", icon: "🏷️" },
       { href: "/admin/customers", label: "לקוחות", icon: "🧑" },
       { href: "/admin/phone-signups", label: "בקשות מהטלפון", icon: "📞" },
+      { href: "/admin/excel-order", label: "הזמנה דרך אקסל", icon: "📊" },
       { href: "/admin/agents", label: "נציגים", icon: "🧑‍💼" },
       { href: "/admin/personal-requests", label: "בקשות אישיות", icon: "💬" },
       { href: "/admin/broadcast", label: "שליחת מייל ללקוחות", icon: "📧" },
@@ -103,7 +104,10 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 const DASHBOARD_ITEM = { href: "/admin", label: "דשבורד", icon: "🏠" };
-const CREATE_ORDER_ITEM = { href: "/order", label: "בצע הזמנה", icon: "🛒" };
+// §54: הכפתור "בצע הזמנה" הוסר.
+// הוא הפנה את המנהל ל-/order, שהוא מסך הלקוח - ודורש session של
+// Customer. למנהל יש session של Admin (טבלה נפרדת), ולכן המסך דחה
+// אותו ויצר לולאת הפניה. במקומו: המנהל יוצר הזמנות דרך מסך הלקוחות.
 const SETTINGS_ITEM = { href: "/admin/settings", label: "הגדרות", icon: "⚙️" };
 
 export default function AdminNav() {
@@ -127,7 +131,6 @@ export default function AdminNav() {
   return (
     <nav className="space-y-1" aria-label="ניווט ניהול">
       <NavLink item={DASHBOARD_ITEM} active={isActive(DASHBOARD_ITEM.href)} />
-      <NavLink item={CREATE_ORDER_ITEM} active={isActive(CREATE_ORDER_ITEM.href)} />
 
       <div className="my-3 border-t border-brand-slate/15"></div>
 

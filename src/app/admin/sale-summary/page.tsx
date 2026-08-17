@@ -1,5 +1,7 @@
 "use client";
 
+import { SupplierOrderPlanner } from "@/components/SupplierOrderPlanner";
+
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client";
 import { fmt, STATUS_LABELS } from "@/lib/pricing";
@@ -11,6 +13,11 @@ type ProductRow = {
   unit: string;
   totalQuantity: number;
   singlesQuantity: number;
+  // §53: יחידות ארוזות בנפרד מקרטונים.
+  // 🐛 קודם cartonsOnly חושב כ-totalQuantity פחות singlesQuantity,
+  // ולכן מוצר ארוז שנמכר ביחידות ("בקר טחון 500 ג'") נספר כקרטון.
+  // אופציונלי כדי לא לשבור אם ה-API עדיין לא עודכן.
+  unitsQuantity?: number;
   totalEstimatedWeight: number;
   totalActualWeight: number;
   orderCount: number;
@@ -67,6 +74,38 @@ function downloadCsv(filename: string, rows: string[][]) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// §53: תווית יחידה לפריט.
+//
+// 🐛 הבאג שתוקן: הקוד הניח שכל מה שאינו "בודדים" הוא קרטון, ולכן
+// מוצר ארוז שנמכר ביחידות ("בקר טחון 500 ג'") הוצג כ"2 קרטונים"
+// גם בסיכום המכירה וגם בסיכום המוצרים להכנה. זה אותו באג שתוקן
+// בשישה מסכים אחרים, ונשאר כאן.
+//
+// בנוסף: "קרטון"+"ים" נותן "קרטוןים" - אות סופית חייבת להשתנות
+// לפני הסיומת.
+function packUnitLabel(unit?: string | null): string {
+  const u = (unit || "").trim();
+  return u && u !== 'ק"ג' ? u : "קרטון";
+}
+
+function pluralizeHe(u: string, n: number): string {
+  if (n <= 1) return u;
+  if (u.endsWith("ה")) return u.slice(0, -1) + "ות";
+  const finals: Record<string, string> = { "ם": "מ", "ן": "נ", "ץ": "צ", "ף": "פ", "ך": "כ" };
+  const last = u.slice(-1);
+  return (finals[last] ? u.slice(0, -1) + finals[last] : u) + "ים";
+}
+
+function itemQtyLabel(it: { quantity: any; unit?: string | null; isSingle: boolean }): string {
+  const qty = Number(it.quantity);
+  if (it.isSingle) {
+    return it.unit === "יחידה" || it.unit === "יחידות"
+      ? qty + " " + pluralizeHe("יחידה", qty)
+      : qty + ' ק"ג';
+  }
+  return qty + " " + pluralizeHe(packUnitLabel(it.unit), qty);
 }
 
 export default function SaleSummaryPage() {
@@ -134,15 +173,20 @@ export default function SaleSummaryPage() {
   function exportProductsCsv() {
     if (!data) return;
     const rows: string[][] = [
-      ["מוצר", "קרטונים", 'בודדים (ק"ג/יח\')', 'סה"כ משקל (ק"ג)', 'משקל בפועל (ק"ג)', "הזמנות", "מגבלה"],
+      ["מוצר", "קרטונים", "יחידות", 'בודדים (ק"ג)', 'סה"כ משקל (ק"ג)', 'משקל בפועל (ק"ג)', "הזמנות", "מגבלה"],
       ...data.products.map((p) => {
+        // §53: יחידות ארוזות בעמודה נפרדת - קודם הן נספרו כקרטונים
         const singlesOnly = Number(p.singlesQuantity || 0);
-        const cartonsOnly = Math.max(0, Number(p.totalQuantity) - singlesOnly);
-        const singlesUnit = p.unit === "יחידה" || p.unit === "יחידות" ? "יח'" : 'ק"ג';
+        const unitsOnly = Number(p.unitsQuantity || 0);
+        const cartonsOnly = Math.max(
+          0,
+          Number(p.totalQuantity) - singlesOnly - unitsOnly
+        );
         return [
           p.productName,
           cartonsOnly > 0 ? String(cartonsOnly) : "",
-          singlesOnly > 0 ? `${singlesOnly} ${singlesUnit}` : "",
+          unitsOnly > 0 ? String(unitsOnly) : "",
+          singlesOnly > 0 ? String(singlesOnly) : "",
           p.totalEstimatedWeight ? String(p.totalEstimatedWeight) : "",
           p.totalActualWeight ? String(p.totalActualWeight) : "",
           String(p.orderCount),
@@ -201,87 +245,7 @@ export default function SaleSummaryPage() {
     }
   }
 
-  // ─── טבלת הזמנה לספק: מוצר × נקודת חלוקה ───────────────────────
-  // למה: הייצוא הקיים ("רשימת איסוף") נותן שורה לכל *לקוח* - מצוין
-  // לחלוקה בנקודה, אבל חסר תועלת כשצריך להזמין מהספק. כדי להזמין צריך
-  // את הצבירה ההפוכה: כמה קרטונים מכל מוצר, ואיך הם מתפצלים לנקודות.
-  //
-  // קרטונים ובודדים מופיעים בשורות נפרדות בכוונה - הם יחידות שונות
-  // (קרטון מול ק"ג) ושורות הזמנה שונות מול הספק, ואסור לחבר ביניהן.
-  // תא ריק = המוצר הזה לא מוזמן לנקודה הזו, כלומר אין מה לשלוח לשם.
-  type MatrixRow = {
-    key: string;
-    productName: string;
-    isSingle: boolean;
-    unitLabel: string;
-    total: number;
-    byPoint: Record<string, number>;
-  };
 
-  function buildOrderMatrix(): { rows: MatrixRow[]; points: PointRow[] } {
-    if (!data) return { rows: [], points: [] };
-    const visible = data.points.filter(
-      (pt) => visiblePointIds === null || visiblePointIds.has(pt.pointId)
-    );
-    const map = new Map<string, MatrixRow>();
-
-    for (const pt of visible) {
-      for (const o of pt.orders) {
-        for (const it of o.items) {
-          // מפתח מורכב: אותו מוצר בקרטונים ובבודדים = שתי שורות
-          const key = `${it.productName}__${it.isSingle ? "S" : "C"}`;
-          let row = map.get(key);
-          if (!row) {
-            row = {
-              key,
-              productName: it.productName,
-              isSingle: it.isSingle,
-              unitLabel: it.isSingle
-                ? it.unit === "יחידה" || it.unit === "יחידות"
-                  ? "יח'"
-                  : 'ק"ג'
-                : "קרטון",
-              total: 0,
-              byPoint: {},
-            };
-            map.set(key, row);
-          }
-          const qty = Number(it.quantity);
-          row.total += qty;
-          row.byPoint[pt.pointId] = (row.byPoint[pt.pointId] || 0) + qty;
-        }
-      }
-    }
-
-    const rows = Array.from(map.values())
-      .map((r) => ({
-        ...r,
-        total: Math.round(r.total * 1000) / 1000,
-        byPoint: Object.fromEntries(
-          Object.entries(r.byPoint).map(([k, v]) => [k, Math.round(v * 1000) / 1000])
-        ),
-      }))
-      // קרטונים קודם (זה מה שמזמינים), ובתוך כל קבוצה לפי כמות יורדת
-      .sort((a, b) => {
-        if (a.isSingle !== b.isSingle) return a.isSingle ? 1 : -1;
-        return b.total - a.total;
-      });
-
-    return { rows, points: visible };
-  }
-
-  function exportOrderMatrixCsv() {
-    const { rows, points } = buildOrderMatrix();
-    if (rows.length === 0) return;
-    const header = ["מוצר", "יחידה", 'סה"כ להזמנה', ...points.map((p) => p.pointName)];
-    const body = rows.map((r) => [
-      r.productName,
-      r.unitLabel,
-      String(r.total),
-      ...points.map((p) => (r.byPoint[p.pointId] ? String(r.byPoint[p.pointId]) : "")),
-    ]);
-    downloadCsv(`הזמנה-לספק-${data?.pricelist.name || "מכירה"}.csv`, [header, ...body]);
-  }
 
   function exportPointCsv(point: PointRow) {    if (!data) return;
     const rows: string[][] = [
@@ -294,13 +258,7 @@ export default function SaleSummaryPage() {
         payStatusLabel(o.paymentStatus),
         o.items
           .map((it) => {
-            const qty = Number(it.quantity);
-            const label = it.isSingle
-              ? it.unit === "יחידה" || it.unit === "יחידות"
-                ? `${qty} יח'`
-                : `${qty} ק"ג`
-              : `${qty} קרטון${qty > 1 ? "ים" : ""}`;
-            return `${it.productName} · ${label}`;
+            return `${it.productName} · ${itemQtyLabel(it)}`;
           })
           .join(" | "),
         o.finalTotal != null ? String(o.finalTotal) : `~${o.estimatedTotal}`,
@@ -407,6 +365,7 @@ export default function SaleSummaryPage() {
               <tr>
                 <th>מוצר</th>
                 <th className="text-center">קרטונים</th>
+                <th className="text-center">יחידות</th>
                 <th className="text-center">בודדים</th>
                 <th className="text-center">סה״כ משקל</th>
                 <th className="text-center">הזמנות</th>
@@ -418,12 +377,18 @@ export default function SaleSummaryPage() {
                 // ה-API מחזיר totalQuantity שכולל את הכל (קרטונים + בודדים)
                 // ו-singlesQuantity שהוא רק הבודדים.
                 // לכן: קרטונים נטו = totalQuantity - singlesQuantity
+                // §53: שלוש קטגוריות ולא שתיים.
+                // 🐛 קודם: cartonsOnly = totalQuantity − singlesQuantity,
+                // ולכן מוצר ארוז שנמכר ביחידות נספר כקרטון והוצג
+                // כ"2 קרטונים". עכשיו ה-API מחזיר unitsQuantity בנפרד.
+                const unitsOnly = Number(p.unitsQuantity || 0);
+                const singlesOnly = Number(p.singlesQuantity || 0);
                 const cartonsOnly = Math.max(
                   0,
-                  Number(p.totalQuantity) - Number(p.singlesQuantity || 0)
+                  Number(p.totalQuantity) - singlesOnly - unitsOnly
                 );
-                const singlesOnly = Number(p.singlesQuantity || 0);
                 const hasCartons = cartonsOnly > 0;
+                const hasUnits = unitsOnly > 0;
                 const hasSingles = singlesOnly > 0;
                 const totalWeight = Number(p.totalEstimatedWeight || 0);
 
@@ -457,6 +422,21 @@ export default function SaleSummaryPage() {
                           </span>
                           <span className="text-xs text-zinc-500">
                             {cartonsOnly === 1 ? "קרטון" : "קרטונים"}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-zinc-300">—</span>
+                      )}
+                    </td>
+                    {/* §53: יחידות ארוזות - עמודה נפרדת מקרטונים */}
+                    <td className="text-center">
+                      {hasUnits ? (
+                        <span className="inline-flex items-center gap-1">
+                          <span className="text-lg font-extrabold text-amber-700">
+                            {unitsOnly}
+                          </span>
+                          <span className="text-xs text-zinc-500">
+                            {unitsOnly === 1 ? "יחידה" : "יחידות"}
                           </span>
                         </span>
                       ) : (
@@ -505,92 +485,11 @@ export default function SaleSummaryPage() {
         </div>
       </div>
 
-      {/* ─── טבלת הזמנה לספק: מוצר × נקודה ─── */}
-      {(() => {
-        const { rows: matrixRows, points: matrixPoints } = buildOrderMatrix();
-        if (matrixRows.length === 0) return null;
-        return (
-          <div>
-            <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
-              <div>
-                <h2 className="text-lg font-bold text-brand-slatedark">
-                  הזמנה לספק — לפי מוצר ונקודה
-                </h2>
-                <p className="text-xs text-zinc-500">
-                  סה״כ להזמנה מהספק, ואיך הכמות מתפצלת לנקודות. תא ריק = לא
-                  מוזמן לנקודה הזו.
-                </p>
-                <p className="text-xs text-emerald-700 mt-1 font-medium">
-                  להזמנה בפועל מהחברה — הורד את קובץ ההזמנה לספק. יש בו גיליון
-                  לכל נקודה, ועמודה שבה ממירים יחידות ובודדים לקרטונים.
-                </p>
-              </div>
-              <div className="flex gap-2 no-print">
-                {/* §50: קובץ ההזמנה לספק. גיליון לכל נקודה, עם עמודת
-                    ההמרה הידנית מיחידות/בודדים לקרטונים - וזו העמודה
-                    שממנה משדרים לחברה בפועל. */}
-                <button
-                  onClick={() =>
-                    (window.location.href = `/api/admin/supplier-export?pricelistId=${data.pricelist.id}`)
-                  }
-                  className="btn-primary btn-sm bg-emerald-600 hover:bg-emerald-700"
-                >
-                  📗 קובץ הזמנה לספק
-                </button>
-                <button onClick={exportOrderMatrixCsv} className="btn-ghost btn-sm">
-                  ⬇ ייצוא טבלה זו
-                </button>
-              </div>
-            </div>
-
-            <div className="table-wrap">
-              <table className="admin">
-                <thead>
-                  <tr>
-                    <th>מוצר</th>
-                    <th>יחידה</th>
-                    <th className="text-center">סה״כ להזמנה</th>
-                    {matrixPoints.map((p) => (
-                      <th key={p.pointId} className="text-center whitespace-nowrap">
-                        {p.pointName}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {matrixRows.map((r) => (
-                    <tr key={r.key} className={r.isSingle ? "bg-amber-50/40" : ""}>
-                      <td className="font-medium">
-                        {r.productName}
-                        {r.isSingle && (
-                          <span className="text-xs text-amber-700 mr-1">(בודדים)</span>
-                        )}
-                      </td>
-                      <td className="text-zinc-500 text-xs">{r.unitLabel}</td>
-                      <td className="text-center font-extrabold text-brand-rust">
-                        <bdi>{r.total}</bdi>
-                      </td>
-                      {matrixPoints.map((p) => (
-                        <td key={p.pointId} className="text-center">
-                          {r.byPoint[p.pointId] ? (
-                            <bdi className="font-medium">{r.byPoint[p.pointId]}</bdi>
-                          ) : (
-                            <span className="text-zinc-300">—</span>
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-xs text-zinc-500 mt-1.5">
-              שורות בודדים מסומנות בצהוב — הן נמדדות בק״ג/יחידות ולא בקרטונים,
-              ולכן מופיעות בנפרד.
-            </p>
-          </div>
-        );
-      })()}
+      {/* §51: הזמנה לספק - הטבלה שממנה משדרים לחברה.
+          הוחלפה הטבלה הישנה (מוצר × נקודה) שהציגה "מה הוזמן" אך לא
+          ענתה על "כמה קרטונים להזמין" - ההמרה מיחידות/בודדים
+          לקרטונים היא החלטה של המנהל, ועכשיו היא נשמרת. */}
+      <SupplierOrderPlanner pricelistId={data.pricelist.id} />
 
       {/* פירוט לפי נקודה */}
       <div>
@@ -717,13 +616,7 @@ export default function SaleSummaryPage() {
                             <td className="text-xs text-zinc-500 max-w-[280px]">
                               {o.items
                                 .map((it) => {
-                                  const qty = Number(it.quantity);
-                                  const label = it.isSingle
-                                    ? it.unit === "יחידה" || it.unit === "יחידות"
-                                      ? `${qty} יח'`
-                                      : `${qty} ק"ג`
-                                    : `${qty} קרטון${qty > 1 ? "ים" : ""}`;
-                                  return `${it.productName} · ${label}`;
+                                  return `${it.productName} · ${itemQtyLabel(it)}`;
                                 })
                                 .join(" | ")}
                             </td>

@@ -6,6 +6,33 @@ import { OrderFlow } from "@/app/order/OrderFlow";
 
 export const dynamic = "force-dynamic";
 
+// §55: מסך חסימה עם הסבר.
+//
+// 🐛 קודם כל חסימה הייתה redirect("/agent") שקט - הנציג נזרק אחורה
+// בלי לדעת למה, וחשב שהמערכת תקולה. גרוע מכך: הוא עלול ליצור את
+// הלקוח מחדש, וזו כפילות שמפצלת היסטוריה והזמנות.
+function Blocked({ title, detail }: { title: string; detail: string }) {
+  return (
+    <main dir="rtl" className="min-h-screen bg-brand-cream flex items-center justify-center p-6">
+      <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md">
+        <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-amber-100 flex items-center justify-center">
+          <svg className="w-7 h-7 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <h1 className="text-lg font-bold text-brand-slatedark">{title}</h1>
+        <p className="text-sm text-zinc-600 mt-2 leading-relaxed">{detail}</p>
+        <Link
+          href="/agent"
+          className="inline-block mt-5 px-6 py-2.5 bg-brand-rust text-white rounded-xl font-bold hover:bg-[#a83a15]"
+        >
+          חזרה לאזור הנציג
+        </Link>
+      </div>
+    </main>
+  );
+}
+
 export default async function AgentOrderPage({
   params,
 }: {
@@ -26,45 +53,104 @@ export default async function AgentOrderPage({
     include: { defaultPoint: true },
   });
   if (!targetCustomer || targetCustomer.role !== "CUSTOMER") {
-    redirect("/agent");
+    return (
+      <Blocked
+        title="הלקוח לא נמצא"
+        detail="ייתכן שהלקוח נמחק, או שהקישור שגוי. חזור לאזור הנציג וחפש אותו מחדש."
+      />
+    );
   }
 
-  // אימות הרשאת נציג מוגבל-נקודות:
+  // §52: לקוח שהושבת - חסום לכולם, גם למנהל.
+  // הוא ביקש להפסיק לקבל שירות, ופתיחת הזמנה עבורו סותרת את זה.
+  // הבדיקה כאן ולא רק בחיפוש, כי אפשר להגיע לכתובת ישירות.
+  if (targetCustomer.isActive === false) {
+    return (
+      <Blocked
+        title="הלקוח אינו פעיל"
+        detail={`${targetCustomer.name} סומן כלא פעיל ולא ניתן לפתוח עבורו הזמנה. אם זו טעות, יש לפנות למנהל להפעלה מחדש.`}
+      />
+    );
+  }
+
+  // ─── אימות הרשאת נציג ───
   // הנציג רשאי להזמין רק עבור:
-  // 1. לקוח שהנציג עצמו יצר (createdByAgentId === agentId)
-  // 2. לקוח שהנקודה שלו זהה לאחת מהנקודות של הנציג
-  // 3. לקוח שיש לו לפחות הזמנה אחת באחת מנקודות הנציג
+  //   1. לקוח שהוא עצמו יצר
+  //   2. לקוח שנקודת ברירת המחדל שלו היא אחת מנקודותיו
+  //   3. לקוח שיש לו לפחות הזמנה אחת באחת מנקודותיו
   if (role === "AGENT") {
     const agent = await prisma.customer.findUnique({
       where: { id: sessionUserId },
       select: {
         agentPointId: true, // deprecated - נשמר לתאימות אחורה
-        agentPoints: { select: { pointId: true } }, // חדש - כל הנקודות שלו
+        agentPoints: { select: { pointId: true } },
       },
     });
-    // בונים set של כל הנקודות של הנציג (משני המקורות)
     const agentPointIds = new Set(agent?.agentPoints.map((ap) => ap.pointId) ?? []);
-    if (agent?.agentPointId) agentPointIds.add(agent.agentPointId); // תאימות אחורה
+    if (agent?.agentPointId) agentPointIds.add(agent.agentPointId);
 
-    // אם לנציג יש שיוכי נקודות - בודקים גישה. אם אין לו בכלל - חסימה מלאה.
-    if (agentPointIds.size > 0) {
-      const isCreator = targetCustomer.createdByAgentId === sessionUserId;
-      const samePoint =
-        targetCustomer.defaultPointId !== null &&
-        agentPointIds.has(targetCustomer.defaultPointId);
-      const hasOrderAtPoint =
-        !isCreator &&
-        !samePoint &&
-        (await prisma.order.count({
-          where: {
-            customerId: targetCustomer.id,
-            pointId: { in: Array.from(agentPointIds) },
-          },
-        })) > 0;
-      if (!isCreator && !samePoint && !hasOrderAtPoint) redirect("/agent");
+    // §55: 🐛 תוקן חור אבטחה.
+    //
+    // הקוד הקודם דילג על *כל* הבדיקה כשלנציג אין נקודות משויכות,
+    // וההערה שם הודתה בכך במפורש. התוצאה: נציג בלי נקודות יכול היה
+    // לפתוח הזמנה עבור *כל לקוח במערכת* - יותר הרשאות מנציג מוגדר
+    // כראוי.
+    //
+    // עכשיו הוא נחסם. זה גם המצב הנכון תפעולית: בלי נקודה אין לו
+    // איפה לחלק.
+    if (agentPointIds.size === 0) {
+      return (
+        <Blocked
+          title="אין לך נקודת חלוקה משויכת"
+          detail="כדי לפתוח הזמנות עבור לקוחות יש להיות משויך לפחות לנקודת חלוקה אחת. יש לפנות למנהל להשלמת השיוך."
+        />
+      );
     }
-    // אם agentPointIds.size === 0 - זה נציג בלי נקודות מוגדרות. לא ראוי לבטל
-    // את הבדיקה לגמרי, אבל נשמור על ההתנהגות הקיימת (עוברים בלי בדיקה) לא לשבור.
+
+    const isCreator = targetCustomer.createdByAgentId === sessionUserId;
+    const samePoint =
+      targetCustomer.defaultPointId !== null &&
+      agentPointIds.has(targetCustomer.defaultPointId);
+    const hasOrderAtPoint =
+      !isCreator &&
+      !samePoint &&
+      (await prisma.order.count({
+        where: {
+          customerId: targetCustomer.id,
+          pointId: { in: Array.from(agentPointIds) },
+        },
+      })) > 0;
+
+    if (!isCreator && !samePoint && !hasOrderAtPoint) {
+      // §55: הודעה מפורשת עם שם הנקודה והנציג האחראי
+      let responsible = "";
+      if (targetCustomer.defaultPointId) {
+        const links = await prisma.agentPoint.findMany({
+          where: { pointId: targetCustomer.defaultPointId },
+          select: { agent: { select: { name: true } } },
+        });
+        const names = links.map((l) => l.agent.name);
+        if (names.length === 0) {
+          const legacy = await prisma.customer.findMany({
+            where: { agentPointId: targetCustomer.defaultPointId, role: "AGENT" },
+            select: { name: true },
+          });
+          names.push(...legacy.map((a) => a.name));
+        }
+        if (names.length > 0) responsible = ` הנציג האחראי: ${names.join(", ")}.`;
+      }
+      const pointName = targetCustomer.defaultPoint?.name;
+      return (
+        <Blocked
+          title="הלקוח משויך לנקודה אחרת"
+          detail={
+            pointName
+              ? `${targetCustomer.name} משויך לנקודת החלוקה "${pointName}", שאינה מהנקודות שלך.${responsible} לא ניתן לפתוח עבורו הזמנה מכאן.`
+              : `ל-${targetCustomer.name} לא הוגדרה נקודת חלוקה. יש לפנות למנהל להשלמת השיוך.`
+          }
+        />
+      );
+    }
   }
 
   const pricelist = await prisma.pricelist.findFirst({
@@ -91,15 +177,10 @@ export default async function AgentOrderPage({
 
   if (!pricelist || closed || notYetOpen) {
     return (
-      <main
-        dir="rtl"
-        className="min-h-screen bg-brand-yellow flex items-center justify-center p-6"
-      >
+      <main dir="rtl" className="min-h-screen bg-brand-yellow flex items-center justify-center p-6">
         <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-sm">
           <div className="text-4xl mb-3">😴</div>
-          <p className="text-lg font-bold text-brand-slatedark">
-            אין כרגע מכירה פעילה
-          </p>
+          <p className="text-lg font-bold text-brand-slatedark">אין כרגע מכירה פעילה</p>
           <p className="text-xs text-zinc-500 mt-1">
             {closed
               ? "המכירה נסגרה. הזמנות ייפתחו במכירה הבאה."
@@ -111,7 +192,7 @@ export default async function AgentOrderPage({
             href="/agent"
             className="inline-block mt-5 px-6 py-2.5 bg-brand-rust text-white rounded-xl font-bold hover:bg-[#a83a15]"
           >
-            ← חזרה לאזור הנציג
+            חזרה לאזור הנציג
           </Link>
         </div>
       </main>
@@ -146,16 +227,12 @@ export default async function AgentOrderPage({
       allowSingles: pp.product.allowSingles,
       singlesMode: pp.product.singlesMode || "KG",
       singleUnitPrice:
-        pp.product.singleUnitPrice != null
-          ? Number(pp.product.singleUnitPrice)
-          : null,
+        pp.product.singleUnitPrice != null ? Number(pp.product.singleUnitPrice) : null,
       unit: pp.product.unit,
       saleType: pp.product.saleType,
       priceType: pp.product.priceType,
       avgWeightPerUnit:
-        pp.product.avgWeightPerUnit != null
-          ? Number(pp.product.avgWeightPerUnit)
-          : null,
+        pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null,
       imageUrl: pp.product.imageUrl,
       kashrut: pp.product.kashrut,
       kashrutName: pp.product.kashrutRef?.name || null,
@@ -167,9 +244,7 @@ export default async function AgentOrderPage({
       limitedQty: pp.product.limitedQty,
       sortOrder: pp.product.sortOrder,
     }))
-    .sort(
-      (a, b) => a.categorySort - b.categorySort || a.sortOrder - b.sortOrder
-    );
+    .sort((a, b) => a.categorySort - b.categorySort || a.sortOrder - b.sortOrder);
 
   // האם יש לו כבר כרטיס?
   // - יש token → cardVerified=true → מדלגים על אימות
@@ -199,22 +274,29 @@ export default async function AgentOrderPage({
                   )}
                   {hasPaymentToken && (
                     <span className="text-[10px] bg-emerald-400 text-emerald-950 px-1.5 py-0.5 rounded font-bold">
-                      💳 יש כרטיס
+                      יש כרטיס
                     </span>
                   )}
                 </div>
-                {targetCustomer.phone && (
-                  <div className="text-xs text-white/80 font-mono" dir="ltr">
-                    {targetCustomer.phone}
-                  </div>
-                )}
+                <div className="text-xs text-white/80 flex items-center gap-2 flex-wrap">
+                  {targetCustomer.phone && (
+                    <span className="font-mono" dir="ltr">
+                      {targetCustomer.phone}
+                    </span>
+                  )}
+                  {/* §55: הנקודה של הלקוח בבאנר - הנציג רואה מיד לאן
+                      הסחורה הולכת, ולא מגלה רק בסיכום */}
+                  {targetCustomer.defaultPoint?.name && (
+                    <span>📍 {targetCustomer.defaultPoint.name}</span>
+                  )}
+                </div>
               </div>
             </div>
             <Link
               href="/agent"
               className="shrink-0 text-xs font-bold text-white/80 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition-colors"
             >
-              ← חזרה לנציג
+              חזרה לנציג
             </Link>
           </div>
 
@@ -222,7 +304,8 @@ export default async function AgentOrderPage({
           {!hasPaymentToken && (
             <div className="mt-2 text-[11px] bg-amber-500/20 border border-amber-400/40 rounded-lg px-3 py-1.5 text-amber-100">
               💳 <strong>שים לב:</strong> אין ללקוח כרטיס אשראי במערכת. בסוף ההזמנה
-              תתבקש להעביר את המכשיר ללקוח לאימות כרטיס (חיוב 1 ש"ח).
+              תתבקש להעביר את המכשיר ללקוח לאימות כרטיס (חיוב 1 ש&quot;ח שיקוזז
+              מההזמנה הראשונה).
             </div>
           )}
         </div>

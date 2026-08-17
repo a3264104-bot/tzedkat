@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client";
 import { Modal, Field } from "@/components/AdminModal";
+import { AdminAddCustomerButton } from "@/components/AdminAddCustomerButton";
 
 type Customer = {
   id: string;
@@ -22,6 +23,11 @@ type Customer = {
   agentCanCharge?: boolean;
   agentCanUpdateCards?: boolean;
   createdAt: string;
+  // §52: לקוח לא פעיל - לא מקבל מיילים, לא נכלל בברודקסט ובתזכורות,
+  // ולא יכול לבצע הזמנה. ההיסטוריה שלו נשמרת במלואה.
+  isActive?: boolean;
+  deactivatedAt?: string | null;
+  deactivatedReason?: string | null;
 };
 
 type Point = { id: string; name: string; city: string | null };
@@ -48,6 +54,9 @@ export default function AdminCustomersPage() {
   const [newPointId, setNewPointId] = useState<string>("");
   // 🆕 בחירת נקודות מרובות לנציג (Set של pointIds)
   const [selectedAgentPointIds, setSelectedAgentPointIds] = useState<Set<string>>(new Set());
+  // §52: הסתרת לקוחות לא פעילים. ברירת מחדל: מציגים אותם עם תגית,
+  // כי אחרת אין דרך להפעיל אותם מחדש או לבדוק היסטוריה.
+  const [hideInactive, setHideInactive] = useState(false);
 
   // טעינת רשימת נקודות למקרה שנרצה להפוך לקוח לנציג
   useEffect(() => {
@@ -75,18 +84,21 @@ export default function AdminCustomersPage() {
   // מצב תצוגה: table / grouped
   const [viewMode, setViewMode] = useState<"table" | "grouped">("grouped");
 
+  async function reload() {
+    const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
+    const enriched = (Array.isArray(data) ? data : []).map((c: any) => ({
+      ...c,
+      city: c.city || c.pointCity || null,
+    }));
+    setCustomers(enriched);
+  }
+
   // חיפוש עם debounce
   useEffect(() => {
     const t = setTimeout(async () => {
       setLoading(true);
       try {
-        const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
-        // city מגיע מה-API אם יש, אחרת מנסים לחלץ מ-pointName
-        const enriched = (Array.isArray(data) ? data : []).map((c: any) => ({
-          ...c,
-          city: c.city || c.pointCity || null,
-        }));
-        setCustomers(enriched);
+        await reload();
       } catch {
         setCustomers([]);
       } finally {
@@ -94,6 +106,7 @@ export default function AdminCustomersPage() {
       }
     }, 300);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   function openEdit(c: Customer) {
@@ -144,10 +157,62 @@ export default function AdminCustomersPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "שגיאה");
       setSuccessMsg("נקודות החלוקה של הנציג עודכנו!");
-      const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
-      setCustomers(Array.isArray(data) ? data : []);
+      await reload();
     } catch (e: any) {
       setError(e.message || "שגיאה בשמירת נקודות");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // §52: הפעלה/השבתה של לקוח.
+  //
+  // למה לא מחיקה: ללקוח יש היסטוריית הזמנות, חיובים ותעודות שחייבים
+  // להישמר - גם לתיעוד וגם כי מחיקה תשבור דוחות של מכירות עבר.
+  //
+  // לקוח לא פעיל לא מקבל מיילים, לא נכלל בברודקסט ובתזכורות חלוקה,
+  // ולא יכול לבצע הזמנה חדשה. ההיסטוריה נשארת שלמה, ואפשר להפעיל
+  // אותו מחדש בכל רגע.
+  async function toggleActive() {
+    if (!editing) return;
+    const nowActive = editing.isActive !== false;
+    let reason: string | null = null;
+
+    if (nowActive) {
+      const r = prompt(
+        `להשבית את ${editing.name}?\n\n` +
+          `הלקוח יפסיק לקבל מיילים ולא יוכל להזמין.\n` +
+          `כל ההיסטוריה שלו נשמרת ואפשר להפעיל אותו מחדש בכל רגע.\n\n` +
+          `סיבה (אופציונלי):`
+      );
+      if (r === null) return; // ביטול
+      reason = r.trim() || null;
+    } else {
+      if (!confirm(`להפעיל מחדש את ${editing.name}?`)) return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/customers/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          isActive: !nowActive,
+          deactivatedReason: reason,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "שגיאה");
+      setEditing({
+        ...editing,
+        isActive: !nowActive,
+        deactivatedReason: reason,
+      });
+      setSuccessMsg(nowActive ? "הלקוח הושבת" : "הלקוח הופעל מחדש");
+      await reload();
+    } catch (e: any) {
+      setError(e.message);
     } finally {
       setSaving(false);
     }
@@ -160,8 +225,8 @@ export default function AdminCustomersPage() {
       return;
     }
     if (!confirm(
-      newRole === "AGENT" 
-        ? `להפוך את ${editing.name} לנציג?` 
+      newRole === "AGENT"
+        ? `להפוך את ${editing.name} לנציג?`
         : newRole === "ADMIN"
         ? `⚠️ להפוך את ${editing.name} למנהל? יהיו לו הרשאות מלאות!`
         : `להוריד את ${editing.name} מנציג ללקוח רגיל?`
@@ -181,9 +246,7 @@ export default function AdminCustomersPage() {
       if (!res.ok) throw new Error(json.error || 'שגיאה');
       setSuccessMsg(`תפקיד עודכן ל-${newRole === "AGENT" ? "נציג" : newRole === "ADMIN" ? "מנהל" : "לקוח"}!`);
       setConvertingToAgent(false);
-      // רענון רשימה
-      const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
-      setCustomers(Array.isArray(data) ? data : []);
+      await reload();
       // סגירת מודאל
       setTimeout(() => setEditing(null), 1500);
     } catch (e: any) {
@@ -250,8 +313,7 @@ export default function AdminCustomersPage() {
           : "הפרטים עודכנו בהצלחה"
       );
       setNewPassword("");
-      const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
-      setCustomers(Array.isArray(data) ? data : []);
+      await reload();
     } catch (e: any) {
       setError(e.message || "שגיאה");
     } finally {
@@ -274,6 +336,7 @@ export default function AdminCustomersPage() {
   // סינון + מיון
   const filtered = customers
     .filter((c) => !cityFilter || (c.city || "(ללא עיר)") === cityFilter)
+    .filter((c) => !hideInactive || c.isActive !== false)
     .sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
       const av = a[sortKey] ?? "";
@@ -281,6 +344,8 @@ export default function AdminCustomersPage() {
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
       return String(av).localeCompare(String(bv), "he") * dir;
     });
+
+  const inactiveCount = customers.filter((c) => c.isActive === false).length;
 
   // רשימת ערים ייחודיות לסינון
   const cities = Array.from(
@@ -302,9 +367,13 @@ export default function AdminCustomersPage() {
           <h1 className="text-2xl font-extrabold text-brand-slatedark">לקוחות</h1>
           <p className="text-sm text-zinc-500">
             {customers.length} לקוחות{cityFilter ? ` · ${cityFilter}` : ""}
+            {inactiveCount > 0 && ` · ${inactiveCount} לא פעילים`}
           </p>
         </div>
         <div className="flex gap-2">
+          {/* §54: המנהל יוצר לקוחות בעצמו, כמו נציג.
+              ההבדל: הוא בוחר נקודת חלוקה במפורש (אין לו ברירת מחדל). */}
+          <AdminAddCustomerButton points={points} onCreated={reload} />
           <button
             onClick={() => setViewMode(viewMode === "table" ? "grouped" : "table")}
             className="btn-ghost btn-sm"
@@ -315,9 +384,9 @@ export default function AdminCustomersPage() {
       </div>
 
       {/* חיפוש + סינון עיר */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap items-center">
         <input
-          className="input flex-1"
+          className="input flex-1 min-w-[200px]"
           placeholder="חיפוש לפי שם, טלפון או מייל..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -333,6 +402,17 @@ export default function AdminCustomersPage() {
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
+        {inactiveCount > 0 && (
+          <label className="flex items-center gap-1.5 text-sm text-zinc-600 whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={hideInactive}
+              onChange={(e) => setHideInactive(e.target.checked)}
+              className="w-4 h-4 accent-brand-rust"
+            />
+            הסתר לא פעילים
+          </label>
+        )}
       </div>
 
       {loading ? (
@@ -366,8 +446,21 @@ export default function AdminCustomersPage() {
             </thead>
             <tbody>
               {filtered.map((c) => (
-                <tr key={c.id} className="border-b hover:bg-zinc-50 transition">
-                  <td className="p-3 font-medium text-brand-slatedark">{c.name}</td>
+                <tr
+                  key={c.id}
+                  className={`border-b hover:bg-zinc-50 transition ${
+                    c.isActive === false ? "opacity-60" : ""
+                  }`}
+                >
+                  <td className="p-3 font-medium text-brand-slatedark">
+                    {c.name}
+                    {/* §52: תגית לקוח לא פעיל */}
+                    {c.isActive === false && (
+                      <span className="mr-2 text-[10px] bg-zinc-200 text-zinc-600 px-1.5 py-0.5 rounded font-bold">
+                        לא פעיל
+                      </span>
+                    )}
+                  </td>
                   <td className="p-3 text-zinc-600" dir="ltr">{c.phone || "—"}</td>
                   <td className="p-3 text-zinc-500 hidden md:table-cell text-xs">{c.email || "—"}</td>
                   <td className="p-3 text-zinc-600">{c.city || "—"}</td>
@@ -405,8 +498,20 @@ export default function AdminCustomersPage() {
                 <table className="w-full text-sm">
                   <tbody>
                     {cityCustomers.map((c) => (
-                      <tr key={c.id} className="border-b last:border-b-0 hover:bg-zinc-50 transition">
-                        <td className="p-2.5 font-medium text-brand-slatedark">{c.name}</td>
+                      <tr
+                        key={c.id}
+                        className={`border-b last:border-b-0 hover:bg-zinc-50 transition ${
+                          c.isActive === false ? "opacity-60" : ""
+                        }`}
+                      >
+                        <td className="p-2.5 font-medium text-brand-slatedark">
+                          {c.name}
+                          {c.isActive === false && (
+                            <span className="mr-2 text-[10px] bg-zinc-200 text-zinc-600 px-1.5 py-0.5 rounded font-bold">
+                              לא פעיל
+                            </span>
+                          )}
+                        </td>
                         <td className="p-2.5 text-zinc-600 text-xs" dir="ltr">{c.phone || "—"}</td>
                         <td className="p-2.5 text-zinc-500 text-xs hidden md:table-cell">{c.email || "—"}</td>
                         <td className="p-2.5 text-center text-xs">{c.orderCount} הזמנות</td>
@@ -431,6 +536,18 @@ export default function AdminCustomersPage() {
       {editing && (
         <Modal onClose={() => setEditing(null)} title={`עריכת לקוח: ${editing.name}`}>
           <div className="space-y-3">
+            {/* §52: באנר בולט כשהלקוח לא פעיל - כדי שהמנהל לא יבזבז
+                זמן על עריכה ואז יתפלא למה הוא לא מקבל מיילים */}
+            {editing.isActive === false && (
+              <div className="bg-zinc-100 border border-zinc-300 rounded-lg p-3 text-sm">
+                <p className="font-bold text-zinc-700">⏸ הלקוח אינו פעיל</p>
+                <p className="text-xs text-zinc-600 mt-0.5">
+                  לא מקבל מיילים ולא יכול להזמין.
+                  {editing.deactivatedReason && ` סיבה: ${editing.deactivatedReason}`}
+                </p>
+              </div>
+            )}
+
             <Field label="שם">
               <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
             </Field>
@@ -623,6 +740,36 @@ export default function AdminCustomersPage() {
                 </div>
               </div>
             )}
+
+            {/* §52: הפעלה/השבתה. מוצג בתחתית ובנפרד כי זו פעולה
+                משמעותית, ולא חלק מעריכת הפרטים השוטפת. */}
+            <div className="border-t pt-3">
+              {editing.isActive === false ? (
+                <button
+                  type="button"
+                  onClick={toggleActive}
+                  disabled={saving}
+                  className="w-full py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  ▶ הפעל את הלקוח מחדש
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={toggleActive}
+                    disabled={saving}
+                    className="w-full py-2 rounded-lg border border-zinc-300 text-zinc-700 text-sm font-bold hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    ⏸ השבת לקוח
+                  </button>
+                  <p className="text-[11px] text-zinc-500 mt-1.5 text-center">
+                    הלקוח יפסיק לקבל מיילים ולא יוכל להזמין. ההיסטוריה נשמרת
+                    במלואה וניתן להפעיל אותו מחדש בכל רגע.
+                  </p>
+                </>
+              )}
+            </div>
 
             {error && <p className="text-red-600 text-sm">{error}</p>}
             {successMsg && (

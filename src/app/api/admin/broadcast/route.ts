@@ -62,6 +62,8 @@ export async function POST(req: Request) {
     role: "CUSTOMER",
     email: { not: null },
     agreedToEmails: true,
+      // §52: לקוח לא פעיל לא מקבל מיילים - זו כל מטרת ההשבתה
+      isActive: true,
   };
   if (mode === "point") {
     where.defaultPointId = { in: pointIds };

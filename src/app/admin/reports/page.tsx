@@ -153,10 +153,26 @@ function LimitedWarnings({ warnings }: { warnings: any[] }) {
   );
 }
 
-// שורת מוצר בפורמט קריא: מפריד קרטונים מבודדים
+// §53: ריבוי בעברית עם טיפול באות סופית.
+// "קרטון"+"ים" נותן "קרטוןים" - האות הסופית חייבת להשתנות.
+function pluralizeHe(u: string, n: number): string {
+  if (n <= 1) return u;
+  if (u.endsWith("ה")) return u.slice(0, -1) + "ות";
+  const finals: Record<string, string> = { "ם": "מ", "ן": "נ", "ץ": "צ", "ף": "פ", "ך": "כ" };
+  const last = u.slice(-1);
+  return (finals[last] ? u.slice(0, -1) + finals[last] : u) + "ים";
+}
+
+// שורת מוצר בפורמט קריא: מפריד קרטונים מבודדים.
+// 🐛 תוקן: התווית הייתה "קרטון" קשיח, ולכן מוצר ארוז שנמכר ביחידות
+// ("בקר טחון 500 ג'") הוצג כקרטון בדוחות. unitLabel מגיע מה-API
+// ומכיל את היחידה האמיתית.
 function productQtyLabel(p: any): string {
   const parts: string[] = [];
-  if (p.cartons > 0) parts.push(`${p.cartons} קרטון`);
+  if (p.cartons > 0) {
+    const u = (p.unitLabel || "").trim() || "קרטון";
+    parts.push(`${p.cartons} ${pluralizeHe(u, p.cartons)}`);
+  }
   if (p.singlesKg > 0) parts.push(`${p.singlesKg} ק"ג בודדים`);
   return parts.length > 0 ? parts.join(" + ") : "—";
 }
@@ -201,6 +217,8 @@ function SummaryReport({ data }: { data: any }) {
                   <span>
                     {src === "PHONE"
                       ? "מערכת טלפונית"
+                      : src === "EXCEL"
+                        ? "קובץ אקסל"
                       : src === "AGENT"
                         ? "נציג"
                         : src === "ADMIN"
@@ -265,7 +283,11 @@ function ProductsReport({ data, onExport }: { data: any; onExport: () => void })
             {data.products.map((p: any) => (
               <tr key={p.name}>
                 <td className="font-medium">{p.name}</td>
-                <td className="font-bold">{p.cartons > 0 ? `${p.cartons} קרטון` : "—"}</td>
+                <td className="font-bold">
+                  {p.cartons > 0
+                    ? `${p.cartons} ${pluralizeHe((p.unitLabel || "").trim() || "קרטון", p.cartons)}`
+                    : "—"}
+                </td>
                 <td className="font-bold">
                   {p.singlesKg > 0 ? `${p.singlesKg} ק"ג` : "—"}
                 </td>

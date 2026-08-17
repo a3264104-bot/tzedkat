@@ -40,7 +40,7 @@ async function getRecipients(pricelistId: string, pointId: string | null) {
       ...(pointId ? { pointId } : {}),
     },
     include: {
-      customer: { select: { email: true, name: true, phone: true } },
+      customer: { select: { email: true, name: true, phone: true, isActive: true } },
       point: { select: { name: true, address: true, deliveryHours: true } },
       items: { where: { isCancelled: false } },
     },
@@ -51,8 +51,15 @@ async function getRecipients(pricelistId: string, pointId: string | null) {
   // לקוחות שנרשמו בטלפון לרוב בלי מייל, ובלי זה הם לא היו מקבלים
   // תזכורת חלוקה בכלל.
   let noEmail = 0;
+  let inactiveSkipped = 0;
   const rows = [];
   for (const o of orders) {
+    // §52: לקוח לא פעיל מדולג לגמרי - לא מייל ולא צינתוק.
+    // הוא ביקש להפסיק לקבל פניות, וזו כל מטרת ההשבתה.
+    if (o.customer?.isActive === false) {
+      inactiveSkipped++;
+      continue;
+    }
     const email = o.customer?.email ?? null;
     if (!email) noEmail++;
     rows.push({

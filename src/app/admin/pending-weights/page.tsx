@@ -33,7 +33,17 @@ export default async function AdminPendingWeightsPage() {
       },
       actualWeight: null,
       isCancelled: false,
-      OR: [{ unit: "קרטון" }, { isSingle: true }],
+      // 🐛 תוקן: הסינון היה OR:[{unit:"קרטון"},{isSingle:true}] - כלומר
+      // רק קרטונים ובודדים. מוצר ארוז שנמכר ביחידות ("בקר טחון 500 ג'",
+      // unit="יחידה", isSingle=false) לא עמד באף תנאי ו*נעלם מרשימת
+      // השקילה לגמרי* - המנהל לא ידע שצריך לשקול אותו, והמחיר הסופי
+      // של ההזמנה לא נקבע.
+      //
+      // עכשיו: כל פריט שטרם נשקל מופיע, למעט בודדים שנמכרים ביחידות
+      // (שם הכמות היא מספר יחידות ואין מה לשקול).
+      NOT: {
+        AND: [{ isSingle: true }, { unit: { in: ["יחידה", "יחידות"] } }],
+      },
     },
     include: {
       order: {

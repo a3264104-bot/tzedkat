@@ -26,17 +26,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import ExcelJS from "exceljs";
+import { collectPlan } from "@/app/api/admin/supplier-plan/route";
 
-type Row = {
-  productName: string;
-  categoryName: string;
-  cartons: number;
-  units: number;
-  singlesKg: number;
-  /** כמה יחידות/ק"ג נכנסים בקרטון - להערכת העודף */
-  perCarton: number | null;
-  sortKey: number;
-};
 
 export async function GET(req: Request) {
   const g = await requireAdmin();
@@ -56,144 +47,17 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "מכירה לא נמצאה" }, { status: 404 });
   }
 
-  const orders = await prisma.order.findMany({
-    where: { pricelistId, status: { notIn: ["CANCELLED"] } },
-    include: {
-      point: { select: { id: true, name: true, city: true } },
-      items: {
-        where: { isCancelled: false },
-        include: {
-          product: {
-            select: {
-              id: true,
-              name: true,
-              unit: true,
-              singlesMode: true,
-              avgWeightPerUnit: true,
-              packageWeight: true,
-              sortOrder: true,
-              category: { select: { name: true, sortOrder: true } },
-            },
-          },
-        },
-      },
-    },
-  });
+  // §51: אותו מקור נתונים כמו המסך (collectPlan), כדי שהקובץ והמסך
+  // יציגו בדיוק את אותם מספרים - כולל ההחלטות ששמורות בעמודות
+  // "להשלמה" ו"כמות בקרטון".
+  const points = (await collectPlan(pricelistId, null)).points as {
+    id: string;
+    name: string;
+    city: string | null;
+  }[];
 
-  // מזדמנים נכללים גם הם - הם סחורה שיצאה מהמלאי בדיוק כמו הזמנה
-  const walkins = await prisma.walkinOrder.findMany({
-    where: { pricelistId },
-    include: {
-      point: { select: { id: true, name: true, city: true } },
-      items: {
-        include: {
-          product: {
-            select: {
-              id: true,
-              name: true,
-              unit: true,
-              singlesMode: true,
-              avgWeightPerUnit: true,
-              packageWeight: true,
-              sortOrder: true,
-              category: { select: { name: true, sortOrder: true } },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  // ─── צבירה: נקודה -> מוצר -> שלוש הכמויות ───
-  const byPoint = new Map<string, { name: string; city: string | null; rows: Map<string, Row> }>();
-
-  function bucket(pointId: string, pointName: string, city: string | null) {
-    let b = byPoint.get(pointId);
-    if (!b) {
-      b = { name: pointName, city, rows: new Map() };
-      byPoint.set(pointId, b);
-    }
-    return b;
-  }
-
-  function rowFor(b: { rows: Map<string, Row> }, pr: any): Row {
-    let r = b.rows.get(pr.id);
-    if (!r) {
-      // כמה נכנס בקרטון. לבודדים בק"ג זה משקל הקרטון. ליחידות אין
-      // שדה ייעודי בסכמה, ולכן מנסים לגזור ממשקל הקרטון חלקי משקל
-      // האריזה - ואם לא ניתן, המנהל ימלא ידנית בעמודה G.
-      let perCarton: number | null = null;
-      const avgW = pr.avgWeightPerUnit != null ? Number(pr.avgWeightPerUnit) : null;
-      if (pr.singlesMode === "UNITS") {
-        const pkg = parseFloat(String(pr.packageWeight ?? "").replace(/[^\d.]/g, ""));
-        if (avgW && pkg > 0) {
-          // packageWeight לרוב בגרמים ("500 ג'"), avgWeightPerUnit בק"ג
-          const pkgKg = pkg > 20 ? pkg / 1000 : pkg;
-          perCarton = Math.round(avgW / pkgKg);
-        }
-      } else if (avgW) {
-        perCarton = avgW; // בודדים בק"ג: הקרטון מכיל avgW ק"ג
-      }
-
-      r = {
-        productName: pr.name,
-        categoryName: pr.category?.name ?? "",
-        cartons: 0,
-        units: 0,
-        singlesKg: 0,
-        perCarton,
-        sortKey: (pr.category?.sortOrder ?? 999) * 1000 + (pr.sortOrder ?? 0),
-      };
-      b.rows.set(pr.id, r);
-    }
-    return r;
-  }
-
-  // סיווג הפריט לאחת משלוש העמודות.
-  // חשוב: מוצר ארוז שנמכר ביחידות (unit != קרטון) נספר כיחידות גם
-  // כשהוא לא מסומן isSingle - אחרת הוא היה נספר כקרטון ומעוות את
-  // ההזמנה לספק.
-  function classify(pr: any, unit: string | null, isSingle: boolean) {
-    const u = (unit || pr.unit || "").trim();
-    if (isSingle) {
-      return pr.singlesMode === "UNITS" ? "units" : "singlesKg";
-    }
-    if (u && u !== "קרטון" && u !== 'ק"ג') return "units";
-    return "cartons";
-  }
-
-  for (const o of orders) {
-    if (!o.point) continue;
-    const b = bucket(o.point.id, o.point.name, o.point.city);
-    for (const it of o.items) {
-      if (!it.product) continue;
-      const r = rowFor(b, it.product);
-      const qty = Number(it.quantity);
-      const kind = classify(it.product, it.unit, it.isSingle);
-      if (kind === "cartons") r.cartons += qty;
-      else if (kind === "units") r.units += qty;
-      else r.singlesKg += qty;
-    }
-  }
-
-  for (const w of walkins) {
-    if (!w.point) continue;
-    const b = bucket(w.point.id, w.point.name, w.point.city);
-    for (const it of w.items) {
-      if (!it.product) continue;
-      const r = rowFor(b, it.product);
-      // במזדמנים נשמר משקל ולא כמות
-      const kind = classify(it.product, it.product.unit, it.isSingle);
-      if (kind === "units") r.units += Number(it.weight);
-      else r.singlesKg += Number(it.weight);
-    }
-  }
-
-  if (byPoint.size === 0) {
-    return NextResponse.json(
-      { error: "אין הזמנות במכירה זו" },
-      { status: 400 }
-    );
+  if (points.length === 0) {
+    return NextResponse.json({ error: "אין הזמנות במכירה זו" }, { status: 400 });
   }
 
   // ─── בניית הקובץ ───
@@ -212,45 +76,29 @@ export async function GET(req: Request) {
     "עודף / חוסר",
   ];
 
-  // גיליון מרכז - סיכום כל הנקודות יחד, לספק שמספק למחסן אחד
-  const totals = new Map<string, Row>();
-
-  const sortedPoints = Array.from(byPoint.entries()).sort((a, b) =>
-    a[1].name.localeCompare(b[1].name, "he")
-  );
-
-  for (const [, pt] of sortedPoints) {
-    const ws = wb.addWorksheet(safeSheetName(pt.name), {
-      views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }],
-    });
-    buildSheet(ws, HEAD, pt.name + (pt.city ? ` — ${pt.city}` : ""), pricelist, pt.rows);
-
-    // צבירה לגיליון המרכז
-    for (const [pid, r] of pt.rows) {
-      let t = totals.get(pid);
-      if (!t) {
-        t = { ...r, cartons: 0, units: 0, singlesKg: 0 };
-        totals.set(pid, t);
-      }
-      t.cartons += r.cartons;
-      t.units += r.units;
-      t.singlesKg += r.singlesKg;
-    }
-  }
-
-  // הגיליון המרכז ראשון - זה מה שהמנהל פותח קודם
-  if (sortedPoints.length > 1) {
+  // גיליון מרכז ראשון - זה מה שפותחים כדי לשדר לחברה.
+  // מוצג רק כשיש יותר מנקודה אחת, אחרת זו כפילות.
+  if (points.length > 1) {
+    const all = await collectPlan(pricelistId, null);
     const ws = wb.addWorksheet("סיכום כל הנקודות", {
       views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }],
     });
-    buildSheet(ws, HEAD, "כל נקודות החלוקה", pricelist, totals);
-    // מעבירים לראש הרשימה
-    const idx = wb.worksheets.findIndex((x) => x.name === "סיכום כל הנקודות");
-    if (idx > 0) {
-      const sheet = wb.worksheets.splice(idx, 1)[0];
-      wb.worksheets.unshift(sheet);
-      wb.worksheets.forEach((s, i) => ((s as any).orderNo = i + 1));
-    }
+    buildSheet(ws, HEAD, "כל נקודות החלוקה", pricelist, all.rows as PlanRowLike[]);
+  }
+
+  // גיליון לכל נקודה - לפיצול הסחורה אחרי שהיא מגיעה
+  for (const pt of points) {
+    const one = await collectPlan(pricelistId, pt.id);
+    const ws = wb.addWorksheet(safeSheetName(pt.name), {
+      views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }],
+    });
+    buildSheet(
+      ws,
+      HEAD,
+      pt.name + (pt.city ? ` — ${pt.city}` : ""),
+      pricelist,
+      one.rows as PlanRowLike[]
+    );
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -265,6 +113,17 @@ export async function GET(req: Request) {
   });
 }
 
+type PlanRowLike = {
+  productId: string;
+  productName: string;
+  categoryName: string;
+  cartons: number;
+  units: number;
+  singlesKg: number;
+  extraCartons: number;
+  unitsPerCarton: number | null;
+};
+
 // שם גיליון חוקי: עד 31 תווים, בלי : \ / ? * [ ]
 function safeSheetName(name: string): string {
   return name.replace(/[:\\/?*[\]]/g, "-").slice(0, 31) || "נקודה";
@@ -275,7 +134,7 @@ function buildSheet(
   HEAD: string[],
   title: string,
   pricelist: { name: string; deliveryDateText: string | null },
-  rows: Map<string, Row>
+  rows: PlanRowLike[]
 ) {
   // ─── כותרת ───
   ws.mergeCells("A1:H1");
@@ -327,7 +186,8 @@ function buildSheet(
   ws.getRow(HEAD_ROW).height = 34;
 
   // ─── שורות ───
-  const sorted = Array.from(rows.values()).sort((a, b) => a.sortKey - b.sortKey);
+  // הסדר כבר נקבע ב-collectPlan (קטגוריה ואז מוצר)
+  const sorted = rows;
   let r = HEAD_ROW + 1;
   let lastCategory = "";
 
@@ -349,8 +209,9 @@ function buildSheet(
     ws.getCell(r, 3).value = row.units || null;
     ws.getCell(r, 4).value = row.singlesKg ? Math.round(row.singlesKg * 100) / 100 : null;
 
-    // E - מילוי ידני
+    // E - ההחלטה ששמורה מהמסך. הקובץ והמסך מציגים אותו מספר.
     const e = ws.getCell(r, 5);
+    if (row.extraCartons) e.value = row.extraCartons;
     e.protection = { locked: false };
     e.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEB" } };
     e.border = {
@@ -371,7 +232,7 @@ function buildSheet(
 
     // G - כמות בקרטון. ממולא אוטומטית כשניתן לגזור, אחרת ריק למילוי.
     const gCell = ws.getCell(r, 7);
-    if (row.perCarton) gCell.value = row.perCarton;
+    if (row.unitsPerCarton) gCell.value = row.unitsPerCarton;
     gCell.protection = { locked: false };
     gCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEB" } };
     gCell.alignment = { horizontal: "center" };
@@ -380,7 +241,12 @@ function buildSheet(
     // מוצג רק אם יש הזמנות ביחידות או בבודדים - בקרטון שלם אין המרה.
     const h = ws.getCell(r, 8);
     h.value = {
-      formula: `IF(OR(G${r}="",AND(C${r}="",D${r}="")),"",E${r}*G${r}-IF(C${r}="",D${r},C${r}))`,
+      // ⚠️ ISBLANK ולא ="" - תא שנכתב אליו null נחשב ריק באקסל,
+      // והשוואה למחרוזת ריקה לא תופסת אותו.
+      // N() ממיר ריק ל-0 כדי שהחישוב לא ייתן #VALUE.
+      formula:
+        `IF(OR(ISBLANK(G${r}),AND(ISBLANK(C${r}),ISBLANK(D${r}))),"",` +
+        `N(E${r})*N(G${r})-IF(ISBLANK(C${r}),N(D${r}),N(C${r})))`,
     };
     h.alignment = { horizontal: "center" };
     // ירוק = עודף, אדום = חוסר

@@ -99,6 +99,18 @@ model Customer {
   // תאריך ההסכמה - חשוב לתיעוד רגולטורי (GDPR/CAN-SPAM) ולהוכחת הסכמה במחלוקת.
   agreedToEmailsAt     DateTime?
 
+  // §52: לקוח לא פעיל.
+  //
+  // למה לא מחיקה: ללקוח יש היסטוריית הזמנות, חיובים ותעודות שחייבים
+  // להישמר - גם לתיעוד וגם כי מחיקה תשבור דוחות של מכירות עבר.
+  //
+  // לקוח לא פעיל: לא מקבל מיילים (כולל תפעוליים - הוא לא מזמין),
+  // לא מופיע בברודקסט ובתזכורות, לא מופיע בחיפוש הרגיל של הנציג,
+  // ולא יכול לבצע הזמנה חדשה. ההיסטוריה שלו נשארת שלמה.
+  isActive             Boolean   @default(true)
+  deactivatedAt        DateTime?
+  deactivatedReason    String?
+
   // §22: הסכמה לתנאי השימוש ולמדיניות הפרטיות.
   // עד כה הצ'קבוקס נאכף בטופס ההרשמה בלבד ולא נשמר בשום מקום, כלומר לא
   // הייתה שום הוכחה שהלקוח אישר. זו ההסכמה שמכסה את החיוב האוטומטי
@@ -170,6 +182,7 @@ model Product {
   walkinOrderItems  WalkinOrderItem[]
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  supplierPlans SupplierOrderPlan[]
 }
 
 model DeliveryPoint {
@@ -199,6 +212,7 @@ model DeliveryPoint {
   phoneAnnouncements  PhoneAnnouncement[]
   personalProducts PersonalProduct[] @relation("PersonalProductPoint") // §9: מוצרים אישיים בנקודה זו
   createdAt    DateTime @default(now())
+  supplierPlans SupplierOrderPlan[]
 }
 
 // טבלת קשר: נציג <-> נקודת חלוקה (many-to-many).
@@ -244,6 +258,7 @@ model Pricelist {
   agentPayments     AgentPayment[]
   phoneAnnouncements PhoneAnnouncement[]
   createdAt     DateTime @default(now())
+  supplierPlans SupplierOrderPlan[]
 }
 
 model PricelistPoint {
@@ -769,4 +784,48 @@ model PhoneAnnouncement {
 
   @@index([pricelistId, isActive])
   @@index([pointId])
+}
+
+// §51: תכנון ההזמנה לספק - ההחלטה של המנהל כמה קרטונים להזמין.
+//
+// למה זה נשמר ולא מחושב: ההמרה מיחידות/בודדים לקרטונים היא *החלטה
+// אנושית*, לא נוסחה. 38 יחידות בקרטון של 12 יכולות להיות 3 קרטונים
+// (חוסר 2) או 4 (עודף 10), והמנהל בוחר לפי שיקול דעת - מה עדיף לו
+// באותה מכירה.
+//
+// בלי שמירה, ההחלטה חיה רק בקובץ האקסל שהמנהל הוריד, והמסך והקובץ
+// לא מסכימים. עם שמירה - שניהם מציגים את אותו מספר, וההחלטה זמינה
+// גם למכירה הבאה כנקודת ייחוס.
+//
+// pointId ריק = ההחלטה היא לכלל המכירה (הגיליון המרכז).
+model SupplierOrderPlan {
+  id          String   @id @default(cuid())
+  pricelistId String
+  pricelist   Pricelist @relation(fields: [pricelistId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // ⚠️ scope במקום pointId nullable.
+  // הבעיה: ב-Postgres, @@unique עם עמודה שערכה NULL אינו אוכף
+  // ייחודיות - שתי שורות עם NULL נחשבות שונות. לכן upsert על תכנון
+  // כולל ("כל הנקודות") היה יוצר שורה חדשה בכל שמירה במקום לעדכן,
+  // וההחלטה של המנהל הייתה נעלמת.
+  //
+  // הפתרון: scope הוא מזהה הנקודה, או "ALL" לתכנון הכולל. הוא לעולם
+  // אינו NULL ולכן האילוץ עובד. pointId נשאר nullable לקשר עצמו.
+  scope       String
+  pointId     String?
+  point       DeliveryPoint? @relation(fields: [pointId], references: [id], onDelete: Cascade)
+
+  // כמה קרטונים להזמין כדי לכסות את היחידות/בודדים (עמודה E)
+  extraCartons  Decimal  @default(0) @db.Decimal(10, 2)
+  // כמה יחידות/ק"ג נכנסים בקרטון - לחישוב העודף (עמודה G).
+  // נשמר כי לא תמיד ניתן לגזור אותו מהמוצר, והמנהל יודע.
+  unitsPerCarton Decimal? @db.Decimal(10, 2)
+
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([pricelistId, productId, scope])
+  @@index([pricelistId])
 }

@@ -13,6 +13,24 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import ExcelJS from "exceljs";
 
+// §53: תווית יחידה לפריט.
+// 🐛 תוקן: התווית הייתה "קרטון" קשיח, ולכן מוצר ארוז שנמכר ביחידות
+// ("בקר טחון 500 ג'") הופיע כקרטון ברשימת האיסוף שהנציג לוקח לשטח -
+// והוא היה מחפש קרטון שלא קיים.
+function pluralizeHe(u: string, n: number): string {
+  if (n <= 1) return u;
+  if (u.endsWith("ה")) return u.slice(0, -1) + "ות";
+  const finals: Record<string, string> = { "ם": "מ", "ן": "נ", "ץ": "צ", "ף": "פ", "ך": "כ" };
+  const last = u.slice(-1);
+  return (finals[last] ? u.slice(0, -1) + finals[last] : u) + "ים";
+}
+
+function packUnitLabel(unit?: string | null): string {
+  const u = (unit || "").trim();
+  return u && u !== 'ק"ג' ? u : "קרטון";
+}
+
+
 // עיצוב
 const YELLOW = "FFFFE000";
 const RUST = "FFC0461E";
@@ -397,9 +415,12 @@ function buildOrdersSheet(wb: ExcelJS.Workbook, orders: any[]) {
 
       const label = item.isSingle ? `${item.productName} (בודדים)` : item.productName;
       r.getCell(5).value = label;
+      const qty6 = Number(item.quantity);
       r.getCell(6).value = item.isSingle
-        ? `${Number(item.quantity).toFixed(2)} ק"ג`
-        : `${Number(item.quantity)} קרטון`;
+        ? item.unit === "יחידה" || item.unit === "יחידות"
+          ? `${qty6} ${pluralizeHe("יחידה", qty6)}`
+          : `${qty6.toFixed(2)} ק"ג`
+        : `${qty6} ${pluralizeHe(packUnitLabel(item.unit), qty6)}`;
       r.getCell(7).value = Number(item.unitPrice);
       r.getCell(7).numFmt = '₪#,##0.00';
 

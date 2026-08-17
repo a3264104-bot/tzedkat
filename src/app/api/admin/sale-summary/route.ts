@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   const orders = await prisma.order.findMany({
     where: { pricelistId: pricelist.id, status: { not: "CANCELLED" } },
     include: {
-      items: { include: { product: { select: { id: true, limitedQty: true, limitedQtyAmount: true, saleType: true, priceType: true } } } },
+      items: { include: { product: { select: { id: true, limitedQty: true, limitedQtyAmount: true, saleType: true, priceType: true, singlesMode: true, unit: true } } } },
       point: { select: { id: true, name: true, city: true } },
     },
     orderBy: { orderNumber: "asc" },
@@ -43,6 +43,7 @@ export async function GET(req: Request) {
     unit: string;
     totalQuantity: number;
     singlesQuantity: number;
+    unitsQuantity: number;
     totalEstimatedWeight: number;
     totalActualWeight: number;
     orderCount: number;
@@ -105,6 +106,11 @@ export async function GET(req: Request) {
           unit: it.unit,
           totalQuantity: 0,
           singlesQuantity: 0,
+          // §53: יחידות ארוזות בנפרד מקרטונים.
+          // 🐛 הבאג: cartonsOnly חושב כ-totalQuantity פחות
+          // singlesQuantity, ולכן מוצר ארוז שנמכר ביחידות ("בקר טחון
+          // 500 ג'") נספר כקרטון והוצג כ"2 קרטונים" בסיכום.
+          unitsQuantity: 0,
           totalEstimatedWeight: 0,
           totalActualWeight: 0,
           orderCount: 0,
@@ -114,7 +120,20 @@ export async function GET(req: Request) {
         byProduct.set(key, agg);
       }
       agg.totalQuantity += Number(it.quantity);
-      if (it.isSingle) agg.singlesQuantity += Number(it.quantity);
+      if (it.isSingle) {
+        // בודדים במצב UNITS הם יחידות, לא ק"ג
+        if (it.product?.singlesMode === "UNITS") {
+          agg.unitsQuantity += Number(it.quantity);
+        } else {
+          agg.singlesQuantity += Number(it.quantity);
+        }
+      } else {
+        // מוצר ארוז (unit שאינו קרטון/ק"ג) נספר כיחידות ולא כקרטון
+        const u = (it.unit || "").trim();
+        if (u && u !== "קרטון" && u !== 'ק"ג') {
+          agg.unitsQuantity += Number(it.quantity);
+        }
+      }
       if (it.estimatedWeight != null) agg.totalEstimatedWeight += Number(it.estimatedWeight);
       // 🐛 תוקן: המקור היה finalWeight - שדה תאימות-לאחור שלא תמיד מתעדכן
       // כשהמנהל מתקן משקל בביקורת המשקלים (שם מתעדכן actualWeight).

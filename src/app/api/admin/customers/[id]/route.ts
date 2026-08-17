@@ -25,6 +25,9 @@ const ALLOWED_FIELDS = [
   "agentCanCharge",
   "agentCanUpdateCards",
   "cardNeedsUpdate",
+  // §52: הפעלה/השבתה של לקוח
+  "isActive",
+  "deactivatedReason",
 ] as const;
 
 // §24: נציג עם הרשאת agentCanResetPassword יכול לאפס סיסמה ללקוח -
@@ -113,6 +116,13 @@ export async function PATCH(
   }
 
   const data: any = {};
+
+  // §52: חותמת הזמן של ההשבתה נגזרת מהשדה ולא נשלחת מהלקוח -
+  // כדי שלא ניתן יהיה לזייף אותה, ושהיא תמיד תשקף את המציאות.
+  if ("isActive" in body) {
+    data.deactivatedAt = body.isActive === false ? new Date() : null;
+    if (body.isActive !== false) data.deactivatedReason = null;
+  }
 
   // שדות רגילים
   for (const field of ALLOWED_FIELDS) {
