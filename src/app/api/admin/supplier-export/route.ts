@@ -26,7 +26,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import ExcelJS from "exceljs";
-import { collectPlan } from "@/app/api/admin/supplier-plan/route";
+// §63: הייבוא הועבר מ-route.ts לספרייה. ייבוא בין קבצי route הוא גם
+// מה שהכריח את supplier-plan/route.ts לייצא את הפונקציה - ייצוא
+// שאסור ב-App Router והפיל את ה-build.
+import { collectPlan } from "@/lib/supplier-plan";
 
 
 export async function GET(req: Request) {

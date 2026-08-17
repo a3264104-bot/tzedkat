@@ -201,6 +201,14 @@ export async function POST(req: Request) {
 
       // עדכון פרטי הכרטיס אצל הלקוח.
       // cardNeedsUpdate מתאפס תמיד כאשר נשמר טוקן חדש.
+      //
+      // §60: לקוח ששמר טוקן הוא משלם באשראי - בדיוק כמו ב-save-token.
+      // בלי זה נפערת דלת אחורית: לקוח מזומן שעדכן כרטיס דרך מסלול
+      // ה-webhook (ולא דרך postMessage) היה נשאר CASH *עם* טוקן, ואז
+      // גם החיוב האוטומטי מדלג עליו וגם הוא חסום באתר - לקוח תקוע
+      // בלי שאיש רואה למה.
+      //
+      // מותנה ב-token: קריאה בלי טוקן לא אמורה לשנות אופן תשלום.
       await prisma.customer.update({
         where: { id: param1 },
         data: {
@@ -209,6 +217,7 @@ export async function POST(req: Request) {
           cardExpiry: cardExpiry || null,
           cardVerifiedAt: new Date(),
           cardNeedsUpdate: false,
+          ...(token ? { paymentPreference: "CREDIT" } : {}),
         },
       });
 
@@ -320,6 +329,10 @@ export async function POST(req: Request) {
                   paymentToken: token,
                   cardLast4: last4 || customer.cardLast4,
                   cardExpiry: cardExpiry || customer.cardExpiry,
+                  // §60: גם כאן נשמר טוקן - אותו כלל כמו ב-registration
+                  // וב-save-token. לקוח מזומן ששילם אונליין והשאיר
+                  // כרטיס הוא משלם באשראי מכאן והלאה.
+                  paymentPreference: "CREDIT",
                 },
               }),
             ]

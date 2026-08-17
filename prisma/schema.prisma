@@ -31,7 +31,29 @@ model Customer {
   // סיסמא בטקסט גלוי - נשמרת רק לנציגים/מנהלים כדי שהמנהל יוכל לראות אותה
   // נכתבת רק כשהמנהל מאפס דרך /admin/agents/[id]/reset-password
   // לא נשמרת לסיסמאות ישנות (bcrypt hash אחיד) - במקרה כזה יש להציג הודעה
+  //
+  // §62 DEPRECATED: הוחלף ב-loginCode המוצפן. נשאר לתאימות אחורה בזמן
+  // המעבר ולא נכתב יותר. יוסר אחרי שכל הלקוחות יקבלו loginCode.
   passwordPlain        String?
+
+  // ═══ §62: קוד התחברות ═══
+  // קוד מספרי בן 4-6 ספרות שמחליף את הסיסמה. הדרישה התפעולית: לקוח
+  // מתקשר "שכחתי קוד", והמנהל רואה מיד את הקוד הפעיל - בלי איפוס,
+  // בלי SMS, בלי תהליך שחזור.
+  //
+  // ⚠️ הקוד **מוצפן** ב-AES-256-GCM (ראה src/lib/login-code.ts) ולא
+  // שמור כטקסט גלוי. המנהל עדיין רואה אותו בלחיצה - השרת מפענח
+  // בבקשה שלו. ההבדל מתגלה רק אם דלף גיבוי של המסד: בלי המפתח
+  // (AUTH_CODE_KEY ב-ENV, שאינו במסד) הערך הזה חסר ערך.
+  //
+  // למה זה קריטי דווקא כאן: לקוח עם קוד גנוב יכול להיכנס ולהזמין,
+  // וההזמנה מחייבת את הטוקן השמור שלו בנדרים.
+  loginCode            String?
+  loginCodeSetAt       DateTime?
+  // §62: הגנה מפני ניחוש. טלפון כשם משתמש + קוד מספרי קצר = מרחב
+  // חיפוש קטן, ולכן הנעילה אינה אופציונלית.
+  failedLoginAttempts  Int       @default(0)
+  lockedUntil          DateTime?
   role                 String    @default("CUSTOMER") // CUSTOMER / AGENT / ADMIN
   // נקודת חלוקה ברירת מחדל - נבחרת חובה בהרשמה, ניתנת לשינוי באזור האישי
   defaultPointId       String?
@@ -48,6 +70,12 @@ model Customer {
   // הפך ל-true כשניסיון חיוב אחרון נכשל בגלל טוקן פסול/כרטיס פג-תוקף.
   // מתאפס ל-false כשנשמר טוקן חדש (webhook רישום חוזר).
   cardNeedsUpdate      Boolean   @default(false)
+  // §60: אופן התשלום של הלקוח. CREDIT (ברירת מחדל) / CASH.
+  // CASH = לקוח מזדמן שמשלם מזומן בחלוקה: נציג יכול להזמין עבורו בלי
+  // כרטיס, החיוב האוטומטי מדלג עליו, והוא לא יכול להזמין באתר בעצמו
+  // עד שיוסיף כרטיס. String ולא Boolean - עקבי עם Order.paymentMethod
+  // וניתן להרחבה. save-token מחזיר ל-CREDIT אוטומטית כשנשמר טוקן.
+  paymentPreference    String    @default("CREDIT")
   // שדות נציג (רלוונטיים רק כאשר role=AGENT)
   // agentPointId: הנקודה שהנציג מוגבל אליה. null = רואה את כל הלקוחות
   // 🔴 DEPRECATED: משתמש בטבלת הקשר AgentPoint (מרובה נקודות). נשאר לתאימות אחורה
@@ -828,4 +856,66 @@ model SupplierOrderPlan {
 
   @@unique([pricelistId, productId, scope])
   @@index([pricelistId])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// §62: יומן פעולות מנהל
+// ═══════════════════════════════════════════════════════════════
+// כל פעולה רגישה של מנהל/נציג נרשמת: צפייה בקוד, שינוי קוד, כניסה
+// בשם משתמש, שינוי טלפון/מייל, השבתת חשבון.
+//
+// ⚠️ כלל ברזל: **הקוד עצמו לעולם לא נכתב כאן** ולא בשום לוג אחר.
+// נרשם רק שהקוד נצפה/שונה, לא מה הוא. meta מיועד לפרטים לא-רגישים
+// (למשל "changed point from X to Y") ולכן אסור להעביר אליו סודות.
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  // מי ביצע
+  actorId    String
+  actorRole  String
+  actorName  String?
+  // מה בוצע - VIEW_CODE / SET_CODE / IMPERSONATE_START / IMPERSONATE_STOP /
+  // UPDATE_CUSTOMER / TOGGLE_ACTIVE / CHANGE_PAYMENT_PREF
+  action     String
+  // על מי
+  targetType String   @default("Customer")
+  targetId   String?
+  targetName String?
+  // פרטים לא-רגישים בלבד, כ-JSON
+  meta       String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([targetId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// §62: כרטיס כניסה בשם משתמש (Login As)
+// ═══════════════════════════════════════════════════════════════
+// המנהל לוחץ "כניסה כמשתמש" -> השרת מנפיק כרטיס חד-פעמי קצר-מועד,
+// והקליינט פודה אותו מול provider ייעודי ב-Auth.js.
+//
+// למה כרטיס במסד ולא פשוט להחליף את ה-JWT: ה-JWT נחתם בצד השרת של
+// Auth.js בלבד, ו-route רגיל לא יכול לכתוב אליו. הכרטיס הוא הדרך
+// הבטוחה להעביר את ההרשאה - הוא חד-פעמי (usedAt), פג תוך דקה,
+// ומתועד. בלעדיו היינו נאלצים לסמוך על ערך שהקליינט שולח.
+model ImpersonationTicket {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  // המשתמש שנכנסים אליו
+  targetId  String
+  // המנהל שיזם - נשמר ב-JWT כדי לאפשר חזרה
+  actorId   String
+  actorRole String
+  actorName String?
+  // כרטיס חזרה: מסיים התחזות ומחזיר את המנהל לעצמו
+  isReturn  Boolean  @default(false)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
 }

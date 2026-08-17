@@ -53,6 +53,9 @@ type Product = {
   isFrozen: boolean;
   limitedQty: boolean;
   sortOrder: number;
+  // §67: מוצר שאינו פעיל למכירה כללית ("מועדפים") - מוצג רק לנציג
+  // ולמנהל, בקטגוריה נפרדת. מסלול הלקוח לא שולח את השדה כלל.
+  isInactive?: boolean;
 };
 type Pricelist = {
   id: string;
@@ -172,13 +175,49 @@ export function OrderFlow({
     () => (selectedCity ? points.filter((p) => p.city === selectedCity) : []),
     [points, selectedCity]
   );
+
+  // §58: בחירה אוטומטית כשיש נקודה אחת בלבד.
+  //
+  // 🐛 הבאג: הדילוג היה רק בלחיצה על עיר עם נקודה אחת. אבל אם המשתמש
+  // הגיע למסך הנקודות בדרך אחרת - חזרה אחורה, או מכירה שיש בה עיר
+  // אחת בלבד - הוא ראה רשימה עם פריט יחיד וצריך היה ללחוץ עליו ואז
+  // על "המשך". שתי לחיצות על בחירה שאין בה בחירה.
+  //
+  // אין טעם לבקש מהלקוח לבחור כשאין לו ממה לבחור.
+  const visiblePoints = showCityStep && selectedCity ? pointsInSelectedCity : points;
+  useEffect(() => {
+    if (step !== "point") return;
+    // מחכים שהעיר תיבחר, אחרת נבחר נקודה לפני שהלקוח בחר עיר
+    if (showCityStep && !selectedCity) return;
+    if (visiblePoints.length === 1 && !pointId) {
+      setPointId(visiblePoints[0].id);
+      setStep("products");
+    }
+  }, [step, showCityStep, selectedCity, visiblePoints, pointId]);
+  // §67: מוצרים לא-פעילים ("מועדפים") מקובצים לקטגוריה משלהם ונדחפים
+  // לסוף הרשימה.
+  //
+  // למה לא לערבב אותם בקטגוריה הרגילה: המנהל הוציא אותם מהמכירה
+  // בכוונה - פרימיום או כמות מוגבלת - והנציג צריך לבחור בהם במודע
+  // ולא בטעות, בזמן שהוא עובר על הקטלוג מול הלקוח.
+  //
+  // מסלול הלקוח לא מושפע: /order/page.tsx מסנן אותם עוד לפני שהם
+  // מגיעים לכאן, ולכן הקטגוריה הזו פשוט לא תיווצר.
+  const SPECIAL_CATEGORY = "⭐ מוצרים מיוחדים (לא במכירה הכללית)";
   const categories = useMemo(() => {
     const map = new Map<string, Product[]>();
+    const special: Product[] = [];
     for (const p of products) {
+      if (p.isInactive) {
+        special.push(p);
+        continue;
+      }
       if (!map.has(p.category)) map.set(p.category, []);
       map.get(p.category)!.push(p);
     }
-    return Array.from(map.entries());
+    const list = Array.from(map.entries());
+    if (special.length > 0) list.push([SPECIAL_CATEGORY, special]);
+    return list;
   }, [products]);
   // ח4: cartLines — מפרק כל entry לשורה/שתיים (קרטונים + בודדים)
   type ComputedLine = {
@@ -874,7 +913,7 @@ export function OrderFlow({
                     ← חזרה לבחירת עיר
                   </button>
                 )}
-                {(showCityStep ? pointsInSelectedCity : points).map((p) => (
+                {visiblePoints.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => setPointId(p.id)}

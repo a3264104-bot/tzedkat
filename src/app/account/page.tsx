@@ -29,7 +29,12 @@ export default async function AccountPage() {
         include: {
           point: { select: { name: true, city: true, address: true, deliveryHours: true } },
           items: { include: { product: { select: { imageUrl: true } } } },
-          pricelist: { select: { closeDate: true, editDeadline: true } },
+          // §59: orderFee נטען מהמחירון לצורך זיהוי שורת "דמי הזמנה"
+          // בפירוט החיוב. הוא *לא* snapshot — אם דמי ההזמנה ישתנו אחרי
+          // ההזמנה, הערך כאן לא ישקף את מה שנגבה בפועל. לכן הלקוח
+          // (AccountClient) משתמש בו רק לזיהוי: ההפרש בין סכום הפריטים
+          // לסה"כ ההזמנה נקרא "דמי הזמנה" רק אם הוא שווה לו בדיוק.
+          pricelist: { select: { closeDate: true, editDeadline: true, orderFee: true } },
         },
       },
     },
@@ -65,16 +70,37 @@ export default async function AccountPage() {
     deliveryDate: o.deliveryDateSnapshot,
     estimatedTotal: Number(o.estimatedTotal),
     finalTotal: o.finalTotal != null ? Number(o.finalTotal) : null,
+    // §59: מה ששולם בפועל עשוי להיות שונה מ-finalTotal (תשלום חלקי,
+    // עיגול מזומן). מוצג בפירוט החיוב רק אם הוא שונה מהסה"כ.
+    amountPaid: o.amountPaid != null ? Number(o.amountPaid) : null,
     createdAt: o.createdAt.toISOString(),
     itemCount: o.items.length,
-    // §7: רשימת מוצרים עם תמונות
+    // §59: פירוט חיוב מלא — כמו במייל החיוב. כל השדות הם snapshot
+    // מרגע ההזמנה/השקילה (unitPrice, estimatedPrice, finalPrice), ולכן
+    // התצוגה נכונה גם להזמנות ישנות שהמחירון שלהן השתנה.
     items: o.items.map((item) => ({
+      id: item.id,
       productName: item.productName,
       unit: item.unit,
       quantity: Number(item.quantity),
       isSingle: item.isSingle,
+      isCancelled: item.isCancelled,
       imageUrl: (item as any).product?.imageUrl ?? null,
+      // §49: estimatedWeight הוא הערכה ומוצג עם "כ-", actualWeight הוא
+      // עובדה אחרי שקילה. finalWeight הוא שדה תאימות-לאחור זהה
+      // ל-actualWeight, ולכן משמש כנפילה עבור הזמנות ישנות.
+      estimatedWeight: item.estimatedWeight != null ? Number(item.estimatedWeight) : null,
+      actualWeight:
+        item.actualWeight != null
+          ? Number(item.actualWeight)
+          : item.finalWeight != null
+            ? Number(item.finalWeight)
+            : null,
+      unitPrice: Number(item.unitPrice),
+      estimatedPrice: Number(item.estimatedPrice),
+      finalPrice: item.finalPrice != null ? Number(item.finalPrice) : null,
     })),
+    pricelistOrderFee: o.pricelist?.orderFee != null ? Number(o.pricelist.orderFee) : null,
     // שדות ל-§16: עריכה/ביטול הזמנה
     customerName: o.customerName,
     phone: o.phone,
@@ -97,6 +123,12 @@ export default async function AccountPage() {
         defaultPointId: customer.defaultPointId,
         defaultPointName: customer.defaultPoint?.name ?? null,
         agreedToEmails: customer.agreedToEmails,
+        // §64: נציג במצב לקוח - מתג חזרה לאזור הנציג (סעיף 5)
+        role: customer.role,
+        // §64: השלמת הרשמה עצמאית (סעיף 9). לקוח מזומן לא נדרש
+        // לכרטיס, ולכן paymentPreference נבדק יחד עם קיום הטוקן.
+        hasCard: !!customer.paymentToken,
+        paymentPreference: customer.paymentPreference,
       }}
       orders={ordersData}
       points={points}

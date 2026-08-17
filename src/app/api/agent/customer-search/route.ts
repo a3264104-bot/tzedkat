@@ -31,6 +31,8 @@ export type SearchHit = {
   isActive: boolean;
   hasCard: boolean;
   cardLast4: string | null;
+  /** §60: CASH = לקוח מזומן (לא יידרש כרטיס בהזמנת נציג) */
+  paymentPreference: string;
   pointId: string | null;
   pointName: string | null;
   orderCount: number;
@@ -103,6 +105,7 @@ export async function GET(req: Request) {
       isActive: true,
       cardLast4: true,
       paymentToken: true,
+      paymentPreference: true,
       defaultPointId: true,
       defaultPoint: { select: { id: true, name: true, city: true } },
       _count: { select: { orders: true } },
@@ -198,6 +201,7 @@ export async function GET(req: Request) {
         isActive: c.isActive !== false,
         hasCard: !!c.paymentToken,
         cardLast4: c.cardLast4,
+        paymentPreference: c.paymentPreference,
         pointId: c.defaultPointId,
         pointName: c.defaultPoint?.name || null,
         orderCount: c._count.orders,

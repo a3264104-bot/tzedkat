@@ -175,6 +175,10 @@ export async function POST(req: Request) {
         ...(tokef ? { cardExpiry: tokef } : {}),
         cardVerifiedAt: new Date(),
         cardNeedsUpdate: false,
+        // §60: לקוח ששמר כרטיס מאומת הוא משלם באשראי. זו גם הדרך
+        // היחידה לעבור ממזומן לאשראי - ההחלפה מתרחשת כאן ולא ב-route
+        // נפרד, כדי שלא יתקיים מצב ביניים "אשראי בלי טוקן".
+        paymentPreference: "CREDIT",
         // §46: creditVerificationCharged נשאר false בכוונה!
         // הוא מסמן שהקיזוז *נוצל*, לא שהחיוב בוצע. charge/route
         // מקזז את השקל בהזמנה הראשונה ורק אז מסמן true.
@@ -214,6 +218,28 @@ export async function POST(req: Request) {
       },
       data: { lastChargeError: null },
     });
+
+    // §56: סגירת בקשת ההרשמה מהטלפון.
+    //
+    // 🐛 הבאג שתוקן: הסגירה האוטומטית הייתה קיימת רק בתוך ה-PATCH של
+    // phone-signups - כלומר רק כשמישהו לחץ על פעולה כלשהי במסך.
+    // כשהלקוח עדכן כרטיס (וזו כל מטרת הבקשה), שום דבר לא נגע בה,
+    // והיא נשארה "ממתינה" לנצח. המסך הציג אותה כהושלמה לפי hasToken,
+    // אבל הסטטוס ב-DB היה תקוע - וכל דוח או סינון לפי סטטוס שיקר.
+    //
+    // עדכון הכרטיס *הוא* השלמת הבקשה, ולכן הסגירה כאן.
+    const closedRequests = await prisma.phoneSignupRequest.updateMany({
+      where: {
+        customerId: targetCustomerId,
+        status: { notIn: ["COMPLETED"] },
+      },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+    if (closedRequests.count > 0) {
+      console.log(
+        `[save-token] closed ${closedRequests.count} phone signup request(s) for customer=${targetCustomerId}`
+      );
+    }
 
     console.log(
       `[save-token] Token saved for customer=${targetCustomerId} (by ${sessionUserId}) ` +

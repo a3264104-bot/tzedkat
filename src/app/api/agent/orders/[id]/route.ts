@@ -43,14 +43,34 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   let canSetFinalPrice = role === "ADMIN";
   let canSendPaymentLink = role === "ADMIN";
   if (role === "AGENT") {
-    const agent = await prisma.customer.findUnique({ where: { id: sessionUserId } });
+    const agent = await prisma.customer.findUnique({
+      where: { id: sessionUserId },
+      include: { agentPoints: { select: { pointId: true } } },
+    });
     canSetFinalPrice = agent?.agentCanSetFinalPrice ?? false;
     canSendPaymentLink = agent?.agentCanSendPaymentLink ?? false;
-    // הגבלת נקודה
-    if (agent?.agentPointId && order.pointId !== agent.agentPointId) {
+    // §60: 🐛 תוקן דפוס ג'. ההגבלה השוותה רק ל-agentPointId הישן,
+    // ולכן נציג רב-נקודתי (agentPoints[] מלא, agentPointId ריק) עבר
+    // *בלי שום בדיקה* ויכול היה לעדכן משקלים ולקבוע מחיר סופי לכל
+    // הזמנה במערכת. נציג בלי נקודות כלל - נחסם.
+    const agentPointIds = new Set(agent?.agentPoints.map((ap) => ap.pointId) ?? []);
+    if (agent?.agentPointId) agentPointIds.add(agent.agentPointId);
+    if (agentPointIds.size === 0) {
+      return NextResponse.json(
+        { error: "אין לך נקודת חלוקה משויכת. פנה למנהל." },
+        { status: 403 }
+      );
+    }
+    if (!agentPointIds.has(order.pointId)) {
       return NextResponse.json({ error: "אין לך הרשאה להזמנה זו" }, { status: 403 });
     }
   }
+
+  // §60: לקוח מזומן - הגבייה במזומן בחלוקה. אין לינק תשלום ואין מייל
+  // "נא להשלים תשלום", גם אם לנציג יש את ההרשאה. המחיר הסופי כן נקבע
+  // כרגיל - הוא נדרש כדי לדעת כמה לגבות בשטח.
+  const isCashCustomer = order.customer.paymentPreference === "CASH";
+  if (isCashCustomer) canSendPaymentLink = false;
 
   // עדכון משקלים לפריטים (אופציונלי - רק מה שנשלח)
   if (Array.isArray(b.items)) {
@@ -152,5 +172,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     where: { id },
     include: { items: true },
   });
-  return NextResponse.json({ ...updated, _finalPriceJustSet: finalPriceJustSet });
+  return NextResponse.json({
+    ...updated,
+    _finalPriceJustSet: finalPriceJustSet,
+    // §60: ה-UI מציג "לגבות במזומן בחלוקה" במקום להודיע על לינק שנשלח
+    _isCashCustomer: isCashCustomer,
+  });
 }

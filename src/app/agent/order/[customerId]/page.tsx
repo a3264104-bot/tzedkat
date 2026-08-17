@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { OrderFlow } from "@/app/order/OrderFlow";
+import { AgentPaymentGate } from "@/components/AgentPaymentGate";
 
 export const dynamic = "force-dynamic";
 
@@ -216,8 +217,16 @@ export default async function AgentOrderPage({
       customDeliveryDateText: p.customDeliveryDateText,
     }));
 
+  // §67: 🐛 הפער האחרון במוצרים המיוחדים.
+  //
+  // כאן היה `.filter((pp) => pp.product.isActive)` - בדיוק כמו באתר.
+  // התוצאה: הנציג ראה את המוצרים הלא-פעילים כשהוסיף אותם להזמנה
+  // *קיימת* (§65), אבל לא כשפתח הזמנה **חדשה** - הרגע שבו הוא הכי
+  // צריך אותם, כי אז הוא יושב מול הלקוח.
+  //
+  // עכשיו הם נכללים ומסומנים ב-isInactive, וה-flow מציג אותם
+  // בנפרד. מסלול הלקוח (/order/page.tsx) לא נגע - שם הסינון נשאר.
   const products = pricelist.products
-    .filter((pp) => pp.product.isActive)
     .map((pp) => ({
       id: pp.product.id,
       name: pp.product.name,
@@ -239,6 +248,9 @@ export default async function AgentOrderPage({
       kashrutImageUrl: pp.product.kashrutRef?.imageUrl || null,
       isFeatured: pp.product.isFeatured,
       highlightNote: pp.product.highlightNote,
+      // §67: מוצר שאינו מוצג ללקוחות - מסומן כדי שה-flow יציג אותו
+      // בקטגוריה נפרדת ולא יערבב אותו במכירה הרגילה.
+      isInactive: pp.product.isActive === false,
       packageWeight: pp.product.packageWeight,
       isFrozen: pp.product.isFrozen,
       limitedQty: pp.product.limitedQty,
@@ -250,6 +262,36 @@ export default async function AgentOrderPage({
   // - יש token → cardVerified=true → מדלגים על אימות
   // - אין token → cardVerified=false → הflow יבקש להזין כרטיס (הנציג יעביר את המכשיר ללקוח)
   const hasPaymentToken = !!targetCustomer.paymentToken;
+
+  // §60: לקוח מזומן. לא נדרש כרטיס בהזמנה דרך נציג - הגבייה במזומן
+  // בחלוקה. לכן cardVerified מקבל true גם בלי טוקן, וה-flow לא יעצור
+  // את הנציג במסך הזנת כרטיס. זה תקף *רק* להזמנת נציג: באתר עצמו
+  // לקוח מזומן בלי טוקן חסום (אכיפה ב-API יצירת ההזמנה).
+  const isCashCustomer = targetCustomer.paymentPreference === "CASH";
+
+  // §61: לקוח בלי אמצעי תשלום כלל - חוסם לפני ההזמנה.
+  //
+  // 🐛 הפער: לקוח שנרשם ב-IVR נוצר בלי כרטיס ועם CREDIT כברירת מחדל.
+  // הנציג פתח לו הזמנה, ו-/api/orders פוטר הזמנות נציג מדרישת כרטיס -
+  // כך נוצרה הזמנה בלי שום מסלול גבייה, שנתקעת בזמן החיוב על
+  // "אין כרטיס שמור". עכשיו הנציג מכריע פעם אחת: כרטיס או מזומן.
+  if (!hasPaymentToken && !isCashCustomer) {
+    let canUpdateCards = role === "ADMIN";
+    if (role === "AGENT") {
+      const me = await prisma.customer.findUnique({
+        where: { id: sessionUserId },
+        select: { agentCanUpdateCards: true },
+      });
+      canUpdateCards = me?.agentCanUpdateCards ?? false;
+    }
+    return (
+      <AgentPaymentGate
+        customerId={targetCustomer.id}
+        customerName={targetCustomer.name}
+        canUpdateCards={canUpdateCards}
+      />
+    );
+  }
 
   return (
     <div dir="rtl">
@@ -272,11 +314,15 @@ export default async function AgentOrderPage({
                       לא הופעל
                     </span>
                   )}
-                  {hasPaymentToken && (
+                  {isCashCustomer ? (
+                    <span className="text-[10px] bg-lime-300 text-lime-950 px-1.5 py-0.5 rounded font-bold">
+                      💵 מזומן
+                    </span>
+                  ) : hasPaymentToken ? (
                     <span className="text-[10px] bg-emerald-400 text-emerald-950 px-1.5 py-0.5 rounded font-bold">
                       יש כרטיס
                     </span>
-                  )}
+                  ) : null}
                 </div>
                 <div className="text-xs text-white/80 flex items-center gap-2 flex-wrap">
                   {targetCustomer.phone && (
@@ -300,13 +346,21 @@ export default async function AgentOrderPage({
             </Link>
           </div>
 
-          {/* התראת אזהרה אם אין כרטיס */}
-          {!hasPaymentToken && (
-            <div className="mt-2 text-[11px] bg-amber-500/20 border border-amber-400/40 rounded-lg px-3 py-1.5 text-amber-100">
-              💳 <strong>שים לב:</strong> אין ללקוח כרטיס אשראי במערכת. בסוף ההזמנה
-              תתבקש להעביר את המכשיר ללקוח לאימות כרטיס (חיוב 1 ש&quot;ח שיקוזז
-              מההזמנה הראשונה).
+          {/* §60: לקוח מזומן - אין דרישת כרטיס, הגבייה בחלוקה */}
+          {isCashCustomer ? (
+            <div className="mt-2 text-[11px] bg-lime-500/20 border border-lime-400/40 rounded-lg px-3 py-1.5 text-lime-100">
+              💵 <strong>לקוח מזומן:</strong> לא יידרש כרטיס אשראי. הגבייה תתבצע
+              במזומן בעת החלוקה, לאחר קביעת המחיר הסופי.
             </div>
+          ) : (
+            /* התראת אזהרה אם אין כרטיס - רק ללקוח אשראי */
+            !hasPaymentToken && (
+              <div className="mt-2 text-[11px] bg-amber-500/20 border border-amber-400/40 rounded-lg px-3 py-1.5 text-amber-100">
+                💳 <strong>שים לב:</strong> אין ללקוח כרטיס אשראי במערכת. בסוף ההזמנה
+                תתבקש להעביר את המכשיר ללקוח לאימות כרטיס (חיוב 1 ש&quot;ח שיקוזז
+                מההזמנה הראשונה).
+              </div>
+            )
           )}
         </div>
       </div>
@@ -338,7 +392,8 @@ export default async function AgentOrderPage({
         }}
         customerId={targetCustomer.id}
         onBehalfOfCustomerId={targetCustomer.id}
-        cardVerified={hasPaymentToken}
+        // §60: לקוח מזומן לא נדרש לכרטיס בהזמנת נציג
+        cardVerified={hasPaymentToken || isCashCustomer}
         hasSeenOrderIntro={true}
       />
     </div>

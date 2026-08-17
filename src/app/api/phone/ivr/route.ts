@@ -28,6 +28,8 @@ import {
   messages,
 } from "@/lib/yemot-lib";
 import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
+// §64: קוד התחברות ללקוח שנרשם בטלפון
+import { encryptCode, generateLoginCode } from "@/lib/login-code";
 import {
   sendCustomerOrderConfirmation,
   sendAdminOrderNotification,
@@ -44,6 +46,33 @@ type DraftItem = {
   estimatedPrice: number;
   estimatedWeight: number | null;
 };
+
+// §61: המחירון נטען **פעם אחת** בכניסה לבקשה, עם כל השדות שמישהו
+// במסלול צריך, ומועבר הלאה. קודם הוא נטען מחדש בכל שלב (findFirst
+// בתפריט + findFirst ב-handleOrder + שלוש findUnique נוספות לשדות
+// בודדים כמו orderFee ו-editDeadline) - חמש נסיעות הלוך-חזור למסד
+// על אותה שורה, בכל הקשה בשיחה.
+type ActiveSale = {
+  id: string;
+  name: string;
+  closeDate: Date | null;
+  openDate: Date | null;
+  singleSurcharge: any;
+  orderFee: any;
+  deliveryDateText: string | null;
+  editDeadline: Date | null;
+};
+
+// §61: ימות מחכים לתשובה שלנו לפני שהם משמיעים את ההודעה הבאה, ולכן
+// כל מילישנייה כאן היא שקט באוזן של הלקוח.
+//
+// dub1 = דבלין, אותו אזור פיזי של Supabase (AWS eu-west-1). בלי
+// ההגדרה הזו הפונקציה רצה באזור ברירת המחדל של Vercel (iad1,
+// וירג'יניה), וכל שאילתה עושה נסיעה חוצה-אוקיינוס של ~80-100ms.
+// עם 8-11 שאילתות סדרתיות להקשה - זו שנייה שלמה של המתנה סתם.
+export const preferredRegion = "dub1";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // סיסמה אקראית חזקה ללקוח שנרשם בטלפון.
 // הוא לא הזין סיסמה ולא יכול להזין אחת בשיחה, אבל passwordHash הוא שדה
@@ -82,7 +111,15 @@ async function handle(req: Request): Promise<Response> {
       id: true,
       name: true,
       role: true,
+      // §61: 🐛 phone לא נשלף, ולכן `customer.phone ?? ""` בטיוטה
+      // ובהזמנה נתן תמיד מחרוזת ריקה. PhoneOrderDraft.phone היה ריק
+      // בכל הרשומות, וה-@@index([phone]) עליו לא שירת דבר.
+      phone: true,
       paymentToken: true,
+      // §60: לקוח מזומן מזמין בלי כרטיס
+      paymentPreference: true,
+      // §52: לקוח מושבת
+      isActive: true,
       defaultPointId: true,
       defaultPoint: { select: { id: true, name: true } },
     },
@@ -93,10 +130,32 @@ async function handle(req: Request): Promise<Response> {
     return handleUnregistered(p, phone, callId);
   }
 
-  // ═══ לקוח ללא כרטיס מאומת ═══
+  // ═══ §52: לקוח לא פעיל ═══
+  // 🐛 הערוץ הטלפוני היה החריג היחיד: ההשבתה נאכפה ב-8 מקומות באתר
+  // ובמסכי הנציג, אבל לא כאן - ולקוח שביקש להפסיק לקבל שירות יכול
+  // היה פשוט להתקשר ולהזמין. הבדיקה לפני כל השאר, כי היא גוברת גם
+  // על הזמנה פתוחה קיימת.
+  if (customer.isActive === false) {
+    return yemotResponse(
+      playMessage(
+        say(`שלום ${customer.name}`),
+        prompt(
+          "customer_inactive",
+          "החשבון שלך אינו פעיל כרגע. לחידוש ההזמנות יש לפנות למוקד. תודה ולהתראות"
+        )
+      )
+    );
+  }
+
+  // ═══ לקוח שאינו כשיר להזמין ═══
   // חסום מהזמנה בדיוק כמו באתר. לא בונים כאן מסלול תשלום חלופי -
   // נציג יעדכן כרטיס והלקוח יוכל להזמין בשיחה הבאה.
-  if (!customer.paymentToken) {
+  //
+  // §60: לקוח מזומן **כן** רשאי להזמין בלי כרטיס - הנציג הגדיר אותו
+  // ככזה, והגבייה מתבצעת פיזית בחלוקה. בלי החריג הזה כל לקוח המזומן
+  // שנבנה ב-§60 היה נחסם מהטלפון בלי סיבה.
+  const canOrder = !!customer.paymentToken || customer.paymentPreference === "CASH";
+  if (!canOrder) {
     const pending = await prisma.phoneSignupRequest.findFirst({
       where: { customerId: customer.id, status: { notIn: ["COMPLETED", "FAILED"] } },
       select: { id: true },
@@ -117,10 +176,22 @@ async function handle(req: Request): Promise<Response> {
   // "פתוחה" = נוצרה, לא בוטלה, ו*טרם נמסרה*. deliveredAt הוא הקובע
   // ולא הסטטוס: אחרי שהנציג סימן מסירה הלקוח חוזר לתפריט הרגיל ויכול
   // להזמין במכירה הבאה, גם אם הסטטוס עדיין לא התעדכן לגמרי.
+  //
+  // §61: נשלפים כאן כל שדות המחירון שנדרשים בהמשך המסלול, כדי שלא
+  // ייטענו שוב ושוב. ראה ActiveSale למעלה.
   const activeSale = await prisma.pricelist.findFirst({
     where: { status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
-    select: { id: true },
+    select: {
+      id: true,
+      name: true,
+      closeDate: true,
+      openDate: true,
+      singleSurcharge: true,
+      orderFee: true,
+      deliveryDateText: true,
+      editDeadline: true,
+    },
   });
 
   const openOrder = activeSale
@@ -241,7 +312,8 @@ async function handle(req: Request): Promise<Response> {
   if (p.MENU === "2") return handleMyOrders(customer.id);
   // אין הזמנה פתוחה כאן (התפריט הרגיל)
   if (p.MENU === "3") return handleMyPoint(customer, p, null);
-  return handleOrder(p, customer, callId);
+  // §61: המחירון כבר נטען למעלה - מועבר ולא נשלף מחדש
+  return handleOrder(p, customer, callId, activeSale);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -424,6 +496,32 @@ async function handleUnregistered(
     select: { id: true },
   });
 
+  // §64: קוד התחברות לאתר, נוצר ומוקרא בשיחה.
+  //
+  // 🐛 הפער שנסגר: הלקוח נרשם בטלפון וקיבל סיסמה אקראית שאיש לא
+  // יודע. אם לא היה לו מייל, "שכחתי סיסמה" לא עזר - והוא נשאר חסום
+  // מהאתר עד שנציג יטפל בו ידנית. עכשיו הוא מקבל קוד בסוף השיחה
+  // ויכול להיכנס מיד, להשלים כרטיס אשראי בעצמו, ולראות את חשבונו.
+  //
+  // הקוד נשמר מוצפן (AES-256-GCM) בדיוק כמו קוד שהמנהל מייצר, ולכן
+  // המנהל יראה אותו בכרטיס הלקוח אם הלקוח ישכח.
+  //
+  // 4 ספרות ולא 6: הלקוח שומע אותו פעם אחת בטלפון וצריך לזכור.
+  // הנעילה אחרי 5 ניסיונות היא מה שמגן על האורך הקצר.
+  let spokenCode: string | null = null;
+  try {
+    spokenCode = generateLoginCode(4);
+    await prisma.customer.update({
+      where: { id: created.id },
+      data: { loginCode: encryptCode(spokenCode), loginCodeSetAt: new Date() },
+    });
+  } catch (e) {
+    // AUTH_CODE_KEY חסר או פגום. ההרשמה עצמה הצליחה ואסור להפיל
+    // אותה בגלל זה - הלקוח פשוט ימתין לנציג, כמו במצב הקודם.
+    console.error("[phone-ivr] login code generation failed:", e);
+    spokenCode = null;
+  }
+
   await prisma.phoneSignupRequest.create({
     data: {
       customerId: created.id,
@@ -434,6 +532,27 @@ async function handleUnregistered(
       status: "NEW",
     },
   });
+
+  // ⚠️ הקוד מוקרא ספרה-ספרה (sayDigits) ולא כמספר: "אלף מאתיים
+  // שלושים וארבע" אינו קוד שאפשר להקליד.
+  if (spokenCode) {
+    return yemotResponse(
+      playMessage(
+        prompt("signup_done_short", "החשבון נפתח בהצלחה"),
+        prompt(
+          "signup_code_intro",
+          "הקוד שלך לכניסה לאתר, יחד עם מספר הטלפון שלך, הוא"
+        ),
+        sayDigits(spokenCode),
+        prompt("signup_code_repeat", "שוב"),
+        sayDigits(spokenCode),
+        prompt(
+          "signup_done_card",
+          "באתר תוכל להשלים את פרטי האשראי ולבצע הזמנה. נציג יחזור אליך בהקדם. תודה ולהתראות"
+        )
+      )
+    );
+  }
 
   return yemotResponse(
     playMessage(
@@ -952,15 +1071,10 @@ async function handleMyPoint(
 async function handleOrder(
   p: Record<string, string>,
   customer: any,
-  callId: string
+  callId: string,
+  pricelist: ActiveSale | null
 ): Promise<Response> {
-  // המכירה הפעילה - בדיוק אותה מכירה של האתר
-  const pricelist = await prisma.pricelist.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, closeDate: true, openDate: true, singleSurcharge: true },
-  });
-
+  // §61: המכירה הפעילה מגיעה מהקורא (נטענה פעם אחת בכניסה לבקשה).
   if (!pricelist) {
     return yemotResponse(
       playMessage(prompt("no_sale", "אין כרגע מכירה פעילה"))
@@ -1047,11 +1161,8 @@ async function handleOrder(
       where: { id: customer.defaultPointId },
       select: { name: true, address: true, deliveryHours: true },
     });
-    const plFee = await prisma.pricelist.findUnique({
-      where: { id: pricelist.id },
-      select: { orderFee: true, deliveryDateText: true },
-    });
-    const orderFee = Number(plFee?.orderFee || 0);
+    // §61: orderFee ו-deliveryDateText כבר נטענו עם המחירון
+    const orderFee = Number(pricelist.orderFee || 0);
     const total =
       Math.round((items.reduce((a, i) => a + i.estimatedPrice, 0) + orderFee) * 100) / 100;
 
@@ -1079,8 +1190,8 @@ async function handleOrder(
     if (point?.name) {
       parts.push(say(`נקודת החלוקה שלך ${point.name}`));
     }
-    if (plFee?.deliveryDateText) {
-      parts.push(say(`מועד החלוקה ${plFee.deliveryDateText}`));
+    if (pricelist.deliveryDateText) {
+      parts.push(say(`מועד החלוקה ${pricelist.deliveryDateText}`));
     }
 
     parts.push(prompt("summary_estimated", "סכום משוער"));
@@ -1433,7 +1544,7 @@ async function finalizeOrder(
   draftId: string,
   items: DraftItem[],
   customer: any,
-  pricelist: any,
+  pricelist: ActiveSale,
   callId: string
 ): Promise<Response> {
   if (items.length === 0) {
@@ -1455,12 +1566,9 @@ async function finalizeOrder(
     where: { id: customer.defaultPointId },
     select: { id: true, name: true, customDeliveryDateText: true },
   });
-  const plFull = await prisma.pricelist.findUnique({
-    where: { id: pricelist.id },
-    select: { name: true, deliveryDateText: true, orderFee: true },
-  });
 
-  const orderFee = Number(plFull?.orderFee || 0);
+  // §61: שדות המחירון כבר נטענו בכניסה לבקשה
+  const orderFee = Number(pricelist.orderFee || 0);
   const total =
     Math.round((items.reduce((s, i) => s + i.estimatedPrice, 0) + orderFee) * 100) / 100;
 
@@ -1474,8 +1582,8 @@ async function finalizeOrder(
       phoneCallId: callId || null,
       pointNameSnapshot: point?.name ?? null,
       deliveryDateSnapshot:
-        point?.customDeliveryDateText || plFull?.deliveryDateText || null,
-      pricelistNameSnapshot: plFull?.name ?? null,
+        point?.customDeliveryDateText || pricelist.deliveryDateText || null,
+      pricelistNameSnapshot: pricelist.name ?? null,
       customerName: customer.name,
       phone: customer.phone ?? "",
       estimatedTotal: total,
@@ -1527,11 +1635,8 @@ async function finalizeOrder(
   }
 
   // §28: מועד אחרון לשינוי - הלקוח צריך לדעת עד מתי הוא יכול לערוך.
-  const deadlineInfo = await prisma.pricelist.findUnique({
-    where: { id: pricelist.id },
-    select: { editDeadline: true, closeDate: true },
-  });
-  const dl = deadlineInfo?.editDeadline ?? deadlineInfo?.closeDate ?? null;
+  // §61: editDeadline/closeDate כבר נטענו עם המחירון.
+  const dl = pricelist.editDeadline ?? pricelist.closeDate ?? null;
   const dlParts: string[] = [];
   if (dl) {
     dlParts.push(prompt("edit_until", "ניתן לשנות או לבטל את ההזמנה עד"));

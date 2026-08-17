@@ -24,6 +24,11 @@ export async function GET(
       deliveryDate: true,
       deliveryDateText: true,
       editDeadline: true,
+      // §65: נדרש לחישוב מחיר בודדים ב-AddOrderItem, באותה פונקציה
+      // של האתר. Pricelist.singleSurcharge הוא זה שקובע (ולא
+      // Product.singleSurcharge) - כך זה ב-OrderFlow.
+      singleSurcharge: true,
+      orderFee: true,
     },
   });
   if (!pricelist) {
@@ -142,7 +147,13 @@ export async function GET(
     });
   }
 
-  // מוצרים זמינים למכירה זו - לצורך החלפת מוצר / הוספת מזדמן
+  // מוצרים זמינים למכירה זו - להחלפת מוצר, הוספת מזדמן, ו-§65
+  // הוספת פריט להזמנה קיימת.
+  //
+  // §7: אין כאן סינון לפי product.isActive **בכוונה**. מוצר לא-פעיל
+  // מסונן מהאתר כדי שלא יוצג לכל הלקוחות, אבל הנציג צריך לראות
+  // אותו - זה בדיוק התרחיש של פרימיום או כמות מוגבלת שמחליטים
+  // למי להביא. הסימון isActive מוחזר כדי שה-UI יציג אותו בנפרד.
   const availableProducts = await prisma.pricelistProduct.findMany({
     where: { pricelistId },
     include: {
@@ -157,13 +168,23 @@ export async function GET(
           singlesMode: true,
           singleUnitPrice: true,
           singleSurcharge: true,
+          // §65: נדרשים לבורר קרטון/בודדים ולחישוב ההערכה
+          allowSingles: true,
+          priceType: true,
+          saleType: true,
+          avgWeightPerUnit: true,
+          isActive: true,
         },
       },
     },
   });
 
   return NextResponse.json({
-    pricelist,
+    pricelist: {
+      ...pricelist,
+      singleSurcharge: Number(pricelist.singleSurcharge ?? 0),
+      orderFee: Number(pricelist.orderFee ?? 0),
+    },
     agent: {
       id: g.agent.id,
       name: g.agent.name,
@@ -269,6 +290,9 @@ export async function GET(
           : null,
         singleSurcharge: pp.product.singleSurcharge
           ? Number(pp.product.singleSurcharge)
+          : null,
+        avgWeightPerUnit: pp.product.avgWeightPerUnit
+          ? Number(pp.product.avgWeightPerUnit)
           : null,
       },
     })),

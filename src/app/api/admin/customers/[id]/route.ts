@@ -7,6 +7,7 @@
 //   - agentPointId (נקודת חלוקה משויכת - רק לנציג)
 //   - agentCanSetFinalPrice, agentCanSendPaymentLink, agentCanCharge, agentCanUpdateCards (הרשאות נציג)
 //   - cardNeedsUpdate (סימון שנדרש עדכון כרטיס)
+//   - paymentPreference (§60: CASH / CREDIT. מעבר ל-CREDIT מחייב טוקן קיים)
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -116,6 +117,59 @@ export async function PATCH(
   }
 
   const data: any = {};
+
+  // §60: אופן תשלום. אותו כלל ברזל כמו ב-route של הנציג: אין מצב
+  // ביניים "אשראי בלי כרטיס" - לקוח כזה נתקע ברשימת כשלי החיוב.
+  // המעבר לאשראי מתרחש בפועל בשמירת טוקן (save-token / webhook),
+  // וכאן מותר רק ללקוח שכבר יש לו כרטיס שמור.
+  if ("paymentPreference" in body) {
+    const pref = body.paymentPreference;
+    if (pref !== "CASH" && pref !== "CREDIT") {
+      return NextResponse.json(
+        { error: "אופן תשלום לא תקין - יש לבחור מזומן או אשראי" },
+        { status: 400 }
+      );
+    }
+    if (!actor.isAdmin) {
+      return NextResponse.json(
+        { error: "נציג רשאי לאפס סיסמה בלבד" },
+        { status: 403 }
+      );
+    }
+    if (pref === "CREDIT") {
+      const target = await prisma.customer.findUnique({
+        where: { id },
+        select: { paymentToken: true },
+      });
+      if (!target?.paymentToken) {
+        return NextResponse.json(
+          {
+            error:
+              "ללקוח אין כרטיס שמור. כדי לעבור לאשראי יש להזין כרטיס - עם שמירתו הלקוח יעבור לאשראי אוטומטית.",
+            needsCard: true,
+          },
+          { status: 400 }
+        );
+      }
+    }
+    data.paymentPreference = pref;
+
+    // §61: סימון כמזומן הוא השלמת הטיפול בבקשת ההרשמה הטלפונית -
+    // אין כרטיס לאמת, הגבייה מוסדרת. בלי זה הבקשה נשארת "ממתינה"
+    // לנצח והמנהל רואה לקוח שכבר טופל כתקוע. אותו היגיון כמו
+    // ב-/api/agent/customer-payment-pref ובשמירת טוקן (§56).
+    if (pref === "CASH") {
+      const closed = await prisma.phoneSignupRequest.updateMany({
+        where: { customerId: id, status: { notIn: ["COMPLETED"] } },
+        data: { status: "COMPLETED", completedAt: new Date() },
+      });
+      if (closed.count > 0) {
+        console.log(
+          `[admin-customer-update] closed ${closed.count} phone signup request(s) for customer=${id} (marked as CASH)`
+        );
+      }
+    }
+  }
 
   // §52: חותמת הזמן של ההשבתה נגזרת מהשדה ולא נשלחת מהלקוח -
   // כדי שלא ניתן יהיה לזייף אותה, ושהיא תמיד תשקף את המציאות.

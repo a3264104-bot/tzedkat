@@ -3,6 +3,12 @@ import InstallPrompt from "@/components/InstallPrompt";
 import { Footer } from "@/components/Footer";
 import { AccessibilityWidget } from "@/components/AccessibilityWidget";
 import "./globals.css";
+// §62: באנר "מחובר כ-X" - חייב לשבת כאן כדי להופיע בכל עמוד,
+// כולל /account ו-/order שאליהם המנהל מגיע בזמן כניסה בשם משתמש.
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
+// §68: כפתור חזרה גלובלי (סעיף 6) - מופיע בכל דף אוטומטית,
+// למעט מסכים שבהם הוא מיותר. ראה HIDE_EXACT בקומפוננטה.
+import { FloatingBackButton } from "@/components/FloatingBackButton";
 
 const SITE_URL = "https://tzidkat.com";
 
@@ -68,7 +74,7 @@ export const viewport: Viewport = {
   themeColor: "#FFE000",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="he" dir="rtl">
       <head>
@@ -80,6 +86,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
+        {/* §62: באנר כניסה בשם משתמש - הרכיב הראשון בכוונה, נעול
+            לראש המסך ולא ניתן לסגירה. מרונדר רק כשההתחזות פעילה. */}
+        <ImpersonationBanner />
         {/* קישור דילוג לתוכן - נגישות: מאפשר למשתמשי מקלדת/קורא מסך לדלג לתוכן */}
         <a
           href="#main-content"
@@ -91,6 +100,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <Footer />
         </div>
+        <FloatingBackButton />
         <InstallPrompt />
         <AccessibilityWidget />
       </body>

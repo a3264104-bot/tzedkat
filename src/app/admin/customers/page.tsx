@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/client";
 import { Modal, Field } from "@/components/AdminModal";
 import { AdminAddCustomerButton } from "@/components/AdminAddCustomerButton";
+import { AdminCustomerCodePanel } from "@/components/AdminCustomerCodePanel";
+import { ImpersonateButton } from "@/components/ImpersonateButton";
 
 type Customer = {
   id: string;
@@ -15,6 +17,13 @@ type Customer = {
   orderCount: number;
   hasPaymentToken: boolean;
   passwordPlain: string | null;
+  // §62: מצב הקוד בלבד. הקוד עצמו לעולם לא מגיע ברשימה.
+  hasLoginCode?: boolean;
+  loginCodeSetAt?: string | null;
+  lockedUntil?: string | null;
+  failedLoginAttempts?: number;
+  // §60: CASH / CREDIT
+  paymentPreference?: string;
   role: string;
   agentPointId: string | null;
   agentPoints?: { id: string; name: string; city: string | null }[];
@@ -566,10 +575,51 @@ export default function AdminCustomersPage() {
             </Field>
 
             <div className="border-t pt-3 space-y-3">
-              {editing.passwordPlain && (
+              {/* §62: קוד ההתחברות מחליף את הסיסמה.
+                  "שכחתי קוד" נפתר כאן: לחיצה על "הצג קוד" ומקריאים
+                  ללקוח. בלי איפוס, בלי מייל, בלי SMS. */}
+              <AdminCustomerCodePanel
+                customerId={editing.id}
+                customerName={editing.name}
+                hasCode={!!editing.hasLoginCode}
+                codeSetAt={editing.loginCodeSetAt}
+                onChanged={reload}
+              />
+
+              {/* §62: נעילה פעילה - הסבר למה הלקוח לא מצליח להיכנס.
+                  קביעת קוד חדש מנקה אותה אוטומטית. */}
+              {editing.lockedUntil &&
+                new Date(editing.lockedUntil).getTime() > Date.now() && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 text-xs text-red-800">
+                    🔒 החשבון נעול עד{" "}
+                    {new Date(editing.lockedUntil).toLocaleTimeString("he-IL", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}{" "}
+                    לאחר {editing.failedLoginAttempts ?? 0} ניסיונות כושלים.
+                    קביעת קוד חדש תשחרר את הנעילה מיד.
+                  </div>
+                )}
+
+              {/* §62: כניסה בשם משתמש. מתועדת ביומן, וניתן לחזור
+                  בכל רגע דרך הבאנר שמופיע בראש המסך. */}
+              <div className="flex items-center justify-between gap-2 bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
+                <div className="text-xs text-zinc-600">
+                  כניסה לחשבון כדי לראות בדיוק מה שהלקוח רואה
+                </div>
+                <ImpersonateButton
+                  customerId={editing.id}
+                  customerName={editing.name}
+                  role={editing.role}
+                />
+              </div>
+
+              {/* סיסמה ישנה - נשארת עד שהלקוח יקבל קוד.
+                  ברגע שנקבע קוד, הסיסמה מבוטלת ב-customer-code. */}
+              {!editing.hasLoginCode && editing.passwordPlain && (
                 <div className="bg-gradient-to-br from-zinc-50 to-zinc-100 border border-zinc-300 rounded-lg p-3">
                   <div className="text-xs font-bold text-zinc-500 mb-1.5">
-                    🔐 סיסמא נוכחית
+                    🔐 סיסמא ישנה (עד למעבר לקוד)
                   </div>
                   <div className="flex items-center gap-2">
                     <span
@@ -588,17 +638,12 @@ export default function AdminCustomersPage() {
                   </div>
                 </div>
               )}
-              {!editing.passwordPlain && (
+              {!editing.hasLoginCode && !editing.passwordPlain && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800">
-                  ⚠️ סיסמא מוצפנת - צריך לאפס כדי לראות אותה
+                  ⚠️ הסיסמה הישנה מוצפנת ואינה ניתנת לשחזור. צור ללקוח קוד
+                  התחברות למעלה - זו הדרך החדשה, והקוד יהיה גלוי לך תמיד.
                 </div>
               )}
-              <Field label="איפוס סיסמה חדשה (השאר ריק אם לא צריך)">
-                <div className="flex gap-2">
-                  <input className="input flex-1" type="text" dir="ltr" placeholder="הזן סיסמא או צור אקראית" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-                  <button type="button" onClick={() => setNewPassword(generateRandomPassword())} className="btn-ghost btn-sm whitespace-nowrap">🎲 צור</button>
-                </div>
-              </Field>
             </div>
 
             {/* ═══ המרת תפקיד: לקוח ↔ נציג ↔ מנהל ═══ */}

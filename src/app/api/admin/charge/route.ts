@@ -149,7 +149,11 @@ export async function POST(req: Request) {
     if (isAgent) {
       const agent = await prisma.customer.findUnique({
         where: { id: sessionUserId },
-        select: { agentCanCharge: true, agentPointId: true },
+        select: {
+          agentCanCharge: true,
+          agentPointId: true, // deprecated - תאימות אחורה
+          agentPoints: { select: { pointId: true } },
+        },
       });
       if (!agent?.agentCanCharge) {
         return NextResponse.json(
@@ -160,8 +164,13 @@ export async function POST(req: Request) {
           { status: 403 }
         );
       }
+      // §60: 🐛 תוקן דפוס ג'. הבדיקה השוותה רק ל-agentPointId הישן,
+      // ולכן נציג רב-נקודתי (agentPoints[] מלא, agentPointId ריק) קיבל
+      // "אין הרשאה" על הזמנות בנקודות שלו עצמו.
+      const agentPointIds = new Set(agent.agentPoints.map((ap) => ap.pointId));
+      if (agent.agentPointId) agentPointIds.add(agent.agentPointId);
       const isCreator = preOrder.customer.createdByAgentId === sessionUserId;
-      const samePoint = preOrder.pointId === agent.agentPointId;
+      const samePoint = agentPointIds.has(preOrder.pointId);
       if (!isCreator && !samePoint) {
         return NextResponse.json(
           { error: "אין הרשאה להזמנה זו - היא לא בנקודת החלוקה שלך" },
@@ -183,6 +192,22 @@ export async function POST(req: Request) {
     if (preOrder.finalTotal === null || preOrder.finalTotal === undefined) {
       return NextResponse.json(
         { error: "final total not set - cannot charge without weighing" },
+        { status: 400 }
+      );
+    }
+    // §60: לקוח מזומן - אין חיוב כרטיס בכלל, גם אם נשאר לו טוקן
+    // (למשל נציג העביר אותו למזומן והטוקן נשמר לחזרה עתידית לאשראי).
+    // בלי הבדיקה הזו לקוח מזומן בלי טוקן היה נופל על "customer has no
+    // saved card" - הודעה שגויה שגורמת למנהל לרדוף אחרי כרטיס שלא
+    // אמור להיות. הגבייה: מזומן בחלוקה, דרך "סימון תשלום מזומן"
+    // במסך ההזמנה.
+    if (preOrder.customer.paymentPreference === "CASH") {
+      return NextResponse.json(
+        {
+          error:
+            "לקוח מזומן - אין לחייב כרטיס. הגבייה מתבצעת במזומן בחלוקה, ומסומנת דרך 'תשלום מזומן' במסך ההזמנה.",
+          code: "CASH_CUSTOMER",
+        },
         { status: 400 }
       );
     }

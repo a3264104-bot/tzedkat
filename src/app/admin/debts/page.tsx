@@ -15,20 +15,29 @@ type Debt = {
   amountPaid: number;
   paymentStatus: string;
   paymentLink: string | null;
+  // §60: לקוח מזומן - הגבייה בחלוקה, לא בכרטיס
+  isCashCustomer: boolean;
   daysWaiting: number;
   customerNotifiedAt: string | null;
 };
 
-// בונה קישור וואטסאפ עם הודעת תזכורת מוכנה
+// בונה קישור וואטסאפ עם הודעת תזכורת מוכנה.
+// §60: ללקוח מזומן הנוסח שונה - אין "לתשלום מאובטח" ואין לינק,
+// אלא תזכורת להביא מזומן לחלוקה.
 function waLink(debt: Debt): string {
   const phone = debt.phone.replace(/\D/g, "").replace(/^0/, "972");
   const remaining = debt.finalTotal - debt.amountPaid;
   const text = encodeURIComponent(
-    `שלום ${debt.customerName},\n` +
-      `תזכורת ידידותית מצדקת רבותינו 🙂\n` +
-      `הזמנה מס' ${debt.orderNumber} ממתינה לתשלום של ${fmt(remaining)}.\n` +
-      (debt.paymentLink ? `לתשלום מאובטח: ${debt.paymentLink}\n` : "") +
-      `תודה רבה!`
+    debt.isCashCustomer
+      ? `שלום ${debt.customerName},\n` +
+          `תזכורת ידידותית מצדקת רבותינו 🙂\n` +
+          `הזמנה מס' ${debt.orderNumber} - נותר לתשלום ${fmt(remaining)} במזומן בעת החלוקה.\n` +
+          `תודה רבה!`
+      : `שלום ${debt.customerName},\n` +
+          `תזכורת ידידותית מצדקת רבותינו 🙂\n` +
+          `הזמנה מס' ${debt.orderNumber} ממתינה לתשלום של ${fmt(remaining)}.\n` +
+          (debt.paymentLink ? `לתשלום מאובטח: ${debt.paymentLink}\n` : "") +
+          `תודה רבה!`
   );
   return `https://wa.me/${phone}?text=${text}`;
 }
@@ -78,7 +87,7 @@ export default function DebtsPage() {
 
   function exportCsv() {
     const rows: string[][] = [
-      ["הזמנה", "שם", "טלפון", "נקודה", "לתשלום", "שולם חלקית", "ימים ממתין", "סטטוס"],
+      ["הזמנה", "שם", "טלפון", "נקודה", "לתשלום", "שולם חלקית", "ימים ממתין", "סטטוס", "אופן תשלום"],
       ...debts.map((d) => [
         `#${d.orderNumber}`,
         d.customerName,
@@ -88,6 +97,8 @@ export default function DebtsPage() {
         d.amountPaid ? String(d.amountPaid) : "",
         String(d.daysWaiting),
         PAYMENT_STATUS_LABELS[d.paymentStatus] ?? d.paymentStatus,
+        // §60: המנהל מסנן באקסל את מי לגבות במזומן בחלוקה
+        d.isCashCustomer ? "מזומן" : "אשראי",
       ]),
     ];
     downloadCsv("דוח-חובות.csv", rows);
@@ -155,7 +166,15 @@ export default function DebtsPage() {
                   <tr key={d.id} className={d.daysWaiting >= 7 ? "bg-red-50/50" : ""}>
                     <td>#{d.orderNumber}</td>
                     <td>
-                      <div className="font-medium">{d.customerName}</div>
+                      <div className="font-medium">
+                        {d.customerName}
+                        {/* §60: גבייה במזומן בחלוקה - לא לשלוח לינק תשלום */}
+                        {d.isCashCustomer && (
+                          <span className="text-[10px] bg-lime-100 text-lime-700 px-1.5 py-0.5 rounded font-bold mr-1.5">
+                            💵 מזומן
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-zinc-400" dir="ltr">
                         {d.phone}
                       </div>
@@ -196,8 +215,10 @@ export default function DebtsPage() {
                             💬 וואטסאפ
                           </a>
                         )}
-                        {/* מייל - רק אם יש כתובת */}
-                        {d.email && (
+                        {/* מייל - רק אם יש כתובת. §60: לא ללקוח מזומן -
+                            המייל מבקש "להשלים תשלום" עם לינק אונליין,
+                            והשרת ממילא חוסם. */}
+                        {d.email && !d.isCashCustomer && (
                           <button
                             onClick={() => sendReminder(d)}
                             disabled={sendingId === d.id || sentIds.has(d.id)}

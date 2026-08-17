@@ -32,20 +32,75 @@ export default async function AgentCustomerPage({
   // הרשאות נציג
   let canSetFinalPrice = role === "ADMIN";
   let canSendPaymentLink = role === "ADMIN";
+  let canUpdateCards = role === "ADMIN";
   if (role === "AGENT") {
-    const agent = await prisma.customer.findUnique({ where: { id: sessionUserId } });
+    const agent = await prisma.customer.findUnique({
+      where: { id: sessionUserId },
+      include: { agentPoints: { select: { pointId: true } } },
+    });
     canSetFinalPrice = agent?.agentCanSetFinalPrice ?? false;
     canSendPaymentLink = agent?.agentCanSendPaymentLink ?? false;
-    if (agent?.agentPointId) {
-      const belongs =
-        customer.defaultPointId === agent.agentPointId ||
-        customer.orders.some((o) => o.pointId === agent.agentPointId);
-      if (!belongs) redirect("/agent");
-    }
+    canUpdateCards = agent?.agentCanUpdateCards ?? false;
+
+    // §60: 🐛 תוקן דפוס ג' + חור מדפוס §55.
+    //
+    // הבדיקה הקודמת: `if (agent?.agentPointId) { ... }` - נשענה רק על
+    // השדה הישן. נציג רב-נקודתי (agentPoints[] מלא, agentPointId ריק)
+    // דילג על הבדיקה כולה וראה *כל לקוח במערכת*. עכשיו: כל הנקודות
+    // עם נפילה לשדה הישן, נציג בלי נקודות נחסם, והכלל זהה למסך
+    // ההזמנה - יוצר הלקוח / נקודת ברירת מחדל / הזמנה קודמת בנקודה.
+    const agentPointIds = new Set(agent?.agentPoints.map((ap) => ap.pointId) ?? []);
+    if (agent?.agentPointId) agentPointIds.add(agent.agentPointId);
+    if (agentPointIds.size === 0) redirect("/agent");
+
+    const isCreator = customer.createdByAgentId === sessionUserId;
+    const belongs =
+      isCreator ||
+      (customer.defaultPointId !== null && agentPointIds.has(customer.defaultPointId)) ||
+      customer.orders.some((o) => agentPointIds.has(o.pointId));
+    if (!belongs) redirect("/agent");
   }
+
+  // §67: מוצרי המכירה הפעילה, להוספת פריט מכרטיס הלקוח.
+  //
+  // רק המכירה הפעילה: הוספה להזמנה של מכירה שהסתיימה היא כמעט תמיד
+  // טעות, והמחירים שם כבר לא רלוונטיים.
+  //
+  // אין סינון isActive - המוצרים המיוחדים ("מועדפים") נכללים
+  // ומסומנים, בדיוק כמו במסך המכירה.
+  const activePricelist = await prisma.pricelist.findFirst({
+    where: { status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, singleSurcharge: true },
+  });
+
+  const availableProducts = activePricelist
+    ? await prisma.pricelistProduct.findMany({
+        where: { pricelistId: activePricelist.id },
+        include: {
+          product: {
+            select: {
+              id: true,
+              name: true,
+              unit: true,
+              cartonPrice: true,
+              priceType: true,
+              allowSingles: true,
+              singlesMode: true,
+              singleUnitPrice: true,
+              avgWeightPerUnit: true,
+              isActive: true,
+              category: { select: { name: true } },
+            },
+          },
+        },
+      })
+    : [];
 
   const orders = customer.orders.map((o) => ({
     id: o.id,
+    // §67: נדרש כדי להציג הוספת מוצר רק בהזמנות של המכירה הפעילה
+    pricelistId: o.pricelistId,
     orderNumber: o.orderNumber,
     status: o.status,
     paymentStatus: o.paymentStatus,
@@ -69,11 +124,35 @@ export default async function AgentCustomerPage({
 
   return (
     <AgentCustomerClient
+      customerId={customer.id}
       customerName={customer.name}
       customerPhone={customer.phone}
+      // §60: מצב התשלום - לתצוגה ולכפתור ההחלפה מזומן/אשראי
+      paymentPreference={customer.paymentPreference}
+      hasCard={!!customer.paymentToken}
+      cardLast4={customer.cardLast4}
+      canUpdateCards={canUpdateCards}
       orders={orders}
       canSetFinalPrice={canSetFinalPrice}
       canSendPaymentLink={canSendPaymentLink}
+      activePricelistId={activePricelist?.id ?? null}
+      singleSurcharge={Number(activePricelist?.singleSurcharge ?? 0)}
+      availableProducts={availableProducts.map((pp) => ({
+        id: pp.product.id,
+        name: pp.product.name,
+        unit: pp.product.unit,
+        // מחיר המכירה, לא מחיר הבסיס של המוצר
+        cartonPrice: Number(pp.price ?? pp.product.cartonPrice),
+        priceType: pp.product.priceType,
+        allowSingles: pp.product.allowSingles,
+        singlesMode: pp.product.singlesMode,
+        singleUnitPrice:
+          pp.product.singleUnitPrice != null ? Number(pp.product.singleUnitPrice) : null,
+        avgWeightPerUnit:
+          pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null,
+        isActive: pp.product.isActive,
+        categoryName: pp.product.category?.name ?? null,
+      }))}
     />
   );
 }

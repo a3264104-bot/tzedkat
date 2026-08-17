@@ -9,6 +9,7 @@ import {
 } from "@/lib/pricing";
 import { payStatusLabel } from "@/lib/pay-status-lib";
 import { OrderStatusPanel } from "@/components/OrderStatusPanel";
+import { AddOrderItem } from "@/components/AddOrderItem";
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
@@ -17,7 +18,6 @@ export default function OrderDetail() {
   const [products, setProducts] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [internalNotes, setInternalNotes] = useState("");
-  const [addProductId, setAddProductId] = useState("");
   const [showCashForm, setShowCashForm] = useState(false);
   const [charging, setCharging] = useState(false);
 
@@ -192,18 +192,25 @@ export default function OrderDetail() {
     setSaving(false);
   }
 
-  async function addProduct() {
-    if (!addProductId) return;
-    const p = products.find((x) => x.id === addProductId);
+  // §65: הוספת פריט מלאה - כמות, בודדים/קרטון, ומחיר יחידה מחושב.
+  //
+  // 🐛 קודם נשלח תמיד `quantity: 1, unitPrice: cartonPrice` - קרטון
+  // אחד במחיר קרטון, בלי שום דרך להוסיף בודדים. צד השרת דווקא תמך
+  // ב-isSingle; רק ה-UI לא נתן לשלוח אותו.
+  async function addItem(item: {
+    productId: string;
+    quantity: number;
+    isSingle: boolean;
+    unitPrice: number;
+  }) {
     await api(`/api/admin/orders/${id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        items: [{ productId: addProductId, quantity: 1, unitPrice: parseFloat(p.cartonPrice) }],
+        items: [item],
         recomputeFinal: true,
       }),
     });
-    setAddProductId("");
-    load();
+    await load();
   }
 
   async function removeItem(itemId: string) {
@@ -461,18 +468,14 @@ export default function OrderDetail() {
           </table>
         </div>
 
-        <div className="flex gap-2 mt-3 no-print">
-          <select className="input max-w-xs" value={addProductId} onChange={(e) => setAddProductId(e.target.value)}>
-            <option value="">+ הוסף מוצר...</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <button onClick={addProduct} className="btn-ghost btn-sm">
-            הוסף
-          </button>
+        {/* §65: הוספת מוצר עם כל האפשרויות שיש ללקוח באתר (סעיף 4),
+            כולל מוצרים לא-פעילים בקבוצה נפרדת (סעיף 7). */}
+        <div className="mt-3 no-print">
+          <AddOrderItem
+            products={products}
+            singleSurcharge={Number(order.pricelist?.singleSurcharge ?? 0)}
+            onAdd={addItem}
+          />
         </div>
 
         <div className="flex justify-between items-center mt-4 pt-3 border-t">

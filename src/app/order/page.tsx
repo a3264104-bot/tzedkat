@@ -231,7 +231,14 @@ export default async function OrderPage({
         email: customerRecord.email,
         defaultPointId: customerRecord.defaultPointId,
       }}
-      cardVerified={!!customerRecord.paymentToken}
+      // §60: לקוח מזומן שנכנס לאתר בעצמו חייב לעבור את שלב הכרטיס,
+      // גם אם משום-מה נשאר לו טוקן ישן (למשל נציג העביר אותו למזומן).
+      // save-token יחזיר אותו לאשראי, וה-API ממילא חוסם CASH בשרת -
+      // כך ה-flow מוביל אותו למסלול היחיד שעובד במקום להיכשל בסוף.
+      cardVerified={
+        !!customerRecord.paymentToken &&
+        customerRecord.paymentPreference !== "CASH"
+      }
       customerId={customerRecord.id}
       hasSeenOrderIntro={customerRecord.hasSeenOrderIntro}
       existingOrder={null}

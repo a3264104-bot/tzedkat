@@ -4,10 +4,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
+import { AddOrderItem } from "@/components/AddOrderItem";
 
 type Props = {
   order: Order;
   availableProducts: AvailableProduct[];
+  /** §65: תוספת בודדים של המחירון - לחישוב מחיר בהוספת פריט */
+  singleSurcharge?: number;
   productWeightsFromNotes: Record<string, number>; // כמה יש מכל מוצר בתעודות
   productWeightsUsed: Record<string, number>;      // כמה כבר חולק מכל מוצר
   readOnly?: boolean;
@@ -34,6 +37,7 @@ function pluralizeHe(u: string, n: number): string {
 export function OrderRow({
   order,
   availableProducts,
+  singleSurcharge = 0,
   productWeightsFromNotes,
   productWeightsUsed,
   readOnly,
@@ -223,6 +227,50 @@ export function OrderRow({
               onReplace={(id) => replaceProduct(item, id)}
             />
           ))}
+
+          {/* §65: הוספת מוצר להזמנה קיימת (סעיפים 4 ו-7).
+              🐛 קודם הנציג יכול היה רק לשקול, לבטל או להחליף פריט
+              קיים - לא להוסיף אחד חדש. לקוח שביקש בחלוקה עוד משהו
+              חייב היה לעבור דרך המנהל.
+              המחיר מחושב בשרת ולא נשלח מכאן. */}
+          {!readOnly && order.finalTotal == null && (
+            <div className="p-3 border-t border-zinc-100">
+              <AddOrderItem
+                products={availableProducts.map((ap) => ({
+                  id: ap.product.id,
+                  name: ap.product.name,
+                  unit: ap.product.unit,
+                  // מחיר המכירה הזו, לא מחיר הבסיס של המוצר
+                  cartonPrice: ap.price ?? ap.product.cartonPrice,
+                  priceType: ap.product.priceType ?? null,
+                  allowSingles: ap.product.allowSingles,
+                  singlesMode: ap.product.singlesMode,
+                  singleUnitPrice: ap.product.singleUnitPrice,
+                  avgWeightPerUnit: ap.product.avgWeightPerUnit,
+                  isActive: ap.product.isActive,
+                  categoryName: ap.product.category?.name ?? null,
+                }))}
+                singleSurcharge={singleSurcharge}
+                onAdd={async (item) => {
+                  const res = await fetch("/api/agent/order-item", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      orderId: order.id,
+                      productId: item.productId,
+                      quantity: item.quantity,
+                      isSingle: item.isSingle,
+                      // unitPrice לא נשלח בכוונה - השרת גוזר אותו
+                      // מהמחירון, כדי שנציג לא יוכל לקבוע מחיר.
+                    }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || "שגיאה בהוספה");
+                  onNeedsReload();
+                }}
+              />
+            </div>
+          )}
 
           {/* §21: סימון מסירה - הפעולה שהנציג עושה כשהלקוח מגיע ולוקח */}
           {!readOnly && (

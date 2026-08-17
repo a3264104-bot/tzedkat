@@ -26,17 +26,30 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") || "").trim();
 
-  // הגבלת נקודה: אם לנציג יש agentPointId, מציגים רק לקוחות ששייכים לנקודה הזו
-  // (כברירת מחדל defaultPointId, או שהזמינו לנקודה הזו בעבר)
-  const pointFilter =
-    g.role === "AGENT" && g.agent?.agentPointId
-      ? {
-          OR: [
-            { defaultPointId: g.agent.agentPointId },
-            { orders: { some: { pointId: g.agent.agentPointId } } },
-          ],
-        }
-      : {};
+  // §60: 🐛 תוקן דפוס ג'. הסינון נשען רק על agentPointId הישן:
+  // נציג רב-נקודתי (agentPoints[] מלא, agentPointId ריק) קיבל סינון
+  // *ריק* וראה את כל הלקוחות במערכת. עכשיו: כל הנקודות עם נפילה
+  // לשדה הישן, ונציג בלי נקודות כלל מקבל רשימה ריקה - לא הכל.
+  let pointFilter: any = {};
+  if (g.role === "AGENT") {
+    const agentPoints = await prisma.agentPoint.findMany({
+      where: { agentId: g.agent!.id },
+      select: { pointId: true },
+    });
+    const myPointIds = agentPoints.map((ap) => ap.pointId);
+    if (myPointIds.length === 0 && g.agent?.agentPointId) {
+      myPointIds.push(g.agent.agentPointId);
+    }
+    if (myPointIds.length === 0) {
+      return NextResponse.json([]);
+    }
+    pointFilter = {
+      OR: [
+        { defaultPointId: { in: myPointIds } },
+        { orders: { some: { pointId: { in: myPointIds } } } },
+      ],
+    };
+  }
 
   const searchFilter = q
     ? {
@@ -69,6 +82,8 @@ export async function GET(req: Request) {
       phone: c.phone,
       email: c.email,
       defaultPointName: c.defaultPoint?.name ?? null,
+      // §60: לתצוגת 💵 בכל UI שצורך את הרשימה הזו
+      paymentPreference: c.paymentPreference,
       orderCount: c._count.orders,
     }))
   );

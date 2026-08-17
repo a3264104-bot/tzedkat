@@ -30,6 +30,23 @@ export async function POST(req: Request) {
   const phoneRaw = String(body.phone || "").trim();
   const emailRaw = body.email ? String(body.email).trim() : "";
   const defaultPointId = body.defaultPointId || null;
+  // §60: אופן התשלום של המזדמן - הנציג בוחר בהקמה.
+  // CASH = משלם מזומן בחלוקה, לא יידרש כרטיס.
+  // CREDIT = ה-UI יפתח מיד את זרימת הכרטיס (UpdateCardButton ->
+  // save-token עם אימות 1₪). ברירת מחדל CREDIT לתאימות עם קוד קורא
+  // קיים שלא שולח את השדה.
+  const paymentPreference =
+    body.paymentPreference === "CASH" ? "CASH" : "CREDIT";
+  if (
+    body.paymentPreference != null &&
+    body.paymentPreference !== "CASH" &&
+    body.paymentPreference !== "CREDIT"
+  ) {
+    return NextResponse.json(
+      { error: "אופן תשלום לא תקין - יש לבחור מזומן או אשראי" },
+      { status: 400 }
+    );
+  }
 
   if (!name || name.length < 2) {
     return NextResponse.json({ error: "שם קצר מדי" }, { status: 400 });
@@ -184,6 +201,8 @@ export async function POST(req: Request) {
       // גם GDPR (הסכמה מפורשת מהאדם עצמו).
       agreedToEmails: false,
       agreedToEmailsAt: null,
+      // §60: אופן התשלום שנבחר בהקמה
+      paymentPreference,
     },
     select: {
       id: true,
@@ -191,12 +210,13 @@ export async function POST(req: Request) {
       phone: true,
       email: true,
       defaultPointId: true,
+      paymentPreference: true,
       defaultPoint: { select: { name: true } },
     },
   });
 
   console.log(
-    `[agent-customer-create] ${role} ${agentId} created customer ${customer.id} at point ${customer.defaultPoint?.name ?? "none"}`
+    `[agent-customer-create] ${role} ${agentId} created customer ${customer.id} at point ${customer.defaultPoint?.name ?? "none"} payment=${paymentPreference}`
   );
 
   return NextResponse.json({

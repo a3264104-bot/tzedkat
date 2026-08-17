@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { UpdateCardModal } from "@/components/UpdateCardButton";
 
 type Hit = {
   id: string;
@@ -25,6 +26,8 @@ type Hit = {
   isActive: boolean;
   hasCard: boolean;
   cardLast4: string | null;
+  // §60: CASH = לקוח מזומן
+  paymentPreference: string;
   pointId: string | null;
   pointName: string | null;
   orderCount: number;
@@ -80,6 +83,12 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
     { id: string; name: string; city: string | null }[] | null
   >(null);
   const [pointId, setPointId] = useState("");
+  // §60: אופן התשלום של המזדמן - בחירה מפורשת של הנציג, בלי ברירת
+  // מחדל. מזומן = הלקוח יוגדר כמשלם מזומן בחלוקה. אשראי = מיד אחרי
+  // היצירה נפתח מסך הזנת הכרטיס (טוקן + אימות 1₪ מול נדרים).
+  const [payMethod, setPayMethod] = useState<"" | "CASH" | "CREDIT">("");
+  // הלקוח שנוצר וממתין להזנת כרטיס (זרימת אשראי)
+  const [cardForCustomerId, setCardForCustomerId] = useState<string | null>(null);
   const timerRef = useRef<any>(null);
 
   // חיפוש אוטומטי עם debounce
@@ -127,6 +136,11 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
       setError("שם קצר מדי");
       return;
     }
+    // §60: חובה לבחור אופן תשלום - אין ברירת מחדל שקטה.
+    if (!payMethod) {
+      setError("יש לבחור איך הלקוח משלם - מזומן או אשראי");
+      return;
+    }
     if (pointOptions && pointOptions.length > 0 && !pointId) {
       setError("יש לבחור נקודת חלוקה");
       return;
@@ -142,6 +156,8 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
           phone: q.trim(),
           email: email.trim() || null,
           defaultPointId: pointId || null,
+          // §60: אופן התשלום שנבחר
+          paymentPreference: payMethod,
         }),
       });
       const json = await res.json();
@@ -164,6 +180,15 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
         }
         return;
       }
+      // §60: פיצול לפי אופן התשלום.
+      // אשראי: נשארים במודאל ופותחים מיד את הזנת הכרטיס - הנציג מעביר
+      // את המכשיר ללקוח. רק אחרי שמירת הטוקן (או ויתור מפורש) ממשיכים
+      // להזמנה.
+      // מזומן: ישר להזמנה - אין דרישת כרטיס.
+      if (payMethod === "CREDIT") {
+        setCardForCustomerId(json.customer.id);
+        return;
+      }
       router.push(`/agent/order/${json.customer.id}`);
       onClose();
     } catch (e: any) {
@@ -171,6 +196,14 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
     } finally {
       setCreating(false);
     }
+  }
+
+  // §60: המשך להזמנה אחרי זרימת הכרטיס (בהצלחה או בוויתור).
+  // בוויתור הלקוח נשאר CREDIT בלי טוקן - מסך ההזמנה יציג את אזהרת
+  // הכרטיס וה-flow ידרוש אותו בסוף, כך שהחור נסגר שם.
+  function proceedToOrder(customerId: string) {
+    router.push(`/agent/order/${customerId}`);
+    onClose();
   }
 
   // יצירה אפשרית רק בחיפוש טלפון - בחיפוש שם אין מספר ליצור איתו
@@ -264,6 +297,11 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
                     router.push(`/agent/order/${c.id}`);
                     onClose();
                   }}
+                  onOpenCard={() => {
+                    // §66: ישירות לכרטיס הלקוח, ולא לרשימת כל הלקוחות
+                    router.push(`/agent/customer/${c.id}`);
+                    onClose();
+                  }}
                 />
               ))}
             </div>
@@ -343,6 +381,55 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
                   💡 עם מייל הלקוח יקבל אישורי הזמנה ויוכל לאפס סיסמה בעצמו
                 </p>
               </div>
+
+              {/* §60: בחירת אופן תשלום - חובה, בלי ברירת מחדל */}
+              <div>
+                <label className="text-xs font-bold text-zinc-500 block mb-1">
+                  איך הלקוח משלם? *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPayMethod("CASH")}
+                    className={`py-3 px-2 rounded-xl border-2 font-bold text-sm transition-colors ${
+                      payMethod === "CASH"
+                        ? "border-lime-600 bg-lime-50 text-lime-800"
+                        : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-400"
+                    }`}
+                  >
+                    💵 מזומן
+                    <div className="text-[10px] font-normal mt-0.5">
+                      גבייה בחלוקה, בלי כרטיס
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPayMethod("CREDIT")}
+                    className={`py-3 px-2 rounded-xl border-2 font-bold text-sm transition-colors ${
+                      payMethod === "CREDIT"
+                        ? "border-blue-600 bg-blue-50 text-blue-800"
+                        : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-400"
+                    }`}
+                  >
+                    💳 אשראי
+                    <div className="text-[10px] font-normal mt-0.5">
+                      הזנת כרטיס מיד אחרי היצירה
+                    </div>
+                  </button>
+                </div>
+                {payMethod === "CREDIT" && (
+                  <p className="text-[10px] text-blue-700 mt-1">
+                    אחרי היצירה ייפתח מסך הכרטיס - העבר את המכשיר ללקוח.
+                    יחויב 1 ש"ח לאימות, שיקוזז מההזמנה הראשונה.
+                  </p>
+                )}
+                {payMethod === "CASH" && (
+                  <p className="text-[10px] text-lime-700 mt-1">
+                    הלקוח יסומן כמשלם מזומן. גם בהזמנות הבאות דרכך לא
+                    יידרש כרטיס. ניתן להעביר לאשראי בהמשך.
+                  </p>
+                )}
+              </div>
             </>
           )}
 
@@ -367,18 +454,44 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
               disabled={creating || !name.trim()}
               className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-md"
             >
-              {creating ? "יוצר..." : "צור לקוח + הזמנה ←"}
+              {creating
+                ? "יוצר..."
+                : payMethod === "CREDIT"
+                  ? "צור לקוח + הזנת כרטיס ←"
+                  : "צור לקוח + הזמנה ←"}
             </button>
           )}
         </div>
       </div>
+
+      {/* §60: זרימת אשראי - הזנת כרטיס מיד אחרי היצירה.
+          הצלחה (save-token: טוקן + אימות 1₪ + paymentPreference=CREDIT)
+          -> ממשיכים להזמנה. סגירה בלי כרטיס -> ממשיכים להזמנה בכל
+          זאת: הלקוח כבר נוצר, ומסך ההזמנה ידרוש את הכרטיס בסופו. */}
+      {cardForCustomerId && (
+        <UpdateCardModal
+          customerId={cardForCustomerId}
+          hasCurrentCard={false}
+          onSuccess={() => proceedToOrder(cardForCustomerId)}
+          onClose={() => proceedToOrder(cardForCustomerId)}
+        />
+      )}
     </div>
   );
 }
 
 // §55: כרטיס תוצאה. לקוח חסום מוצג באפור עם ההסבר, ולא נעלם -
 // כדי שהנציג לא יחשוב שהוא לא קיים ויצור אותו מחדש.
-function ResultCard({ hit, onOpen }: { hit: Hit; onOpen: () => void }) {
+function ResultCard({
+  hit,
+  onOpen,
+  onOpenCard,
+}: {
+  hit: Hit;
+  onOpen: () => void;
+  /** §66: כניסה ישירה לכרטיס הלקוח (סעיף 3) */
+  onOpenCard: () => void;
+}) {
   if (!hit.allowed) {
     return (
       <div className="bg-zinc-50 border-2 border-zinc-300 rounded-xl p-4">
@@ -421,11 +534,16 @@ function ResultCard({ hit, onOpen }: { hit: Hit; onOpen: () => void }) {
                 לא הופעל
               </span>
             )}
-            {hit.hasCard && (
+            {/* §60: לקוח מזומן - הנציג רואה מיד שלא יידרש כרטיס */}
+            {hit.paymentPreference === "CASH" ? (
+              <span className="text-[10px] bg-lime-100 text-lime-700 px-2 py-0.5 rounded-full font-bold">
+                💵 מזומן
+              </span>
+            ) : hit.hasCard ? (
               <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
                 💳 יש כרטיס
               </span>
-            )}
+            ) : null}
           </div>
           <div className="text-xs text-zinc-600 mt-1 space-y-0.5" dir="ltr">
             <div>{hit.phone}</div>
@@ -441,12 +559,24 @@ function ResultCard({ hit, onOpen }: { hit: Hit; onOpen: () => void }) {
           </div>
         </div>
       </div>
-      <button
-        onClick={onOpen}
-        className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-sm"
-      >
-        פתח הזמנה חדשה עבורו ←
-      </button>
+      {/* §66: שתי פעולות נפרדות (סעיף 3).
+          🐛 קודם הייתה רק "פתח הזמנה חדשה". נציג שרצה רק לראות את
+          הלקוח - היסטוריה, משקלים, אופן תשלום - נאלץ לפתוח הזמנה
+          חדשה ולנטוש אותה, או לחזור לרשימת כל הלקוחות ולחפש שוב. */}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={onOpenCard}
+          className="py-3 bg-white border-2 border-blue-400 text-blue-700 rounded-lg font-bold hover:bg-blue-50"
+        >
+          👤 כרטיס הלקוח
+        </button>
+        <button
+          onClick={onOpen}
+          className="py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-sm"
+        >
+          🛒 הזמנה חדשה
+        </button>
+      </div>
     </div>
   );
 }

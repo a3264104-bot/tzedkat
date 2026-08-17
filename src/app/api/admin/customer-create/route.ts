@@ -49,6 +49,7 @@ export async function GET(req: Request) {
       role: true,
       isActive: true,
       paymentToken: true,
+      paymentPreference: true,
       cardLast4: true,
       defaultPoint: { select: { id: true, name: true } },
       _count: { select: { orders: true } },
@@ -67,6 +68,8 @@ export async function GET(req: Request) {
       role: c.role,
       isActive: c.isActive,
       hasCard: !!c.paymentToken,
+      // §60: אופן התשלום - לתצוגת 💵 במסך המנהל
+      paymentPreference: c.paymentPreference,
       cardLast4: c.cardLast4,
       pointId: c.defaultPoint?.id ?? null,
       pointName: c.defaultPoint?.name ?? null,
@@ -87,6 +90,19 @@ export async function POST(req: Request) {
   const phone = normalizePhone(b.phone || "");
   const email = b.email ? String(b.email).trim().toLowerCase() : null;
   const defaultPointId = b.defaultPointId ? String(b.defaultPointId) : null;
+  // §60: אופן תשלום. ברירת מחדל CREDIT - לקוח שהמנהל מקים בטלפון
+  // אמור להוסיף כרטיס. CASH נבחר מפורשות ללקוח שמשלם בחלוקה.
+  const paymentPreference = b.paymentPreference === "CASH" ? "CASH" : "CREDIT";
+  if (
+    b.paymentPreference != null &&
+    b.paymentPreference !== "CASH" &&
+    b.paymentPreference !== "CREDIT"
+  ) {
+    return NextResponse.json(
+      { error: "אופן תשלום לא תקין - יש לבחור מזומן או אשראי" },
+      { status: 400 }
+    );
+  }
 
   if (name.length < 2) {
     return NextResponse.json({ error: "שם קצר מדי" }, { status: 400 });
@@ -156,12 +172,14 @@ export async function POST(req: Request) {
       passwordPlain: password,
       role: "CUSTOMER",
       createdByAgentId: null,
+      // §60: אופן התשלום שנבחר
+      paymentPreference,
     },
-    select: { id: true, name: true, phone: true, email: true },
+    select: { id: true, name: true, phone: true, email: true, paymentPreference: true },
   });
 
   console.log(
-    `[admin-customer-create] ${g.session?.user?.email} created customer ${customer.id} at point ${point.name}`
+    `[admin-customer-create] ${g.session?.user?.email} created customer ${customer.id} at point ${point.name} payment=${paymentPreference}`
   );
 
   return NextResponse.json({

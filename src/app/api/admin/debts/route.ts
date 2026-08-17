@@ -15,7 +15,10 @@ export async function GET() {
       status: { not: "CANCELLED" },
     },
     include: {
-      customer: { select: { email: true, phone: true } },
+      // §60: paymentPreference - לקוח מזומן נשאר בדוח (החוב אמיתי,
+      // נגבה במזומן בחלוקה) אבל מסומן, כדי שהמנהל לא ישלח לו לינק
+      // תשלום או ירדוף אחרי כרטיס.
+      customer: { select: { email: true, phone: true, paymentPreference: true } },
       point: { select: { name: true } },
     },
     orderBy: { finalPriceSetAt: "asc" }, // הישנים ביותר קודם
@@ -34,6 +37,8 @@ export async function GET() {
       amountPaid: o.amountPaid != null ? Number(o.amountPaid) : 0,
       paymentStatus: o.paymentStatus,
       paymentLink: o.paymentLink,
+      // §60: גבייה במזומן בחלוקה
+      isCashCustomer: o.customer?.paymentPreference === "CASH",
       finalPriceSetAt: o.finalPriceSetAt,
       // כמה ימים ההזמנה ממתינה לתשלום
       daysWaiting: o.finalPriceSetAt
@@ -59,6 +64,14 @@ export async function POST(req: Request) {
   if (!order) return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
   if (order.paymentStatus === "PAID") {
     return NextResponse.json({ error: "ההזמנה כבר שולמה" }, { status: 400 });
+  }
+  // §60: תזכורת המייל מבקשת "להשלים תשלום" עם לינק אונליין - שגוי
+  // ומבלבל ללקוח מזומן, שהתשלום שלו מוסדר פיזית בחלוקה.
+  if (order.customer?.paymentPreference === "CASH") {
+    return NextResponse.json(
+      { error: "לקוח מזומן - הגבייה במזומן בחלוקה, אין לשלוח תזכורת תשלום אונליין" },
+      { status: 400 }
+    );
   }
   if (!order.customer?.email) {
     return NextResponse.json({ error: "ללקוח אין כתובת מייל — נסה וואטסאפ" }, { status: 400 });

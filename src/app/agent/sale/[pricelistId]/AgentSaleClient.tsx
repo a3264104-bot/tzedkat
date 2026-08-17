@@ -97,6 +97,13 @@ export type AvailableProduct = {
     singlesMode: string;
     singleUnitPrice: number | null;
     singleSurcharge: number | null;
+    // §65: נדרשים לבורר קרטון/בודדים בהוספת פריט (סעיף 4)
+    allowSingles?: boolean;
+    priceType?: string | null;
+    saleType?: string | null;
+    avgWeightPerUnit?: number | null;
+    // §7: מוצר שאינו מוצג ללקוחות - מוצג לנציג בקבוצה נפרדת
+    isActive?: boolean;
   };
 };
 
@@ -107,6 +114,8 @@ export type SaleData = {
     status: string;
     deliveryDateText: string | null;
     editDeadline: string | null;
+    // §65: נדרש לחישוב מחיר בודדים, באותה פונקציה של האתר
+    singleSurcharge?: number;
   };
   agent: {
     id: string;
@@ -640,6 +649,7 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                   key={order.id}
                   order={order}
                   availableProducts={data.availableProducts}
+                  singleSurcharge={Number(data.pricelist.singleSurcharge ?? 0)}
                   productWeightsFromNotes={data.productWeightsFromNotes}
                   productWeightsUsed={productWeightsUsed}
                   readOnly={isSealed}

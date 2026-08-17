@@ -58,6 +58,19 @@ export async function GET(req: Request) {
       cardExpiry: c.cardExpiry,
       cardNeedsUpdate: c.cardNeedsUpdate,
       passwordPlain: c.passwordPlain,
+      // §62: **רק** האם יש קוד ומתי נקבע. הקוד עצמו לעולם לא נשלח
+      // ברשימה - הוא נמשך בבקשה ייעודית (/api/admin/customer-code)
+      // רק כשהמנהל לוחץ "הצג", וכל לחיצה נרשמת ביומן.
+      //
+      // לו היה מוחזר כאן, כל טעינת מסך הייתה שולחת לדפדפן את הקודים
+      // של 100 לקוחות בבת אחת - ו-screenshot אחד היה חושף את כולם.
+      hasLoginCode: !!c.loginCode,
+      loginCodeSetAt: c.loginCodeSetAt,
+      // §62: נעילה מפני ניחוש - המנהל צריך לדעת אם לקוח חסום
+      lockedUntil: c.lockedUntil,
+      failedLoginAttempts: c.failedLoginAttempts,
+      // §60: אופן תשלום
+      paymentPreference: c.paymentPreference,
       role: c.role,
       // §52: מצב פעילות - לתגית ברשימה ולכפתור ההשבתה במודל.
       // לקוח לא פעיל: לא מקבל מיילים, לא נכלל בברודקסט ובתזכורות,

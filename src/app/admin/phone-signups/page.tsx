@@ -8,6 +8,11 @@
 //
 // עקרון מרכזי: "הושלם" נקבע לפי paymentToken אמיתי ולא לפי סטטוס
 // שמישהו לחץ. הסטטוס יכול להיות לא מעודכן; הטוקן לא משקר.
+//
+// §56: נוספה מחיקת בקשה.
+// למה מחיקה כאן מותרת, בניגוד ללקוח: בקשה שלא הבשילה אינה נושאת
+// היסטוריה - אין הזמנות, אין חיובים, אין תעודות. השארתה ברשימה רק
+// גורמת לחזור אליה שוב ושוב. לקוח אמיתי לעומת זאת מושבת ולא נמחק.
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
@@ -33,6 +38,8 @@ type Row = {
   hasToken: boolean;
   cardLast4: string | null;
   daysWaiting: number;
+  /** §56: האם ללקוח יש הזמנות - מחיקה חסומה אם כן */
+  orderCount?: number;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -117,6 +124,42 @@ export default function PhoneSignupsPage() {
       await api("/api/admin/phone-signups", {
         method: "PATCH",
         body: JSON.stringify({ id, action, ...extra }),
+      });
+      await load();
+    } catch (e: any) {
+      alert("שגיאה: " + e.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // §56: מחיקת בקשה שלא הבשילה.
+  //
+  // האזהרה מפורטת בכוונה: המנהל צריך להבין *בדיוק* מה נמחק. אם
+  // ללקוח כבר יש הזמנות, השרת יחסום - ואז ההשבתה במסך הלקוחות היא
+  // הדרך הנכונה, כי שם יש היסטוריה לשמר.
+  async function remove(r: Row) {
+    const hasOrders = (r.orderCount ?? 0) > 0;
+    const msg = hasOrders
+      ? `ל-${r.customerName} יש כבר ${r.orderCount} הזמנות במערכת.\n\n` +
+        `לא ניתן למחוק לקוח עם היסטוריה. במקום זאת אפשר לסמן אותו כלא ` +
+        `פעיל במסך הלקוחות — ההיסטוריה נשמרת והוא מפסיק לקבל פניות.`
+      : `למחוק את הבקשה של ${r.customerName}?\n\n` +
+        `יימחקו הבקשה וחשבון הלקוח שנוצר עבורה.\n` +
+        `אין לו הזמנות, ולכן לא הולך לאיבוד שום מידע.\n\n` +
+        `הפעולה בלתי הפיכה.`;
+
+    if (hasOrders) {
+      alert(msg);
+      return;
+    }
+    if (!confirm(msg)) return;
+
+    setBusyId(r.id);
+    try {
+      await api("/api/admin/phone-signups", {
+        method: "DELETE",
+        body: JSON.stringify({ id: r.id }),
       });
       await load();
     } catch (e: any) {
@@ -318,17 +361,33 @@ export default function PhoneSignupsPage() {
                     >
                       הערה
                     </button>
+                    {/* §56: מחיקה. באדום ובקצה, כי היא בלתי הפיכה. */}
+                    <button
+                      onClick={() => remove(r)}
+                      disabled={busyId === r.id}
+                      className="btn-ghost btn-sm text-red-700 hover:bg-red-50 mr-auto"
+                      title="מחיקת הבקשה וחשבון הלקוח שנוצר עבורה"
+                    >
+                      🗑 מחק בקשה
+                    </button>
                   </div>
                 )}
 
                 {r.status === "FAILED" && (
-                  <div className="mt-3 pt-3 border-t border-zinc-100">
+                  <div className="mt-3 pt-3 border-t border-zinc-100 flex gap-2">
                     <button
                       onClick={() => act(r.id, "reopen")}
                       disabled={busyId === r.id}
                       className="btn-ghost btn-sm"
                     >
                       פתח מחדש
+                    </button>
+                    <button
+                      onClick={() => remove(r)}
+                      disabled={busyId === r.id}
+                      className="btn-ghost btn-sm text-red-700 hover:bg-red-50 mr-auto"
+                    >
+                      🗑 מחק בקשה
                     </button>
                   </div>
                 )}

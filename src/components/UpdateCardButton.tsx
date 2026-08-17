@@ -87,8 +87,10 @@ export function UpdateCardButton({
 
 // ═════════════════════════════════════════════════════════
 // MODAL - הflow המלא
+// §60: מיוצא גם ישירות (ולא רק דרך הכפתור) - הקמת מזדמן באשראי
+// פותחת אותו מיד אחרי היצירה, בלי לחיצה נוספת של הנציג.
 // ═════════════════════════════════════════════════════════
-function UpdateCardModal({
+export function UpdateCardModal({
   customerId,
   hasCurrentCard,
   onClose,

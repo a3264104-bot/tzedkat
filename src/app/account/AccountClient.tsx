@@ -3,22 +3,28 @@
 import { useState } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { Logo } from "@/components/Logo";
 import { CustomerOrderActions } from "@/components/CustomerOrderActions";
 import { UpdateCardButton } from "@/components/UpdateCardButton";
+import { RoleSwitcher } from "@/components/RoleSwitcher";
 import { STATUS_LABELS, PAYMENT_METHOD_LABELS, fmt } from "@/lib/pricing";
 
 type OrderItem = {
+  id: string;
   productName: string;
   unit: string;
   quantity: number;
   isSingle: boolean;
+  isCancelled: boolean;
   imageUrl: string | null;
   // §49: משקלים. estimatedWeight הוא הערכה ומוצג עם "כ-",
   // actualWeight הוא עובדה אחרי שקילה ומוצג בדיוק.
   // אופציונליים כי הזמנות ישנות עשויות להגיע בלעדיהם.
-  estimatedWeight?: number | null;
-  actualWeight?: number | null;
+  estimatedWeight: number | null;
+  actualWeight: number | null;
+  // §59: פירוט חיוב. כולם snapshot מרגע ההזמנה/השקילה.
+  unitPrice: number;
+  estimatedPrice: number;
+  finalPrice: number | null;
 };
 
 type Order = {
@@ -34,9 +40,13 @@ type Order = {
   deliveryDate: string | null;
   estimatedTotal: number;
   finalTotal: number | null;
+  amountPaid: number | null;
   createdAt: string;
   itemCount: number;
   items: OrderItem[];
+  // §59: דמי הזמנה *נוכחיים* של המחירון — לא snapshot. משמש רק לזיהוי
+  // שורת "דמי הזמנה" בפירוט (ראה BreakdownTotals), לא לחישוב.
+  pricelistOrderFee: number | null;
   // שדות ל-§16: עריכה/ביטול
   customerName: string;
   phone: string;
@@ -59,6 +69,11 @@ type Customer = {
   defaultPointId: string | null;
   defaultPointName: string | null;
   agreedToEmails: boolean;
+  // §64: תפקיד - נציג רואה מתג חזרה לאזור הנציג
+  role?: string;
+  // §64: השלמת הרשמה עצמאית ללקוח שנרשם בטלפון (סעיף 9)
+  hasCard?: boolean;
+  paymentPreference?: string;
 };
 
 const statusColors: Record<string, string> = {
@@ -86,6 +101,45 @@ function pluralizeUnit(u: string, n: number): string {
   const finals: Record<string, string> = { "ם": "מ", "ן": "נ", "ץ": "צ", "ף": "פ", "ך": "כ" };
   const last = u.slice(-1);
   return (finals[last] ? u.slice(0, -1) + finals[last] : u) + "ים";
+}
+
+// תצוגת כמות — אותה לוגיקה כמו במייל (qtyDisplay ב-email.ts).
+function qtyDisplay(it: OrderItem): string {
+  const qty = it.quantity;
+  if (it.isSingle) {
+    // בודדים - יחידות או ק"ג
+    if (it.unit === "יחידה" || it.unit === "יחידות") {
+      return qty === 1 ? "1 יחידה" : `${qty} יחידות`;
+    }
+    return `${qty} ק"ג`;
+  }
+  // 🐛 תוקן בעבר: הקוד קבע "תמיד קרטון" והתעלם מ-unit של המוצר.
+  const u = packUnit(it.unit);
+  return `${qty} ${pluralizeUnit(u, qty)}`;
+}
+
+// עיגול לאגורות. כל השוואות הכסף בפירוט נעשות באגורות שלמות כדי
+// להימנע מבעיות float (0.1+0.2 !== 0.3).
+function cents(n: number): number {
+  return Math.round(n * 100);
+}
+
+// §59: על מה מחיר היחידה — לק"ג או ליחידה?
+// קודם אימות מספרי מול מה שחויב בפועל (הכי אמין), ורק אם אין נתונים —
+// כלל השקילה של §53: כל פריט נשקל ומחויב לפי ק"ג, למעט בודדים ביחידות.
+function unitPriceBasis(it: OrderItem): string {
+  const up = cents(it.unitPrice);
+  if (up > 0 && it.finalPrice != null) {
+    const ref = cents(it.finalPrice);
+    if (it.actualWeight != null && Math.abs(ref - Math.round(it.actualWeight * up)) <= 2) {
+      return 'לק"ג';
+    }
+    if (Math.abs(ref - Math.round(it.quantity * up)) <= 2) {
+      return "ליחידה";
+    }
+  }
+  if (it.isSingle && (it.unit === "יחידה" || it.unit === "יחידות")) return "ליחידה";
+  return 'לק"ג';
 }
 
 export function AccountClient({
@@ -225,22 +279,19 @@ export function AccountClient({
       </header>
 
       <div className="mx-auto max-w-md md:max-w-4xl px-4 pt-6 space-y-5">
-        {/* פרטי לקוח - עם avatar ועיצוב מוקפץ */}
+        {/* §59: כרטיס ברכה מצומצם. ההזמנות עלו למעלה — זה מה שהלקוח
+            בא לראות. הפרטים וההגדרות ירדו לתחתית העמוד. */}
         <div className="bg-white rounded-2xl shadow-lg border border-zinc-200 overflow-hidden">
-          {/* Header עם רקע gradient עדין */}
-          <div className="relative bg-gradient-to-br from-brand-yellow/40 via-brand-yellow/20 to-transparent px-6 py-5 border-b border-zinc-100">
-            <div className="flex items-start gap-4">
-              {/* Avatar עם initials */}
-              <div className="shrink-0 w-16 h-16 rounded-full bg-gradient-to-br from-brand-rust to-[#a83a15] flex items-center justify-center text-white text-2xl font-extrabold shadow-md">
+          <div className="relative bg-gradient-to-br from-brand-yellow/40 via-brand-yellow/20 to-transparent px-5 py-4">
+            <div className="flex items-center gap-4">
+              <div className="shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-brand-rust to-[#a83a15] flex items-center justify-center text-white text-xl font-extrabold shadow-md">
                 {customer.name.trim().charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-xl font-extrabold text-brand-slatedark truncate">
+                <div className="text-lg font-extrabold text-brand-slatedark truncate">
                   {customer.name}
                 </div>
-                <div className="text-xs text-zinc-500 mt-0.5">
-                  ברוכ/ה הבא/ה
-                </div>
+                <div className="text-xs text-zinc-500">ברוכ/ה הבא/ה</div>
               </div>
               <button
                 onClick={() => signOut({ callbackUrl: "/" })}
@@ -252,231 +303,48 @@ export function AccountClient({
                 יציאה
               </button>
             </div>
+            {/* §64: נציג שנמצא במצב לקוח - מתג חזרה (סעיף 5) */}
+            {customer.role === "AGENT" && (
+              <div className="mt-3">
+                <RoleSwitcher mode="customer" />
+              </div>
+            )}
           </div>
 
-          {/* Details עם אייקונים */}
-          <div className="divide-y divide-zinc-100">
-            {!customer.agreedToEmails && customer.email && (
-              <ConsentBanner customerId={customer.id} />
-            )}
-            {customer.phone && (
-              <InfoRow
-                iconPath="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                label="טלפון"
-                value={customer.phone}
-              />
-            )}
-
-            {/* טלפון נוסף - ליצירת קשר בעת חלוקה */}
-            <div className="py-2 border-b border-zinc-100">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-start gap-3">
-                  <svg
-                    className="w-5 h-5 text-brand-slate mt-0.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                    />
-                  </svg>
-                  <div>
-                    <div className="text-xs text-zinc-500">
-                      טלפון נוסף לחלוקה
-                    </div>
-                    {!showPhone2Edit && (
-                      <div className="text-sm text-brand-slatedark" dir="ltr">
-                        {phone2 || (
-                          <span className="text-zinc-400 italic">
-                            לא הוגדר
-                          </span>
-                        )}
-                      </div>
-                    )}
+          {/* §64: השלמת הרשמה עצמאית (סעיף 9).
+              🐛 הפער: לקוח שנרשם בטלפון נשאר בלי כרטיס עד שנציג
+              יטפל בו, ולא הייתה לו שום דרך להשלים בעצמו. עכשיו הוא
+              נכנס עם הקוד שה-IVR הקריא לו, ומשלים כאן בלחיצה.
+              לקוח מזומן לא רואה את זה - אצלו אין כרטיס בכוונה. */}
+          {!customer.hasCard && customer.paymentPreference !== "CASH" && (
+            <div className="mx-4 mb-4 bg-amber-50 border-2 border-amber-300 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="text-2xl shrink-0">💳</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-amber-900 text-sm">
+                    נותר שלב אחד להשלמת החשבון
                   </div>
-                </div>
-                {!showPhone2Edit && (
-                  <button
-                    onClick={() => setShowPhone2Edit(true)}
-                    className="text-xs text-brand-rust font-bold hover:underline"
-                  >
-                    {phone2 ? "✏️ עריכה" : "➕ הוסף"}
-                  </button>
-                )}
-              </div>
-
-              {showPhone2Edit && (
-                <div className="mt-3 space-y-2">
-                  <input
-                    type="tel"
-                    value={phone2}
-                    onChange={(e) => setPhone2(e.target.value)}
-                    placeholder="050-1234567"
-                    dir="ltr"
-                    className="w-full px-3 py-2 border-2 border-zinc-300 rounded-lg focus:outline-none focus:border-brand-rust"
-                  />
-                  <p className="text-[10px] text-zinc-500">
-                    💡 טלפון נוסף לשימוש אם הראשי לא עונה בזמן חלוקת ההזמנה
+                  <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                    כדי לבצע הזמנות יש להוסיף כרטיס אשראי. יבוצע חיוב אימות
+                    של 1 ש&quot;ח בלבד, שיקוזז מההזמנה הראשונה שלך.
                   </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        setPhone2(customer.phone2 ?? "");
-                        setShowPhone2Edit(false);
-                        setPhone2Err("");
-                        setPhone2Msg("");
-                      }}
-                      disabled={savingPhone2}
-                      className="btn-ghost btn-sm flex-1"
-                    >
-                      ביטול
-                    </button>
-                    <button
-                      onClick={savePhone2}
-                      disabled={savingPhone2}
-                      className="btn-primary btn-sm flex-1"
-                    >
-                      {savingPhone2 ? "שומר..." : "שמור"}
-                    </button>
-                  </div>
-                  {phone2Err && (
-                    <p className="text-red-600 text-xs">{phone2Err}</p>
-                  )}
-                </div>
-              )}
-              {phone2Msg && !showPhone2Edit && (
-                <p className="text-emerald-700 text-xs mt-1">✓ {phone2Msg}</p>
-              )}
-            </div>
-
-            {customer.email && (
-              <InfoRow
-                iconPath="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                label="דוא״ל"
-                value={customer.email}
-              />
-            )}
-            {customer.cardLast4 ? (
-              <div className="flex items-center justify-between gap-2 flex-wrap py-2 border-b border-zinc-100">
-                <div className="flex items-start gap-3">
-                  <svg
-                    className="w-5 h-5 text-brand-slate mt-0.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                  <div className="mt-3">
+                    <UpdateCardButton
+                      customerId={customer.id}
+                      hasCurrentCard={false}
+                      onSuccess={() => window.location.reload()}
                     />
-                  </svg>
-                  <div>
-                    <div className="text-xs text-zinc-500">כרטיס אשראי</div>
-                    <div className="font-medium text-brand-slatedark" dir="ltr">
-                      •••• {customer.cardLast4}
-                    </div>
                   </div>
                 </div>
-                <UpdateCardButton
-                  customerId={customer.id}
-                  hasCurrentCard={true}
-                  cardLast4={customer.cardLast4}
-                  onSuccess={() => window.location.reload()}
-                />
               </div>
-            ) : (
-              <div className="flex items-center justify-between gap-2 flex-wrap py-2 border-b border-zinc-100">
-                <div className="flex items-start gap-3">
-                  <svg
-                    className="w-5 h-5 text-zinc-400 mt-0.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-                    />
-                  </svg>
-                  <div>
-                    <div className="text-xs text-zinc-500">כרטיס אשראי</div>
-                    <div className="text-sm text-zinc-400">אין כרטיס שמור</div>
-                  </div>
-                </div>
-                <UpdateCardButton
-                  customerId={customer.id}
-                  hasCurrentCard={false}
-                  onSuccess={() => window.location.reload()}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* תחנה שמורה - מעוצב מחדש */}
-        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 flex items-center justify-between border-b border-zinc-100 bg-zinc-50/50">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-brand-rust/10 flex items-center justify-center">
-                <svg className="w-4 h-4 text-brand-rust" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </div>
-              <span className="font-bold text-brand-slatedark text-sm">תחנת חלוקה שמורה</span>
-            </div>
-            <button
-              onClick={() => setShowStationEdit(!showStationEdit)}
-              className="text-xs text-brand-rust font-medium hover:underline"
-            >
-              {showStationEdit ? "ביטול" : "שינוי"}
-            </button>
-          </div>
-          <div className="p-4">
-          {!showStationEdit ? (
-            <div className="text-sm text-brand-slatedark font-medium">
-              {customer.defaultPointName || <span className="text-zinc-400 font-normal">לא נבחרה תחנה</span>}
-              {pointSaved && (
-                <span className="text-emerald-600 mr-2 text-xs inline-flex items-center gap-1">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                  נשמר
-                </span>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <select
-                className="input"
-                value={defaultPointId}
-                onChange={(e) => setDefaultPointId(e.target.value)}
-              >
-                <option value="">בחר תחנה...</option>
-                {points.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.city ? `${p.city} — ${p.name}` : p.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={saveStation}
-                disabled={savingPoint}
-                className="btn-primary w-full btn-sm"
-              >
-                {savingPoint ? "שומר..." : "שמירה"}
-              </button>
             </div>
           )}
-          </div>
+          {/* באנר הסכמת מיילים — נשאר גבוה בעמוד כדי שלא ייקבר */}
+          {!customer.agreedToEmails && customer.email && (
+            <div className="px-4 pb-2">
+              <ConsentBanner customerId={customer.id} />
+            </div>
+          )}
         </div>
 
         {/* כפתור הזמנה חדשה - רק אם יש מכירה פעילה */}
@@ -486,84 +354,7 @@ export function AccountClient({
           </Link>
         )}
 
-        {/* הגדרות חשבון: מייל + סיסמה */}
-        <div className="card p-5 space-y-4">
-          <span className="font-bold text-brand-slatedark">הגדרות חשבון</span>
-
-          {/* ניהול מייל */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-zinc-600">כתובת מייל</span>
-              <button
-                onClick={() => {
-                  setShowEmailEdit(!showEmailEdit);
-                  setEmailErr("");
-                  setEmailMsg("");
-                }}
-                className="text-sm text-brand-rust font-medium"
-              >
-                {showEmailEdit ? "ביטול" : currentEmail ? "שינוי" : "הוספת מייל"}
-              </button>
-            </div>
-            {!showEmailEdit ? (
-              <div className="text-sm text-zinc-500">
-                {currentEmail || (
-                  <span className="text-amber-600">
-                    לא הוגדר מייל — הוסף כדי שתוכל לאפס סיסמה בעצמך
-                  </span>
-                )}
-                {emailMsg && <span className="text-green-600 mr-2">✓ {emailMsg}</span>}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <input
-                  className="input"
-                  type="email"
-                  dir="ltr"
-                  placeholder="your@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-                {emailErr && <p className="text-sm text-red-600">{emailErr}</p>}
-                <button
-                  onClick={saveEmail}
-                  disabled={savingEmail}
-                  className="btn-primary btn-sm w-full"
-                >
-                  {savingEmail ? "שומר..." : "שמירת מייל"}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* איפוס סיסמה עצמאי */}
-          <div className="border-t pt-3">
-            <div className="text-sm text-zinc-600 mb-1">סיסמה</div>
-            {currentEmail ? (
-              <>
-                <button
-                  onClick={sendPasswordReset}
-                  disabled={sendingReset}
-                  className="btn-ghost btn-sm"
-                >
-                  {sendingReset ? "שולח..." : "שליחת קישור לאיפוס סיסמה למייל שלי"}
-                </button>
-                {resetMsg && (
-                  <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-2 mt-2">
-                    {resetMsg}
-                  </p>
-                )}
-                {resetErr && <p className="text-sm text-red-600 mt-2">{resetErr}</p>}
-              </>
-            ) : (
-              <p className="text-xs text-zinc-400">
-                כדי לאפס סיסמה בעצמך, הוסף תחילה כתובת מייל למעלה.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* הזמנות פעילות + היסטוריה */}
+        {/* הזמנות פעילות */}
         <div>
           <div className="flex items-center gap-3 mb-3">
             <div className="w-1 h-6 bg-brand-rust rounded-full"></div>
@@ -653,121 +444,53 @@ export function AccountClient({
                   <OrderTimeline status={o.status} paymentStatus={o.paymentStatus} />
 
                   <div className="px-4 py-3">
+                    {/* §59: פירוט חיוב מלא — פריטים, משקל, מחיר ליחידה, סיכום */}
+                    <OrderBreakdown o={o} />
 
-                  {/* §7: רשימת מוצרים עם תמונות */}
-                  {o.items.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      {o.items.map((item, idx) => (
-                        <div key={idx} className="flex items-center gap-3 text-sm">
-                          {item.imageUrl && (
-                            <img
-                              src={item.imageUrl}
-                              alt={item.productName}
-                              className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
-                            />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-brand-slatedark font-medium">
-                                {item.productName}
-                              </span>
-                              {item.isSingle ? (
-                                <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold shrink-0">
-                                  בודדים
-                                </span>
-                              ) : (
-                                <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold shrink-0">
-                                  {packUnit(item.unit)}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-xs text-zinc-500 mt-0.5 font-medium">
-                              {(() => {
-                                const qty = item.quantity;
-                                if (item.isSingle) {
-                                  // בודדים - יחידות או ק"ג
-                                  if (item.unit === "יחידה" || item.unit === "יחידות") {
-                                    return qty === 1 ? "1 יחידה" : `${qty} יחידות`;
-                                  }
-                                  return `${qty} ק"ג`;
-                                }
-                                // 🐛 תוקן: הקוד קבע "תמיד קרטון" והתעלם מ-unit
-                                // של המוצר. מוצר ארוז ("בקר טחון 500 ג'")
-                                // הוצג כ"2 קרטונים" במקום "2 יחידות".
-                                const u = packUnit(item.unit);
-                                return `${qty} ${pluralizeUnit(u, qty)}`;
-                              })()}
-                            </div>
-                            {/* §49: משקל. אחרי שקילה מוצג המשקל המדויק,
-                                ולפניה ההערכה עם "כ-" - כדי שהלקוח לא
-                                יגיע לחלוקה ויצפה בדיוק לכמות המשוערת. */}
-                            {item.actualWeight != null ? (
-                              <div className="text-[11px] text-emerald-700 font-medium">
-                                נשקל: {item.actualWeight.toFixed(2)} ק"ג
-                              </div>
-                            ) : item.estimatedWeight != null ? (
-                              <div className="text-[11px] text-zinc-500">
-                                משקל משוער: כ-{item.estimatedWeight.toFixed(1)} ק"ג
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      ))}
+                    {/* §7: פרטי איסוף — נקודה, תאריך, שעות */}
+                    <div className="mt-3 pt-3 border-t border-zinc-100 text-sm text-zinc-600 space-y-1">
+                      <div>📍 {o.pointName}{o.pointAddress ? ` — ${o.pointAddress}` : ""}</div>
+                      {o.deliveryDate && <div>📦 חלוקה: {o.deliveryDate}</div>}
+                      {o.pointDeliveryHours && <div>🕐 שעות: {o.pointDeliveryHours}</div>}
                     </div>
-                  )}
 
-                  {/* §7: פרטי איסוף — נקודה, תאריך, שעות */}
-                  <div className="mt-3 pt-3 border-t border-zinc-100 text-sm text-zinc-600 space-y-1">
-                    <div>📍 {o.pointName}{o.pointAddress ? ` — ${o.pointAddress}` : ""}</div>
-                    {o.deliveryDate && <div>📦 חלוקה: {o.deliveryDate}</div>}
-                    {o.pointDeliveryHours && <div>🕐 שעות: {o.pointDeliveryHours}</div>}
-                  </div>
+                    {/* כפתור תשלום - רק אם ממתין לתשלום ויש לינק */}
+                    {o.status === "PAYMENT_PENDING" && o.paymentLink && (
+                      <a
+                        href={o.paymentLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-primary w-full block text-center mt-3 btn-sm"
+                      >
+                        לתשלום ←
+                      </a>
+                    )}
 
-                  {/* כפתור תשלום - רק אם ממתין לתשלום ויש לינק */}
-                  {o.status === "PAYMENT_PENDING" && o.paymentLink && (
-                    <a
-                      href={o.paymentLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-primary w-full block text-center mt-3 btn-sm"
-                    >
-                      לתשלום ←
-                    </a>
-                  )}
-
-                  {/* סטטוס תשלום אם שולם */}
-                  {o.paymentStatus === "PAID" && (
-                    <div className="mt-2 text-sm text-green-700 font-medium">
-                      ✓ שולם
-                      {o.paymentMethod && ` (${PAYMENT_METHOD_LABELS[o.paymentMethod] ?? ""})`}
-                    </div>
-                  )}
-
-                  {/* §16: כפתורי עריכה/ביטול לפני חתימת המכירה */}
-                  <CustomerOrderActions
-                    orderId={o.id}
-                    orderNumber={o.orderNumber}
-                    isEditable={computeIsEditable(o)}
-                    editableUntil={
-                      (o.pricelistEditDeadline || o.pricelistCloseDate)
-                        ? new Date((o.pricelistEditDeadline || o.pricelistCloseDate)!).toLocaleDateString("he-IL", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        : null
-                    }
-                    currentValues={{
-                      customerName: o.customerName,
-                      phone: o.phone,
-                      phone2: o.phone2,
-                      pointId: o.pointId,
-                      notes: o.notes,
-                    }}
-                    points={points}
-                  />
+                    {/* §16: כפתורי עריכה/ביטול לפני חתימת המכירה */}
+                    <CustomerOrderActions
+                      orderId={o.id}
+                      orderNumber={o.orderNumber}
+                      isEditable={computeIsEditable(o)}
+                      editableUntil={
+                        (o.pricelistEditDeadline || o.pricelistCloseDate)
+                          ? new Date((o.pricelistEditDeadline || o.pricelistCloseDate)!).toLocaleDateString("he-IL", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : null
+                      }
+                      currentValues={{
+                        customerName: o.customerName,
+                        phone: o.phone,
+                        phone2: o.phone2,
+                        pointId: o.pointId,
+                        notes: o.notes,
+                      }}
+                      points={points}
+                    />
                   </div>
                 </div>
               ))}
@@ -826,49 +549,307 @@ export function AccountClient({
               {showHistory && (
                 <div className="mt-3 space-y-2">
                   {historyOrders.map((o) => (
-                    <div
-                      key={o.id}
-                      className="bg-white rounded-xl border border-zinc-200 p-3 opacity-75 hover:opacity-100 transition-opacity"
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-brand-slatedark text-sm">
-                            #{o.orderNumber}
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                              statusColors[o.status] ?? "bg-zinc-100 text-zinc-600"
-                            }`}
-                          >
-                            {STATUS_LABELS[o.status] ?? o.status}
-                          </span>
-                        </div>
-                        <div className="text-xs text-zinc-500">
-                          {new Date(o.createdAt).toLocaleDateString("he-IL", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "2-digit",
-                          })}
-                        </div>
-                      </div>
-                      <div className="text-xs text-zinc-600 space-y-0.5">
-                        <div>
-                          📍 {o.pointName}
-                          {o.deliveryDate && ` · 🗓 ${o.deliveryDate}`}
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>{o.itemCount} פריטים</span>
-                          <span className="font-bold text-brand-slatedark">
-                            {fmt(o.finalTotal ?? o.estimatedTotal)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                    <HistoryOrderCard key={o.id} o={o} />
                   ))}
                 </div>
               )}
             </div>
           )}
+        </div>
+
+        {/* §59: פרטים והגדרות — כל מה שאינו הזמנות, בכרטיס אחד בתחתית */}
+        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 flex items-center gap-2 border-b border-zinc-100 bg-zinc-50/50">
+            <div className="w-8 h-8 rounded-lg bg-brand-rust/10 flex items-center justify-center">
+              <svg className="w-4 h-4 text-brand-rust" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <span className="font-bold text-brand-slatedark text-sm">פרטים והגדרות</span>
+          </div>
+
+          <div className="divide-y divide-zinc-100">
+            {customer.phone && (
+              <InfoRow
+                iconPath="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                label="טלפון"
+                value={customer.phone}
+              />
+            )}
+
+            {/* טלפון נוסף - ליצירת קשר בעת חלוקה */}
+            <div className="px-5 py-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-start gap-3">
+                  <svg
+                    className="w-5 h-5 text-brand-slate mt-0.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                    />
+                  </svg>
+                  <div>
+                    <div className="text-xs text-zinc-500">
+                      טלפון נוסף לחלוקה
+                    </div>
+                    {!showPhone2Edit && (
+                      <div className="text-sm text-brand-slatedark" dir="ltr">
+                        {phone2 || (
+                          <span className="text-zinc-400 italic">
+                            לא הוגדר
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {!showPhone2Edit && (
+                  <button
+                    onClick={() => setShowPhone2Edit(true)}
+                    className="text-xs text-brand-rust font-bold hover:underline"
+                  >
+                    {phone2 ? "✏️ עריכה" : "➕ הוסף"}
+                  </button>
+                )}
+              </div>
+
+              {showPhone2Edit && (
+                <div className="mt-3 space-y-2">
+                  <input
+                    type="tel"
+                    value={phone2}
+                    onChange={(e) => setPhone2(e.target.value)}
+                    placeholder="050-1234567"
+                    dir="ltr"
+                    className="w-full px-3 py-2 border-2 border-zinc-300 rounded-lg focus:outline-none focus:border-brand-rust"
+                  />
+                  <p className="text-[10px] text-zinc-500">
+                    💡 טלפון נוסף לשימוש אם הראשי לא עונה בזמן חלוקת ההזמנה
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setPhone2(customer.phone2 ?? "");
+                        setShowPhone2Edit(false);
+                        setPhone2Err("");
+                        setPhone2Msg("");
+                      }}
+                      disabled={savingPhone2}
+                      className="btn-ghost btn-sm flex-1"
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      onClick={savePhone2}
+                      disabled={savingPhone2}
+                      className="btn-primary btn-sm flex-1"
+                    >
+                      {savingPhone2 ? "שומר..." : "שמור"}
+                    </button>
+                  </div>
+                  {phone2Err && (
+                    <p className="text-red-600 text-xs">{phone2Err}</p>
+                  )}
+                </div>
+              )}
+              {phone2Msg && !showPhone2Edit && (
+                <p className="text-emerald-700 text-xs mt-1">✓ {phone2Msg}</p>
+              )}
+            </div>
+
+            {/* מייל — תצוגה ועריכה במקום אחד (§59: אוחד מ"הגדרות חשבון") */}
+            <div className="px-5 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-brand-slate mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  <div>
+                    <div className="text-xs text-zinc-500">דוא״ל</div>
+                    {!showEmailEdit && (
+                      <div className="text-sm text-brand-slatedark" dir="ltr">
+                        {currentEmail || (
+                          <span className="text-amber-600 italic" dir="rtl">
+                            לא הוגדר — הוסף כדי לאפס סיסמה בעצמך
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {!showEmailEdit && (
+                  <button
+                    onClick={() => {
+                      setShowEmailEdit(true);
+                      setEmailErr("");
+                      setEmailMsg("");
+                    }}
+                    className="text-xs text-brand-rust font-bold hover:underline"
+                  >
+                    {currentEmail ? "✏️ שינוי" : "➕ הוסף"}
+                  </button>
+                )}
+              </div>
+              {showEmailEdit && (
+                <div className="mt-3 space-y-2">
+                  <input
+                    className="input"
+                    type="email"
+                    dir="ltr"
+                    placeholder="your@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                  {emailErr && <p className="text-sm text-red-600">{emailErr}</p>}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setEmail(currentEmail);
+                        setShowEmailEdit(false);
+                        setEmailErr("");
+                      }}
+                      disabled={savingEmail}
+                      className="btn-ghost btn-sm flex-1"
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      onClick={saveEmail}
+                      disabled={savingEmail}
+                      className="btn-primary btn-sm flex-1"
+                    >
+                      {savingEmail ? "שומר..." : "שמירת מייל"}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {emailMsg && !showEmailEdit && (
+                <p className="text-emerald-700 text-xs mt-1">✓ {emailMsg}</p>
+              )}
+            </div>
+
+            {/* כרטיס אשראי */}
+            <div className="px-5 py-3 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-start gap-3">
+                <svg
+                  className={`w-5 h-5 mt-0.5 ${customer.cardLast4 ? "text-brand-slate" : "text-zinc-400"}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                  />
+                </svg>
+                <div>
+                  <div className="text-xs text-zinc-500">כרטיס אשראי</div>
+                  {customer.cardLast4 ? (
+                    <div className="font-medium text-brand-slatedark" dir="ltr">
+                      •••• {customer.cardLast4}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-zinc-400">אין כרטיס שמור</div>
+                  )}
+                </div>
+              </div>
+              <UpdateCardButton
+                customerId={customer.id}
+                hasCurrentCard={!!customer.cardLast4}
+                cardLast4={customer.cardLast4 ?? undefined}
+                onSuccess={() => window.location.reload()}
+              />
+            </div>
+
+            {/* תחנת חלוקה שמורה */}
+            <div className="px-5 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-brand-slate mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <div>
+                    <div className="text-xs text-zinc-500">תחנת חלוקה שמורה</div>
+                    {!showStationEdit && (
+                      <div className="text-sm text-brand-slatedark font-medium">
+                        {customer.defaultPointName || (
+                          <span className="text-zinc-400 font-normal">לא נבחרה תחנה</span>
+                        )}
+                        {pointSaved && (
+                          <span className="text-emerald-600 mr-2 text-xs">✓ נשמר</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowStationEdit(!showStationEdit)}
+                  className="text-xs text-brand-rust font-bold hover:underline"
+                >
+                  {showStationEdit ? "ביטול" : "✏️ שינוי"}
+                </button>
+              </div>
+              {showStationEdit && (
+                <div className="mt-3 space-y-2">
+                  <select
+                    className="input"
+                    value={defaultPointId}
+                    onChange={(e) => setDefaultPointId(e.target.value)}
+                  >
+                    <option value="">בחר תחנה...</option>
+                    {points.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.city ? `${p.city} — ${p.name}` : p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={saveStation}
+                    disabled={savingPoint}
+                    className="btn-primary w-full btn-sm"
+                  >
+                    {savingPoint ? "שומר..." : "שמירה"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* איפוס סיסמה עצמאי */}
+            <div className="px-5 py-3">
+              <div className="text-xs text-zinc-500 mb-1">סיסמה</div>
+              {currentEmail ? (
+                <>
+                  <button
+                    onClick={sendPasswordReset}
+                    disabled={sendingReset}
+                    className="btn-ghost btn-sm"
+                  >
+                    {sendingReset ? "שולח..." : "שליחת קישור לאיפוס סיסמה למייל שלי"}
+                  </button>
+                  {resetMsg && (
+                    <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-2 mt-2">
+                      {resetMsg}
+                    </p>
+                  )}
+                  {resetErr && <p className="text-sm text-red-600 mt-2">{resetErr}</p>}
+                </>
+              ) : (
+                <p className="text-xs text-zinc-400">
+                  כדי לאפס סיסמה בעצמך, הוסף תחילה כתובת מייל למעלה.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </main>
@@ -887,7 +868,259 @@ function computeIsEditable(o: Order): boolean {
   return true;
 }
 
-// InfoRow - שורת פרטים עם אייקון SVG (בהגדרות אישיות)
+// ═══════════════════════════════════════════════════════════
+// §59: פירוט חיוב מלא — כמו במייל החיוב
+// ═══════════════════════════════════════════════════════════
+
+// שורת פריט: מוצר + כמות + משקל מימין, מחיר ליחידה + סה"כ לשורה משמאל.
+function ItemRow({ it }: { it: OrderItem }) {
+  // פריט שבוטל — מוצג מחוק ובלי מחירים, כדי שיהיה ברור שלא חויב
+  if (it.isCancelled) {
+    return (
+      <div className="flex items-center gap-3 text-sm py-2 opacity-60">
+        <div className="flex-1 min-w-0">
+          <span className="text-zinc-500 line-through">{it.productName}</span>
+          <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold mr-1.5">
+            בוטל
+          </span>
+        </div>
+        <div className="text-xs text-zinc-400 shrink-0">לא חויב</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-3 text-sm py-2">
+      {it.imageUrl && (
+        <img
+          src={it.imageUrl}
+          alt={it.productName}
+          className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+        />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-brand-slatedark font-medium">
+            {it.productName}
+          </span>
+          {it.isSingle ? (
+            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold shrink-0">
+              בודדים
+            </span>
+          ) : (
+            <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold shrink-0">
+              {packUnit(it.unit)}
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-zinc-500 mt-0.5 font-medium">
+          {qtyDisplay(it)}
+        </div>
+        {/* §49: משקל. אחרי שקילה מוצג המשקל המדויק, ולפניה ההערכה עם
+            "כ-" - כדי שהלקוח לא יצפה בדיוק לכמות המשוערת. */}
+        {it.actualWeight != null ? (
+          <div className="text-[11px] text-emerald-700 font-medium">
+            נשקל: {it.actualWeight.toFixed(2)} ק"ג
+          </div>
+        ) : it.estimatedWeight != null ? (
+          <div className="text-[11px] text-zinc-500">
+            משקל משוער: כ-{it.estimatedWeight.toFixed(1)} ק"ג
+          </div>
+        ) : null}
+      </div>
+      {/* §59: עמודת המחירים. סה"כ סופי מודגש אם הפריט נשקל וחושב,
+          אחרת המשוער עם "כ-" — אותו כלל כמו במשקל. */}
+      <div className="text-left shrink-0">
+        {it.unitPrice > 0 && (
+          <div className="text-[11px] text-zinc-400" dir="rtl">
+            {fmt(it.unitPrice)} {unitPriceBasis(it)}
+          </div>
+        )}
+        {it.finalPrice != null ? (
+          <div className="font-bold text-brand-slatedark text-sm">
+            {fmt(it.finalPrice)}
+          </div>
+        ) : (
+          <div className="text-zinc-500 text-sm">כ-{fmt(it.estimatedPrice)}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// סיכום החיוב מתחת לפריטים.
+//
+// העיקרון: estimatedTotal/finalTotal על ההזמנה הם מקור האמת (חושבו
+// בשרת ברגע ההזמנה/השקילה). סכום הפריטים נגזר מה-snapshots, וההפרש
+// ביניהם מוצג כשורה — כך הטבלה תמיד מתכנסת בדיוק לסה"כ האמיתי.
+//
+// ההפרש נקרא "דמי הזמנה" רק אם הוא שווה בדיוק ל-orderFee הנוכחי של
+// המחירון. orderFee אינו snapshot — אם הוא השתנה מאז ההזמנה, או אם
+// קוזז ממנו שקל האימות (§46, מסומן ברמת הלקוח ולא ברמת ההזמנה), אי
+// אפשר לפרק את ההפרש בוודאות — ואז הוא מוצג בשם כללי ולא מומצא.
+function BreakdownTotals({ o }: { o: Order }) {
+  const isFinal = o.finalTotal != null;
+
+  // בסבב המשוער נסכמים כל הפריטים (כמו estimatedTotal שחושב ביצירה);
+  // בסבב הסופי — רק פריטים שלא בוטלו, לפי finalPrice.
+  const itemsSumC = o.items.reduce((sum, it) => {
+    if (isFinal) {
+      if (it.isCancelled) return sum;
+      return sum + cents(it.finalPrice ?? it.estimatedPrice);
+    }
+    return sum + cents(it.estimatedPrice);
+  }, 0);
+
+  const totalC = cents(isFinal ? (o.finalTotal as number) : o.estimatedTotal);
+  const diffC = totalC - itemsSumC;
+  const feeC = o.pricelistOrderFee != null ? cents(o.pricelistOrderFee) : null;
+
+  const diffLabel =
+    diffC === 0
+      ? null
+      : feeC != null && diffC === feeC
+        ? "דמי הזמנה"
+        : diffC > 0
+          ? "דמי הזמנה והתאמות"
+          : "קיזוז";
+
+  const paid = o.paymentStatus === "PAID";
+  const amountPaidC = o.amountPaid != null ? cents(o.amountPaid) : null;
+
+  return (
+    <div className="mt-2 pt-2 border-t border-zinc-200 text-sm space-y-1">
+      <div className="flex items-center justify-between text-zinc-600">
+        <span>סה"כ מוצרים</span>
+        <span>{fmt(itemsSumC / 100)}</span>
+      </div>
+      {diffLabel && (
+        <div className="flex items-center justify-between text-zinc-600">
+          <span>{diffLabel}</span>
+          <span>
+            {diffC < 0 ? "-" : ""}
+            {fmt(Math.abs(diffC) / 100)}
+          </span>
+        </div>
+      )}
+      <div className="flex items-center justify-between font-bold text-brand-slatedark pt-1 border-t border-zinc-100">
+        <span>{isFinal ? "סה\"כ לחיוב" : "סה\"כ משוער"}</span>
+        <span>
+          {isFinal ? "" : "כ-"}
+          {fmt(totalC / 100)}
+        </span>
+      </div>
+      {/* מצב תשלום */}
+      {paid ? (
+        <div className="flex items-center justify-between text-green-700 font-medium text-xs pt-0.5">
+          <span>
+            ✓ שולם
+            {o.paymentMethod && ` (${PAYMENT_METHOD_LABELS[o.paymentMethod] ?? ""})`}
+          </span>
+          {/* אם שולם סכום שונה מהסה"כ (תשלום חלקי / עיגול) — מציגים אותו */}
+          {amountPaidC != null && amountPaidC !== totalC && (
+            <span>{fmt(amountPaidC / 100)}</span>
+          )}
+        </div>
+      ) : o.status === "CANCELLED" ? null : o.paymentStatus === "PAYMENT_PENDING" ? (
+        <div className="text-amber-700 font-medium text-xs pt-0.5">ממתין לתשלום</div>
+      ) : o.paymentStatus === "FAILED" ? (
+        <div className="text-red-600 font-medium text-xs pt-0.5">החיוב נכשל — ננסה שוב</div>
+      ) : !isFinal ? (
+        <div className="text-zinc-400 text-xs pt-0.5">
+          המחיר הסופי ייקבע לאחר שקילה
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// הפירוט המלא: רשימת הפריטים + סיכום. משמש גם בהזמנות פעילות
+// (פרוס) וגם בהיסטוריה (נפתח בלחיצה).
+function OrderBreakdown({ o }: { o: Order }) {
+  return (
+    <div>
+      {o.items.length > 0 && (
+        <div className="divide-y divide-zinc-50">
+          {o.items.map((it) => (
+            <ItemRow key={it.id} it={it} />
+          ))}
+        </div>
+      )}
+      <BreakdownTotals o={o} />
+    </div>
+  );
+}
+
+// §59: כרטיס הזמנה בהיסטוריה — מכווץ כברירת מחדל.
+// רוב הזמן הלקוח רוצה "כמה שילמתי"; לחיצה פותחת "על מה בדיוק".
+function HistoryOrderCard({ o }: { o: Order }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full p-3 text-right hover:bg-zinc-50 transition-colors"
+      >
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-brand-slatedark text-sm">
+              #{o.orderNumber}
+            </span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                statusColors[o.status] ?? "bg-zinc-100 text-zinc-600"
+              }`}
+            >
+              {STATUS_LABELS[o.status] ?? o.status}
+            </span>
+            {o.paymentStatus === "PAID" && (
+              <span className="text-[10px] text-green-700 font-bold">✓ שולם</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500">
+              {new Date(o.createdAt).toLocaleDateString("he-IL", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "2-digit",
+              })}
+            </span>
+            <svg
+              className={`w-4 h-4 text-zinc-400 transition-transform ${open ? "rotate-180" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+        </div>
+        <div className="text-xs text-zinc-600 flex items-center justify-between">
+          <span>
+            📍 {o.pointName}
+            {o.deliveryDate && ` · 🗓 ${o.deliveryDate}`}
+            {" · "}
+            {o.itemCount} פריטים
+          </span>
+          <span className="font-bold text-brand-slatedark">
+            {o.finalTotal == null && "כ-"}
+            {fmt(o.finalTotal ?? o.estimatedTotal)}
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 border-t border-zinc-100">
+          <OrderBreakdown o={o} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// InfoRow - שורת פרטים עם אייקון SVG (בפרטים והגדרות)
 function InfoRow({ iconPath, label, value }: { iconPath: string; label: string; value: string }) {
   return (
     <div className="px-5 py-3 flex items-center gap-3">
@@ -904,26 +1137,40 @@ function InfoRow({ iconPath, label, value }: { iconPath: string; label: string; 
   );
 }
 
-// Timeline של סטטוס הזמנה - 4 שלבים חזותיים
+// Timeline של סטטוס הזמנה - 4 שלבים חזותיים.
+//
+// 🐛 §59: השלבים הישנים בדקו סטטוסים שלא קיימים במערכת
+// ("IN_PROGRESS", "READY") — ולכן "מוכן לאיסוף" לא נדלק אף פעם
+// (הסטטוס האמיתי הוא READY_FOR_PICKUP). תוקן לפי מחזור החיים בפועל:
+// PENDING_REVIEW → FINAL_PRICE_SET → PAYMENT_PENDING → PAID
+// → READY_FOR_PICKUP → COMPLETED. סדר השלבים הותאם: חיוב לפני איסוף.
 function OrderTimeline({ status, paymentStatus }: { status: string; paymentStatus?: string | null }) {
   if (status === "CANCELLED") return null;
+
+  const afterReview = [
+    "FINAL_PRICE_SET",
+    "PAYMENT_PENDING",
+    "PAID",
+    "READY_FOR_PICKUP",
+    "COMPLETED",
+  ].includes(status);
 
   const steps = [
     { key: "received", label: "התקבלה", done: true },
     {
       key: "processing",
       label: "בטיפול",
-      done: ["IN_PROGRESS", "READY", "COMPLETED"].includes(status) || paymentStatus === "PAID",
-    },
-    {
-      key: "ready",
-      label: "מוכן לאיסוף",
-      done: ["READY", "COMPLETED"].includes(status),
+      done: afterReview || paymentStatus === "PAID",
     },
     {
       key: "paid",
       label: "חויב",
       done: paymentStatus === "PAID",
+    },
+    {
+      key: "ready",
+      label: "מוכן לאיסוף",
+      done: ["READY_FOR_PICKUP", "COMPLETED"].includes(status),
     },
   ];
 
