@@ -50,6 +50,9 @@ export async function GET(req: Request) {
       name: c.name,
       phone: c.phone,
       email: c.email,
+      // §82: המזהה עצמו, לא רק השם - הבורר במסך העריכה צריך לדעת
+      // מה נבחר, ובלעדיו הוא נפתח ריק תמיד.
+      defaultPointId: c.defaultPointId,
       pointName: c.defaultPoint?.name ?? null,
       city: c.defaultPoint?.city ?? null,
       orderCount: c._count.orders,

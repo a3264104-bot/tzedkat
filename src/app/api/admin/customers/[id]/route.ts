@@ -118,6 +118,37 @@ export async function PATCH(
 
   const data: any = {};
 
+  // §82: נקודת חלוקה של הלקוח.
+  //
+  // 🐛 השדה לא היה מטופל כאן כלל - מסך הלקוחות יכול היה לשלוח
+  // אותו, והשרת התעלם בשקט. המנהל היה משנה נקודה, רואה "נשמר",
+  // והשינוי לא היה קיים.
+  //
+  // מנהל בלבד: שיוך לקוח לנקודה קובע לאיזה נציג הוא שייך ומי
+  // מקבל עמלה עליו.
+  if ("defaultPointId" in body) {
+    if (!actor.isAdmin) {
+      return NextResponse.json(
+        { error: "רק מנהל רשאי לשנות נקודת חלוקה של לקוח" },
+        { status: 403 }
+      );
+    }
+    const pid = body.defaultPointId ? String(body.defaultPointId) : null;
+    if (pid) {
+      const exists = await prisma.deliveryPoint.findUnique({
+        where: { id: pid },
+        select: { id: true },
+      });
+      if (!exists) {
+        return NextResponse.json(
+          { error: "נקודת החלוקה שנבחרה אינה קיימת" },
+          { status: 400 }
+        );
+      }
+    }
+    data.defaultPointId = pid;
+  }
+
   // §60: אופן תשלום. אותו כלל ברזל כמו ב-route של הנציג: אין מצב
   // ביניים "אשראי בלי כרטיס" - לקוח כזה נתקע ברשימת כשלי החיוב.
   // המעבר לאשראי מתרחש בפועל בשמירת טוקן (save-token / webhook),

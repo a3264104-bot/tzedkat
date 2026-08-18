@@ -162,6 +162,26 @@ type Tab = "orders" | "walkins" | "summary";
 
 export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
   const [data, setData] = useState<SaleData | null>(null);
+
+  // §81: ספירת המשקלים החסרים - מחושבת כאן ולא מדווחת מהטבלה.
+  //
+  // למה: הנציג יכול לעבור ישר לטאב "סיכום" בלי לפתוח את טבלת
+  // המשקלים בכלל. אילו הספירה הייתה מגיעה משם, הכפתור היה נראה
+  // פתוח כל עוד לא ביקר בטאב - וזה בדיוק הרגע שבו הוא סוגר
+  // מכירה עם קרטון שלא שוקל.
+  //
+  // null = לא מולא. 0 = מולא במפורש ("לא קיבל"), וזה ערך תקף.
+  const missingWeights = useMemo(() => {
+    if (!data) return 0;
+    let n = 0;
+    for (const o of data.orders) {
+      for (const it of o.items) {
+        if (it.isCancelled) continue;
+        if (it.agentEnteredWeight === null || it.agentEnteredWeight === undefined) n++;
+      }
+    }
+    return n;
+  }, [data]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("orders");
   const [error, setError] = useState<string | null>(null);
@@ -478,6 +498,13 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
           <div className="flex gap-1 mt-3 border-b border-zinc-100 -mb-3">
             <TabBtn active={tab === "orders"} onClick={() => setTab("orders")}>
               הזמנות ({data.orders.length})
+              {/* §81: תג החוסר גלוי מכל טאב. הנציג שנמצא ב"סיכום"
+                  צריך לדעת שיש מה להשלים בלי לחזור ולחפש. */}
+              {missingWeights > 0 && (
+                <span className="mr-1.5 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {missingWeights}
+                </span>
+              )}
             </TabBtn>
             <TabBtn active={tab === "walkins"} onClick={() => setTab("walkins")}>
               מזדמנים ({data.walkins.length})
@@ -686,7 +713,9 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
             commissionRateSingles={data.agent.commissionRateSingles}
             readOnly={isSealed}
             onChange={load}
-          />
+          
+                missingWeights={missingWeights}
+              />
         )}
       </main>
     </div>

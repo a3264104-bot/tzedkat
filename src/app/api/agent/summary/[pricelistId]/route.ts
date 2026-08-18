@@ -52,6 +52,47 @@ export async function PATCH(
     });
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // §81: אין סגירת מכירה עם משקלים חסרים
+  // ═══════════════════════════════════════════════════════════
+  // משקל שלא מולא אינו שדה ריק אלא כסף שלא נגבה: קרטון שריר
+  // שנשכח הוא הפסד של כ-1,900 ש"ח בשורה אחת, והוא מתגלה רק
+  // בסוף החודש כשאין למי לפנות.
+  //
+  // ⚠️ הבדיקה כאן ולא רק בממשק: חסימה בקליינט נעקפת ברענון, בטאב
+  // ישן, או בבקשה ישירה - וכאן העקיפה עולה כסף אמיתי.
+  //
+  // null = לא מולא. 0 = מולא במפורש ("הלקוח לא קיבל"), וזה ערך
+  // תקף לגמרי. בלי ההבחנה הזו אי אפשר היה לחסום שכחה בלי לחסום
+  // גם את המקרה הלגיטימי.
+  if (body.confirm === true) {
+    const missing = await prisma.orderItem.count({
+      where: {
+        agentEnteredWeight: null,
+        isCancelled: false,
+        order: {
+          pricelistId,
+          status: { notIn: ["CANCELLED"] },
+          // רק הזמנות בנקודות של הנציג הזה - לא של כל המכירה
+          ...(g.agentPointIds.length > 0
+            ? { pointId: { in: g.agentPointIds } }
+            : {}),
+        },
+      },
+    });
+
+    if (missing > 0) {
+      return NextResponse.json(
+        {
+          error: `לא ניתן לסגור את המכירה: חסרים ${missing} משקלים. לקוח שלא קיבל סחורה - יש להזין 0 במפורש.`,
+          code: "MISSING_WEIGHTS",
+          missingCount: missing,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   const data: any = {};
   if ("remainderNote" in body) {
     data.remainderNote = body.remainderNote ? String(body.remainderNote).trim() : null;

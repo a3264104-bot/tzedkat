@@ -48,6 +48,8 @@ type Props = {
   commissionRateSingles: number;
   readOnly?: boolean;
   onChange: () => void;
+  /** §81: כמה משקלים טרם מולאו - חוסם את סגירת המכירה */
+  missingWeights?: number;
 };
 
 export function SummaryPanel({
@@ -62,6 +64,7 @@ export function SummaryPanel({
   commissionRateSingles,
   readOnly,
   onChange,
+  missingWeights = 0,
 }: Props) {
   const [remainderNote, setRemainderNote] = useState(summary.remainderNote || "");
   const [saving, setSaving] = useState(false);
@@ -102,6 +105,15 @@ export function SummaryPanel({
   }
 
   async function confirmSale() {
+    // §81: חסימה לפני האישור - אין טעם לשאול "לסגור?" אם התשובה
+    // תידחה ממילא בשרת.
+    if (missingWeights > 0) {
+      alert(
+        `לא ניתן לסגור את המכירה.\n\nחסרים ${missingWeights} משקלים.\n\n` +
+          `משקל שלא מולא הוא כסף שלא נגבה. אם לקוח לא קיבל סחורה - יש להזין 0 במפורש בטבלה.`
+      );
+      return;
+    }
     if (
       !confirm(
         "לסגור את המכירה?\nלאחר סגירה לא ניתן יהיה לשנות משקלים או להוסיף מזדמנים."
@@ -116,7 +128,11 @@ export function SummaryPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ remainderNote, confirm: true }),
       });
-      if (!res.ok) throw new Error("שגיאה בסגירה");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // §81: השרת בודק שוב - הודעתו מדויקת יותר (הוא סופר בזמן אמת)
+        throw new Error(data.error || "שגיאה בסגירה");
+      }
       alert("המכירה נסגרה. המנהל קיבל התראה.");
       onChange();
     } catch (e: any) {
@@ -341,12 +357,34 @@ export function SummaryPanel({
       {/* כפתור סגירה */}
       {!readOnly && (
         <div className="sticky bottom-4">
+          {/* §81: כשחסרים משקלים - הכפתור אדום ומושבת, והסיבה כתובה
+              מעליו. כפתור ירוק שנכשל בלחיצה מבלבל יותר מכפתור
+              שאומר מראש מה חסר. */}
+          {missingWeights > 0 && (
+            <div className="mb-2 bg-red-50 border-2 border-red-300 rounded-xl p-3 text-center">
+              <div className="font-extrabold text-red-800 text-sm">
+                ⚠️ חסרים {missingWeights} משקלים
+              </div>
+              <div className="text-[11px] text-red-700 mt-0.5 leading-relaxed">
+                משקל שלא מולא הוא כסף שלא נגבה. עבור לטבלת המשקלים והשלם
+                את התאים האדומים. לקוח שלא קיבל סחורה — הזן 0.
+              </div>
+            </div>
+          )}
           <button
             onClick={confirmSale}
-            disabled={confirming}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-xl font-bold text-lg shadow-lg disabled:opacity-50 transition-all"
+            disabled={confirming || missingWeights > 0}
+            className={`w-full text-white py-4 rounded-xl font-bold text-lg shadow-lg disabled:cursor-not-allowed transition-all ${
+              missingWeights > 0
+                ? "bg-zinc-400 opacity-70"
+                : "bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+            }`}
           >
-            {confirming ? "סוגר..." : "✓ סגור את המכירה"}
+            {confirming
+              ? "סוגר..."
+              : missingWeights > 0
+                ? `🔒 חסרים ${missingWeights} משקלים`
+                : "✓ סגור את המכירה"}
           </button>
           <p className="text-center text-xs text-zinc-500 mt-2">
             לאחר סגירה לא ניתן יהיה לשנות משקלים

@@ -6,6 +6,8 @@ import { Modal, Field } from "@/components/AdminModal";
 import { AdminAddCustomerButton } from "@/components/AdminAddCustomerButton";
 import { AdminCustomerCodePanel } from "@/components/AdminCustomerCodePanel";
 import { ImpersonateButton } from "@/components/ImpersonateButton";
+// §82: עדכון אשראי ישירות ממסך הלקוחות
+import { UpdateCardModal } from "@/components/UpdateCardButton";
 
 type Customer = {
   id: string;
@@ -16,6 +18,11 @@ type Customer = {
   pointName: string | null;
   orderCount: number;
   hasPaymentToken: boolean;
+  // §82: מצב הכרטיס - להצגה בכרטיס העריכה
+  cardLast4?: string | null;
+  cardExpiry?: string | null;
+  cardNeedsUpdate?: boolean;
+  defaultPointId?: string | null;
   passwordPlain: string | null;
   // §62: מצב הקוד בלבד. הקוד עצמו לעולם לא מגיע ברשימה.
   hasLoginCode?: boolean;
@@ -58,6 +65,8 @@ export default function AdminCustomersPage() {
   const [successMsg, setSuccessMsg] = useState("");
   const [showExistingPw, setShowExistingPw] = useState(false);
   const [points, setPoints] = useState<Point[]>([]);
+  // §82: מודל עדכון האשראי
+  const [cardModalFor, setCardModalFor] = useState<Customer | null>(null);
   const [convertingToAgent, setConvertingToAgent] = useState(false);
   const [newRole, setNewRole] = useState<string>("");
   const [newPointId, setNewPointId] = useState<string>("");
@@ -304,6 +313,13 @@ export default function AdminCustomersPage() {
       if (editEmail !== (editing.email ?? "")) payload.email = editEmail || null;
       if (editPhone !== (editing.phone ?? "")) payload.phone = editPhone || null;
       if (newPassword) payload.newPassword = newPassword;
+      // §82: נקודת חלוקה. ההשוואה מול הרשומה שברשימה ולא מול
+      // editing - האחרון כבר מכיל את הערך החדש (setEditing ב-onChange),
+      // ולכן השוואה מולו תמיד הייתה מחזירה "אין שינוי".
+      const originalPoint = customers.find((c) => c.id === editing.id)?.defaultPointId ?? null;
+      if ((editing.defaultPointId ?? null) !== originalPoint) {
+        payload.defaultPointId = editing.defaultPointId ?? null;
+      }
 
       if (Object.keys(payload).length === 0) {
         setError("לא בוצע שום שינוי");
@@ -586,6 +602,76 @@ export default function AdminCustomersPage() {
                 onChanged={reload}
               />
 
+              {/* §82: אשראי ונקודת חלוקה - שתי הפעולות שהמנהל צריך
+                  בכל שיחה עם לקוח.
+
+                  🐛 הפער שנסגר: שתיהן היו זמינות רק דרך אזור הנציג
+                  (/agent -> חיפוש -> כרטיס הלקוח). המנהל שנכנס
+                  למסך הלקוחות - המקום הטבעי - ראה את מצב הכרטיס
+                  אבל לא יכול היה לגעת בו, ולא יכול היה לשנות נקודה
+                  ללקוח רגיל בכלל (השדה היה קיים רק להסבת תפקיד). */}
+              <div className="bg-gradient-to-br from-emerald-50 to-zinc-50 border border-emerald-200 rounded-lg p-3 space-y-2.5">
+                <div className="text-xs font-bold text-zinc-600">💳 אמצעי תשלום</div>
+
+                {editing.paymentPreference === "CASH" ? (
+                  <div className="bg-white border border-amber-300 rounded-lg p-2.5 text-xs text-amber-800">
+                    לקוח <b>מזומן</b> — הגבייה מתבצעת פיזית בחלוקה.
+                    שמירת כרטיס כאן תעביר אותו אוטומטית לאשראי.
+                  </div>
+                ) : editing.hasPaymentToken ? (
+                  <div className="bg-white border border-zinc-200 rounded-lg p-2.5 text-sm">
+                    כרטיס שמור:{" "}
+                    <strong dir="ltr">****{editing.cardLast4 || "----"}</strong>
+                    {editing.cardExpiry && (
+                      <span className="text-zinc-500 text-xs mr-2" dir="ltr">
+                        {editing.cardExpiry.slice(0, 2)}/{editing.cardExpiry.slice(2)}
+                      </span>
+                    )}
+                    {editing.cardNeedsUpdate && (
+                      <div className="mt-1 text-orange-700 text-xs font-bold">
+                        ⚠️ הכרטיס דורש עדכון — לא ניתן לחייב איתו
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-white border border-zinc-200 rounded-lg p-2.5 text-xs text-zinc-500">
+                    אין כרטיס שמור. הלקוח אינו יכול להזמין עד שיוגדר לו
+                    אמצעי תשלום.
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setCardModalFor(editing as Customer)}
+                  className="w-full text-xs font-bold text-emerald-800 border-2 border-emerald-500 rounded-lg py-2 hover:bg-emerald-600 hover:text-white transition-colors"
+                >
+                  💳 {editing.hasPaymentToken ? "החלפת כרטיס אשראי" : "הזנת כרטיס אשראי"}
+                </button>
+              </div>
+
+              {/* §82: נקודת חלוקה - לכל לקוח, לא רק לנציג */}
+              <Field label="📍 נקודת חלוקה">
+                <select
+                  className="input"
+                  value={editing.defaultPointId ?? ""}
+                  onChange={(e) =>
+                    setEditing({ ...editing, defaultPointId: e.target.value || null })
+                  }
+                >
+                  <option value="">— ללא נקודה —</option>
+                  {points.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                      {p.city ? ` — ${p.city}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-zinc-500 mt-1">
+                  קובעת לאיזה נציג הלקוח משויך ומאיפה יאסוף את ההזמנה.
+                  השינוי נשמר בלחיצה על &quot;שמירה&quot; למטה.
+                </p>
+              </Field>
+
               {/* §62: נעילה פעילה - הסבר למה הלקוח לא מצליח להיכנס.
                   קביעת קוד חדש מנקה אותה אוטומטית. */}
               {editing.lockedUntil &&
@@ -827,6 +913,25 @@ export default function AdminCustomersPage() {
             </button>
           </div>
         </Modal>
+      )}
+
+      {/* §82: מודל עדכון האשראי. מציג את ה-iframe של נדרים ושומר
+          את הטוקן על הלקוח הנבחר.
+
+          onSuccess -> reload: הכרטיס החדש, מצב "דורש עדכון" ומעבר
+          אוטומטי מ-CASH ל-CREDIT כולם נקבעים בשרת, ולכן נמשכים
+          משם ולא מורכבים כאן מחדש. */}
+      {cardModalFor && (
+        <UpdateCardModal
+          customerId={cardModalFor.id}
+          hasCurrentCard={cardModalFor.hasPaymentToken}
+          onClose={() => setCardModalFor(null)}
+          onSuccess={() => {
+            setCardModalFor(null);
+            setSuccessMsg("הכרטיס עודכן בהצלחה");
+            reload();
+          }}
+        />
       )}
     </div>
   );
