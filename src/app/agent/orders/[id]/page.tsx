@@ -7,6 +7,7 @@ import { formatItemQty, orderItemBadge } from "@/lib/order-display";
 import { payStatusLabel } from "@/lib/pay-status-lib";
 import AgentChargeButton from "./AgentChargeButton";
 import { AgentAddItemPanel } from "./AgentAddItemPanel";
+import { AgentCashPanel } from "./AgentCashPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -264,6 +265,22 @@ export default async function AgentOrderDetailPage({
               <div className="font-mono">{order.lastChargeError}</div>
             </div>
           )}
+
+          {/* §91: סימון תשלום מזומן - לכל נציג, לא רק בעל הרשאת חיוב.
+              מי שעומד בחלוקה ומקבל את הכסף חייב דרך לסמן, אחרת
+              הכרטיס יחויב בערב והלקוח ישלם פעמיים.
+
+              ⚠️ בכוונה **מעל** כפתור החיוב: הנציג שקיבל מזומן צריך
+              לפגוש קודם את הפעולה הנכונה. */}
+          <div className="mb-3">
+            <AgentCashPanel
+              orderId={order.id}
+              orderNumber={order.orderNumber}
+              customerName={order.customerName}
+              finalTotal={finalTotal}
+              paymentStatus={order.paymentStatus}
+            />
+          </div>
 
           {/* כפתור חיוב - רק אם יש הרשאה + תנאים מתקיימים */}
           {canCharge && (

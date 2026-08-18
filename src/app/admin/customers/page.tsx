@@ -102,6 +102,35 @@ export default function AdminCustomersPage() {
   // מצב תצוגה: table / grouped
   const [viewMode, setViewMode] = useState<"table" | "grouped">("grouped");
 
+  // §90: החלפת אופן תשלום. הפעולה נשמרת מיד ולא מחכה ל"שמירה" -
+  // היא משנה מה הלקוח יכול לעשות ברגע זה, ולא ראוי שתישכח בטופס.
+  async function setPaymentPref(pref: "CASH" | "CREDIT") {
+    if (!editing) return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/customers/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentPreference: pref }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "שגיאה");
+      // האזהרה מהשרת מדויקת יותר - היא סופרת הזמנות פתוחות בפועל
+      setSuccessMsg(
+        json.warning ||
+          (pref === "CASH"
+            ? "הלקוח סומן כלקוח מזומן ויכול להזמין"
+            : "הלקוח הועבר לתשלום באשראי")
+      );
+      await reload();
+    } catch (e: any) {
+      setError(e.message || "שגיאה בשינוי אופן התשלום");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function reload() {
     const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
     const enriched = (Array.isArray(data) ? data : []).map((c: any) => ({
@@ -660,11 +689,53 @@ export default function AdminCustomersPage() {
                     )}
                   </div>
                 ) : (
-                  <div className="bg-white border border-zinc-200 rounded-lg p-2.5 text-xs text-zinc-500">
-                    אין כרטיס שמור. הלקוח אינו יכול להזמין עד שיוגדר לו
-                    אמצעי תשלום.
+                  <div className="bg-white border border-orange-300 rounded-lg p-2.5 text-xs text-orange-800">
+                    <b>אין כרטיס שמור.</b> הלקוח מוגדר לתשלום באשראי ולכן
+                    אינו יכול להזמין עד שיוזן לו כרטיס — או עד שיסומן
+                    כלקוח מזומן.
                   </div>
                 )}
+
+                {/* §90: מתג מזומן/אשראי.
+                    🐛 קודם אפשר היה רק *להיכנס* למזומן. היציאה ממנו
+                    דרשה הזנת כרטיס - שלרוב אין - ולכן לקוח שסומן
+                    בטעות כמזומן נשאר כזה לנצח.
+                    עכשיו: המנהל מחליט. אשראי בלי כרטיס הוא מצב תקף
+                    שמשמעותו "חייב להסדיר כרטיס לפני שיזמין" - וזה
+                    בדיוק המצב של כל לקוח חדש. */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={saving || editing.paymentPreference === "CREDIT"}
+                    onClick={() => setPaymentPref("CREDIT")}
+                    className={`py-2 rounded-lg text-xs font-bold border-2 transition-colors ${
+                      editing.paymentPreference !== "CASH"
+                        ? "border-emerald-500 bg-emerald-100 text-emerald-800"
+                        : "border-zinc-300 bg-white text-zinc-600 hover:border-emerald-400"
+                    }`}
+                  >
+                    💳 אשראי
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving || editing.paymentPreference === "CASH"}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "לסמן כלקוח מזומן?\n\nהוא יוכל להזמין בלי כרטיס אשראי, והגבייה תתבצע פיזית בחלוקה."
+                        )
+                      )
+                        setPaymentPref("CASH");
+                    }}
+                    className={`py-2 rounded-lg text-xs font-bold border-2 transition-colors ${
+                      editing.paymentPreference === "CASH"
+                        ? "border-amber-500 bg-amber-100 text-amber-800"
+                        : "border-zinc-300 bg-white text-zinc-600 hover:border-amber-400"
+                    }`}
+                  >
+                    💵 מזומן
+                  </button>
+                </div>
 
                 <button
                   type="button"

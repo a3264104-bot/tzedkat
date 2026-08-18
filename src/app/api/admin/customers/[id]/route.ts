@@ -117,6 +117,9 @@ export async function PATCH(
   }
 
   const data: any = {};
+  // §90: אזהרה שמוחזרת למסך - לא שדה במסד. חייבת להיות מחוץ
+  // ל-data, אחרת Prisma נופל על שדה לא מוכר.
+  let prefWarning: string | null = null;
 
   // §82: נקודת חלוקה של הלקוח.
   //
@@ -149,10 +152,19 @@ export async function PATCH(
     data.defaultPointId = pid;
   }
 
-  // §60: אופן תשלום. אותו כלל ברזל כמו ב-route של הנציג: אין מצב
-  // ביניים "אשראי בלי כרטיס" - לקוח כזה נתקע ברשימת כשלי החיוב.
-  // המעבר לאשראי מתרחש בפועל בשמירת טוקן (save-token / webhook),
-  // וכאן מותר רק ללקוח שכבר יש לו כרטיס שמור.
+  // §90: אופן תשלום - מזומן או אשראי, לבחירת המנהל.
+  //
+  // 🐛 החסימה שהוסרה: §60 חסם מעבר ל-CREDIT ללקוח בלי כרטיס
+  // בטענה "אין מצב ביניים אשראי בלי כרטיס". הטענה הייתה שגויה -
+  // זהו בדיוק המצב ההתחלתי של **כל** לקוח חדש: CREDIT בלי טוקן,
+  // חסום מהזמנה עד שיוזן כרטיס (§61 אוכף את זה).
+  //
+  // התוצאה בפועל: מנהל שסימן לקוח כמזומן נתקע - הוא לא יכול היה
+  // לבטל את הסימון בלי להזין כרטיס שאין לו. לקוח שהוגדר בטעות
+  // כמזומן נשאר כזה לנצח.
+  //
+  // עכשיו: המנהל מחליט. מעבר ל-CREDIT בלי כרטיס הוא מצב תקף
+  // שמשמעותו "הלקוח חייב להסדיר אשראי לפני שיוכל להזמין".
   if ("paymentPreference" in body) {
     const pref = body.paymentPreference;
     if (pref !== "CASH" && pref !== "CREDIT") {
@@ -167,22 +179,32 @@ export async function PATCH(
         { status: 403 }
       );
     }
+
+    // ⚠️ אזהרה ולא חסימה: מעבר מ-CASH ל-CREDIT בזמן שיש הזמנות
+    // פתוחות שנפתחו כמזומן. ההזמנות עצמן אינן משתנות - אבל המנהל
+    // צריך לדעת שהן ימתינו לחיוב בכרטיס שעדיין לא קיים.
+    let warning: string | null = null;
     if (pref === "CREDIT") {
       const target = await prisma.customer.findUnique({
         where: { id },
-        select: { paymentToken: true },
+        select: {
+          paymentToken: true,
+          _count: {
+            select: {
+              orders: { where: { status: { notIn: ["CANCELLED", "COMPLETED"] } } },
+            },
+          },
+        },
       });
       if (!target?.paymentToken) {
-        return NextResponse.json(
-          {
-            error:
-              "ללקוח אין כרטיס שמור. כדי לעבור לאשראי יש להזין כרטיס - עם שמירתו הלקוח יעבור לאשראי אוטומטית.",
-            needsCard: true,
-          },
-          { status: 400 }
-        );
+        warning =
+          target && target._count.orders > 0
+            ? `הלקוח הועבר לאשראי ואין לו כרטיס שמור. יש לו ${target._count.orders} הזמנות פתוחות שימתינו לחיוב, והוא לא יוכל לפתוח הזמנות חדשות עד שיוזן כרטיס.`
+            : "הלקוח הועבר לאשראי ואין לו כרטיס שמור. הוא לא יוכל להזמין עד שיוזן כרטיס.";
       }
     }
+    prefWarning = warning;
+
     data.paymentPreference = pref;
 
     // §61: סימון כמזומן הוא השלמת הטיפול בבקשת ההרשמה הטלפונית -
@@ -382,14 +404,14 @@ export async function PATCH(
         }
         return tx.customer.findUnique({ where: { id } });
       });
-      return NextResponse.json({ ok: true, customer });
+      return NextResponse.json({ ok: true, customer, warning: prefWarning });
     }
     // עדכון רגיל (בלי שינוי נקודות)
     const customer = await prisma.customer.update({
       where: { id },
       data,
     });
-    return NextResponse.json({ ok: true, customer });
+    return NextResponse.json({ ok: true, customer, warning: prefWarning });
   } catch (e: any) {
     console.error("customer update error:", e);
     return NextResponse.json({ error: e.message || "שגיאה" }, { status: 500 });

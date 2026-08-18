@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+import { requireAgent } from "@/lib/agent-guard";
 import { resolvePaymentStatusFromAmount, PAYMENT_METHOD_LABELS } from "@/lib/pricing";
 import { sendPaymentConfirmedEmail } from "@/lib/email";
 
@@ -8,14 +9,46 @@ import { sendPaymentConfirmedEmail } from "@/lib/email";
 // כללים (לפי המפרט): חובה finalTotal קיים מראש; חובה receivedBy; אם amountPaid < finalTotal
 // מסומן PARTIALLY_PAID; שווה -> PAID; כל מקרה נרשם ב-PaymentAuditLog שלא נמחק לעולם.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const g = await requireAdmin();
-  if (!g.ok) return g.res;
   const { id } = await params;
+
+  // ═══════════════════════════════════════════════════════════
+  // §91: גם נציג רשאי לסמן תשלום מזומן
+  // ═══════════════════════════════════════════════════════════
+  // 🐛 הפער שנסגר: הפעולה הייתה למנהל בלבד. אבל מי שמקבל את הכסף
+  // בפועל הוא **הנציג בחלוקה** - ולא הייתה לו שום דרך לסמן זאת.
+  // התוצאה: הלקוח שילם במזומן, אף אחד לא סימן, והכרטיס שלו חויב
+  // בערב. תשלום כפול, ושיחת טלפון לא נעימה.
+  //
+  // ⚠️ בכוונה **כל** נציג, ולא רק בעל agentCanCharge: ההרשאה הזו
+  // מגבילה *הוצאת* כסף מהלקוח. סימון מזומן עושה את ההפך - הוא
+  // מונע חיוב. חסימה כאן הייתה יוצרת בדיוק את התשלום הכפול
+  // שהמנגנון בא למנוע.
+  //
+  // ההגבלה שכן נשמרת: נציג רשאי רק בהזמנות של נקודותיו.
+  const admin = await requireAdmin();
+  let actorLabel: string;
+  let agentPointIds: string[] | null = null;
+
+  if (admin.ok) {
+    actorLabel =
+      admin.session?.user?.email ?? admin.session?.user?.name ?? "unknown";
+  } else {
+    const agent = await requireAgent();
+    if (!agent.ok) return agent.res;
+    if (!agent.isAdmin && agent.agentPointIds.length === 0) {
+      return NextResponse.json(
+        { error: "אין לך נקודת חלוקה משויכת. פנה למנהל." },
+        { status: 403 }
+      );
+    }
+    actorLabel = `נציג: ${agent.agent.name}`;
+    agentPointIds = agent.isAdmin ? null : agent.agentPointIds;
+  }
 
   const b = await req.json();
   const amountPaid = Number(b.amountPaid);
   const note: string | null = b.note ?? null;
-  const receivedByUserId = g.session?.user?.email ?? g.session?.user?.name ?? "unknown";
+  const receivedByUserId = actorLabel;
 
   if (!amountPaid || amountPaid <= 0) {
     return NextResponse.json({ error: "יש להזין סכום תקין שהתקבל" }, { status: 400 });
@@ -24,10 +57,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const order = await prisma.order.findUnique({ where: { id } });
   if (!order) return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
 
+  // §91: נציג - רק הזמנות של נקודותיו
+  if (agentPointIds && !agentPointIds.includes(order.pointId)) {
+    return NextResponse.json(
+      { error: "אין הרשאה - ההזמנה לא באחת מהנקודות שלך" },
+      { status: 403 }
+    );
+  }
+
   // לא ניתן לסמן תשלום מזומן לפני שקיים מחיר סופי
   if (order.finalTotal === null) {
     return NextResponse.json(
-      { error: "יש לקבוע מחיר סופי לפני סימון תשלום" },
+      {
+        error:
+          "יש לשקול ולקבוע מחיר סופי לפני סימון תשלום. סימון לפני שקילה היה קובע סכום שאינו מה שהלקוח באמת חייב.",
+      },
       { status: 400 }
     );
   }
