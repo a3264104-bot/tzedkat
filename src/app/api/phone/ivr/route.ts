@@ -32,6 +32,9 @@ import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
 // §64: קוד התחברות ללקוח שנרשם בטלפון
 // §76: decryptCode בלבד - ה-IVR מקריא קודים, לא מייצר אותם
 import { decryptCode } from "@/lib/login-code";
+// §79: התראה לנציג על בקשת הרשמה חדשה
+import { waitUntil } from "@vercel/functions";
+import { sendPhoneSignupNotification } from "@/lib/email";
 // §71: ניקוי שם מזיהוי הדיבור - מקור התווים הנסתרים
 import { cleanName } from "@/lib/identity";
 import {
@@ -626,7 +629,7 @@ async function handleUnregistered(
   //   • הוא יכול להשלים הרשמה באתר בעצמו - החשבון ריק ולכן פתוח
   //   • ואחרי שהנציג יקים אותו, אפשרות 4 בתפריט תקריא לו את הקוד
 
-  await prisma.phoneSignupRequest.create({
+  const signupRequest = await prisma.phoneSignupRequest.create({
     data: {
       customerId: created.id,
       phone,
@@ -635,7 +638,32 @@ async function handleUnregistered(
       callId: callId || null,
       status: "NEW",
     },
+    select: { id: true },
   });
+
+  // §79: התראה לנציגי הנקודה ולמנהל.
+  //
+  // 🐛 הפער שנסגר: הבקשה נוצרה ואז שום דבר לא קרה - היא ישבה במסך
+  // "בקשות מהטלפון" וחיכתה שמישהו יפתח אותו במקרה. לקוח שהתקשר
+  // בערב יכול היה להמתין יום שלם, חסום מלהזמין ומלהיכנס לאתר.
+  //
+  // waitUntil ולא await: ימות ממתינים לתשובה שלנו לפני שהם משמיעים
+  // את ההודעה הבאה, ושליחת מייל דרך Resend מוסיפה מאות מילישניות
+  // של שקט באוזן הלקוח. waitUntil מבטיח ש-Vercel *כן* יסיים את
+  // המשימה אחרי שהתשובה נשלחה - בשונה מ-fire-and-forget שנקטע
+  // ברגע שהפונקציה מחזירה (הבאג של §17 בברודקסט).
+  waitUntil(
+    sendPhoneSignupNotification({
+      customerName: name,
+      phone,
+      pointId,
+      requestId: signupRequest.id,
+    })
+      .then((r) => {
+        if (!r.ok) console.error("[phone-ivr] signup notification failed:", r.error);
+      })
+      .catch((e) => console.error("[phone-ivr] signup notification error:", e))
+  );
 
   // §76: מפנים לאתר להשלמת הפרטים. הלקוח יכול להירשם שם עם אותו
   // מספר טלפון והטופס ישלים את החשבון הקיים - ראה register/route.

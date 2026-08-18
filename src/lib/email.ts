@@ -485,3 +485,131 @@ export async function sendBroadcastEmail(
     return { ok: false, error: String(e?.message || e) };
   }
 }
+/**
+ * §79: התראה על בקשת הרשמה חדשה מהמערכת הטלפונית.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * הפער שנסגר
+ * ═══════════════════════════════════════════════════════════════
+ * לקוח שנרשם ב-IVR נוצר במסד, ונוצרה עבורו PhoneSignupRequest -
+ * ואז שום דבר לא קרה. הבקשה ישבה במסך "בקשות מהטלפון" וחיכתה
+ * שמישהו יפתח אותו במקרה. לקוח שהתקשר בערב יכול היה להמתין יום
+ * שלם, בזמן שהוא חסום מלהזמין ומלהיכנס לאתר.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * למי נשלח
+ * ═══════════════════════════════════════════════════════════════
+ * לנציגים המשויכים לנקודת החלוקה שהלקוח בחר - הם אלה שיטפלו -
+ * ולמנהל כגיבוי. אם לנקודה אין נציג משויך, המנהל מקבל את זה
+ * מודגש: אחרת הבקשה תיפול בין הכיסאות בדיוק כמו קודם.
+ *
+ * agentPoints הוא מקור האמת לשיוך (many-to-many), עם נפילה
+ * ל-agentPointId הישן לנציגים שטרם הועברו.
+ *
+ * הכשל אינו חוסם: השיחה כבר הסתיימה והלקוח כבר נוצר. מייל שנכשל
+ * מדווח בלוג בלבד - אין טעם להפיל הרשמה מוצלחת בגלל Resend.
+ */
+export async function sendPhoneSignupNotification(params: {
+  customerName: string;
+  phone: string;
+  pointId: string;
+  requestId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+
+    const point = await prisma.deliveryPoint.findUnique({
+      where: { id: params.pointId },
+      select: { name: true, city: true },
+    });
+
+    // נציגי הנקודה - שני המקורות, בלי כפילויות
+    const [linked, legacy] = await Promise.all([
+      prisma.agentPoint.findMany({
+        where: { pointId: params.pointId },
+        select: { agent: { select: { id: true, name: true, email: true, role: true, isActive: true } } },
+      }),
+      prisma.customer.findMany({
+        where: { agentPointId: params.pointId, role: "AGENT" },
+        select: { id: true, name: true, email: true, role: true, isActive: true },
+      }),
+    ]);
+
+    const byId = new Map<string, { name: string; email: string | null }>();
+    for (const l of linked) {
+      const a = l.agent;
+      // מנהל משויך לנקודה אינו "הנציג האחראי" - הוא מקבל את המייל
+      // ממילא ככתובת הניהול, ולא צריך להיספר פעמיים.
+      if (a.role !== "AGENT" || a.isActive === false || !a.email) continue;
+      byId.set(a.id, { name: a.name, email: a.email });
+    }
+    for (const a of legacy) {
+      if (a.isActive === false || !a.email) continue;
+      if (!byId.has(a.id)) byId.set(a.id, { name: a.name, email: a.email });
+    }
+
+    const agents = Array.from(byId.values());
+    const pointLabel =
+      (point?.name ?? "נקודה לא ידועה") + (point?.city ? ` — ${point.city}` : "");
+
+    // וואטסאפ ישיר ללקוח - הפעולה הראשונה שהנציג יעשה ממילא
+    const waPhone = params.phone.replace(/\D/g, "").replace(/^0/, "972");
+    const waText = encodeURIComponent(
+      `שלום ${params.customerName}, מדברים מצדקת רבותינו בנוגע לפתיחת החשבון שלך.`
+    );
+    const adminLink = `${APP_URL}/admin/phone-signups`;
+
+    const body = `
+      <p style="font-size:16px;"><strong>לקוח חדש נרשם דרך המערכת הטלפונית</strong></p>
+      <table style="width:100%;font-size:14px;margin-bottom:16px;">
+        <tr><td style="padding:4px 0;color:#666;width:110px;">שם:</td><td><strong>${escapeHtml(params.customerName)}</strong></td></tr>
+        <tr><td style="padding:4px 0;color:#666;">טלפון:</td><td dir="ltr" align="right">${escapeHtml(params.phone)}</td></tr>
+        <tr><td style="padding:4px 0;color:#666;">נקודת חלוקה:</td><td>${escapeHtml(pointLabel)}</td></tr>
+      </table>
+
+      <div style="background:#FEF3C7;border-right:4px solid #C0461E;padding:12px;border-radius:8px;font-size:14px;">
+        <strong>עד שהחשבון יוקם, הלקוח חסום:</strong> אינו יכול להזמין ואינו יכול
+        להיכנס לאתר. יש ליצור איתו קשר, להזין אמצעי תשלום (אשראי או סימון
+        כלקוח מזומן), ולהפיק לו קוד כניסה בכרטיס הלקוח.
+      </div>
+
+      ${
+        agents.length === 0
+          ? `<div style="background:#FEE2E2;border:1px solid #FCA5A5;padding:12px;border-radius:8px;font-size:14px;margin-top:12px;">
+               <strong>⚠️ אין נציג משויך לנקודה הזו.</strong> הבקשה לא תטופל
+               על ידי איש עד שישויך נציג, או עד שתטפל בה ישירות.
+             </div>`
+          : `<p style="font-size:13px;color:#666;margin-top:12px;">
+               נציגי הנקודה: ${escapeHtml(agents.map((a) => a.name).join(", "))}
+             </p>`
+      }
+
+      <div style="margin-top:20px;">
+        <a href="${adminLink}" style="display:inline-block;background:#C0461E;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">
+          פתיחת רשימת הבקשות
+        </a>
+        <a href="https://wa.me/${waPhone}?text=${waText}" style="display:inline-block;background:#25D366;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;margin-right:8px;">
+          וואטסאפ ללקוח
+        </a>
+      </div>`;
+
+    // כתובת הניהול תמיד, ונציגי הנקודה בנוסף. Set מונע כפילות אם
+    // הנציג הוא גם כתובת הניהול.
+    const recipients = Array.from(
+      new Set([settings.adminEmail, ...agents.map((a) => a.email!)].filter(Boolean))
+    );
+    if (recipients.length === 0) {
+      return { ok: false, error: "no recipients" };
+    }
+
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: recipients,
+      subject: `לקוח חדש מהטלפון — ${params.customerName} (${pointLabel})`,
+      html: baseTemplate("לקוח חדש מהמערכת הטלפונית", body),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}

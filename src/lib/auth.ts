@@ -100,27 +100,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null;
         }
 
-        // 1) מנסים קודם כמנהל (טבלת Admin, לפי מייל)
-        // TODO: אחרי שיצליחו כל המנהלים לעבור לטבלת Customer עם role=ADMIN,
-        // אפשר להסיר את הבלוק הזה ולמחוק את טבלת Admin
-        const admin = await prisma.admin
-          .findUnique({ where: { email: identifier.toLowerCase() } })
-          .catch(() => null);
-        if (admin) {
-          const ok = await bcrypt.compare(secret, admin.password);
-          if (ok) {
-            console.log(`[auth] admin login SUCCESS: ${identifier}`);
-            return {
-              id: admin.id,
-              email: admin.email,
-              name: admin.name ?? "מנהל",
-              role: "ADMIN",
-            };
-          }
-          console.warn(`[auth] admin login FAILED (wrong password): ${identifier}`);
-        }
+        // §80: הבלוק שחיפש בטבלת Admin הישנה הוסר.
+        //
+        // הטבלה רוקנה, וכל המנהלים הם רשומות Customer עם role=ADMIN.
+        // מה שהיה: התחברות עם מייל מצאה קודם את הרשומה הישנה, וה-session
+        // הצביע עליה - רשומה בלי פרופיל לקוח. התוצאה הייתה ש"כניסה
+        // כמשתמש" נחסמה, כי לא היה לאן לחזור ממנה.
+        //
+        // עכשיו יש מסלול אחד: מייל או טלפון, שניהם מגיעים לאותה רשומת
+        // Customer ולאותן יכולות.
+        //
+        // ⚠️ מודל Admin עדיין קיים בסכמה. הוא לא נמחק כאן בכוונה -
+        // מחיקת מודל היא מיגרציה הרסנית, והטבלה ריקה וחסרת השפעה.
+        // אפשר להסיר אותה מהסכמה בהזדמנות נפרדת.
 
-        // 2) לקוח - לפי טלפון (המזהה הראשי) או מייל.
+        // לקוח - לפי טלפון (המזהה הראשי) או מייל.
         // הנירמול זהה לזה שבהרשמה, ב-customer-create וב-IVR, אחרת
         // מי שמקליד מקף או מעתיק מוואטסאפ לא נמצא.
         const candidates = phoneCandidates(identifier);
