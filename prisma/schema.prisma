@@ -282,7 +282,7 @@ model Pricelist {
   deliveryDate  DateTime?
   // §6/#6: תאריך חלוקה סוף — אם חלוקה מתפרסת על מספר ימים
   deliveryDateEnd DateTime?
-  deliveryDateText String?
+  deliveryDateText String?  // טקסט חופשי לתאריך עברי
 
   // §111: מכירה לנציגים בלבד ("הזמנה מהירה").
   //
@@ -296,7 +296,7 @@ model Pricelist {
   // מחיר מהמחירון, שקילה בחלוקה, וחיוב אוטומטי בכרטיס של הלקוח.
   //
   // ⚠️ החיוב זהה למכירה רגילה. אין כאן מסלול עוקף - זו כל הנקודה.
-  agentOnly        Boolean  @default(false)  // טקסט חופשי לתאריך עברי
+  agentOnly        Boolean  @default(false)
   notes         String?
   status        String   @default("DRAFT") // DRAFT / ACTIVE / CLOSED / DONE
   singleSurcharge Decimal @default(3) @db.Decimal(10, 2) // תוספת לבודדים גלובלית למחירון
@@ -625,6 +625,17 @@ model DeliveryNoteItem {
   // הערה חופשית (למשל: "שם לא ברור בתעודה")
   note            String?
   sortOrder       Int          @default(0)
+
+  // §113: עלות בפועל מהספק, לק"ג.
+  //
+  // הפער שנסגר: התעודה תיעדה **כמה הגיע** אבל לא **כמה זה עלה**,
+  // ולכן אי אפשר היה לענות על השאלה הבסיסית - "קניתי ב-X, גביתי
+  // Y, מה נשאר". בלי זה כל הדוחות מציגים מחזור ולא רווח.
+  //
+  // ⚠️ לק"ג ולא לקרטון: ספק בשר מחייב לפי משקל, והקרטון הוא יחידת
+  // אריזה בלבד. שמירת מחיר לקרטון הייתה מייצרת חישוב שגוי בכל
+  // פעם שמשקל הקרטון סוטה מהתכנון - כלומר תמיד.
+  costPerKg       Decimal?     @db.Decimal(10, 2)
 }
 
 // לקוח מזדמן - הגיע לחלוקה בלי הזמנה מוקדמת

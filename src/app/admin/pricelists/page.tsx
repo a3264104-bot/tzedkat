@@ -156,6 +156,17 @@ export default function PricelistsPage() {
                       סגור הזמנות
                     </button>
                   )}
+                  {/* §113: הכניסה למסך מצב המכירה - שלב, התאמת
+                      משקלים, וסיכום כספי. מוצג רק למכירה שאינה
+                      טיוטה, כי לפני ההפעלה אין מה להתאים. */}
+                  {l.status !== "DRAFT" && (
+                    <a
+                      href={`/admin/sale-status/${l.id}`}
+                      className="btn-sm bg-brand-slatedark text-white rounded-lg px-3 font-bold hover:opacity-90"
+                    >
+                      📊 מצב המכירה
+                    </a>
+                  )}
                   <button onClick={() => setEditing(l.id)} className="btn-ghost btn-sm">
                     ערוך
                   </button>
