@@ -78,14 +78,39 @@ export function say(text: string): string {
   return `t-${sanitizeTts(text)}`;
 }
 
-/** השמעת מספר ("מאה עשרים ושלוש") */
+/**
+ * השמעת מספר ("מאה עשרים ושלוש").
+ *
+ * WARNING §99: **אסור לשלוח נקודה עשרונית.**
+ *
+ * הבאג שהתגלה: מחיר 88.9 נשלח כ-"n-88.9". הנקודה היא מפריד
+ * ההודעות בפרוטוקול של ימות, ולכן הם פיצלו את המקטע ל-"n-88"
+ * ואז "9" - ו-"9" לבדו אינו פקודה חוקית. התשובה כולה נפסלה
+ * והשיחה **התנתקה מיד אחרי בחירת המוצר**.
+ *
+ * הבאג נולד ב-§85: עד אז הוקרא סכום משוער מעוגל (מספר שלם),
+ * והמעבר למחיר האמיתי הכניס שברים עשרוניים לראשונה.
+ *
+ * הפתרון: שני מקטעים - השלמים, המילה "נקודה", והאגורות.
+ * "שמונים ושמונה נקודה תשעים" הוא גם איך שמחיר נאמר בעברית.
+ */
 export function sayNumber(n: number | string): string {
-  return `n-${n}`;
+  const num = Number(n);
+  if (!Number.isFinite(num)) return "n-0";
+
+  const rounded = Math.round(num * 100) / 100;
+  if (Number.isInteger(rounded)) return `n-${rounded}`;
+
+  const whole = Math.trunc(rounded);
+  const cents = Math.round((rounded - whole) * 100);
+  return `n-${whole}.t-נקודה.n-${cents}`;
 }
 
 /** השמעת ספרות ("אחת שתיים שלוש") */
 export function sayDigits(n: number | string): string {
-  return `d-${n}`;
+  // §99: ספרות בלבד. כל תו אחר - ובעיקר נקודה - מפצל את המקטע
+  // בפרוטוקול ופוסל את התשובה כולה. ראה ההסבר ב-sayNumber.
+  return `d-${String(n).replace(/\D/g, "")}`;
 }
 
 // ─────────────────────────────────────────────────────────────
