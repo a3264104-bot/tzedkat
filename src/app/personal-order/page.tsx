@@ -22,6 +22,8 @@ export default async function PersonalOrderPage() {
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       include: {
         category: { select: { name: true } },
+        // §73: תמונת הכשרות - כמו בהזמנה הרגילה
+        kashrutRef: { select: { name: true, imageUrl: true } },
       },
     }),
     prisma.customer.findUnique({
@@ -33,7 +35,7 @@ export default async function PersonalOrderPage() {
       orderBy: { createdAt: "desc" },
       take: 10,
       include: {
-        items: { select: { productName: true, quantity: true } },
+        items: { select: { productName: true, quantity: true, isSingle: true } },
       },
     }),
   ]);
@@ -45,7 +47,14 @@ export default async function PersonalOrderPage() {
         name: p.name,
         imageUrl: p.imageUrl,
         category: p.category?.name ?? null,
-        kashrut: p.kashrut,
+        // §73: שם הכשרות מהרפרנס (עם נפילה לטקסט החופשי) + תמונה,
+        // בדיוק כמו שההזמנה הרגילה מציגה
+        kashrut: p.kashrutRef?.name ?? p.kashrut,
+        kashrutImageUrl: p.kashrutRef?.imageUrl ?? null,
+        // §73: לבורר בודדים/קרטונים
+        allowSingles: p.allowSingles,
+        singlesMode: p.singlesMode,
+        unit: p.unit,
       }))}
       customer={customer}
       existingRequests={existingRequests.map((r) => ({

@@ -505,6 +505,10 @@ model PersonalRequestItem {
   productId  String
   productName String
   quantity   Int
+  // §73: בודדים או קרטונים - כמו בהזמנה רגילה. המחיר נקבע ממילא
+  // בצ'אט עם המנהל, אבל הוא חייב לדעת *מה* הלקוח מבקש: קרטון
+  // שלם או קילוגרמים בודדים.
+  isSingle   Boolean         @default(false)
 }
 
 // §9: הודעות בין לקוח למנהל בבקשה אישית

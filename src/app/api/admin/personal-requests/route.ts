@@ -13,7 +13,9 @@ export async function GET() {
     orderBy: [{ hasUnreadForAdmin: "desc" }, { updatedAt: "desc" }],
     take: 200,
     include: {
-      items: { select: { productName: true, quantity: true } },
+      // §73: isSingle - המנהל חייב לדעת אם ביקשו קרטון או בודדים,
+      // זה משנה לגמרי מה הוא מזמין מהספק.
+      items: { select: { productName: true, quantity: true, isSingle: true } },
     },
   });
 

@@ -16,6 +16,12 @@ type PersonalProduct = {
   imageUrl: string | null;
   category: string | null; // §9: לקיבוץ במקום נקודה
   kashrut: string | null;
+  // §73: תמונת הכשרות - כמו בהזמנה הרגילה
+  kashrutImageUrl: string | null;
+  // §73: לבורר בודדים/קרטונים
+  allowSingles?: boolean;
+  singlesMode?: string | null;
+  unit?: string | null;
 };
 
 type Customer = {
@@ -30,7 +36,7 @@ type ExistingRequest = {
   status: string;
   createdAt: string;
   hasUnreadForCustomer: boolean;
-  items: { productName: string; quantity: number }[];
+  items: { productName: string; quantity: number; isSingle?: boolean }[];
 };
 
 type Props = {
@@ -49,6 +55,11 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export function PersonalOrderClient({ products, customer, existingRequests }: Props) {
+  // §73: עותק מקומי - ביטול בקשה מעדכן את הסטטוס במסך בלי טעינה מחדש
+  const [requests, setRequests] = useState<ExistingRequest[]>(existingRequests);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  // §73: אילו מוצרים בעגלה סומנו כבודדים (productId -> true)
+  const [singles, setSingles] = useState<Record<string, boolean>>({});
   // עגלה: productId -> quantity
   const [cart, setCart] = useState<Record<string, number>>({});
   const [customerName, setCustomerName] = useState(customer?.name || "");
@@ -87,12 +98,49 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
     return Object.entries(cart)
       .map(([id, qty]) => {
         const p = products.find((x) => x.id === id);
-        return p ? { product: p, quantity: qty } : null;
+        // §73: בודדים רק אם המוצר בכלל מאפשר
+        return p
+          ? { product: p, quantity: qty, isSingle: !!singles[id] && !!p.allowSingles }
+          : null;
       })
-      .filter((x): x is { product: PersonalProduct; quantity: number } => x !== null);
-  }, [cart, products]);
+      .filter(
+        (x): x is { product: PersonalProduct; quantity: number; isSingle: boolean } =>
+          x !== null
+      );
+  }, [cart, products, singles]);
 
   const canSubmit = cartItems.length > 0 && customerName.trim() && phone.trim();
+
+  // §73: ביטול בקשה ע"י הלקוח.
+  // מותר כל עוד הבקשה לא הסתיימה (DONE) ולא בוטלה. אין כאן שלב
+  // "אושרה" שחוסם - המודל הוא שיחה: אם המנהל כבר הזמין מהספק,
+  // הוא יראה את הביטול בצ'אט (הודעת מערכת + סימון "לא נקרא")
+  // ויחזור ללקוח.
+  async function cancelRequest(requestId: string) {
+    if (
+      !window.confirm(
+        "לבטל את הבקשה? המנהל יקבל הודעה על הביטול. לא ניתן לשחזר בקשה שבוטלה."
+      )
+    )
+      return;
+    setCancelling(requestId);
+    try {
+      const res = await fetch("/api/personal-request", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId, action: "cancel" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה בביטול");
+      setRequests((rs) =>
+        rs.map((r) => (r.id === requestId ? { ...r, status: "CANCELLED" } : r))
+      );
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setCancelling(null);
+    }
+  }
 
   async function submit() {
     if (!canSubmit) return;
@@ -109,6 +157,8 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
           items: cartItems.map((c) => ({
             productId: c.product.id,
             quantity: c.quantity,
+            // §73: קרטון או בודדים - המנהל חייב לדעת מה מבקשים
+            isSingle: c.isSingle,
           })),
         }),
       });
@@ -186,13 +236,13 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
 
       <div className="mx-auto max-w-md md:max-w-4xl px-4 pt-5 pb-8 space-y-4">
         {/* בקשות קיימות */}
-        {existingRequests.length > 0 && (
+        {requests.length > 0 && (
           <section className="card p-4">
             <h2 className="font-bold text-brand-slatedark mb-3">
-              הבקשות שלי ({existingRequests.length})
+              הבקשות שלי ({requests.length})
             </h2>
             <div className="space-y-2">
-              {existingRequests.map((r) => {
+              {requests.map((r) => {
                 const status = STATUS_LABELS[r.status] || STATUS_LABELS.NEW;
                 const isExpanded = expandedRequestId === r.id;
                 return (
@@ -234,6 +284,12 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
                             {r.items.map((item, i) => (
                               <li key={i}>
                                 • {item.productName} × {item.quantity}
+                                {/* §73: מה שהוזמן - קרטון או בודדים */}
+                                {item.isSingle && (
+                                  <span className="text-amber-700 text-xs mr-1">
+                                    (בודדים)
+                                  </span>
+                                )}
                               </li>
                             ))}
                           </ul>
@@ -243,6 +299,17 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
                           currentUserType="CUSTOMER"
                           readOnly={r.status === "CANCELLED" || r.status === "DONE"}
                         />
+
+                        {/* §73: ביטול הבקשה - כל עוד היא לא הסתיימה */}
+                        {r.status !== "CANCELLED" && r.status !== "DONE" && (
+                          <button
+                            onClick={() => cancelRequest(r.id)}
+                            disabled={cancelling === r.id}
+                            className="w-full text-sm text-red-600 border border-red-300 rounded-lg py-2 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            {cancelling === r.id ? "מבטל..." : "🗑️ ביטול הבקשה"}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -280,7 +347,14 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
                   </div>
                   <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
                     {items.map((p) => (
-                      <ProductRow key={p.id} product={p} qty={cart[p.id] || 0} onChange={(v) => setQty(p.id, v)} />
+                      <ProductRow
+                        key={p.id}
+                        product={p}
+                        qty={cart[p.id] || 0}
+                        onChange={(v) => setQty(p.id, v)}
+                        isSingle={!!singles[p.id]}
+                        onToggleSingle={(v) => setSingles((x) => ({ ...x, [p.id]: v }))}
+                      />
                     ))}
                   </div>
                 </div>
@@ -298,7 +372,14 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
                   )}
                   <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
                     {groupedProducts.noCat.map((p) => (
-                      <ProductRow key={p.id} product={p} qty={cart[p.id] || 0} onChange={(v) => setQty(p.id, v)} />
+                      <ProductRow
+                        key={p.id}
+                        product={p}
+                        qty={cart[p.id] || 0}
+                        onChange={(v) => setQty(p.id, v)}
+                        isSingle={!!singles[p.id]}
+                        onToggleSingle={(v) => setSingles((x) => ({ ...x, [p.id]: v }))}
+                      />
                     ))}
                   </div>
                 </div>
@@ -386,10 +467,15 @@ function ProductRow({
   product,
   qty,
   onChange,
+  isSingle,
+  onToggleSingle,
 }: {
   product: PersonalProduct;
   qty: number;
   onChange: (v: number) => void;
+  // §73: בודדים או קרטון - כמו במכירה הרגילה
+  isSingle: boolean;
+  onToggleSingle: (v: boolean) => void;
 }) {
   const max = 99;
   return (
@@ -411,10 +497,52 @@ function ProductRow({
         <div className="font-medium text-brand-slatedark text-sm">
           {product.name}
         </div>
-        {product.kashrut && (
-          <span className="inline-block mt-1 badge bg-sky-100 text-sky-700 text-xs">
-            {product.kashrut}
-          </span>
+        {/* §73: תמונת הכשרות + השם, בדיוק כמו בהזמנה הרגילה.
+            קודם הוצג רק טקסט, והלקוח לא זיהה את סמל הכשרות. */}
+        {(product.kashrut || product.kashrutImageUrl) && (
+          <div className="flex items-center gap-1.5 mt-1">
+            {product.kashrutImageUrl && (
+              <img
+                src={product.kashrutImageUrl}
+                alt={product.kashrut || "כשרות"}
+                className="h-5 w-auto object-contain shrink-0"
+              />
+            )}
+            {product.kashrut && (
+              <span className="badge bg-sky-100 text-sky-700 text-xs">
+                {product.kashrut}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* §73: בורר קרטון/בודדים - מוצג רק כשהמוצר מאפשר, ורק
+            אחרי שנבחרה כמות. לפני כן זו הצפה של שורה שלא נבחרה. */}
+        {product.allowSingles && qty > 0 && (
+          <div className="flex gap-1 mt-1.5">
+            <button
+              type="button"
+              onClick={() => onToggleSingle(false)}
+              className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors ${
+                !isSingle
+                  ? "border-brand-rust bg-orange-50 text-brand-rust"
+                  : "border-zinc-300 bg-white text-zinc-500"
+              }`}
+            >
+              {product.unit === 'ק"ג' || !product.unit ? "קרטון" : product.unit}
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleSingle(true)}
+              className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors ${
+                isSingle
+                  ? "border-amber-600 bg-amber-50 text-amber-800"
+                  : "border-zinc-300 bg-white text-zinc-500"
+              }`}
+            >
+              {product.singlesMode === "UNITS" ? "יחידות" : 'בודדים (ק"ג)'}
+            </button>
+          </div>
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">

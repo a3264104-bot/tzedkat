@@ -20,7 +20,8 @@ type Request = {
   updatedAt: string;
   hasUnreadForAdmin: boolean;
   hasUnreadForCustomer: boolean;
-  items: { productName: string; quantity: number }[];
+  // §73: קרטון או בודדים
+  items: { productName: string; quantity: number; isSingle?: boolean }[];
 };
 
 const STATUS_OPTIONS = [
@@ -175,6 +176,14 @@ export default function AdminPersonalRequestsClient() {
                             💬 חדשה
                           </span>
                         )}
+                        {/* §73: הלקוח יכול לבטל בעצמו. הסימון בולט כי
+                            ייתכן שכבר ביררת מול הספק - הפירוט נמצא
+                            בצ'אט, כהודעת מערכת עם חותמת זמן. */}
+                        {r.status === "CANCELLED" && (
+                          <span className="text-xs bg-red-600 text-white px-2 py-0.5 rounded-full font-bold">
+                            בוטלה
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-zinc-500">
                         {new Date(r.createdAt).toLocaleDateString("he-IL")}
@@ -207,6 +216,12 @@ export default function AdminPersonalRequestsClient() {
                         {r.items.map((it, i) => (
                           <li key={i}>
                             • {it.productName} × {it.quantity}
+                            {/* §73: מה בדיוק התבקש - קובע מה מזמינים מהספק */}
+                            {it.isSingle && (
+                              <span className="mr-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                                בודדים
+                              </span>
+                            )}
                           </li>
                         ))}
                       </ul>
