@@ -595,7 +595,37 @@ export default function AdminCustomersPage() {
                         <td className="p-2.5 text-zinc-500 text-xs hidden md:table-cell">{c.email || "—"}</td>
                         <td className="p-2.5 text-center text-xs">{c.orderCount} הזמנות</td>
                         <td className="p-2.5 text-center">
-                          {c.hasPaymentToken && <span className="text-green-600 text-xs">💳</span>}
+                          {/* §102: שני מידעים נפרדים, ולכן שני סימונים.
+                              💳 = **יש** ללקוח כרטיס שמור במערכת.
+                              💵 = **כך הוא משלם בפועל** כרגע.
+
+                              🐛 מה שחסר היה: לקוח עם כרטיס שהוגדר
+                              כמזומן נראה זהה ללקוח שמחויב באשראי -
+                              הסימון סיפר מה יש לו, לא מה פעיל לגביו.
+                              בבוקשפן אשר, למשל, שניהם נכונים בו-זמנית. */}
+                          <div className="flex items-center justify-center gap-1">
+                            {c.hasPaymentToken && (
+                              <span className="text-green-600 text-xs" title="יש כרטיס אשראי שמור">
+                                💳
+                              </span>
+                            )}
+                            {c.paymentPreference === "CASH" && (
+                              <span
+                                className="text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded px-1.5 py-0.5"
+                                title="מוגדר כלקוח מזומן — הכרטיס לא יחויב"
+                              >
+                                מזומן
+                              </span>
+                            )}
+                            {!c.hasPaymentToken && c.paymentPreference !== "CASH" && (
+                              <span
+                                className="text-[10px] text-zinc-400"
+                                title="אין אמצעי תשלום — הלקוח אינו יכול להזמין"
+                              >
+                                —
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-2.5">
                           <button onClick={() => openEdit(c)} className="text-brand-rust text-xs font-medium hover:underline">
@@ -668,11 +698,31 @@ export default function AdminCustomersPage() {
               <div className="bg-gradient-to-br from-emerald-50 to-zinc-50 border border-emerald-200 rounded-lg p-3 space-y-2.5">
                 <div className="text-xs font-bold text-zinc-600">💳 אמצעי תשלום</div>
 
+                {/* §102: לקוח מזומן שיש לו גם כרטיס - שני המצבים
+                    מוצגים יחד. קודם הכרטיס "נעלם" מהמסך ברגע
+                    שסומן מזומן, והמנהל לא ידע שהוא קיים. */}
                 {editing.paymentPreference === "CASH" ? (
-                  <div className="bg-white border border-amber-300 rounded-lg p-2.5 text-xs text-amber-800">
-                    לקוח <b>מזומן</b> — הגבייה מתבצעת פיזית בחלוקה.
-                    שמירת כרטיס כאן תעביר אותו אוטומטית לאשראי.
-                  </div>
+                  <>
+                    <div className="bg-white border border-amber-300 rounded-lg p-2.5 text-xs text-amber-800">
+                      💵 לקוח <b>מזומן</b> — הגבייה מתבצעת פיזית בחלוקה,
+                      והכרטיס לא יחויב.
+                    </div>
+                    {editing.hasPaymentToken && (
+                      <div className="bg-white border border-zinc-200 rounded-lg p-2.5 text-xs text-zinc-600">
+                        💳 יש לו גם כרטיס שמור:{" "}
+                        <strong dir="ltr">****{editing.cardLast4 || "----"}</strong>
+                        {editing.cardExpiry && (
+                          <span className="text-zinc-400 mr-2" dir="ltr">
+                            {editing.cardExpiry.slice(0, 2)}/{editing.cardExpiry.slice(2)}
+                          </span>
+                        )}
+                        <div className="text-zinc-500 mt-0.5">
+                          הוא שמור ומוכן, אך אינו בשימוש כל עוד הלקוח מוגדר
+                          כמזומן. מעבר לאשראי יפעיל אותו מיד.
+                        </div>
+                      </div>
+                    )}
+                  </>
                 ) : editing.hasPaymentToken ? (
                   <div className="bg-white border border-zinc-200 rounded-lg p-2.5 text-sm">
                     כרטיס שמור:{" "}

@@ -67,6 +67,8 @@ type ActiveSale = {
   singleSurcharge: any;
   orderFee: any;
   deliveryDateText: string | null;
+  // §100: התאריך עצמו, להקראה נכונה בעברית ובלועזי
+  deliveryDate: Date | null;
   editDeadline: Date | null;
 };
 
@@ -465,6 +467,9 @@ async function handleUnregistered(
         name: "CITY",
         max: 2,
         min: 1,
+          // §100: המתנה קצרה בין ספרות. שדה דו-ספרתי עם timeout
+          // ארוך "נתקע" אחרי ההקשה הראשונה עד סולמית או פקיעה.
+          timeout: 3,
         allowed: cityList.map((_, i) => String(i + 1)).join("."),
       })
     );
@@ -507,6 +512,9 @@ async function handleUnregistered(
         name: "POINT",
         max: 2,
         min: 1,
+          // §100: המתנה קצרה בין ספרות. שדה דו-ספרתי עם timeout
+          // ארוך "נתקע" אחרי ההקשה הראשונה עד סולמית או פקיעה.
+          timeout: 3,
         allowed: points.map((_, i) => String(i + 1)).join("."),
       })
     );
@@ -881,7 +889,7 @@ async function handleEditOrder(
           it.isSingle ? "ask_qty_kg" : "ask_qty_carton",
           it.isSingle ? "כמה קילוגרם תרצה" : "כמה קרטונים תרצה"
         ),
-        { name: kQtyNew, max: 3, min: 1, playback: "Number" }
+        { name: kQtyNew, max: 2, min: 1, timeout: 3, playback: "Number" }
       )
     );
   }
@@ -1154,11 +1162,58 @@ async function getActiveSale(): Promise<ActiveSale | null> {
       singleSurcharge: true,
       orderFee: true,
       deliveryDateText: true,
+      deliveryDate: true,
       editDeadline: true,
     },
   });
   saleCache = { at: Date.now(), value: value as ActiveSale | null };
   return saleCache.value;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// §100: הקראת מועד החלוקה
+// ═══════════════════════════════════════════════════════════════
+// 🐛 מה שהיה: deliveryDateText הוא טקסט חופשי שהמנהל מזין, והוא
+// הוקרא כמות שהוא. sanitizeTts מסירה נקודות ומקפים (הם מפרידי
+// פרוטוקול), ולכן "18.8.2026" הפך ל-"18 8 2026" - רצף מספרים
+// שנשמע מחובר ולא כתאריך.
+//
+// עכשיו: התאריך נבנה מהשדה deliveryDate האמיתי - יום, שם החודש
+// בעברית, ובנוסף התאריך העברי. הלקוח שומע "יום רביעי, כ"ד באלול,
+// שנים עשר בספטמבר" - שני הלוחות, כמו שמקובל בקהילה.
+const HE_WEEKDAYS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+const HE_MONTHS = [
+  "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
+  "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
+];
+
+function spokenDeliveryDate(sale: {
+  deliveryDate: Date | null;
+  deliveryDateText: string | null;
+}): string | null {
+  if (!sale.deliveryDate) {
+    // אין תאריך אמיתי - נופלים לטקסט החופשי, כי עדיף משהו מכלום
+    return sale.deliveryDateText || null;
+  }
+  const d = new Date(sale.deliveryDate);
+  const parts: string[] = [];
+
+  parts.push(`יום ${HE_WEEKDAYS[d.getDay()]}`);
+
+  // התאריך העברי - ראשון, כי זה מה שהקהילה מתייחסת אליו
+  try {
+    const heb = new Intl.DateTimeFormat("he-u-ca-hebrew", {
+      day: "numeric",
+      month: "long",
+    }).format(d);
+    if (heb) parts.push(heb);
+  } catch {
+    // Intl בלי לוח עברי - ממשיכים בלועזי בלבד
+  }
+
+  parts.push(`${d.getDate()} ב${HE_MONTHS[d.getMonth()]}`);
+
+  return parts.join(", ");
 }
 
 /**
@@ -1429,6 +1484,9 @@ async function handleMyPoint(
           name: "NEWCITY",
           max: 2,
           min: 1,
+          // §100: המתנה קצרה בין ספרות. שדה דו-ספרתי עם timeout
+          // ארוך "נתקע" אחרי ההקשה הראשונה עד סולמית או פקיעה.
+          timeout: 3,
           allowed: cityList.map((_, i) => String(i + 1)).join("."),
         }
       )
@@ -1461,6 +1519,9 @@ async function handleMyPoint(
           name: "NEWPOINT",
           max: 2,
           min: 1,
+          // §100: המתנה קצרה בין ספרות. שדה דו-ספרתי עם timeout
+          // ארוך "נתקע" אחרי ההקשה הראשונה עד סולמית או פקיעה.
+          timeout: 3,
           allowed: pts.map((_, i) => String(i + 1)).join("."),
         }
       )
@@ -1637,8 +1698,11 @@ async function handleOrder(
     if (point?.name) {
       parts.push(say(`נקודת החלוקה שלך ${point.name}`));
     }
-    if (pricelist.deliveryDateText) {
-      parts.push(say(`מועד החלוקה ${pricelist.deliveryDateText}`));
+    // §100: שני הלוחות, מהתאריך האמיתי ולא מטקסט חופשי
+    const spokenDate = spokenDeliveryDate(pricelist);
+    if (spokenDate) {
+      parts.push(prompt("delivery_date_pre", "מועד החלוקה"));
+      parts.push(say(spokenDate));
     }
 
     parts.push(prompt("summary_estimated", "סכום משוער"));
@@ -1691,6 +1755,14 @@ async function handleOrder(
   }
   const catList = Array.from(catMap.entries());
 
+  // §104: רשת ביטחון - תפריט ריק לא יישמע כשקט.
+  //
+  // הבאג הקודם היה שקוף לגמרי: הלקוח שמע כלום ובלוג הופיע 200
+  // תקין. עכשיו כל מסלול קטגוריות בלי קטגוריות מקבל הודעה.
+  //
+  // ⚠️ הבדיקה מותנית ב-!inSkuMode בכוונה: במסלול המק"ט catList
+  // ריק **מתוכנן** (§94 מדלג על השאילתה), והבדיקה כאן הייתה
+  // חוסמת בדיוק את הלקוחות שהתכוונו לשרת.
   if (!inSkuMode && catList.length === 0) {
     return yemotResponse(
       playMessage(prompt("no_products", "אין מוצרים זמינים להזמנה טלפונית"))
@@ -1775,7 +1847,17 @@ async function handleOrder(
     kashrutRef: { select: { name: true } },
   } as const;
 
-  if (skuCount > 0 && p.ORDMODE === "1") {
+  // §104: 🐛 כאן היה `skuCount > 0 && ORDMODE === "1"` - וזו הייתה
+  // התנגשות בין שני הייעולים של §94:
+  //   • skuCount הוגדר 0 ברגע ש-ORDMODE נקבע (כדי לחסוך שאילתה)
+  //   • cats דולג במסלול המק"ט (כדי לחסוך שאילתה נוספת)
+  //
+  // התוצאה: לקוח שבחר מק"ט נכשל בתנאי הזה (skuCount=0), נפל
+  // למסלול הקטגוריות - שגם הוא ריק - ושמע **שקט מוחלט**.
+  //
+  // התנאי הנכון הוא ORDMODE בלבד: ברגע שהלקוח בחר מסלול, מספר
+  // המוצרים עם מק"ט כבר לא רלוונטי להחלטה.
+  if (inSkuMode) {
     // ─── מסלול מק"ט ───
     if (!p[kSku]) {
       return yemotResponse(
@@ -1788,7 +1870,7 @@ async function handleOrder(
           // דבר. האישור המשמעותי הוא **שם המוצר**, שמוקרא מיד
           // בשלב הבא ("בחרת: אנטריקוט"). הקראת הספרות רק האריכה
           // את השיחה בכמה שניות.
-          { name: kSku, max: 5, min: 1, timeout: 10, playback: "No" }
+          { name: kSku, max: 5, min: 1, timeout: 3, playback: "No" }
         )
       );
     }
@@ -1813,7 +1895,7 @@ async function handleOrder(
           messages(
             prompt("sku_not_found", "מספר מוצר לא נמצא במכירה הנוכחית. נסה שוב, או הקש כוכבית לתפריט הראשי")
           ),
-          { name: kSku, max: 5, min: 1, timeout: 10, playback: "No" }
+          { name: kSku, max: 5, min: 1, timeout: 3, playback: "No" }
         )
       );
     }
@@ -1835,7 +1917,7 @@ async function handleOrder(
         return yemotResponse(
           read(
             messages(prompt("sku_ask", "הקש את מספר המוצר מהמודעה")),
-            { name: kSku, max: 5, min: 1, timeout: 10, playback: "No" }
+            { name: kSku, max: 5, min: 1, timeout: 3, playback: "No" }
           )
         );
       }
@@ -1874,6 +1956,9 @@ async function handleOrder(
           name: kCat,
           max: 2,
           min: 1,
+          // §100: המתנה קצרה בין ספרות. שדה דו-ספרתי עם timeout
+          // ארוך "נתקע" אחרי ההקשה הראשונה עד סולמית או פקיעה.
+          timeout: 3,
           allowed: catList.map((_, i) => String(i + 1)).join("."),
         })
       );
@@ -1919,6 +2004,9 @@ async function handleOrder(
           name: kProd,
           max: 2,
           min: 1,
+          // §100: המתנה קצרה בין ספרות. שדה דו-ספרתי עם timeout
+          // ארוך "נתקע" אחרי ההקשה הראשונה עד סולמית או פקיעה.
+          timeout: 3,
           allowed: prods.map((_, i) => String(i + 1)).join("."),
         })
       );
@@ -2029,7 +2117,16 @@ async function handleOrder(
     );
     info.push(prompt("ask_qty_carton", "כמה קרטונים תרצה"));
     return yemotResponse(
-      read(messages(...info), { name: kQty, max: 3, min: 1, playback: "Number" })
+      read(messages(...info), {
+          name: kQty,
+          // §100: 2 ספרות מספיקות (עד 99), והמתנה קצרה בין ספרות.
+          // 20 שניות של §97 היו "כמה להמתין לספרה נוספת" - ולכן
+          // אחרי הקשה אחת המערכת שתקה עד שהוקשה סולמית.
+          max: 2,
+          min: 1,
+          timeout: 3,
+          playback: "Number",
+        })
     );
   }
 
@@ -2041,7 +2138,16 @@ async function handleOrder(
       ? prompt("ask_qty_kg", "כמה קילוגרם תרצה")
       : prompt("ask_qty_carton", "כמה קרטונים תרצה");
     return yemotResponse(
-      read(qtyPrompt, { name: kQty, max: 3, min: 1, playback: "Number" })
+      read(qtyPrompt, {
+          name: kQty,
+          // §100: 2 ספרות מספיקות (עד 99), והמתנה קצרה בין ספרות.
+          // 20 שניות של §97 היו "כמה להמתין לספרה נוספת" - ולכן
+          // אחרי הקשה אחת המערכת שתקה עד שהוקשה סולמית.
+          max: 2,
+          min: 1,
+          timeout: 3,
+          playback: "Number",
+        })
     );
   }
 
@@ -2081,7 +2187,16 @@ async function handleOrder(
             sayNumber(Math.floor(remaining)),
             prompt("qty_limited_post", "יחידות. אנא הקש כמות מחדש")
           ),
-          { name: kQty, max: 3, min: 1, playback: "Number" }
+          {
+          name: kQty,
+          // §100: 2 ספרות מספיקות (עד 99), והמתנה קצרה בין ספרות.
+          // 20 שניות של §97 היו "כמה להמתין לספרה נוספת" - ולכן
+          // אחרי הקשה אחת המערכת שתקה עד שהוקשה סולמית.
+          max: 2,
+          min: 1,
+          timeout: 3,
+          playback: "Number",
+        }
         )
       );
     }

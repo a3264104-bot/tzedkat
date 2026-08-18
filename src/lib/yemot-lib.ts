@@ -153,13 +153,19 @@ export function prompt(file: string, text: string): string {
   if (!USE_RECORDINGS) return say(text);
   // הודעות שסומנו כנדירות נשארות בהקראה ממוחשבת גם כשהמתג דלוק -
   // אין טעם להקליט הודעות שגיאה שרוב הלקוחות לעולם לא ישמעו.
-  if (TTS_ONLY.has(file)) return say(text);
+  // §101: הקלטה שסומנה כמוכנה גוברת על רשימת ה-TTS
+  if (TTS_ONLY.has(file) && !RECORDED.has(file)) return say(text);
   // §35: הממשק החדש של ימות יוצר *תיקייה* לכל הקלטה, והקובץ בתוכה
   // נקרא 000.wav. הנתיב המלא: ivr2:menu_main/000.wav
   //
-  // ✅ §96: הפורמט **אומת בשטח** - ההקלטות נשמעו בפועל, והתיקיות
-  // יושבות בשורש השלוחה (ivr2:menu_main, ivr2:error וכו') בדיוק
-  // כפי שהנתיב מצפה. אין לשנות אותו בלי סיבה מוכחת.
+  // ✅ §96: הפורמט **אומת בשיחה חיה** ואין לשנות אותו.
+  //
+  // איך זה עובד בפועל: מעלים קובץ בשם <שם>.wav דרך הממשק החדש
+  // (call2all.co.il/yemot-admin-g1), וימות יוצרים אוטומטית תיקייה
+  // בשם הקובץ ובתוכה 000.wav. הנתיב המלא: ivr2:menu_main/000.wav
+  //
+  // ⚠️ **אין ליצור תיקיות ידנית** ואין להעלות בשם 000. פשוט
+  // מעלים את הקובץ בשם ההודעה, וימות מטפלים בשאר.
   //
   // ⚠️ אם ההקלטות "נעלמות" - החשוד הראשון אינו הפורמט אלא
   // USE_RECORDINGS. שים לב: **מחיקת משתנה סביבה ב-Vercel אינה
@@ -192,45 +198,50 @@ export function prompt(file: string, text: string): string {
  * אם מוסיפים כאן שם - להסיר אותו גם מ-RECORDINGS.md.
  */
 const TTS_ONLY = new Set<string>([
-  // ═══ §69: הודעות חדשות שטרם הוקלטו ═══
-  // נשארות ב-TTS בכוונה עד שיהיה זמן להקליט. כשמקליטים - להסיר
-  // מכאן ולהוסיף ל-RECORDINGS.md. השמות כבר לפי המוסכמה.
-  "code_missing",
-  // §97: menu_main_code הוסר - התפריט חזר להשתמש בהקלטה הקיימת
-  // menu_main, ואפשרות 4 היא הודעה נפרדת (menu_opt_code).
-  "menu_opt_code",
-  "code_not_ready",
-  "login_code_pre",
-  "login_code_repeat",
-  "login_code_post",
-  "code_error",
-  "mode_carton_kg",
-  "mode_carton_kg_post",
-  "shekels_per_kg",
-  "chosen_pre",
-  "ask_name_again",
-  "name_confirm_pre",
-  "name_confirm_ask",
-  "order_mode_ask",
-  "sku_ask",
-  "sku_not_found",
-  "sku_found_pre",
-  "sku_found_price",
-  "sku_confirm_ask",
-  "sku_chosen",
-  "star_hint",
-  "orders_detail_ask",
-  "order_status_pre",
-  "order_paid_pre",
-  "order_charged_pre",
-  // ═══ מסלולי שגיאה ותיקים ═══
+  // ═══ מסלולי כשל טכני - לעולם לא יוקלטו ═══
+  // לקוח רגיל לא פוגש אותם, ואין טעם להקליט הודעות שגיאה נדירות.
   "id_error",
   "account_exists",
   "no_point_assigned",
-  // נקודה בלי נציג משויך - לא אמור לקרות, אבל בלי ההודעה הלקוח
-  // היה שומע "פנה לנציג" ואז שקט.
   "no_agent_call_office",
+  "code_error",
+
+  // ═══ §105: טרם הוקלטו ═══
+  //
+  // ⚠️ אלה **לא** שגיאות - הן חלק מהזרימה הרגילה ומגיע להן קול
+  // אנושי. הן כאן רק כדי שלא יישמעו כשקט עד שיוקלטו.
+  //
+  // ברגע שמקליטים אחת: מוחקים את השורה מכאן (או מוסיפים את השם
+  // ל-YEMOT_RECORDED ב-Vercel, שגובר על הרשימה בלי פריסת קוד).
+  //
+  // הכי נשמעות מבין אלה, לפי סדר עדיפות להקלטה:
+  //   shekels_per_kg      - בכל מוצר שנמכר לפי משקל
+  //   mode_carton_kg_post - יחד איתה, באותה הודעה
+  //   sku_chosen          - בכל בחירת מק"ט
+  "sku_chosen",
+  "mode_carton_kg",
+  "mode_carton_kg_post",
+  "shekels_per_kg",
+  "login_code_repeat",
+  "code_missing",
+  "code_not_ready",
+  "order_paid_pre",
+  "star_hint",
 ]);
+
+/**
+ * §101: הקלטות שכבר בוצעו, מ-ENV.
+ *
+ * שם שמופיע כאן מוסר מ-TTS_ONLY ומושמע בקול שהוקלט. כך אפשר
+ * להקליט בקצב, ולהפעיל כל הודעה ברגע שהיא מוכנה - בלי לחכות
+ * לפריסה ובלי הודעות שקטות בדרך.
+ */
+const RECORDED = new Set(
+  (process.env.YEMOT_RECORDED || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+);
 
 /** שרשור כמה הודעות ברצף - מופרדות בנקודה לפי הפרוטוקול */
 export function messages(...parts: string[]): string {
@@ -352,6 +363,19 @@ export function read(prompt: string, opts: ReadOptions): string {
     name,
     max = 2,
     min = 1,
+    // §100: ⚠️ המשמעות של timeout **שונה לפי סוג השדה**:
+    //
+    //   max = 1  → כמה זמן להמתין להקשה. כאן ארוך זה טוב: הלקוח
+    //              שומע תפריט, שוקל, ומקיש.
+    //
+    //   max > 1  → כמה זמן להמתין ל**ספרה נוספת** אחרי שהוקשה
+    //              אחת. כאן ארוך זה נורא: הלקוח הקיש "2", והמערכת
+    //              שותקת עד שהזמן פג או שהוא מקיש סולמית.
+    //
+    // 🐛 §97 קבע 20 שניות לכולם, ולכן שדה הכמות "נתקע" אחרי כל
+    // הקשה. ברירת המחדל נשארת ארוכה (היא נכונה לתפריטים), אבל
+    // כל שדה רב-ספרתי חייב לקבוע timeout קצר במפורש.
+    //
     // §97: 20 שניות במקום 7.
     //
     // 🐛 הניתוק שדווח: הלקוח שמע רשימת מוצרים ארוכה, שקל מה לבחור,

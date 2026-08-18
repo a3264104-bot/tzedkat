@@ -50,6 +50,8 @@ type Props = {
   onChange: () => void;
   /** §81: כמה משקלים טרם מולאו - חוסם את סגירת המכירה */
   missingWeights?: number;
+  /** §103: כמה לקוחות טרם סומנו כטופלו - חוסם גם הוא */
+  unclosedOrders?: number;
 };
 
 export function SummaryPanel({
@@ -65,6 +67,7 @@ export function SummaryPanel({
   readOnly,
   onChange,
   missingWeights = 0,
+  unclosedOrders = 0,
 }: Props) {
   const [remainderNote, setRemainderNote] = useState(summary.remainderNote || "");
   const [saving, setSaving] = useState(false);
@@ -111,6 +114,16 @@ export function SummaryPanel({
       alert(
         `לא ניתן לסגור את המכירה.\n\nחסרים ${missingWeights} משקלים.\n\n` +
           `משקל שלא מולא הוא כסף שלא נגבה. אם לקוח לא קיבל סחורה - יש להזין 0 במפורש בטבלה.`
+      );
+      return;
+    }
+    // §103: כל לקוח חייב סימון "טופל" מהנציג. המשקלים מלאים אינם
+    // מספיקים - הם נתון של המערכת, והסימון הוא הצהרה של אדם
+    // שעמד מול הלקוח.
+    if (unclosedOrders > 0) {
+      alert(
+        `לא ניתן לסגור את המכירה.\n\n${unclosedOrders} לקוחות טרם סומנו כטופלו.\n\n` +
+          `בטבלת המשקלים יש לסמן ✓ בסוף השורה של כל לקוח שסיימת לטפל בו.`
       );
       return;
     }
@@ -360,6 +373,17 @@ export function SummaryPanel({
           {/* §81: כשחסרים משקלים - הכפתור אדום ומושבת, והסיבה כתובה
               מעליו. כפתור ירוק שנכשל בלחיצה מבלבל יותר מכפתור
               שאומר מראש מה חסר. */}
+          {missingWeights === 0 && unclosedOrders > 0 && (
+            <div className="mb-2 bg-amber-50 border-2 border-amber-300 rounded-xl p-3 text-center">
+              <div className="font-extrabold text-amber-800 text-sm">
+                ⚠️ {unclosedOrders} לקוחות טרם סומנו כטופלו
+              </div>
+              <div className="text-[11px] text-amber-700 mt-0.5 leading-relaxed">
+                המשקלים מלאים, אך יש לאשר כל לקוח. בטבלת המשקלים — סמן ✓
+                בסוף השורה של כל מי שסיימת לטפל בו.
+              </div>
+            </div>
+          )}
           {missingWeights > 0 && (
             <div className="mb-2 bg-red-50 border-2 border-red-300 rounded-xl p-3 text-center">
               <div className="font-extrabold text-red-800 text-sm">
@@ -373,9 +397,9 @@ export function SummaryPanel({
           )}
           <button
             onClick={confirmSale}
-            disabled={confirming || missingWeights > 0}
+            disabled={confirming || missingWeights > 0 || unclosedOrders > 0}
             className={`w-full text-white py-4 rounded-xl font-bold text-lg shadow-lg disabled:cursor-not-allowed transition-all ${
-              missingWeights > 0
+              missingWeights > 0 || unclosedOrders > 0
                 ? "bg-zinc-400 opacity-70"
                 : "bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
             }`}
@@ -384,7 +408,9 @@ export function SummaryPanel({
               ? "סוגר..."
               : missingWeights > 0
                 ? `🔒 חסרים ${missingWeights} משקלים`
-                : "✓ סגור את המכירה"}
+                : unclosedOrders > 0
+                  ? `🔒 ${unclosedOrders} לקוחות לא סומנו`
+                  : "✓ סגור את המכירה"}
           </button>
           <p className="text-center text-xs text-zinc-500 mt-2">
             לאחר סגירה לא ניתן יהיה לשנות משקלים

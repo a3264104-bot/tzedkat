@@ -361,6 +361,17 @@ model Order {
   notes           String?
   internalNotes   String?
 
+  // §103: סימון הנציג שסיים לטפל בהזמנה בחלוקה.
+  //
+  // "כל המשקלים מולאו" הוא נתון שהמערכת מחשבת; זה הצהרה של הנציג
+  // שהוא עבר על הלקוח וסיים. שני דברים שונים: הזמנה יכולה להיות
+  // מלאה במשקלים אבל הנציג עדיין לא בדק אותה מול הלקוח.
+  //
+  // המנהל משדר לתשלום רק הזמנות שסומנו - כך הוא יודע שמישהו
+  // באמת עמד מולן, ולא סומך על כך שהשדות אינם ריקים.
+  agentClosedAt   DateTime?
+  agentClosedById String?
+
   // מחזור חיים: PENDING_REVIEW -> FINAL_PRICE_SET -> PAYMENT_PENDING -> PAID -> READY_FOR_PICKUP -> COMPLETED
   // (או CANCELLED בכל שלב)
   status          String   @default("PENDING_REVIEW")

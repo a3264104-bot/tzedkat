@@ -213,6 +213,8 @@ export async function GET(
       // §21: סימון מסירה - הנציג צריך לראות מה כבר נמסר
       deliveredAt: o.deliveredAt?.toISOString() ?? null,
       deliveredByAgentId: o.deliveredByAgentId,
+      // §103: סימון "טופל" של הנציג
+      agentClosedAt: o.agentClosedAt?.toISOString() ?? null,
       deliveredNote: o.deliveredNote,
       paymentStatus: o.paymentStatus,
       finalTotal: o.finalTotal ? Number(o.finalTotal) : null,

@@ -48,6 +48,8 @@ export type Order = {
   status: string;
   // §21: סימון מסירה בנקודת החלוקה
   deliveredAt?: string | null;
+  // §103: מתי הנציג סימן שסיים לטפל בהזמנה
+  agentClosedAt?: string | null;
   deliveredByAgentId?: string | null;
   deliveredNote?: string | null;
   paymentStatus?: string;
@@ -171,6 +173,17 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
   // מכירה עם קרטון שלא שוקל.
   //
   // null = לא מולא. 0 = מולא במפורש ("לא קיבל"), וזה ערך תקף.
+  // §103: כמה לקוחות טרם סומנו כטופלו.
+  //
+  // נפרד ממונה המשקלים: הזמנה יכולה להיות מלאה במשקלים והנציג
+  // עדיין לא עבר עליה מול הלקוח. סגירת מכירה דורשת את שניהם.
+  const unclosedOrders = useMemo(() => {
+    if (!data) return 0;
+    return data.orders.filter(
+      (o) => o.items.some((i) => !i.isCancelled) && !o.agentClosedAt
+    ).length;
+  }, [data]);
+
   const missingWeights = useMemo(() => {
     if (!data) return 0;
     let n = 0;
@@ -715,6 +728,7 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
             onChange={load}
           
                 missingWeights={missingWeights}
+                unclosedOrders={unclosedOrders}
               />
         )}
       </main>

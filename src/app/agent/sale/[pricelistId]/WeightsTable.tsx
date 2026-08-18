@@ -62,6 +62,8 @@ type CustomerRow = {
   cells: Map<string, Cell>;
   total: number;
   missing: number;
+  /** §103: מתי הנציג סימן שסיים. null = טרם טופל. */
+  agentClosedAt: string | null;
 };
 
 export function WeightsTable({
@@ -134,11 +136,13 @@ export function WeightsTable({
           cells,
           total,
           missing,
+          agentClosedAt: (o as any).agentClosedAt ?? null,
         };
       });
   }, [orders]);
 
   const totalMissing = rows.reduce((s, r) => s + r.missing, 0);
+  const closedCount = rows.filter((r) => r.agentClosedAt).length;
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
 
   useEffect(() => {
@@ -179,8 +183,15 @@ export function WeightsTable({
             </>
           )}
         </div>
-        <div className="text-sm font-bold text-brand-slatedark">
-          סה״כ: {fmt(grandTotal)}
+        <div className="flex items-center gap-3">
+          {/* §103: כמה לקוחות כבר טופלו - הנציג רואה את ההתקדמות
+              שלו במבט אחד, בלי לספור שורות. */}
+          <div className="text-xs font-bold text-zinc-600">
+            טופלו {closedCount} מתוך {rows.length}
+          </div>
+          <div className="text-sm font-bold text-brand-slatedark">
+            סה״כ: {fmt(grandTotal)}
+          </div>
         </div>
       </div>
 
@@ -205,8 +216,13 @@ export function WeightsTable({
                   {c.name}
                 </th>
               ))}
-              <th className="sticky left-0 z-10 bg-zinc-100 px-3 py-2 min-w-[90px] border-r-2 border-zinc-300 text-[11px] font-bold text-zinc-600">
+              <th className="px-3 py-2 min-w-[90px] border-l border-zinc-200 text-[11px] font-bold text-zinc-600">
                 סה״כ הזמנה
+              </th>
+              {/* §103: עמודת הסימון - קפואה בקצה, כי זו הפעולה
+                  שהנציג מחפש אחרי שסיים למלא את השורה. */}
+              <th className="sticky left-0 z-10 bg-zinc-100 px-3 py-2 min-w-[80px] border-r-2 border-zinc-300 text-[11px] font-bold text-zinc-600">
+                טופל
               </th>
             </tr>
           </thead>
@@ -252,7 +268,7 @@ export function WeightsTable({
                 })}
 
                 <td
-                  className={`sticky left-0 z-10 bg-inherit px-3 py-2 border-r-2 border-zinc-300 text-center font-extrabold ${
+                  className={`px-3 py-2 border-l border-zinc-200 text-center font-extrabold ${
                     r.missing > 0 ? "text-zinc-400" : "text-brand-rust"
                   }`}
                 >
@@ -263,6 +279,18 @@ export function WeightsTable({
                   ) : (
                     fmt(r.total)
                   )}
+                </td>
+
+                <td className="sticky left-0 z-10 bg-inherit px-2 py-2 border-r-2 border-zinc-300 text-center">
+                  <CloseOrderCheck
+                    orderId={r.orderId}
+                    orderNumber={r.orderNumber}
+                    customerName={r.customerName}
+                    missing={r.missing}
+                    closedAt={r.agentClosedAt}
+                    readOnly={readOnly}
+                    onDone={onNeedsReload}
+                  />
                 </td>
               </tr>
             ))}
@@ -390,5 +418,85 @@ function WeightCell({
         {saving ? "שומר…" : isMissing ? "—" : fmt(lineTotal)}
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// §103: הוי"ו — סימון הנציג שסיים לטפל בלקוח
+// ─────────────────────────────────────────────────────────────
+// למה זה נחוץ בנוסף למונה המשקלים החסרים: המונה אומר מה **חסר
+// למערכת**; הוי"ו אומר מה **הנציג כבר בדק**. בחלוקה עם 100 לקוחות
+// הנציג צריך לדעת איפה הוא נמצא, ולא רק אם נשארו שדות ריקים.
+//
+// אי אפשר לסמן הזמנה עם משקל חסר - השרת חוסם, וכאן הכפתור אפור
+// עם הסבר. בלי החסימה הזו הוי"ו היה קישוט.
+function CloseOrderCheck({
+  orderId,
+  orderNumber,
+  customerName,
+  missing,
+  closedAt,
+  readOnly,
+  onDone,
+}: {
+  orderId: string;
+  orderNumber: number;
+  customerName: string;
+  missing: number;
+  closedAt: string | null;
+  readOnly?: boolean;
+  onDone: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const closed = !!closedAt;
+
+  async function toggle() {
+    if (missing > 0 && !closed) {
+      alert(
+        `לא ניתן לסמן את ${customerName} כטופל.\n\nחסרים ${missing} משקלים בהזמנה #${orderNumber}.\n\nלקוח שלא קיבל פריט — יש להזין 0.`
+      );
+      return;
+    }
+    if (closed && !window.confirm(`לבטל את הסימון של ${customerName}?`)) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/agent/orders/${orderId}/close`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ closed: !closed }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+      onDone();
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={saving || readOnly}
+      title={
+        closed
+          ? `טופל ב-${new Date(closedAt!).toLocaleString("he-IL")}`
+          : missing > 0
+            ? `חסרים ${missing} משקלים`
+            : "סמן כטופל"
+      }
+      className={`w-9 h-9 rounded-lg border-2 font-extrabold text-lg transition-colors disabled:opacity-50 ${
+        closed
+          ? "border-emerald-500 bg-emerald-500 text-white"
+          : missing > 0
+            ? "border-zinc-300 bg-zinc-100 text-zinc-300 cursor-not-allowed"
+            : "border-emerald-400 bg-white text-emerald-500 hover:bg-emerald-50"
+      }`}
+    >
+      {saving ? "…" : "✓"}
+    </button>
   );
 }
