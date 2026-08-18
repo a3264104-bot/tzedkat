@@ -148,8 +148,21 @@ async function handle(req: Request): Promise<Response> {
     return yemotResponse(goToFolder(process.env.YEMOT_IVR_FOLDER || "/"));
   }
 
-  // ─── זיהוי הלקוח ───
-  const customer = await prisma.customer.findUnique({
+  // ═══════════════════════════════════════════════════════════
+  // §94: הלקוח והמחירון נשלפים **במקביל**
+  // ═══════════════════════════════════════════════════════════
+  // 🐛 מה שהיה: שתי שאילתות עצמאיות לחלוטין רצו בזו אחר זו, ולכן
+  // שילמנו שתי נסיעות חוצות-אוקיינוס במקום אחת. עם ~200ms לנסיעה
+  // זו חצי שנייה של שקט מיותר בכל הקשה.
+  //
+  // ⚠️ הן באמת עצמאיות: זיהוי הלקוח לפי טלפון אינו תלוי במחירון,
+  // והמחירון הפעיל אינו תלוי בלקוח. לא כל שאילתה כאן ניתנת
+  // למקבול - openOrder תלוי ב-activeSale ולכן נשאר אחריו.
+  //
+  // Promise.all ולא allSettled: אם אחת נכשלת אין טעם להמשיך, ואנחנו
+  // רוצים שהשגיאה תעלה כרגיל.
+  const [customer, activeSaleEarly] = await Promise.all([
+    prisma.customer.findUnique({
     where: { phone },
     select: {
       id: true,
@@ -169,7 +182,9 @@ async function handle(req: Request): Promise<Response> {
       // §76: לשמיעת קוד הכניסה לאתר (תפריט 4)
       loginCode: true,
     },
-  });
+    }),
+    getActiveSale(),
+  ]);
 
   // ═══ לקוח לא רשום ═══
   if (!customer) {
@@ -223,42 +238,51 @@ async function handle(req: Request): Promise<Response> {
   // ולא הסטטוס: אחרי שהנציג סימן מסירה הלקוח חוזר לתפריט הרגיל ויכול
   // להזמין במכירה הבאה, גם אם הסטטוס עדיין לא התעדכן לגמרי.
   //
-  // §61: נשלפים כאן כל שדות המחירון שנדרשים בהמשך המסלול, כדי שלא
-  // ייטענו שוב ושוב. ראה ActiveSale למעלה.
-  const activeSale = await prisma.pricelist.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      closeDate: true,
-      openDate: true,
-      singleSurcharge: true,
-      orderFee: true,
-      deliveryDateText: true,
-      editDeadline: true,
-    },
-  });
+  // §94: כבר נשלף למעלה במקביל לזיהוי הלקוח, ומגיע מהמטמון אם הוא
+  // טרי. אין כאן שאילתה נוספת.
+  const activeSale = activeSaleEarly;
 
-  const openOrder = activeSale
-    ? await prisma.order.findFirst({
-        where: {
-          customerId: customer.id,
-          pricelistId: activeSale.id,
-          status: { notIn: ["CANCELLED"] },
-          deliveredAt: null,
-        },
-        select: {
-          id: true,
-          orderNumber: true,
-          estimatedTotal: true,
-          finalTotal: true,
-          status: true,
-          pointId: true,
-          deliveryDateSnapshot: true,
-        },
-      })
-    : null;
+  // §94: ההזמנה הפתוחה וההודעות למתקשרים - במקביל.
+  //
+  // ההודעה סוננה קודם לפי openOrder.pointId, ולכן נאלצה לחכות לו -
+  // עוד נסיעה חוצת-אוקיינוס. עכשיו נשלפות כל ההודעות של המכירה
+  // (יש בודדות בפועל) והסינון לפי נקודה נעשה בזיכרון.
+  //
+  // ⚠️ הסינון עצמו לא השתנה: גלובלית או ספציפית לנקודת הלקוח,
+  // וספציפית גוברת - רק המקום שבו הוא מתבצע.
+  const nowForAnn = new Date();
+  const [openOrder, announcements] = await Promise.all([
+    activeSale
+      ? prisma.order.findFirst({
+          where: {
+            customerId: customer.id,
+            pricelistId: activeSale.id,
+            status: { notIn: ["CANCELLED"] },
+            deliveredAt: null,
+          },
+          select: {
+            id: true,
+            orderNumber: true,
+            estimatedTotal: true,
+            finalTotal: true,
+            status: true,
+            pointId: true,
+            deliveryDateSnapshot: true,
+          },
+        })
+      : Promise.resolve(null),
+    activeSale && !p.ANNOUNCED
+      ? prisma.phoneAnnouncement.findMany({
+          where: {
+            pricelistId: activeSale.id,
+            isActive: true,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: nowForAnn } }],
+          },
+          orderBy: [{ pointId: "desc" }, { createdAt: "desc" }],
+          select: { text: true, pointId: true },
+        })
+      : Promise.resolve([]),
+  ]);
 
   // ─── §30: הודעה למתקשרים ───
   // מוקראת פעם אחת בכניסה, לפני התפריט. הסינון כפול ומכוון:
@@ -268,19 +292,12 @@ async function handle(req: Request): Promise<Response> {
   //      נדחתה" לא צריך להישמע ללקוח מנדבורנא.
   // ANNOUNCED מסמן שכבר הושמעה, כדי שלא תחזור בכל שלב בשיחה.
   if (openOrder && !p.ANNOUNCED) {
-    const now2 = new Date();
-    const ann = await prisma.phoneAnnouncement.findFirst({
-      where: {
-        pricelistId: activeSale!.id,
-        isActive: true,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now2 } }],
-        // גלובלית או ספציפית לנקודה של הלקוח
-        AND: [{ OR: [{ pointId: null }, { pointId: openOrder.pointId }] }],
-      },
-      // הודעה ספציפית לנקודה גוברת על גלובלית
-      orderBy: [{ pointId: "desc" }, { createdAt: "desc" }],
-      select: { text: true },
-    });
+    // §94: הסינון בזיכרון - ההודעות כבר נשלפו במקביל למעלה.
+    // ספציפית לנקודה גוברת על גלובלית (ה-orderBy כבר סידר).
+    const ann =
+      announcements.find((a) => a.pointId === openOrder.pointId) ??
+      announcements.find((a) => a.pointId === null) ??
+      null;
 
     if (ann?.text) {
       return yemotResponse(
@@ -448,7 +465,7 @@ async function handleUnregistered(
   const cityIdx = parseInt(p.CITY, 10) - 1;
   const city = cityList[cityIdx];
   if (!city) {
-    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
+    return errorAndReturn(prompt("invalid_choice", "בחירה לא חוקית, חוזרים לתפריט"));
   }
 
   // שלב 2: נקודה בעיר. אם יש רק אחת - נבחרת אוטומטית.
@@ -490,7 +507,7 @@ async function handleUnregistered(
   }
 
   if (!pointId) {
-    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
+    return errorAndReturn(prompt("invalid_choice", "בחירה לא חוקית, חוזרים לתפריט"));
   }
 
   // ═══ §84: שלב 3 - הקלטת השם, עם אישור ═══
@@ -1097,6 +1114,66 @@ async function handleLoginCode(customer: {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════
+// §94: מטמון המחירון הפעיל
+// ═══════════════════════════════════════════════════════════════
+// המחירון הפעיל נשלף **בכל הקשה** של כל מתקשר, והוא כמעט לעולם
+// אינו משתנה תוך כדי שיחה. עם המסד באירלנד והפונקציה בוירג'יניה,
+// כל שליפה כזו היא נסיעה של ~90-200ms שהלקוח שומע כשקט.
+//
+// Fluid Compute מחזיק את המופע חם בין בקשות (Start Type: Hot
+// בלוגים), ולכן מטמון ברמת המודול באמת חוסך נסיעות - בקשה שנייה
+// באותה שיחה כבר לא תשלוף.
+//
+// ⚠️ TTL קצר בכוונה: 30 שניות. פתיחה או סגירה של מכירה תיכנס
+// לתוקף כמעט מיד, והסיכון הוא לכל היותר חצי דקה שבה מתקשר יראה
+// מצב ישן - מול חיסכון של נסיעה בכל הקשה.
+let saleCache: { at: number; value: ActiveSale | null } | null = null;
+const SALE_CACHE_MS = 30_000;
+
+async function getActiveSale(): Promise<ActiveSale | null> {
+  if (saleCache && Date.now() - saleCache.at < SALE_CACHE_MS) {
+    return saleCache.value;
+  }
+  const value = await prisma.pricelist.findFirst({
+    where: { status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      closeDate: true,
+      openDate: true,
+      singleSurcharge: true,
+      orderFee: true,
+      deliveryDateText: true,
+      editDeadline: true,
+    },
+  });
+  saleCache = { at: Date.now(), value: value as ActiveSale | null };
+  return saleCache.value;
+}
+
+/**
+ * §93: הודעת שגיאה שמחזירה לתפריט הראשי במקום לנתק.
+ *
+ * 🐛 הבאג: ext.ini מגדיר api_end_goto=hangup, ולכן כל id_list_message
+ * שאינו מלווה ב-read **מסיים את השיחה**. שישה מסלולי שגיאה השתמשו
+ * ב-playMessage, ולכן הקשה שגויה אחת ניתקה את הלקוח באמצע ההזמנה.
+ *
+ * הפתרון: משמיעים את השגיאה ואז go_to_folder לשורש. ימות מוחקים
+ * את כל הפרמטרים שנצברו ומתחילים נקי - הלקוח חוזר לתפריט במקום
+ * למצוא את עצמו מנותק.
+ *
+ * ⚠️ שתי הפקודות מופרדות ב-& ולא בנקודה. הנקודה היא מפריד *הודעות*
+ * בתוך פקודה; שרשור פקודות בנקודה הוא בדיוק הבאג שהשבית את הקלטת
+ * השם ב-§75.
+ */
+function errorAndReturn(message: string): Response {
+  return yemotResponse(
+    `${playMessage(message)}&${goToFolder(process.env.YEMOT_IVR_FOLDER || "/")}`
+  );
+}
+
 /**
  * §92: שם המוצר להקראה, עם הכשרות - בלי כפילות.
  *
@@ -1352,7 +1429,7 @@ async function handleMyPoint(
 
   const city = cityList[parseInt(p.NEWCITY, 10) - 1];
   if (!city) {
-    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
+    return errorAndReturn(prompt("invalid_choice", "בחירה לא חוקית, חוזרים לתפריט"));
   }
 
   const pts = await prisma.deliveryPoint.findMany({
@@ -1385,7 +1462,7 @@ async function handleMyPoint(
   }
 
   if (!newPointId) {
-    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
+    return errorAndReturn(prompt("invalid_choice", "בחירה לא חוקית, חוזרים לתפריט"));
   }
 
   const chosenPoint = pts.find((x) => x.id === newPointId);
@@ -1495,6 +1572,7 @@ async function handleOrder(
   if (p.CONFIRM) {
     if (p.CONFIRM !== "1") {
       await prisma.phoneOrderDraft.delete({ where: { id: draft.id } }).catch(() => null);
+      // §93: כאן הניתוק מכוון - הלקוח ביקש לבטל וסיים.
       return yemotResponse(playMessage(prompt("order_cancelled", "ההזמנה בוטלה")));
     }
     return finalizeOrder(draft.id, items, customer, pricelist, callId);
@@ -1584,17 +1662,28 @@ async function handleOrder(
   }
 
   // ─── בחירת קטגוריה ───
-  const cats = await prisma.pricelistProduct.findMany({
-    where: { pricelistId: pricelist.id, product: { isActive: true, phoneEnabled: true } },
-    select: { product: { select: { categoryId: true, category: { select: { id: true, name: true } } } } },
-  });
+  // §94: רשימת הקטגוריות נחוצה **רק במסלול התפריט**. לקוח שבחר
+  // הזמנה לפי מק"ט לא ישמע אותה לעולם, ובכל זאת שילמנו עליה
+  // נסיעה בכל הקשה שלו.
+  //
+  // ⚠️ הבדיקה "אין מוצרים זמינים" נשמרת - היא פשוט עוברת למסלול
+  // שבו היא רלוונטית, ובמסלול המק"ט תופסת אותה בדיקת sku_not_found.
+  const inSkuMode = p.ORDMODE === "1";
+  const cats = inSkuMode
+    ? []
+    : await prisma.pricelistProduct.findMany({
+        where: { pricelistId: pricelist.id, product: { isActive: true, phoneEnabled: true } },
+        select: {
+          product: { select: { categoryId: true, category: { select: { id: true, name: true } } } },
+        },
+      });
   const catMap = new Map<string, string>();
   for (const c of cats) {
     if (c.product.category) catMap.set(c.product.category.id, c.product.category.name);
   }
   const catList = Array.from(catMap.entries());
 
-  if (catList.length === 0) {
+  if (!inSkuMode && catList.length === 0) {
     return yemotResponse(
       playMessage(prompt("no_products", "אין מוצרים זמינים להזמנה טלפונית"))
     );
@@ -1622,12 +1711,20 @@ async function handleOrder(
   //
   // ORDMODE נשאל פעם אחת לשיחה (לא לכל סבב): מי שבחר מק"ט ממשיך
   // במק"טים גם ב"מוצר נוסף", כי ה-round מתקדם אבל ORDMODE נשאר.
-  const skuCount = await prisma.pricelistProduct.count({
-    where: {
-      pricelistId: pricelist.id,
-      product: { isActive: true, phoneEnabled: true, phoneCode: { not: null } },
-    },
-  });
+  // §94: הספירה רצה **רק כשהיא נחוצה** - כלומר בפעם הראשונה, לפני
+  // שנשאלה שאלת המק"ט.
+  //
+  // 🐛 קודם היא רצה בכל הקשה לאורך כל ההזמנה: הלקוח בוחר כמות,
+  // מאשר, מוסיף מוצר - ובכל אחת מהן שילמנו נסיעה חוצת-אוקיינוס
+  // על מספר שכבר לא משנה, כי ORDMODE נקבע מזמן.
+  const skuCount = p.ORDMODE
+    ? 0
+    : await prisma.pricelistProduct.count({
+        where: {
+          pricelistId: pricelist.id,
+          product: { isActive: true, phoneEnabled: true, phoneCode: { not: null } },
+        },
+      });
 
   if (skuCount > 0 && !p.ORDMODE) {
     return yemotResponse(
@@ -1678,7 +1775,12 @@ async function handleOrder(
           messages(
             prompt("sku_ask", "הקש את מספר המוצר מהמודעה")
           ),
-          { name: kSku, max: 5, min: 1, timeout: 10, playback: "Digits" }
+          // §93: playback "No" ולא "Digits".
+          // 🐛 הלקוח הקיש 22 ושמע "22" בחזרה - מספר שאינו אומר לו
+          // דבר. האישור המשמעותי הוא **שם המוצר**, שמוקרא מיד
+          // בשלב הבא ("בחרת: אנטריקוט"). הקראת הספרות רק האריכה
+          // את השיחה בכמה שניות.
+          { name: kSku, max: 5, min: 1, timeout: 10, playback: "No" }
         )
       );
     }
@@ -1703,10 +1805,57 @@ async function handleOrder(
           messages(
             prompt("sku_not_found", "מספר מוצר לא נמצא במכירה הנוכחית. נסה שוב, או הקש כוכבית לתפריט הראשי")
           ),
-          { name: kSku, max: 5, min: 1, timeout: 10, playback: "Digits" }
+          { name: kSku, max: 5, min: 1, timeout: 10, playback: "No" }
         )
       );
     }
+
+    // ═══ §95: אישור המוצר שעלה מהמק"ט ═══
+    //
+    // 🐛 הפער: הקשת מק"ט שגוי שקיים במערכת (טעות ספרה - 22 במקום 21)
+    // הובילה ישר לשאלת הכמות על **מוצר אחר**, בלי שהלקוח יודע ובלי
+    // דרך לחזור. הוא היה מגלה את הטעות רק בסיכום, או בחלוקה.
+    //
+    // עכשיו: המוצר והמחיר מוקראים, והלקוח מאשר. שתי הקשות במקום
+    // אחת - אבל הן חוסכות הזמנה שגויה שמתגלה מאוחר מדי.
+    //
+    // 2 = מוצר שגוי -> חוזרים לשאלת המק"ט. איפוס SKU נעשה על ידי
+    // שאילתו מחדש: ימות דורסים את הערך הקודם באותו שם פרמטר.
+    const kSkuOk = `SKUOK${round}`;
+    if (p[kSkuOk] !== "1") {
+      if (p[kSkuOk] === "2") {
+        return yemotResponse(
+          read(
+            messages(prompt("sku_ask", "הקש את מספר המוצר מהמודעה")),
+            { name: kSku, max: 5, min: 1, timeout: 10, playback: "No" }
+          )
+        );
+      }
+
+      // המחיר האמיתי, באותו כלל של §85: לפי משקל - מחיר לק"ג;
+      // אחרת מחיר הקרטון. בלי סכומים משוערים.
+      const fp = found.product;
+      const base = Number(found.price ?? fp.cartonPrice);
+      const perKg = fp.priceType === "PER_KG";
+
+      return yemotResponse(
+        read(
+          messages(
+            prompt("sku_found_pre", "המוצר שבחרת"),
+            say(productSpokenName(fp)),
+            prompt("sku_found_price", "במחיר"),
+            sayNumber(Math.round(base * 100) / 100),
+            prompt(
+              perKg ? "shekels_per_kg" : "shekels",
+              perKg ? "שקלים לקילו" : "שקלים"
+            ),
+            prompt("sku_confirm_ask", "לאישור הקש 1, למוצר אחר הקש 2")
+          ),
+          { name: kSkuOk, max: 1, min: 1, allowed: "12" }
+        )
+      );
+    }
+
     chosen = found;
   } else {
     // ─── המסלול הרגיל: קטגוריה ואז מוצר ───
@@ -1724,7 +1873,7 @@ async function handleOrder(
 
     const catId = catList[parseInt(p[kCat], 10) - 1]?.[0];
     if (!catId) {
-      return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
+      return errorAndReturn(prompt("invalid_choice", "בחירה לא חוקית, חוזרים לתפריט"));
     }
 
     // ─── בחירת מוצר ───
@@ -1771,7 +1920,7 @@ async function handleOrder(
   }
 
   if (!chosen) {
-    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
+    return errorAndReturn(prompt("invalid_choice", "בחירה לא חוקית, חוזרים לתפריט"));
   }
   const prod = chosen.product;
 
@@ -1808,10 +1957,8 @@ async function handleOrder(
 
       // §69: במסלול מק"ט הלקוח לא שמע תפריט - חייבים להקריא לו איזה
       // מוצר עלה מהמספר שהקיש, אחרת הוא מאשר כמות בלי לדעת של מה.
-      if (p.ORDMODE === "1") {
-        parts.push(prompt("sku_chosen", "בחרת"));
-        parts.push(say(productSpokenName(prod)));
-      }
+      // §95: אין הקראה חוזרת של שם המוצר. הוא כבר הוקרא ואושר
+      // מפורשות בשלב האישור, ולכן חזרה עליו רק מאריכה את השיחה.
 
       // §85: המחיר האמיתי. לפי משקל - מחיר לק"ג; אחרת מחיר הקרטון.
       parts.push(
@@ -1862,10 +2009,7 @@ async function handleOrder(
     // מה המחיר לפני שהוא נוקב בכמות. משולב בשאלת הכמות עצמה.
     const info: string[] = [];
     // §69: במסלול מק"ט - קודם איזה מוצר עלה
-    if (p.ORDMODE === "1") {
-      info.push(prompt("sku_chosen", "בחרת"));
-      info.push(say(productSpokenName(prod)));
-    }
+    // §95: ראה ההסבר למעלה - המוצר כבר אושר.
     // §85: המחיר האמיתי, לא סכום משוער. ראה ההסבר למעלה.
     info.push(prompt("carton_only_nowt", "מחיר לקרטון"));
     info.push(sayNumber(cartonPriceSpoken));
@@ -1895,7 +2039,9 @@ async function handleOrder(
 
   const qty = parseInt(p[kQty], 10);
   if (!qty || qty <= 0) {
-    return yemotResponse(playMessage(prompt("invalid_qty", "כמות לא חוקית")));
+    // §93: טעות הקלדה בכמות היא הדבר הכי שכיח בשיחה. ניתוק כאן
+    // אילץ את הלקוח להתקשר מחדש ולהתחיל את ההזמנה מאפס.
+    return errorAndReturn(prompt("invalid_qty", "כמות לא חוקית, חוזרים לתפריט"));
   }
 
   // §28: מגבלת כמות למוצר - אותה בדיקה שקיימת באתר. בלי זה הלקוח
@@ -2014,7 +2160,7 @@ async function finalizeOrder(
   callId: string
 ): Promise<Response> {
   if (items.length === 0) {
-    return yemotResponse(playMessage(prompt("no_items", "לא נבחרו מוצרים")));
+    return errorAndReturn(prompt("no_items", "לא נבחרו מוצרים, חוזרים לתפריט"));
   }
 
   // הגנה מפני יצירה כפולה - ימות עלולים לשלוח את אותה בקשה שוב
