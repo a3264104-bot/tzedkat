@@ -1750,10 +1750,22 @@ async function handleOrder(
   // המשקל המשוער), ובודדים לפי מחיר לק"ג.
   const cartonBase = Number(chosen.price ?? prod.cartonPrice);
   const avgW = prod.avgWeightPerUnit != null ? Number(prod.avgWeightPerUnit) : null;
-  const cartonTotal =
-    prod.priceType === "PER_KG" && avgW
-      ? Math.round(cartonBase * avgW)
-      : Math.round(cartonBase);
+
+  // §85: 🐛 בטלפון הוקרא **סכום משוער** ולא מחיר.
+  //
+  // הקוד חישב `מחיר לק"ג × משקל משוער` והקריא את התוצאה, ולכן
+  // אנטריקוט ב-88.90 לק"ג נשמע כ"קרטון בסכום 1,500". שני
+  // כשלים בבת אחת:
+  //   • המספר אינו המחיר שהלקוח משלם - הוא הערכה שתשתנה בשקילה
+  //   • הוא מבלבל: הלקוח שומע 1,500 ומניח שזה מה שיחויב
+  //
+  // באתר המשוער עובד כי רואים לצידו "משוער" ופירוט. בטלפון יש רק
+  // מספר אחד באוזן, ולכן הוא חייב להיות המחיר האמיתי.
+  //
+  // מכאן: מוצר שנמכר לפי משקל מוקרא במחיר לק"ג, ומוצר במחיר קבוע
+  // לקרטון מוקרא במחיר הקרטון. אין הכפלה ואין הערכה.
+  const isPerKg = prod.priceType === "PER_KG";
+  const cartonPriceSpoken = Math.round(cartonBase * 100) / 100;
 
   let isSingle = false;
   if (prod.allowSingles) {
@@ -1768,15 +1780,20 @@ async function handleOrder(
         parts.push(say(k ? `${prod.phoneName || prod.name} בכשרות ${k}` : prod.phoneName || prod.name));
       }
 
-      if (avgW) {
-        parts.push(prompt("mode_carton_pre", "לקניה לפי קרטון במשקל משוער של"));
-        parts.push(sayNumber(Math.round(avgW)));
-        parts.push(prompt("mode_carton_mid", "קילו, במחיר"));
-      } else {
-        parts.push(prompt("mode_carton_nowt", "לקניה לפי קרטון במחיר"));
-      }
-      parts.push(sayNumber(cartonTotal));
-      parts.push(prompt("mode_carton_post", "שקלים, הקש 1"));
+      // §85: המחיר האמיתי. לפי משקל - מחיר לק"ג; אחרת מחיר הקרטון.
+      parts.push(
+        prompt(
+          isPerKg ? "mode_carton_kg" : "mode_carton_nowt",
+          isPerKg ? "לקניה לפי קרטון במחיר" : "לקניה לפי קרטון במחיר"
+        )
+      );
+      parts.push(sayNumber(cartonPriceSpoken));
+      parts.push(
+        prompt(
+          isPerKg ? "mode_carton_kg_post" : "mode_carton_post",
+          isPerKg ? "שקלים לקילו, הקש 1" : "שקלים, הקש 1"
+        )
+      );
 
       // מחיר הבודדים כולל כבר את התוספת, ולכן מוצג כמחיר סופי אחד.
       // "מחיר + תוספת" היו שני מספרים והלקוח לא היה יודע מה לשלם.
@@ -1817,16 +1834,15 @@ async function handleOrder(
       info.push(prompt("sku_chosen", "בחרת"));
       info.push(say(k ? `${prod.phoneName || prod.name} בכשרות ${k}` : prod.phoneName || prod.name));
     }
-    if (avgW) {
-      info.push(prompt("carton_only_pre", "קרטון במשקל משוער של"));
-      info.push(sayNumber(Math.round(avgW)));
-      // אותו טקסט כמו במסלול הבחירה - משתמשים באותו קובץ ולא מקליטים פעמיים
-      info.push(prompt("mode_carton_mid", "קילו, במחיר"));
-    } else {
-      info.push(prompt("carton_only_nowt", "מחיר לקרטון"));
-    }
-    info.push(sayNumber(cartonTotal));
-    info.push(prompt("shekels", "שקלים"));
+    // §85: המחיר האמיתי, לא סכום משוער. ראה ההסבר למעלה.
+    info.push(prompt("carton_only_nowt", "מחיר לקרטון"));
+    info.push(sayNumber(cartonPriceSpoken));
+    info.push(
+      prompt(
+        isPerKg ? "shekels_per_kg" : "shekels",
+        isPerKg ? "שקלים לקילו" : "שקלים"
+      )
+    );
     info.push(prompt("ask_qty_carton", "כמה קרטונים תרצה"));
     return yemotResponse(
       read(messages(...info), { name: kQty, max: 3, min: 1, playback: "Number" })

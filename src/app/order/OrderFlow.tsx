@@ -1035,9 +1035,28 @@ export function OrderFlow({
               </div>
             )}
             <h2 className="text-lg font-extrabold text-brand-slatedark mb-1">בחירת מוצרים</h2>
-            <p className="text-xs text-zinc-500 mb-4 leading-relaxed">
-              המחיר באתר הוא מחיר משוער. המחיר הסופי ייקבע לפי המשקל והאריזה בפועל.
-            </p>
+
+            {/* §87: גילוי המשקל.
+                🐛 מה שהיה: שורה אפורה בגודל 12px מתחת לכותרת - טכנית
+                קיימת, בפועל נבלעת. הלקוח שראה סכום משוער וחויב אחרת
+                לא ידע למה, וזו השיחה שחוזרת.
+                עכשיו: פריט קריא עם צבע ומסגרת, קבוע במסך (לא באנר
+                שנסגר), עם קישור לסעיף המלא בתנאים. */}
+            <div className="mb-4 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2.5 flex items-start gap-2">
+              <span className="text-base leading-none shrink-0 mt-0.5">⚖️</span>
+              <p className="text-xs text-amber-900 leading-relaxed">
+                המחירים כאן <strong>משוערים</strong>. מוצרים הנמכרים לפי משקל
+                נשקלים בחלוקה, והמחיר הסופי שבו יחויב הכרטיס נקבע לפי המשקל
+                בפועל — ייתכן הפרש כלפי מעלה או מטה.{" "}
+                <a
+                  href="/terms"
+                  target="_blank"
+                  className="underline underline-offset-2 font-medium"
+                >
+                  לפרטים
+                </a>
+              </p>
+            </div>
             <div className="space-y-6">
               {/* ניווט קטגוריות דביק - עיצוב מוקפץ */}
               <div className="sticky top-0 z-10 -mx-4 px-4 py-2.5 bg-brand-cream/95 backdrop-blur-md border-b border-zinc-200/70 overflow-x-auto no-scrollbar">
@@ -1397,10 +1416,19 @@ export function OrderFlow({
                   <span>{fmt(estimatedTotal)}</span>
                 </div>
               </div>
-              <p className="text-[10px] text-zinc-500 mt-2 leading-relaxed">
-                💡 המחיר סופי ייקבע לאחר שקילה בפועל. בהזמנת בודדים תתווסף גם תוספת של{" "}
-                <strong>{fmt(pricelist.singleSurcharge || 3)} לק"ג</strong>.
-              </p>
+              {/* §87: הרגע שבו זה הכי חשוב - הלקוח מסתכל על הסכום
+                  שיחויב. 10px אפור היה טכנית קיים ובפועל בלתי נראה. */}
+              <div className="mt-2 bg-amber-100 border border-amber-400 rounded-lg px-3 py-2">
+                <p className="text-xs text-amber-900 leading-relaxed font-medium">
+                  ⚖️ הסכום הזה <strong>משוער</strong>. המחיר הסופי שבו יחויב
+                  הכרטיס ייקבע לפי המשקל שיישקל בחלוקה, וייתכן הפרש כלפי מעלה
+                  או מטה.
+                </p>
+                <p className="text-[11px] text-amber-800 mt-1">
+                  בהזמנת בודדים מתווספת תוספת של{" "}
+                  <strong>{fmt(pricelist.singleSurcharge || 3)} לק&quot;ג</strong>.
+                </p>
+              </div>
             </div>
             {/* הודעת גבייה */}
             <div className="card p-3 mt-3 bg-amber-50 border-amber-200 text-sm text-amber-800 text-center">

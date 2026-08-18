@@ -14,7 +14,7 @@ export default function TermsPage() {
           תנאי שימוש
         </h1>
         <p className="text-sm text-zinc-500 mb-6">
-          עודכן לאחרונה: 5 באוגוסט 2026
+          עודכן לאחרונה: 18 באוגוסט 2026
         </p>
 
         <div className="max-w-none space-y-5 text-brand-slatedark leading-relaxed">
@@ -33,6 +33,23 @@ export default function TermsPage() {
 
           <section>
             <h2 className="text-xl font-bold mt-6 mb-2">2. ההזמנות והמוצרים</h2>
+
+            {/* §87: הסעיף המהותי ביותר ללקוח - מודגש ולא מוסתר
+                כפריט ברשימה. זה ההפרש שבו הכרטיס שלו יחויב, וזו
+                גם השאלה שחוזרת בטלפון: "למה חויבתי אחרת". */}
+            <div className="bg-amber-50 border-r-4 border-amber-500 rounded-lg p-4 my-3">
+              <div className="font-bold text-amber-900 mb-1">
+                ⚖️ חשוב לדעת — המחיר נקבע לפי משקל בפועל
+              </div>
+              <p className="text-sm text-amber-900 leading-relaxed">
+                המחירים המוצגים באתר ובמערכת הטלפונית הם <strong>משוערים</strong>.
+                מוצרים הנמכרים לפי משקל נשקלים בפועל בעת החלוקה, והמחיר הסופי —
+                שבו יחויב כרטיס האשראי — נקבע לפי המשקל שנשקל.{" "}
+                <strong>ייתכן הפרש כלפי מעלה או כלפי מטה</strong> מהסכום המשוער
+                שהוצג בעת ההזמנה. ביצוע הזמנה מהווה אישור והסכמה לכך.
+              </p>
+            </div>
+
             <ul className="list-disc pr-6 space-y-1">
               <li>האתר מאפשר הזמנת מוצרי בשר, עוף ודגים לחלוקה בנקודות שנקבעו.</li>
               <li>
