@@ -326,7 +326,18 @@ export default function PhoneSignupsPage() {
                       onSuccess={load}
                     />
                     <Link
-                      href={`/admin/customers?q=${encodeURIComponent(r.phone)}`}
+                      // §109: פתיחה ישירה של כרטיס הלקוח.
+                      //
+                      // 🐛 מה שהיה: ?q=<טלפון> רק *מילא את החיפוש*.
+                      // המנהל הגיע לרשימה, נאלץ לאתר את השורה
+                      // ולפתוח אותה - בזמן שהמזהה המדויק כבר היה
+                      // בידינו כאן (r.customerId).
+                      //
+                      // openCustomer פותח את מודל העריכה מיד; q נשאר
+                      // כנפילה אם הלקוח לא נמצא (למשל נמחק).
+                      href={`/admin/customers?openCustomer=${encodeURIComponent(
+                        r.customerId
+                      )}&q=${encodeURIComponent(r.phone)}`}
                       className="btn-ghost btn-sm"
                       title="לאיפוס סיסמה כדי שהלקוח יוכל להיכנס לאתר בעצמו"
                     >

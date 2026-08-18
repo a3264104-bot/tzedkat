@@ -226,7 +226,7 @@ const TTS_ONLY = new Set<string>([
   "code_missing",
   "code_not_ready",
   "order_paid_pre",
-  "star_hint",
+  // §110: star_hint הוסר - הוקלט והועלה.
 ]);
 
 /**

@@ -53,7 +53,18 @@ type SortDir = "asc" | "desc";
 
 export default function AdminCustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [query, setQuery] = useState("");
+  // §109: פתיחה אוטומטית של לקוח לפי openCustomer בכתובת.
+  //
+  // הערך נקרא פעם אחת בטעינה (לא ב-state מתמשך) כדי שהמנהל יוכל
+  // לסגור את המודל ולהישאר ברשימה - בלי שייפתח שוב בכל רענון.
+  const [query, setQuery] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("q") || "";
+  });
+  const [pendingOpenId, setPendingOpenId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("openCustomer");
+  });
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [newPassword, setNewPassword] = useState("");
@@ -164,6 +175,31 @@ export default function AdminCustomersPage() {
       };
     });
   }
+
+  // §109: פתיחת כרטיס הלקוח ברגע שהרשימה נטענה.
+  //
+  // 🐛 מה שנסגר: הקישור ממסך בקשות ההרשמה העביר רק ?q=<טלפון>,
+  // כלומר מילא את החיפוש - והמנהל נאלץ לאתר את השורה ולפתוח
+  // אותה ידנית, כשהמזהה המדויק כבר היה ידוע.
+  //
+  // ⚠️ הפתיחה מתבצעת **פעם אחת בלבד** (pendingOpenId מתאפס מיד).
+  // בלי זה, סגירת המודל הייתה גורמת לו להיפתח שוב בכל טעינה
+  // מחדש של הרשימה - למשל אחרי עדכון אשראי, שקורא ל-reload.
+  useEffect(() => {
+    if (!pendingOpenId || customers.length === 0) return;
+    const target = customers.find((c) => c.id === pendingOpenId);
+    setPendingOpenId(null);
+    if (target) {
+      openEdit(target);
+      // ניקוי הכתובת כדי שרענון הדף לא יפתח שוב
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("openCustomer");
+        window.history.replaceState({}, "", url.toString());
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customers, pendingOpenId]);
 
   // חיפוש עם debounce
   useEffect(() => {

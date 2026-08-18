@@ -36,7 +36,7 @@ import { decryptCode } from "@/lib/login-code";
 import { waitUntil } from "@vercel/functions";
 import { sendPhoneSignupNotification } from "@/lib/email";
 // §71: ניקוי שם מזיהוי הדיבור - מקור התווים הנסתרים
-import { cleanName } from "@/lib/identity";
+import { cleanName, cleanSpokenName, isPlausibleName } from "@/lib/identity";
 import {
   sendCustomerOrderConfirmation,
   sendAdminOrderNotification,
@@ -307,7 +307,8 @@ async function handle(req: Request): Promise<Response> {
           messages(
             prompt("announcement_intro", "הודעה חשובה"),
             say(ann.text),
-            prompt("announcement_continue", "להמשך הקש 1")
+            // §107: אותה מלכודת - חלופה מוסברת נוספה
+            prompt("announcement_continue", "להמשך הקש 1, או כוכבית לתפריט הראשי")
           ),
           { name: "ANNOUNCED", max: 1, min: 1, allowed: "1" }
         )
@@ -386,7 +387,17 @@ async function handle(req: Request): Promise<Response> {
           ),
           canHearCode
             ? prompt("menu_opt_code", "לשמיעת קוד הכניסה לאתר הקש 4")
-            : ""
+            : "",
+          // §107: ההסבר על הכוכבית **בסוף** התפריט ולא בתחילתו.
+          //
+          // הכוכבית עובדת בכל שלב במערכת (טיפול גלובלי בראש הקובץ),
+          // אבל שום דבר לא סיפר ללקוח שהיא קיימת - ומי שנתקע במסך
+          // עם אפשרות בודדת ("הקש 1") לא ידע שיש דרך חזרה.
+          //
+          // המיקום כאן מכוון: הלקוח שומע קודם ברכה ואת האפשרויות
+          // שהוא בא בשבילן, ורק אז את הערת הניווט. הסבר טכני לפני
+          // "ברוכים הבאים" נשמע הפוך.
+          prompt("star_hint", "בכל שלב ניתן לחזור לתפריט זה בהקשת כוכבית")
         ),
         { name: "MENU", max: 1, min: 1, allowed: canHearCode ? "1234" : "123" }
       )
@@ -543,7 +554,17 @@ async function handleUnregistered(
   //   NAME קיים אך ריק    = שאלנו ולא נקלט דבר
   // המצב השני ממשיך עם שם זמני במקום לשאול שוב.
   const nameAsked = p.NAME !== undefined;
-  const rawName = cleanName(String(p.NAME ?? "").replace(/^Digits-/, ""));
+  // §108: cleanSpokenName ולא cleanName.
+  //
+  // 🐛 הבאג שנסגר: זיהוי הדיבור של ימות מחזיר את **ההודעות של
+  // עצמו** יחד עם דיבור הלקוח. לקוח שאמר "יהודה", הזיהוי נכשל,
+  // ימות השמיעו "לא זוהה הדיבור, נתחיל מחדש", והוא אמר שוב -
+  // וה-NAME שחזר אלינו היה "נתחיל מחדש יהודה".
+  //
+  // שני לקוחות אמיתיים נשמרו כך במסד, והמייל לנציג יצא עם השם
+  // המשובש. cleanName לבדה לא תפסה את זה - היא מנקה תווים
+  // נסתרים, לא טקסט של המערכת.
+  const rawName = cleanSpokenName(p.NAME);
 
   if (!nameAsked) {
     // §84: מקריאים את הנקודה שנבחרה לפני שממשיכים. זה הרגע האחרון
@@ -572,7 +593,10 @@ async function handleUnregistered(
 
   // נקלט ריק - ממשיכים עם שם זמני. עדיף חשבון שהנציג יתקן את שמו
   // מאשר שיחה שנתקעת והלקוח לא נרשם בכלל.
-  const finalName = rawName || "לקוח טלפוני";
+  // §108: שם לא סביר (ריק, קצר מדי, ארוך בחריגות) נדחה לטובת שם
+  // זמני. עדיף שהנציג יתקן "לקוח טלפוני" מאשר שיישמר שם שגוי
+  // שנראה אמיתי ואיש לא יבדוק אותו.
+  const finalName = isPlausibleName(rawName) ? rawName : "לקוח טלפוני";
 
   // אישור השם - בשליטתנו ולא של ימות. מוצג רק כשבאמת נקלט שם;
   // אין טעם לבקש אישור על "לקוח טלפוני".
@@ -1447,7 +1471,15 @@ async function handleMyPoint(
 
   // ─── שינוי עצמאי ───
   if (!p.CHPOINT) {
-    parts.push(prompt("point_change_offer", "לשינוי נקודת החלוקה הקש 1"));
+    // §107: 🐛 מלכודת - "לשינוי הקש 1" ואין שום אפשרות אחרת. מי
+    // שרצה רק *לשמוע* את הנקודה (השימוש הנפוץ ביותר כאן) נשאר
+    // תקוע בלי מושג מה להקיש, עד שהשיחה נופלת בטיימאאוט בשקט.
+    parts.push(
+      prompt(
+        "point_change_offer",
+        "לשינוי נקודת החלוקה הקש 1, לחזרה לתפריט הראשי הקש כוכבית"
+      )
+    );
     return yemotResponse(
       read(messages(...parts), { name: "CHPOINT", max: 1, min: 1, allowed: "1" })
     );
@@ -1911,7 +1943,19 @@ async function handleOrder(
     //
     // 2 = מוצר שגוי -> חוזרים לשאלת המק"ט. איפוס SKU נעשה על ידי
     // שאילתו מחדש: ימות דורסים את הערך הקודם באותו שם פרמטר.
-    const kSkuOk = `SKUOK${round}`;
+    // §106: 🐛 כאן היה הבאג שגרם ללולאה שאין ממנה יציאה.
+    //
+    // ימות שולחים בכל בקשה את **כל** הפרמטרים שנצברו בשיחה, לא
+    // רק את החדש. kSkuOk היה קבוע (SKUOK{round}) לאורך כל הסבב -
+    // ולכן "2" (מוצר אחר) שנשמר בו נשאר תקוע גם אחרי שהוקש מק"ט
+    // חדש ונכון. הבדיקה ראתה "2" ישן ושאלה קוד מחדש, שוב ושוב,
+    // בלי קשר למה שהוקש בפועל.
+    //
+    // התיקון: קושרים את פרמטר האישור **לקוד הספציפי** שנבדק, לא
+    // רק לסבב ההזמנה. כשהקוד משתנה (21 -> 22), שם הפרמטר משתנה
+    // איתו (SKUOK{round}_21 -> SKUOK{round}_22), והערך הישן פשוט
+    // כבר לא רלוונטי - השאלה נשאלת נקייה מכל ניסיון קודם.
+    const kSkuOk = `SKUOK${round}_${p[kSku]}`;
     if (p[kSkuOk] !== "1") {
       if (p[kSkuOk] === "2") {
         return yemotResponse(
