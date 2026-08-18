@@ -1097,6 +1097,30 @@ async function handleLoginCode(customer: {
   );
 }
 
+/**
+ * §92: שם המוצר להקראה, עם הכשרות - בלי כפילות.
+ *
+ * 🐛 מה שקרה: המנהל מזין שמות מוצרים שכוללים כבר את הכשרות
+ * ("פרגית בדץ"), והקוד הוסיף " בכשרות בדץ" אחרי השם. התוצאה
+ * בהקראה: "פרגית בדץ בכשרות בדץ" - הכשרות נשמעת פעמיים בכל מוצר.
+ *
+ * הבדיקה היא על השם *אחרי* ניקוי גרשיים, כי "בד״ץ" בשם ו-"בדץ"
+ * בטבלת הכשרויות הם אותו דבר להקראה אבל מחרוזות שונות.
+ */
+function productSpokenName(prod: {
+  name: string;
+  phoneName?: string | null;
+  kashrut?: string | null;
+  kashrutRef?: { name: string } | null;
+}): string {
+  const base = prod.phoneName || prod.name;
+  const k = prod.kashrutRef?.name || prod.kashrut || "";
+  if (!k) return base;
+  const norm = (t: string) => t.replace(/["'`׳״\s]/g, "");
+  if (norm(base).includes(norm(k))) return base;
+  return `${base} בכשרות ${k}`;
+}
+
 // §69: מה הלקוח שומע על ההזמנות שלו.
 //
 // 🐛 קודם: מספר + סכום + נקודה בלבד. הלקוח לא ידע אם ההזמנה שולמה,
@@ -1502,7 +1526,12 @@ async function handleOrder(
 
     for (const it of items) {
       // הכשרות בסיכום כדי שהלקוח יאשר בדיוק את מה שהזמין
-      const kSuffix = it.kashrut ? ` בכשרות ${it.kashrut}` : "";
+      // §92: אותו כלל כמו בתפריט - בלי כפילות כשהשם כולל כשרות
+      const normK = (t: string) => t.replace(/["'`׳״\s]/g, "");
+      const kSuffix =
+        it.kashrut && !normK(it.productName).includes(normK(it.kashrut))
+          ? ` בכשרות ${it.kashrut}`
+          : "";
       parts.push(
         say(
           it.isSingle
@@ -1724,13 +1753,10 @@ async function handleOrder(
       // §33: שם המוצר + הכשרות שלו. בלי זה לקוח שרואה שני מוצרים דומים
       // בתפריט לא יודע במה לבחור.
       // §69: phoneName קודם לשם הרגיל - זה כל ייעודו.
-      const menu = prods.map((pp, i) => {
-        const k = pp.product.kashrutRef?.name || pp.product.kashrut || "";
-        const nm = pp.product.phoneName || pp.product.name;
-        return say(
-          k ? `ל${nm} בכשרות ${k} הקש ${i + 1}` : `ל${nm} הקש ${i + 1}`
-        );
-      });
+      // §92: productSpokenName מונע "פרגית בדץ בכשרות בדץ"
+      const menu = prods.map((pp, i) =>
+        say(`ל${productSpokenName(pp.product)} הקש ${i + 1}`)
+      );
       return yemotResponse(
         read(messages(prompt("choose_product", "בחר מוצר"), ...menu), {
           name: kProd,
@@ -1783,9 +1809,8 @@ async function handleOrder(
       // §69: במסלול מק"ט הלקוח לא שמע תפריט - חייבים להקריא לו איזה
       // מוצר עלה מהמספר שהקיש, אחרת הוא מאשר כמות בלי לדעת של מה.
       if (p.ORDMODE === "1") {
-        const k = prod.kashrutRef?.name || prod.kashrut || "";
         parts.push(prompt("sku_chosen", "בחרת"));
-        parts.push(say(k ? `${prod.phoneName || prod.name} בכשרות ${k}` : prod.phoneName || prod.name));
+        parts.push(say(productSpokenName(prod)));
       }
 
       // §85: המחיר האמיתי. לפי משקל - מחיר לק"ג; אחרת מחיר הקרטון.
@@ -1838,9 +1863,8 @@ async function handleOrder(
     const info: string[] = [];
     // §69: במסלול מק"ט - קודם איזה מוצר עלה
     if (p.ORDMODE === "1") {
-      const k = prod.kashrutRef?.name || prod.kashrut || "";
       info.push(prompt("sku_chosen", "בחרת"));
-      info.push(say(k ? `${prod.phoneName || prod.name} בכשרות ${k}` : prod.phoneName || prod.name));
+      info.push(say(productSpokenName(prod)));
     }
     // §85: המחיר האמיתי, לא סכום משוער. ראה ההסבר למעלה.
     info.push(prompt("carton_only_nowt", "מחיר לקרטון"));
