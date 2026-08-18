@@ -146,6 +146,7 @@ const TTS_ONLY = new Set<string>([
   "login_code_repeat",
   "login_code_post",
   "code_error",
+  "chosen_pre",
   "ask_name_again",
   "name_confirm_pre",
   "name_confirm_ask",

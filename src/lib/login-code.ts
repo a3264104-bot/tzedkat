@@ -147,17 +147,102 @@ export function isWeakCode(code: string): boolean {
 /** ולידציה של קוד שהוזן ידנית ע"י מנהל */
 export function validateLoginCode(code: string): { ok: true } | { ok: false; error: string } {
   const c = String(code || "").trim();
-  if (!/^\d+$/.test(c)) return { ok: false, error: "הקוד חייב להכיל ספרות בלבד" };
-  if (c.length < 4 || c.length > 6) {
-    return { ok: false, error: "הקוד חייב להיות באורך 4 עד 6 ספרות" };
+  if (c.length === 0) return { ok: false, error: "יש להזין קוד" };
+
+  // §83: שני סוגי קוד.
+  //
+  // **מספרי (4-6 ספרות)** - ללקוחות. הוא נמסר בטלפון ונקלד במקלדת
+  // של מכשיר, ולכן חייב להיות קצר ומספרי.
+  //
+  // **אלפאנומרי (8+ תווים)** - למנהלים ולנציגים. קוד בן 6 ספרות
+  // הוא מיליון צירופים בלבד; לחשבון מנהל, שרואה קודים של כל
+  // הלקוחות ויכול להיכנס בשם כל אחד, זה לא מספיק. הנעילה אחרי 5
+  // ניסיונות מגנה על הלקוחות, אבל מנהל שווה הרבה יותר לתוקף
+  // ולכן ראוי לו מרחב חיפוש גדול בסדרי גודל.
+  //
+  // הזיהוי אוטומטי לפי התוכן: רק ספרות -> נבדק ככלל המספרי; יש
+  // אות או סימן -> נבדק ככלל האלפאנומרי. אין שדה נוסף בטופס
+  // והמנהל לא צריך לבחור "סוג" - הוא פשוט מקליד מה שהוא רוצה.
+  const isNumericOnly = /^\d+$/.test(c);
+
+  if (isNumericOnly) {
+    if (c.length < 4 || c.length > 6) {
+      return {
+        ok: false,
+        error:
+          "קוד מספרי חייב להיות באורך 4 עד 6 ספרות. לסיסמה ארוכה יותר יש לכלול אותיות (8 תווים לפחות).",
+      };
+    }
+    if (isWeakCode(c)) {
+      return {
+        ok: false,
+        error: "הקוד קל מדי לניחוש (ספרות זהות או רצף). יש לבחור קוד אחר.",
+      };
+    }
+    return { ok: true };
   }
-  if (isWeakCode(c)) {
+
+  // ─── אלפאנומרי ───
+  if (c.length < 8) {
     return {
       ok: false,
-      error: "הקוד קל מדי לניחוש (ספרות זהות או רצף). יש לבחור קוד אחר.",
+      error: "סיסמה עם אותיות חייבת להיות באורך 8 תווים לפחות.",
+    };
+  }
+  if (c.length > 64) {
+    return { ok: false, error: "הסיסמה ארוכה מדי (מקסימום 64 תווים)." };
+  }
+  if (/\s/.test(c)) {
+    // רווח בסיסמה שנמסרת בעל פה או בכתב הוא מקור קבוע לטעויות
+    return { ok: false, error: "הסיסמה אינה יכולה להכיל רווחים." };
+  }
+  if (isCommonPassword(c)) {
+    return {
+      ok: false,
+      error: "הסיסמה נפוצה מדי וקלה לניחוש. יש לבחור סיסמה אחרת.",
     };
   }
   return { ok: true };
+}
+
+/**
+ * §83: סיסמאות נפוצות שנחסמות.
+ *
+ * רשימה קצרה בכוונה - היא לא מחליפה מדיניות אורך, רק חוסמת את
+ * הניחושים הראשונים של כל תוקף אוטומטי. ההשוואה case-insensitive
+ * כי "Password1" ו-"password1" נופלות באותה מהירות.
+ */
+const COMMON_PASSWORDS = new Set([
+  "password", "password1", "password123", "passw0rd",
+  "12345678", "123456789", "1234567890",
+  "qwerty123", "qwertyui", "abc12345", "a1b2c3d4",
+  "iloveyou", "admin123", "administrator", "letmein1",
+  "welcome1", "monkey123", "sunshine", "princess",
+]);
+
+export function isCommonPassword(pw: string): boolean {
+  return COMMON_PASSWORDS.has(pw.toLowerCase());
+}
+
+/**
+ * §83: יצירת סיסמה אלפאנומרית חזקה.
+ *
+ * ⚠️ ללא תווים דו-משמעיים (0/O, 1/l/I): הסיסמה נמסרת לעיתים
+ * בטלפון או נרשמת על פתק, ותו שאי אפשר להבחין בו הוא כישלון
+ * התחברות שנראה כמו באג.
+ *
+ * crypto.randomInt ולא Math.random - ראה ההסבר ב-generateLoginCode.
+ */
+export function generateStrongPassword(length = 12): string {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < length; i++) {
+    out += chars[crypto.randomInt(0, chars.length)];
+  }
+  // מוודאים שיש גם אות וגם ספרה, אחרת יכולה לצאת מחרוזת אותיות
+  // בלבד שנראית חלשה למשתמש גם אם היא חזקה בפועל
+  if (!/[a-zA-Z]/.test(out) || !/\d/.test(out)) return generateStrongPassword(length);
+  return out;
 }
 
 // ═══════════════════════════════════════════════════════════════

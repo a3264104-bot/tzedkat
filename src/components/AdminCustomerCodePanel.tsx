@@ -18,12 +18,15 @@ export function AdminCustomerCodePanel({
   customerName,
   hasCode,
   codeSetAt,
+  role,
   onChanged,
 }: {
   customerId: string;
   customerName: string;
   hasCode: boolean;
   codeSetAt?: string | null;
+  /** §83: מנהל/נציג מקבל סיסמה חזקה כברירת מחדל */
+  role?: string;
   /** נקרא אחרי יצירת קוד, כדי לרענן את הרשימה */
   onChanged?: () => void;
 }) {
@@ -33,6 +36,8 @@ export function AdminCustomerCodePanel({
   const [manualMode, setManualMode] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const [exists, setExists] = useState(hasCode);
+  // §83: מנהל או נציג - החשבונות שקוד מספרי קצר אינו מספיק להם
+  const isPrivileged = role === "ADMIN" || role === "AGENT";
 
   async function call(payload: Record<string, unknown>) {
     setError("");
@@ -66,8 +71,8 @@ export function AdminCustomerCodePanel({
     setExists(true);
   }
 
-  async function generate(length: number) {
-    const data = await call({ action: "generate", length });
+  async function generate(length: number, strong = false) {
+    const data = await call({ action: "generate", length, strong });
     if (!data) return;
     setCode(data.loginCode);
     setExists(true);
@@ -99,8 +104,11 @@ export function AdminCustomerCodePanel({
       {/* הקוד עצמו - מוצג רק אחרי לחיצה מפורשת */}
       {code ? (
         <div className="bg-white border-2 border-brand-rust rounded-lg p-3 text-center">
+          {/* §83: סיסמה ארוכה נשברת בפונט ענק - גודל לפי האורך */}
           <div
-            className="font-mono text-3xl font-extrabold text-brand-rust tracking-[0.3em] select-all"
+            className={`font-mono font-extrabold text-brand-rust select-all break-all ${
+              code.length > 8 ? "text-xl" : "text-3xl tracking-[0.3em]"
+            }`}
             dir="ltr"
           >
             {code}
@@ -136,6 +144,23 @@ export function AdminCustomerCodePanel({
           >
             🎲 {exists ? "קוד חדש" : "צור קוד"}
           </button>
+          {/* §83: סיסמה חזקה - למנהלים ולנציגים.
+              קוד בן 6 ספרות הוא מיליון צירופים; לחשבון שרואה את
+              הקודים של כל הלקוחות ויכול להיכנס בשם כל אחד, זה לא
+              מספיק. */}
+          <button
+            type="button"
+            onClick={() => generate(14, true)}
+            disabled={loading}
+            className={`btn-sm ${
+              isPrivileged
+                ? "bg-brand-rust text-white rounded-lg px-3 font-bold hover:opacity-90"
+                : "btn-ghost"
+            }`}
+            title="סיסמה אלפאנומרית ארוכה - מומלץ למנהלים ולנציגים"
+          >
+            🔐 סיסמה חזקה
+          </button>
           {!manualMode && (
             <button
               type="button"
@@ -152,19 +177,23 @@ export function AdminCustomerCodePanel({
       {/* הזנה ידנית */}
       {manualMode && (
         <div className="flex gap-2">
+          {/* §83: מקבל גם אותיות. הניקוי היה replace(/\D/g,"") - כלומר
+              כל אות שהמנהל הקליד נמחקה מתחת לאצבעות שלו בלי הסבר. */}
           <input
-            className="input flex-1 font-mono text-center tracking-widest"
-            inputMode="numeric"
+            className="input flex-1 font-mono text-center"
             dir="ltr"
-            maxLength={6}
-            placeholder="4-6 ספרות"
+            maxLength={64}
+            placeholder="4-6 ספרות, או 8+ תווים עם אותיות"
             value={manualCode}
-            onChange={(e) => setManualCode(e.target.value.replace(/\D/g, ""))}
+            onChange={(e) => setManualCode(e.target.value.replace(/\s/g, ""))}
           />
           <button
             type="button"
             onClick={setManual}
-            disabled={loading || manualCode.length < 4}
+            disabled={
+              loading ||
+              (/^\d+$/.test(manualCode) ? manualCode.length < 4 : manualCode.length < 8)
+            }
             className="btn-primary btn-sm"
           >
             שמירה
@@ -181,6 +210,15 @@ export function AdminCustomerCodePanel({
             ביטול
           </button>
         </div>
+      )}
+
+      {/* §83: מנהל/נציג עם קוד מספרי - חשיפה שכדאי לסגור */}
+      {isPrivileged && exists && (
+        <p className="text-[11px] text-amber-700 leading-relaxed">
+          ⚠️ חשבון בעל הרשאות. אם הקוד הנוכחי מספרי בלבד — מומלץ להחליפו
+          בסיסמה חזקה: חשבון כזה רואה את הקודים של כל הלקוחות ויכול
+          להיכנס בשם כל אחד.
+        </p>
       )}
 
       {!exists && !code && (

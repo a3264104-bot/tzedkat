@@ -456,8 +456,21 @@ async function handleUnregistered(
   } else if (!p.POINT) {
     // §69: כתיב פונטי לשם הנקודה, אם הוגדר
     const menu = points.map((pt, i) => say(`ל${pt.phoneName || pt.name} הקש ${i + 1}`));
+    // §84: מקריאים מה נבחר לפני התפריט הבא.
+    // 🐛 הלקוח הקיש "2" ולא שמע דבר - הוא לא ידע אם בחר ברמות או
+    // בביתר, והמשיך הלאה בלי ודאות. הקראת הבחירה היא התיקון
+    // הפשוט ביותר, ובלי להוסיף שלב אישור שמאריך את השיחה.
+    const cityTtsName =
+      cities.find((c) => c.city === city)?.cityPhoneName || city;
     return yemotResponse(
-      read(messages(prompt("choose_point", "בחר נקודת חלוקה"), ...menu), {
+      read(
+        messages(
+          prompt("chosen_pre", "בחרת"),
+          say(cityTtsName),
+          prompt("choose_point", "בחר נקודת חלוקה"),
+          ...menu
+        ),
+        {
         name: "POINT",
         max: 2,
         min: 1,
@@ -472,50 +485,64 @@ async function handleUnregistered(
     return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
   }
 
-  // ═══ §75: שלב 3 - הקלטת השם, עם אישור ומגן לולאה ═══
+  // ═══ §84: שלב 3 - הקלטת השם, עם אישור ═══
   //
-  // 🐛 שני באגים שנסגרים כאן:
+  // 🐛 באג קריטי שתוקן: §75 החזיר **שתי** פקודות read בתשובה אחת,
+  // משורשרות ב-messages() שמחבר בנקודה. בפרוטוקול של ימות פקודות
+  // מופרדות ב-& ולא בנקודה, והפקודה השנייה (מונה הניסיונות) ביקשה
+  // הקשה לתוך NAMETRY. התוצאה: הלקוח הקליט את שמו וקיבל
+  // "לא הוקשה בחירה" בלולאה - ההרשמה הטלפונית הייתה מושבתת לגמרי.
   //
-  // 1. **לולאה אינסופית וניתוק.** הקוד היה `if (!p.NAME) readVoice(...)`.
-  //    אם זיהוי הדיבור לא החזיר ערך תחת NAME - קו רועש, שתיקה, או
-  //    שימות מחזירים את הערך תחת שם אחר - השאלה נשאלה שוב ושוב
-  //    בלי גבול. ימות מתייאשים אחרי כמה סבבים, משמיעים שגיאה
-  //    ומנתקים. זה מה שקרה בשיחה שלך.
+  // ⚠️ הלקח: תשובה לימות מכילה **פקודה אחת**. שרשור פקודות אינו
+  // נתמך, ו-messages() נועד לשרשר *הודעות* בתוך פקודה - לא פקודות.
   //
-  // 2. **לא היה אישור.** ההסתמכות הייתה על מנגנון האישור המובנה של
-  //    ימות, שלא הופעל. שם שגוי נשמר בשקט והפך לרשומת לקוח.
-  //
-  // הפתרון: האישור נבנה כאן, בשליטה שלנו - מקריאים את מה שנקלט
-  // ומבקשים 1/2. אינו תלוי בשום פרמטר של ימות.
-  //
-  // NAMETRY סופר ניסיונות. אחרי 2 כישלונות ממשיכים עם "לקוח טלפוני"
-  // במקום להיתקע: עדיף חשבון עם שם זמני שהנציג יתקן, מאשר שיחה
-  // שמתנתקת והלקוח לא נרשם בכלל.
-  const nameTry = parseInt(p.NAMETRY || "0", 10) || 0;
+  // מגן הלולאה נשאר, בלי מונה נפרד: ימות שולחים את הפרמטר ברגע
+  // שנקלט, ולכן אפשר להבחין בין שני מצבים בלי לשאול כלום -
+  //   NAME לא קיים בכלל  = טרם שאלנו
+  //   NAME קיים אך ריק    = שאלנו ולא נקלט דבר
+  // המצב השני ממשיך עם שם זמני במקום לשאול שוב.
+  const nameAsked = p.NAME !== undefined;
   const rawName = cleanName(String(p.NAME ?? "").replace(/^Digits-/, ""));
 
-  if (!rawName) {
-    if (nameTry >= 2) {
-      // ויתרנו על השם - ממשיכים בזרימה עם שם זמני
-      p.NAME = "לקוח טלפוני";
-      p.NAMEOK = "1";
-    } else {
-      return yemotResponse(
+  if (!nameAsked) {
+    // §84: מקריאים את הנקודה שנבחרה לפני שממשיכים. זה הרגע האחרון
+    // שבו הלקוח יכול לזהות טעות בבחירה, לפני שהחשבון נוצר.
+    const chosenPoint = await prisma.deliveryPoint.findUnique({
+      where: { id: pointId },
+      select: { name: true, phoneName: true, city: true, cityPhoneName: true },
+    });
+    const ptLabel = chosenPoint
+      ? `${chosenPoint.phoneName || chosenPoint.name}${
+          chosenPoint.city ? ` ב${chosenPoint.cityPhoneName || chosenPoint.city}` : ""
+        }`
+      : "";
+
+    return yemotResponse(
+      readVoice(
         messages(
-          // המונה נשמר כפרמטר של השיחה ולכן שורד את הסבב הבא
-          `read=${prompt("ask_name", "אנא אמור את שמך המלא לאחר הצליל")}=NAME,,voice`,
-          `read=t-=NAMETRY,,1,1,1,No,,,,${nameTry + 1},,,,,no`
-        )
-      );
-    }
+          ptLabel ? prompt("chosen_pre", "בחרת") : "",
+          ptLabel ? say(ptLabel) : "",
+          prompt("ask_name", "אנא אמור את שמך המלא לאחר הצליל")
+        ),
+        "NAME"
+      )
+    );
   }
 
-  // אישור השם שנקלט - בשליטתנו, לא של ימות
+  // נקלט ריק - ממשיכים עם שם זמני. עדיף חשבון שהנציג יתקן את שמו
+  // מאשר שיחה שנתקעת והלקוח לא נרשם בכלל.
+  const finalName = rawName || "לקוח טלפוני";
+
+  // אישור השם - בשליטתנו ולא של ימות. מוצג רק כשבאמת נקלט שם;
+  // אין טעם לבקש אישור על "לקוח טלפוני".
   if (rawName && p.NAMEOK !== "1") {
     if (p.NAMEOK === "2") {
-      // הלקוח ביקש לתקן: מנקים ושואלים מחדש
+      // ביקש לתקן - שואלים מחדש. NAME נדרס בערך החדש.
       return yemotResponse(
-        `read=${prompt("ask_name_again", "אנא אמור את שמך המלא שוב לאחר הצליל")}=NAME,,voice`
+        readVoice(
+          prompt("ask_name_again", "אנא אמור את שמך המלא שוב לאחר הצליל"),
+          "NAME"
+        )
       );
     }
     return yemotResponse(
@@ -578,8 +605,8 @@ async function handleUnregistered(
   // לעיתים סימני כיווניות (RLM/LRM) ורווחים לא-שבירים בתוך השם,
   // ו-.trim() לא נוגע בהם. התוצאה: `LIKE '%בושקפן%'` החזיר אפס
   // שורות על לקוח שקיים - הנציג לא מצא אותו, יצר מחדש, וכפילות.
-  // §75: rawName כבר נוקה ואושר בשלב 3 למעלה
-  const name = rawName || "לקוח טלפוני";
+  // §84: finalName כבר נוקה ואושר בשלב 3 למעלה
+  const name = finalName;
 
   // הגנה מפני יצירה כפולה אם ימות שולחים את אותה בקשה פעמיים
   const already = await prisma.customer.findUnique({ where: { phone } });

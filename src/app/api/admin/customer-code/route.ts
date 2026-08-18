@@ -24,6 +24,7 @@ import {
   encryptCode,
   decryptCode,
   generateLoginCode,
+  generateStrongPassword,
   validateLoginCode,
   isCodeKeyConfigured,
 } from "@/lib/login-code";
@@ -122,14 +123,28 @@ export async function POST(req: Request) {
     let plain: string;
 
     if (action === "generate") {
-      const length = Number(body.length) || 6;
-      if (![4, 5, 6].includes(length)) {
-        return NextResponse.json(
-          { error: "אורך קוד חייב להיות 4, 5 או 6 ספרות" },
-          { status: 400 }
-        );
+      // §83: שני מצבים - קוד מספרי קצר ללקוח, סיסמה אלפאנומרית
+      // ארוכה לבעלי הרשאות. הבחירה מגיעה מהמסך, אבל האורך מאומת
+      // כאן: קליינט ישן או בקשה ישירה לא יקבעו סיסמה בת 3 תווים.
+      if (body.strong) {
+        const len = Number(body.length) || 14;
+        if (len < 10 || len > 32) {
+          return NextResponse.json(
+            { error: "אורך סיסמה חזקה חייב להיות בין 10 ל-32 תווים" },
+            { status: 400 }
+          );
+        }
+        plain = generateStrongPassword(len);
+      } else {
+        const length = Number(body.length) || 6;
+        if (![4, 5, 6].includes(length)) {
+          return NextResponse.json(
+            { error: "אורך קוד חייב להיות 4, 5 או 6 ספרות" },
+            { status: 400 }
+          );
+        }
+        plain = generateLoginCode(length);
       }
-      plain = generateLoginCode(length);
     } else {
       plain = String(body.code || "").trim();
       const check = validateLoginCode(plain);
@@ -161,7 +176,12 @@ export async function POST(req: Request) {
       targetId: customer.id,
       targetName: customer.name,
       // ⚠️ בלי הקוד. רק העובדה שנקבע ובאיזה אורך.
-      meta: { method: action, length: plain.length },
+      // ⚠️ בלי הקוד. רק העובדה שנקבע, אורכו, וסוגו.
+      meta: {
+        method: action,
+        length: plain.length,
+        kind: /^\d+$/.test(plain) ? "numeric" : "alphanumeric",
+      },
       req,
     });
 

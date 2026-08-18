@@ -599,6 +599,7 @@ export default function AdminCustomersPage() {
                 customerName={editing.name}
                 hasCode={!!editing.hasLoginCode}
                 codeSetAt={editing.loginCodeSetAt}
+                role={editing.role}
                 onChanged={reload}
               />
 
