@@ -50,7 +50,9 @@ export async function POST(req: Request) {
       sortOrder: b.sortOrder ?? 0,
       // §24: תפריט טלפוני
       phoneEnabled: b.phoneEnabled ?? true,
-      phoneKey: b.phoneKey ?? null,
+      // §74: phoneKey נגזר מהמק"ט ואינו שדה נפרד בטופס.
+      // ראה ההסבר המלא ב-[id]/route.ts.
+      phoneKey: phoneKeyFromCode(b.phoneCode),
       // §69: מק"ט טלפוני להזמנה מהמודעה + כתיב פונטי להקראה.
       // המק"ט מנורמל לספרות בלבד בלי אפסים מובילים - כך "0101"
       // ו-"101" הם אותו קוד, בדיוק כמו שה-IVR מנרמל את ההקשה.
@@ -59,6 +61,16 @@ export async function POST(req: Request) {
     },
   });
   return NextResponse.json(product);
+}
+
+// §74: סדר ההקראה נגזר מהמק"ט - מספר אחד, לא שניים.
+// null = מוצר בלי מק"ט, שיופיע בסוף התפריט לפי סדר אלפביתי.
+function phoneKeyFromCode(raw: unknown): number | null {
+  const code = normalizePhoneCode(raw);
+  if (!code) return null;
+  const n = parseInt(code, 10);
+  // phoneKey הוא Int במסד; מק"ט ארוך מדי לא יישמר כמפתח מיון
+  return Number.isSafeInteger(n) ? n : null;
 }
 
 // §69: נירמול מק"ט - ספרות בלבד, בלי אפסים מובילים, ריק -> null

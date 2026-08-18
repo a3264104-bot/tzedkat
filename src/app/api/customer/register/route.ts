@@ -62,15 +62,139 @@ export async function POST(req: Request) {
       );
     }
 
+    // §76: מחושב כאן ולא אחרי בדיקות הכפילות, כי מסלול השלמת
+    // ההרשמה הטלפונית (למטה) משתמש בו לפני נקודת היצירה.
+    const passwordHash = await bcrypt.hash(data.password, 10);
+
     // בדיקת כפילות מפורשת - לפני יצירה - כדי להחזיר הודעה ידידותית ולא רק שגיאת unique מה-DB
     if (phone) {
-      const existingByPhone = await prisma.customer.findUnique({ where: { phone } });
+      const existingByPhone = await prisma.customer.findUnique({
+        where: { phone },
+        select: {
+          id: true,
+          email: true,
+          loginCode: true,
+          paymentToken: true,
+          isActivated: true,
+          _count: { select: { orders: true } },
+        },
+      });
+
+      // ═══════════════════════════════════════════════════════════
+      // §76: השלמת הרשמה של לקוח שנרשם בטלפון
+      // ═══════════════════════════════════════════════════════════
+      // 🐛 הפער: לקוח שנרשם ב-IVR ועדיין לא אושר ע"י נציג הגיע
+      // לאתר, בחר "הרשמה", וקיבל "המספר כבר קיים" - בלי שום דרך
+      // להמשיך. ההודעה שלחה אותו ל"שכחתי סיסמה" שעובד רק דרך מייל
+      // שאין לו.
+      //
+      // עכשיו: אם החשבון עדיין **ריק** - אין כרטיס אשראי ואין
+      // הזמנות - הטופס פשוט משלים אותו. אין כאן סיכון גדול יותר
+      // מהרשמה חופשית רגילה: אין מה לגנוב מחשבון ריק, ולקוח לא
+      // מאושר ממילא אינו יכול להזמין.
+      //
+      // ⚠️ הגבול: ברגע שיש טוקן אשראי או הזמנות, ההשלמה נחסמת -
+      // שם השתלטות הייתה נותנת גישה לכרטיס השמור ולהיסטוריה.
+      const isEmptyAccount =
+        !existingByPhone?.paymentToken && (existingByPhone?._count.orders ?? 0) === 0;
+
+      if (existingByPhone && isEmptyAccount) {
+        // מייל חדש - רק אם אינו תפוס אצל לקוח אחר
+        if (email) {
+          const emailTaken = await prisma.customer.findFirst({
+            where: { email, NOT: { id: existingByPhone.id } },
+            select: { id: true },
+          });
+          if (emailTaken) {
+            return NextResponse.json(
+              {
+                error:
+                  "כתובת המייל הזו כבר משויכת לחשבון אחר. נסה מייל אחר, או התחבר לחשבון הקיים.",
+                code: "DUPLICATE_EMAIL",
+              },
+              { status: 409 }
+            );
+          }
+        }
+
+        const updated = await prisma.customer.update({
+          where: { id: existingByPhone.id },
+          data: {
+            name: cleanName(data.name),
+            email,
+            passwordHash,
+            // נקודה חדשה רק אם נבחרה; אחרת נשמרת זו שנבחרה בטלפון
+            ...(data.defaultPointId ? { defaultPointId: data.defaultPointId } : {}),
+            // הלקוח השלים בעצמו - החשבון פעיל מבחינתו
+            isActivated: true,
+            agreedToEmails: true,
+            agreedToEmailsAt: new Date(),
+            agreedToTerms: true,
+            agreedToTermsAt: new Date(),
+            termsVersion: TERMS_VERSION,
+          },
+          select: { id: true },
+        });
+
+        // §76: סגירת בקשת ההרשמה הטלפונית, כדי שהנציג לא יקים אותו
+        // שוב. בלי זה היו שתי רשומות במסך "בקשות מהטלפון" - אחת
+        // פתוחה שכבר טופלה - והנציג היה יוצר כפילות.
+        await prisma.phoneSignupRequest
+          .updateMany({
+            // ⚠️ הסטטוסים של PhoneSignupRequest הם
+            // NEW -> ASSIGNED -> CONTACTED -> COMPLETED / FAILED.
+            // "DONE" אינו קיים כאן (הוא שייך ל-PersonalRequest).
+            where: {
+              customerId: existingByPhone.id,
+              status: { notIn: ["COMPLETED", "FAILED"] },
+            },
+            data: {
+              status: "COMPLETED",
+              completedAt: new Date(),
+              note: "הלקוח השלים את ההרשמה באתר בעצמו",
+            },
+          })
+          .catch((e) => {
+            // כשל כאן לא מצדיק כשל בהרשמה - הנציג יראה בקשה כפולה
+            // וזה מטרד, לא נזק.
+            console.error("[register] failed closing phone signup request:", e);
+          });
+
+        console.log(
+          `[register] completed phone-signup account: customer=${existingByPhone.id}`
+        );
+
+        return NextResponse.json({
+          ok: true,
+          id: updated.id,
+          identifier: phone,
+          completedPhoneSignup: true,
+        });
+      }
+
       if (existingByPhone) {
+        // §75: 🐛 המסר הקודם שלח את הלקוח ל"שכחתי סיסמה" - שעובד
+        // **רק דרך מייל**. לקוח שנרשם בטלפון אין לו מייל בכלל, ולכן
+        // הוא נתקע: ההרשמה חסומה, וההתאוששות בלתי אפשרית.
+        //
+        // עכשיו המסר תלוי במה שבאמת קיים לו:
+        //   יש קוד  -> הוא קיבל אותו בשיחה. שולחים אותו להתחבר.
+        //   יש מייל -> "שכחתי סיסמה" באמת רלוונטי.
+        //   אין כלום -> להתקשר שוב ל-IVR, ששם ישמע קוד.
+        const hasCode = !!existingByPhone.loginCode;
+        const hasEmail = !!existingByPhone.email;
+
         return NextResponse.json(
           {
-            error:
-              "כבר קיים חשבון עם מספר הטלפון הזה. נסה להתחבר עם הטלפון והסיסמה, או השתמש ב'שכחתי סיסמה' עם המייל שנרשמת איתו במקור.",
+            error: hasCode
+              ? "מספר הטלפון הזה כבר רשום במערכת. בשיחה הטלפונית קיבלת קוד כניסה בן 4 ספרות — היכנס עם מספר הטלפון והקוד הזה."
+              : hasEmail
+                ? "כבר קיים חשבון עם מספר הטלפון הזה. נסה להתחבר, או השתמש ב'שכחתי סיסמה' עם המייל שנרשמת איתו."
+                : "מספר הטלפון הזה כבר רשום במערכת, אך אין לו עדיין קוד כניסה. התקשר למערכת הטלפונית — הקוד יוקרא לך בשיחה.",
             code: "DUPLICATE_PHONE",
+            // הקליינט מציג מסלול המשך במקום שגיאה סתומה
+            hasLoginCode: hasCode,
+            hasEmail,
           },
           { status: 409 }
         );
@@ -89,8 +213,6 @@ export async function POST(req: Request) {
         );
       }
     }
-
-    const passwordHash = await bcrypt.hash(data.password, 10);
 
     const customer = await prisma.customer.create({
       data: {

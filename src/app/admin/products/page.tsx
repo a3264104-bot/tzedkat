@@ -182,10 +182,18 @@ export default function ProductsPage() {
       highlightNote: editing.highlightNote || null,
       // §24: זמינות בתפריט הטלפוני + מקש קבוע לבחירה
       phoneEnabled: editing.phoneEnabled ?? true,
-      phoneKey:
-        editing.phoneKey != null && String(editing.phoneKey) !== ""
-          ? parseInt(String(editing.phoneKey), 10)
-          : null,
+      // §74: phoneKey אינו שדה נפרד יותר - הוא נגזר מהמק"ט.
+      //
+      // שני שדות מספריים באותו טופס ("מקש בתפריט" ו"מק"ט למודעה")
+      // היו הזמנה לטעות: המנהל לא ידע איזה מהם מפרסמים במודעה,
+      // ומילוי שונה בשניהם יצר מוצר שסדר ההקראה שלו לא תואם למספר
+      // שהלקוח מחזיק ביד.
+      //
+      // הם מעולם לא היו באמת שני דברים: phoneKey קובע רק את *סדר*
+      // ההקראה (התפריט אומר "הקש 1, 2, 3" לפי המיקום ברשימה), ולכן
+      // גזירה מהמק"ט נותנת בדיוק את ההתנהגות הרצויה - המוצרים
+      // מוקראים לפי סדר המק"טים שבמודעה.
+      phoneKey: null, // מחושב בשרת מ-phoneCode
       // §69: מק"ט טלפוני + שם להקראה. הנירמול הסופי (הסרת אפסים
       // מובילים) נעשה בשרת - כאן רק ספרות.
       phoneCode: String(editing.phoneCode ?? "").replace(/\D/g, "") || null,
@@ -781,33 +789,7 @@ export default function ProductsPage() {
                   </p>
                 </div>
               </label>
-              {(editing.phoneEnabled ?? true) && (
-                <label className="block">
-                  <span className="text-xs font-bold text-zinc-500">
-                    מקש בתפריט הטלפוני{" "}
-                    <span className="font-normal text-zinc-400">(אופציונלי)</span>
-                  </span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="99"
-                    value={editing.phoneKey ?? ""}
-                    onChange={(e) =>
-                      setEditing({
-                        ...editing,
-                        phoneKey: e.target.value === "" ? null : parseInt(e.target.value, 10),
-                      })
-                    }
-                    placeholder="לדוגמה 1"
-                    className="w-full mt-1 px-3 py-2 border border-zinc-300 rounded-lg text-sm"
-                  />
-                  <p className="text-xs text-zinc-500 mt-1">
-                    קובע את סדר ההקראה בתפריט. מומלץ לשמור על מספר קבוע לאורך זמן
-                    כדי שלקוחות קבועים יזכרו אותו. ללא מספר — המוצר יופיע בסוף
-                    לפי סדר אלפביתי.
-                  </p>
-                </label>
-              )}
+              
               {/* §69: מק"ט להזמנה מהירה מהמודעה. שונה מ"מקש בתפריט":
                   המקש קובע סדר הקראה, המק"ט מדלג על התפריט כולו. */}
               {(editing.phoneEnabled ?? true) && (
@@ -834,6 +816,10 @@ export default function ProductsPage() {
                     המספר שמתפרסם במודעה. לקוח שמקיש אותו בטלפון מקבל את
                     המוצר ישירות, בלי לשמוע את כל התפריט. חייב להיות ייחודי —
                     מוצר אחר עם אותו מספר ייחסם בשמירה.
+                    <br />
+                    <b>המספר קובע גם את סדר ההקראה בתפריט</b>, כך שהסדר
+                    בטלפון תואם לסדר במודעה. מוצר ללא מק&quot;ט יופיע בסוף,
+                    לפי סדר אלפביתי.
                   </p>
                 </label>
               )}

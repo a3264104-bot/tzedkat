@@ -139,6 +139,16 @@ const TTS_ONLY = new Set<string>([
   // ═══ §69: הודעות חדשות שטרם הוקלטו ═══
   // נשארות ב-TTS בכוונה עד שיהיה זמן להקליט. כשמקליטים - להסיר
   // מכאן ולהוסיף ל-RECORDINGS.md. השמות כבר לפי המוסכמה.
+  "code_missing",
+  "menu_main_code",
+  "code_not_ready",
+  "login_code_pre",
+  "login_code_repeat",
+  "login_code_post",
+  "code_error",
+  "ask_name_again",
+  "name_confirm_pre",
+  "name_confirm_ask",
   "order_mode_ask",
   "sku_ask",
   "sku_not_found",

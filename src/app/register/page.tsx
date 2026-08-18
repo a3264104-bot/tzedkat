@@ -35,6 +35,11 @@ function RegisterPageInner() {
   // מפורשות בנוסח שהלקוח מאשר, ונשמרת עם חותמת זמן כמו קודם.
   const agreedToEmails = agreedToTerms;
   const [error, setError] = useState("");
+  // §75: כשהטלפון כבר רשום - מציגים מסלול המשך ולא רק שגיאה
+  const [existingAccount, setExistingAccount] = useState<{
+    hasLoginCode: boolean;
+    hasEmail: boolean;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
@@ -61,6 +66,26 @@ function RegisterPageInner() {
     [points, selectedCity]
   );
 
+  // §77: הנקודות שמוצגות בפועל בשלב הזה
+  const visiblePoints = showCityStep ? pointsInCity : points;
+
+  // §77: בחירה אוטומטית כשיש נקודה אחת בלבד.
+  //
+  // 🐛 המצב שתוקן: בעיר עם נקודה אחת הוצג "מסך בחירה" עם פריט
+  // יחיד. הלקוח לא הבין שצריך ללחוץ עליו לפני "המשך" - זה נראה
+  // כמו כותרת, לא כמו כפתור.
+  //
+  // showCityStep כבר עשה בדיוק את זה לעיר יחידה; כאן זו המקבילה
+  // החסרה לנקודות.
+  //
+  // תלוי גם ב-selectedCity: מעבר לעיר אחרת עם נקודה אחת יבחר
+  // אותה מחדש, במקום להשאיר את הבחירה מהעיר הקודמת.
+  useEffect(() => {
+    if (visiblePoints.length === 1 && defaultPointId !== visiblePoints[0].id) {
+      setDefaultPointId(visiblePoints[0].id);
+    }
+  }, [visiblePoints, defaultPointId]);
+
   function validateDetails() {
     setError("");
     if (!name.trim()) return setError("נא להזין שם");
@@ -76,6 +101,7 @@ function RegisterPageInner() {
 
   async function proceedToPayment() {
     setError("");
+    setExistingAccount(null);
     setLoading(true);
     try {
       const res = await fetch("/api/customer/register", {
@@ -99,6 +125,15 @@ function RegisterPageInner() {
         if (data.code === "DUPLICATE_PHONE" || data.code === "DUPLICATE_EMAIL") {
           setStep("details");
           setError(data.error);
+          // §75: 🐛 הלקוח שנרשם בטלפון היה נתקע כאן - ההרשמה חסומה,
+          // וההודעה שלחה אותו ל"שכחתי סיסמה" שעובד רק דרך מייל
+          // שאין לו. עכשיו הוא מקבל כפתור שמוביל למקום הנכון.
+          if (data.code === "DUPLICATE_PHONE") {
+            setExistingAccount({
+              hasLoginCode: !!data.hasLoginCode,
+              hasEmail: !!data.hasEmail,
+            });
+          }
         } else {
           setError(data.error || "שגיאה בהרשמה");
         }
@@ -279,6 +314,38 @@ function RegisterPageInner() {
             </label>
 
             {error && <p className="text-red-600 text-sm" role="alert">{error}</p>}
+
+            {/* §75: מסלול המשך ללקוח שכבר רשום - במקום להשאיר אותו
+                מול שגיאה בלי דרך קדימה. */}
+            {existingAccount && (
+              <div className="bg-blue-50 border-2 border-blue-300 rounded-xl p-3.5 space-y-2.5">
+                <div className="text-sm font-bold text-blue-900">
+                  ✓ זוהה שכבר התחלת תהליך
+                </div>
+                <Link
+                  href="/login"
+                  className="btn-primary w-full block text-center"
+                >
+                  {existingAccount.hasLoginCode
+                    ? "כניסה עם הטלפון והקוד ←"
+                    : "מעבר להתחברות ←"}
+                </Link>
+                {existingAccount.hasEmail && (
+                  <Link
+                    href="/forgot-password"
+                    className="block text-center text-xs text-blue-700 underline"
+                  >
+                    שכחתי את הסיסמה
+                  </Link>
+                )}
+                {!existingAccount.hasLoginCode && !existingAccount.hasEmail && (
+                  <p className="text-xs text-blue-800 leading-relaxed">
+                    אין לחשבון שלך מייל, ולכן שחזור סיסמה במייל אינו זמין.
+                    התקשר למערכת הטלפונית — קוד הכניסה שלך יוקרא בשיחה.
+                  </p>
+                )}
+              </div>
+            )}
             <button onClick={validateDetails} className="btn-primary w-full">
               המשך ←
             </button>
@@ -349,21 +416,73 @@ function RegisterPageInner() {
                     ← חזרה לבחירת עיר
                   </button>
                 )}
-                {(showCityStep ? pointsInCity : points).map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => setDefaultPointId(p.id)}
-                    className={`w-full text-right card p-3 transition ${
-                      defaultPointId === p.id ? "ring-2 ring-brand-rust border-brand-rust" : ""
-                    }`}
-                  >
-                    <span className="font-semibold text-brand-slatedark">{p.name}</span>
-                  </button>
-                ))}
+                {/* §77: נקודה יחידה - מוצגת כאישור ולא כרשימה לבחירה.
+                    היא כבר נבחרה אוטומטית למעלה, והצגתה ככפתור
+                    בודד רק גרמה ללקוח לחפש מה צריך ללחוץ. */}
+                {visiblePoints.length === 1 ? (
+                  <div className="card p-3 ring-2 ring-brand-rust border-brand-rust bg-orange-50/40">
+                    <div className="flex items-center gap-2">
+                      <span className="text-brand-rust text-lg">✓</span>
+                      <div>
+                        <div className="font-semibold text-brand-slatedark">
+                          {visiblePoints[0].name}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          זו תחנת החלוקה{showCityStep ? " בעיר שבחרת" : ""}. אפשר
+                          להמשיך.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  visiblePoints.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setDefaultPointId(p.id)}
+                      className={`w-full text-right card p-3 transition ${
+                        defaultPointId === p.id ? "ring-2 ring-brand-rust border-brand-rust" : ""
+                      }`}
+                    >
+                      <span className="font-semibold text-brand-slatedark">{p.name}</span>
+                    </button>
+                  ))
+                )}
               </div>
             )}
 
             {error && <p className="text-red-600 text-sm" role="alert">{error}</p>}
+
+            {/* §75: מסלול המשך ללקוח שכבר רשום - במקום להשאיר אותו
+                מול שגיאה בלי דרך קדימה. */}
+            {existingAccount && (
+              <div className="bg-blue-50 border-2 border-blue-300 rounded-xl p-3.5 space-y-2.5">
+                <div className="text-sm font-bold text-blue-900">
+                  ✓ זוהה שכבר התחלת תהליך
+                </div>
+                <Link
+                  href="/login"
+                  className="btn-primary w-full block text-center"
+                >
+                  {existingAccount.hasLoginCode
+                    ? "כניסה עם הטלפון והקוד ←"
+                    : "מעבר להתחברות ←"}
+                </Link>
+                {existingAccount.hasEmail && (
+                  <Link
+                    href="/forgot-password"
+                    className="block text-center text-xs text-blue-700 underline"
+                  >
+                    שכחתי את הסיסמה
+                  </Link>
+                )}
+                {!existingAccount.hasLoginCode && !existingAccount.hasEmail && (
+                  <p className="text-xs text-blue-800 leading-relaxed">
+                    אין לחשבון שלך מייל, ולכן שחזור סיסמה במייל אינו זמין.
+                    התקשר למערכת הטלפונית — קוד הכניסה שלך יוקרא בשיחה.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex gap-2">
               <button onClick={() => setStep("details")} className="btn-ghost flex-1">
                 חזרה
