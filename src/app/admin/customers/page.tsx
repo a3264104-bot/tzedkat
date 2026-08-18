@@ -127,12 +127,19 @@ export default function AdminCustomersPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "שגיאה");
-      // האזהרה מהשרת מדויקת יותר - היא סופרת הזמנות פתוחות בפועל
+      // §114: אם הופק קוד אוטומטית - מציגים אותו **מיד ובבירור**.
+      //
+      // קוד שנוצר בשקט הוא חסר ערך: המנהל לא ידע שהוא קיים ולא
+      // ימסור אותו ללקוח. ההודעה כאן היא כל ההבדל בין תכונה
+      // שעובדת לבין שדה במסד שאיש לא משתמש בו.
+      const codeMsg = json.generatedCode
+        ? ` · קוד הכניסה שהופק: ${json.generatedCode} — יש למסור ללקוח`
+        : "";
       setSuccessMsg(
-        json.warning ||
+        (json.warning ||
           (pref === "CASH"
             ? "הלקוח סומן כלקוח מזומן ויכול להזמין"
-            : "הלקוח הועבר לתשלום באשראי")
+            : "הלקוח הועבר לתשלום באשראי")) + codeMsg
       );
       await reload();
     } catch (e: any) {
@@ -1111,7 +1118,12 @@ export default function AdminCustomersPage() {
           onClose={() => setCardModalFor(null)}
           onSuccess={() => {
             setCardModalFor(null);
-            setSuccessMsg("הכרטיס עודכן בהצלחה");
+            // §114: הקוד מופק בשרת עם שמירת הכרטיס, אבל המודל
+            // מזהה הצלחה דרך polling ולא מקבל את תשובת save-token.
+            // לכן מפנים לפאנל הקוד, שמתרענן ב-reload ויציג "יש קוד".
+            setSuccessMsg(
+              "הכרטיס עודכן בהצלחה. הופק קוד כניסה לאתר — ניתן להציגו בפאנל \"קוד התחברות\" ולמסור ללקוח."
+            );
             reload();
           }}
         />

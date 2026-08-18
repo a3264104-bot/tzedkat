@@ -279,3 +279,64 @@ export function isLocked(lockedUntil: Date | null | undefined): boolean {
 export function lockUntilDate(): Date {
   return new Date(Date.now() + LOCK_MINUTES * 60 * 1000);
 }
+
+/**
+ * §114: הפקת קוד כניסה אוטומטית בהקמת לקוח.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * הפער שנסגר
+ * ═══════════════════════════════════════════════════════════════
+ * הקוד הופק רק בלחיצה ידנית על "🎲 צור קוד" בכרטיס הלקוח. התוצאה:
+ * לקוח שהוקם במלואו (יש לו אשראי או שסומן כמזומן) שמע בתפריט
+ * הטלפוני את האפשרות לשמוע קוד - וכשבחר בה קיבל "עדיין לא הופק
+ * עבורך קוד, נא לפנות לנציג".
+ *
+ * המערכת הציעה לו דבר שהיא לא יכלה לספק, וזה תלוי היה בכך שמישהו
+ * יזכור ללחוץ.
+ *
+ * עכשיו: ברגע שנקבע ללקוח אמצעי תשלום - כלומר הוא הוקם - הקוד
+ * מופק אוטומטית. מקור האמת נשאר אחד (השדה loginCode במסד), רק
+ * שהוא נכתב בלי שצריך לזכור.
+ *
+ * ⚠️ **לעולם לא דורס קוד קיים.** לקוח שכבר קיבל קוד ומסר אותו
+ * לבני משפחה, או שרשם אותו על פתק, לא יאבד אותו כי מישהו החליף
+ * לו כרטיס אשראי. החלפה מכוונת נעשית בכפתור הידני בלבד.
+ *
+ * ⚠️ אינו זורק שגיאה. אם מפתח ההצפנה חסר או שהכתיבה נכשלה,
+ * הפעולה שקראה לו (שמירת כרטיס, סימון מזומן) חייבת להצליח בכל
+ * מקרה - הקוד הוא תוספת נוחות, לא תנאי להקמה.
+ *
+ * @returns הקוד שנוצר, או null אם כבר היה קוד / ההפקה נכשלה
+ */
+export async function ensureLoginCode(
+  prisma: any,
+  customerId: string
+): Promise<string | null> {
+  try {
+    if (!isCodeKeyConfigured()) return null;
+
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { loginCode: true, role: true },
+    });
+    if (!customer) return null;
+
+    // כבר יש קוד - לא נוגעים
+    if (customer.loginCode) return null;
+
+    // ⚠️ 6 ספרות ללקוח רגיל. מנהל ונציג מקבלים סיסמה חזקה, וזו
+    // החלטה מודעת שנעשית ידנית (§83) - לא נייצר להם כאן קוד קצר
+    // שיחליש חשבון בעל הרשאות.
+    if (customer.role !== "CUSTOMER") return null;
+
+    const plain = generateLoginCode(6);
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: { loginCode: encryptCode(plain), loginCodeSetAt: new Date() },
+    });
+    return plain;
+  } catch (e) {
+    console.error("[ensureLoginCode] failed:", e);
+    return null;
+  }
+}

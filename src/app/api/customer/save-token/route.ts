@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { chargeToken } from "@/lib/nedarim-lib";
+// §114: הפקת קוד כניסה אוטומטית בהקמת לקוח
+import { ensureLoginCode } from "@/lib/login-code";
 
 // POST /api/customer/save-token
 //
@@ -241,6 +243,22 @@ export async function POST(req: Request) {
       );
     }
 
+    // §114: הפקת קוד כניסה לאתר.
+    //
+    // הרגע הזה - כרטיס מאומת נשמר - הוא הרגע שבו הלקוח הופך למוקם
+    // במלואו: הוא יכול להזמין, והאפשרות "שמיעת קוד הכניסה" נפתחת
+    // לו בתפריט הטלפוני.
+    //
+    // 🐛 מה שקרה לפני: הקוד הופק רק בלחיצה ידנית בכרטיס הלקוח.
+    // לקוח שהוקם ולא נלחץ עבורו הכפתור שמע בטלפון את האפשרות,
+    // בחר בה, וקיבל "עדיין לא הופק עבורך קוד". המערכת הציעה דבר
+    // שהיא לא יכלה לספק.
+    //
+    // ⚠️ לא דורס קוד קיים - החלפת כרטיס אצל לקוח ותיק לא תשנה לו
+    // את הקוד שהוא כבר רשם לעצמו. ⚠️ לא זורק: כשל בהפקה לא יפיל
+    // שמירת כרטיס שכבר חויבה ואומתה.
+    const generatedCode = await ensureLoginCode(prisma, targetCustomerId);
+
     console.log(
       `[save-token] Token saved for customer=${targetCustomerId} (by ${sessionUserId}) ` +
         `last4=${lastNum || "none"} tokef=${tokef || "MISSING"} ` +
@@ -253,6 +271,9 @@ export async function POST(req: Request) {
       promotedOrders: promotedCount,
       verificationCharged: needsVerificationCharge,
       verificationTransactionId: verificationTxnId,
+      // §114: מוחזר רק אם הופק עכשיו. המסך מציג אותו למנהל/נציג
+      // כדי שיימסר ללקוח - קוד שנוצר בשקט הוא חסר ערך.
+      generatedCode,
     });
   } catch (e: any) {
     console.error("POST /api/customer/save-token exception:", e);

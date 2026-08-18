@@ -12,6 +12,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+// §114: הפקת קוד אוטומטית בהקמת לקוח
+import { ensureLoginCode } from "@/lib/login-code";
 import { auth } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 
@@ -120,6 +122,9 @@ export async function PATCH(
   // §90: אזהרה שמוחזרת למסך - לא שדה במסד. חייבת להיות מחוץ
   // ל-data, אחרת Prisma נופל על שדה לא מוכר.
   let prefWarning: string | null = null;
+  // §114: הקוד שהופק אוטומטית, אם הופק. מוחזר למסך כדי שהמנהל
+  // יוכל למסור אותו ללקוח מיד ולא יצטרך לחפש אותו אחר כך.
+  let generatedCode: string | null = null;
 
   // §82: נקודת חלוקה של הלקוח.
   //
@@ -206,6 +211,16 @@ export async function PATCH(
     prefWarning = warning;
 
     data.paymentPreference = pref;
+
+    // §114: סימון כלקוח מזומן = הלקוח הוקם ויכול להזמין. זה הרגע
+    // שבו הוא צריך גם דרך להיכנס לאתר, ולכן הקוד מופק כאן.
+    //
+    // ⚠️ רק בכיוון CASH: מעבר ל-CREDIT בלי כרטיס משאיר אותו חסום
+    // (§90), ואין טעם בקוד למי שלא יכול להזמין. כשיוזן הכרטיס -
+    // save-token יפיק את הקוד.
+    if (pref === "CASH") {
+      generatedCode = await ensureLoginCode(prisma, id);
+    }
 
     // §61: סימון כמזומן הוא השלמת הטיפול בבקשת ההרשמה הטלפונית -
     // אין כרטיס לאמת, הגבייה מוסדרת. בלי זה הבקשה נשארת "ממתינה"
@@ -404,14 +419,14 @@ export async function PATCH(
         }
         return tx.customer.findUnique({ where: { id } });
       });
-      return NextResponse.json({ ok: true, customer, warning: prefWarning });
+      return NextResponse.json({ ok: true, customer, warning: prefWarning, generatedCode });
     }
     // עדכון רגיל (בלי שינוי נקודות)
     const customer = await prisma.customer.update({
       where: { id },
       data,
     });
-    return NextResponse.json({ ok: true, customer, warning: prefWarning });
+    return NextResponse.json({ ok: true, customer, warning: prefWarning, generatedCode });
   } catch (e: any) {
     console.error("customer update error:", e);
     return NextResponse.json({ error: e.message || "שגיאה" }, { status: 500 });
