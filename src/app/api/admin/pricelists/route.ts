@@ -33,6 +33,9 @@ export async function POST(req: Request) {
         singleSurcharge: src.singleSurcharge,
         notes: src.notes,
         deliveryDateText: src.deliveryDateText,
+        // §111: שכפול של מכירה לנציגים נשאר לנציגים. מכירה מהירה
+        // משוכפלת כל יומיים, וזה בדיוק השימוש שלה.
+        agentOnly: src.agentOnly,
         products: { create: src.products.map((p) => ({ productId: p.productId, price: p.price })) },
         points: { create: src.points.map((p) => ({ pointId: p.pointId })) },
       },
@@ -47,6 +50,8 @@ export async function POST(req: Request) {
       singleSurcharge: b.singleSurcharge ?? 3,
       notes: b.notes ?? null,
       deliveryDateText: b.deliveryDateText ?? null,
+      // §111: מכירה לנציגים בלבד - לא מוצגת ללקוח באתר ובטלפון
+      agentOnly: !!b.agentOnly,
       openDate: b.openDate ? new Date(b.openDate) : null,
       closeDate: b.closeDate ? new Date(b.closeDate) : null,
       editDeadline: b.editDeadline ? new Date(b.editDeadline) : null,

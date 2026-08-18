@@ -36,10 +36,14 @@ function Blocked({ title, detail }: { title: string; detail: string }) {
 
 export default async function AgentOrderPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ customerId: string }>;
+  // §111: ?sale=<id> - באיזו מכירה לפתוח את ההזמנה
+  searchParams: Promise<{ sale?: string }>;
 }) {
   const { customerId } = await params;
+  const { sale: requestedSaleId } = await searchParams;
   const session = await auth();
   if (!session?.user) redirect("/login?callbackUrl=/agent");
 
@@ -154,8 +158,18 @@ export default async function AgentOrderPage({
     }
   }
 
+  // §111: הנציג רשאי להזמין גם במכירה שסומנה "לנציגים בלבד".
+  //
+  // בלי ?sale= נבחרת המכירה הרגילה (agentOnly: false) - כדי
+  // שהתנהגות ברירת המחדל לא תשתנה למי שלא משתמש בתכונה.
+  //
+  // עם ?sale=<id> נפתחת המכירה שנבחרה, בין רגילה ובין מהירה.
+  // אין כאן חור: המכירה חייבת להיות ACTIVE, והרשאת הנקודה
+  // נבדקת בהמשך כרגיל.
   const pricelist = await prisma.pricelist.findFirst({
-    where: { status: "ACTIVE" },
+    where: requestedSaleId
+      ? { id: requestedSaleId, status: "ACTIVE" }
+      : { status: "ACTIVE", agentOnly: false },
     orderBy: { createdAt: "desc" },
     include: {
       points: { include: { point: true } },

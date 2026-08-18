@@ -329,7 +329,12 @@ export default function OrderDetail() {
                 </strong>
                 {order.customer.cardExpiry && (
                   <span className="text-zinc-500 mr-2" dir="ltr">
-                    (תוקף: {order.customer.cardExpiry})
+                    {/* §112: התוקף נשמר כ-MMYY ("1031"), והוצג כך -
+                        מספר בן ארבע ספרות שנקרא כמספר ולא כתאריך.
+                        הפיצול הופך אותו לקריא: 10/31. */}
+                    (תוקף: {order.customer.cardExpiry.length === 4
+                      ? `${order.customer.cardExpiry.slice(0, 2)}/${order.customer.cardExpiry.slice(2)}`
+                      : order.customer.cardExpiry})
                   </span>
                 )}
               </span>

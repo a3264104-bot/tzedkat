@@ -1176,7 +1176,9 @@ async function getActiveSale(): Promise<ActiveSale | null> {
     return saleCache.value;
   }
   const value = await prisma.pricelist.findFirst({
-    where: { status: "ACTIVE" },
+    // §111: מכירה לנציגים בלבד אינה קיימת מבחינת הלקוח בטלפון.
+    // הוא לא ישמע אותה, לא יוכל להזמין בה, ולא יידע שהיא קיימת.
+    where: { status: "ACTIVE", agentOnly: false },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

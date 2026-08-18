@@ -13,6 +13,8 @@ type Pricelist = {
   singleSurcharge: string;
   deliveryDateText: string | null;
   notes: string | null;
+  // §111: מכירה לנציגים בלבד
+  agentOnly?: boolean;
   _count: { orders: number; products: number; points: number };
 };
 
@@ -128,6 +130,12 @@ export default function PricelistsPage() {
                     <span className={`badge ${statusColor[l.status]}`}>
                       {PRICELIST_STATUS[l.status]}
                     </span>
+                    {/* §111: סימון בולט - מכירה שהלקוחות לא רואים */}
+                    {l.agentOnly && (
+                      <span className="badge bg-amber-100 text-amber-800 border border-amber-300">
+                        🧑‍💼 נציגים בלבד
+                      </span>
+                    )}
                   </div>
                   <div className="text-sm text-zinc-500 mt-1">
                     {l._count.products} מוצרים · {l._count.points} נקודות · {l._count.orders} הזמנות ·
@@ -199,6 +207,8 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   const [name, setName] = useState("");
   const [surcharge, setSurcharge] = useState("3");
   const [dateText, setDateText] = useState("");
+  // §111: מכירה לנציגים בלבד
+  const [agentOnly, setAgentOnly] = useState(false);
   const [notes, setNotes] = useState("");
   // §16/#6: תאריכים למכירה
   const [openDate, setOpenDate] = useState("");
@@ -228,6 +238,7 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
           name: name.trim(),
           singleSurcharge: parseFloat(surcharge) || 3,
           deliveryDateText: dateText || null,
+          agentOnly,
           notes: notes || null,
           openDate: openDate ? new Date(openDate).toISOString() : null,
           closeDate: closeDate ? new Date(closeDate).toISOString() : null,
@@ -270,6 +281,27 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
             onChange={(e) => setDateText(e.target.value)}
           />
         </Field>
+
+        {/* §111: מכירה לנציגים בלבד.
+            הסימון כאן ולא בעריכה שאחרי היצירה, כי הוא משנה מי
+            רואה את המכירה - החלטה שצריכה להילקח בפתיחה ולא
+            להשתנות באמצע, כשכבר יש בה הזמנות. */}
+        <label className="flex items-start gap-2.5 bg-amber-50 border-2 border-amber-300 rounded-xl p-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={agentOnly}
+            onChange={(e) => setAgentOnly(e.target.checked)}
+            className="h-4 w-4 accent-brand-rust mt-0.5 shrink-0"
+          />
+          <span className="text-sm">
+            <b className="text-amber-900">מכירה לנציגים בלבד (הזמנה מהירה)</b>
+            <span className="block text-xs text-amber-800 leading-relaxed mt-0.5">
+              הלקוחות <b>לא יראו</b> את המכירה הזו — לא באתר ולא במערכת
+              הטלפונית. רק נציגים יוכלו לפתוח בה הזמנות, מתוך כרטיס
+              הלקוח. החיוב, השקילה והמחירים זהים למכירה רגילה.
+            </span>
+          </span>
+        </label>
 
         {/* §16/#6: שדות תאריכים עם תצוגת תאריך עברי */}
         <div className="bg-zinc-50 rounded-lg p-3 space-y-3">

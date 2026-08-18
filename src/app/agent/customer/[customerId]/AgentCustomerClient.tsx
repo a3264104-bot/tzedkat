@@ -44,6 +44,7 @@ export function AgentCustomerClient({
   canSetFinalPrice,
   canSendPaymentLink,
   activePricelistId,
+  activeSales = [],
   singleSurcharge,
   availableProducts,
 }: {
@@ -60,10 +61,19 @@ export function AgentCustomerClient({
   canSendPaymentLink: boolean;
   // §67: הוספת מוצר להזמנה ישירות מכרטיס הלקוח
   activePricelistId: string | null;
+  /** §111: כל המכירות הפעילות - כולל "לנציגים בלבד" */
+  activeSales?: {
+    id: string;
+    name: string;
+    agentOnly: boolean;
+    deliveryDateText: string | null;
+  }[];
   singleSurcharge: number;
   availableProducts: AddableProduct[];
 }) {
   const [orders, setOrders] = useState(initialOrders);
+  // §111: בורר המכירה לפתיחת הזמנה חדשה
+  const [salePickerOpen, setSalePickerOpen] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   // משקלים בעריכה: { [itemId]: value }
   const [weights, setWeights] = useState<Record<string, string>>({});
@@ -221,12 +231,24 @@ export function AgentCustomerClient({
           {/* §67: 🐛 כאן היה Link ריק ומוסתר (`invisible` עם href ריק) -
               שריד שלא הוביל לשום מקום. הוחלף בפעולה האמיתית שחסרה:
               פתיחת הזמנה חדשה ללקוח ישירות מכרטיסו, בלי לחזור לחיפוש. */}
-          <Link
-            href={`/agent/order/${customerId}`}
-            className="shrink-0 text-xs font-bold bg-brand-yellow text-brand-slatedark px-3 py-1.5 rounded-lg hover:opacity-90"
-          >
-            🛒 הזמנה חדשה
-          </Link>
+          {/* §111: כשיש יותר ממכירה פעילה אחת, הכפתור נפתח לבורר.
+              עם מכירה אחת - התנהגות זהה לקודם, בלי שלב מיותר. */}
+          {activeSales.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => setSalePickerOpen(true)}
+              className="shrink-0 text-xs font-bold bg-brand-yellow text-brand-slatedark px-3 py-1.5 rounded-lg hover:opacity-90"
+            >
+              🛒 הזמנה חדשה
+            </button>
+          ) : (
+            <Link
+              href={`/agent/order/${customerId}`}
+              className="shrink-0 text-xs font-bold bg-brand-yellow text-brand-slatedark px-3 py-1.5 rounded-lg hover:opacity-90"
+            >
+              🛒 הזמנה חדשה
+            </Link>
+          )}
         </div>
       </header>
 
@@ -446,6 +468,103 @@ export function AgentCustomerClient({
             setPrefMsg("הכרטיס נשמר והלקוח הועבר לתשלום באשראי");
           }}
         />
+      )}
+
+      {/* §111: בחירת המכירה שבה תיפתח ההזמנה.
+          כאן גם התשובה ל"איך הנציג לא יכפיל": לכל מכירה מוצג אם
+          ללקוח כבר יש בה הזמנה פתוחה, עם המספר וקישור ישיר אליה.
+          הנציג רואה את זה **לפני** שהוא פותח חדשה, ולא אחרי. */}
+      {salePickerOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4"
+          onClick={() => setSalePickerOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-md p-4 space-y-3 max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-extrabold text-brand-slatedark">
+                באיזו מכירה לפתוח הזמנה?
+              </h3>
+              <button
+                onClick={() => setSalePickerOpen(false)}
+                className="text-zinc-400 text-xl leading-none px-2"
+              >
+                ×
+              </button>
+            </div>
+
+            {activeSales.map((sl) => {
+              const existing = orders.find(
+                (o) =>
+                  o.pricelistId === sl.id &&
+                  o.status !== "CANCELLED" &&
+                  o.status !== "COMPLETED"
+              );
+              return (
+                <div
+                  key={sl.id}
+                  className={`border-2 rounded-xl p-3 ${
+                    sl.agentOnly
+                      ? "border-amber-300 bg-amber-50"
+                      : "border-zinc-200 bg-white"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="font-bold text-brand-slatedark">{sl.name}</span>
+                    {sl.agentOnly && (
+                      <span className="text-[10px] font-bold bg-amber-200 text-amber-900 rounded px-1.5 py-0.5">
+                        נציגים בלבד
+                      </span>
+                    )}
+                  </div>
+                  {sl.deliveryDateText && (
+                    <div className="text-xs text-zinc-500 mb-2">
+                      חלוקה: {sl.deliveryDateText}
+                    </div>
+                  )}
+
+                  {existing ? (
+                    <div className="bg-white border-2 border-orange-300 rounded-lg p-2.5">
+                      <div className="text-xs font-bold text-orange-800 mb-1.5">
+                        ⚠️ ללקוח כבר יש הזמנה פתוחה כאן — #{existing.orderNumber}
+                      </div>
+                      <div className="text-[11px] text-orange-700 leading-relaxed mb-2">
+                        פתיחת הזמנה נוספת תיצור כפילות. עדיף להוסיף מוצרים
+                        להזמנה הקיימת.
+                      </div>
+                      <div className="flex gap-2 items-center">
+                        <button
+                          onClick={() => {
+                            setSalePickerOpen(false);
+                            setOpenId(existing.id);
+                          }}
+                          className="flex-1 text-xs font-bold bg-orange-600 text-white rounded-lg py-2"
+                        >
+                          פתח את ההזמנה הקיימת
+                        </button>
+                        <Link
+                          href={`/agent/order/${customerId}?sale=${sl.id}`}
+                          className="text-xs text-zinc-500 underline py-2 px-1 shrink-0"
+                        >
+                          בכל זאת חדשה
+                        </Link>
+                      </div>
+                    </div>
+                  ) : (
+                    <Link
+                      href={`/agent/order/${customerId}?sale=${sl.id}`}
+                      className="block text-center text-sm font-bold bg-brand-rust text-white rounded-lg py-2.5"
+                    >
+                      פתח הזמנה חדשה ←
+                    </Link>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </main>
   );

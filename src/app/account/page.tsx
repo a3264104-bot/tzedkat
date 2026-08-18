@@ -53,7 +53,8 @@ export default async function AccountPage() {
 
   // בודקים אם יש מכירה פעילה (כדי להציג/להסתיר כפתור הזמנה חדשה)
   const activePricelist = await prisma.pricelist.findFirst({
-    where: { status: "ACTIVE" },
+    // §111: מכירה לנציגים בלבד לא מוצגת ללקוח באזור האישי
+    where: { status: "ACTIVE", agentOnly: false },
     select: { id: true },
   });
 

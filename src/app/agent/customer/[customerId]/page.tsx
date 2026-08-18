@@ -68,11 +68,26 @@ export default async function AgentCustomerPage({
   //
   // אין סינון isActive - המוצרים המיוחדים ("מועדפים") נכללים
   // ומסומנים, בדיוק כמו במסך המכירה.
-  const activePricelist = await prisma.pricelist.findFirst({
+  // §111: **כל** המכירות הפעילות, כולל "לנציגים בלבד".
+  //
+  // הנציג רואה כאן את כולן ובוחר באיזו לפתוח הזמנה. הלקוח לא
+  // מגיע למסך הזה בכלל, ולכן אין חשש שהוא ייחשף למכירה המהירה.
+  const activeSales = await prisma.pricelist.findMany({
     where: { status: "ACTIVE" },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, singleSurcharge: true },
+    // רגילות קודם, כדי שברירת המחדל תהיה תמיד המכירה הראשית
+    orderBy: [{ agentOnly: "asc" }, { createdAt: "desc" }],
+    select: {
+      id: true,
+      name: true,
+      agentOnly: true,
+      singleSurcharge: true,
+      deliveryDateText: true,
+    },
   });
+
+  // המכירה הרגילה היא ברירת המחדל לתצוגה ולהוספת מוצרים
+  const activePricelist =
+    activeSales.find((p) => !p.agentOnly) ?? activeSales[0] ?? null;
 
   const availableProducts = activePricelist
     ? await prisma.pricelistProduct.findMany({
@@ -136,6 +151,13 @@ export default async function AgentCustomerPage({
       canSetFinalPrice={canSetFinalPrice}
       canSendPaymentLink={canSendPaymentLink}
       activePricelistId={activePricelist?.id ?? null}
+      // §111: כל המכירות הפעילות - לבורר ההזמנה החדשה
+      activeSales={activeSales.map((sl) => ({
+        id: sl.id,
+        name: sl.name,
+        agentOnly: sl.agentOnly,
+        deliveryDateText: sl.deliveryDateText,
+      }))}
       singleSurcharge={Number(activePricelist?.singleSurcharge ?? 0)}
       availableProducts={availableProducts.map((pp) => ({
         id: pp.product.id,

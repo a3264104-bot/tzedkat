@@ -63,12 +63,29 @@ export function OrderStatusPanel({
       done: isReady || isDelivered,
       blocked: !isPaid ? "יש להשלים תשלום תחילה" : undefined,
     },
-    { key: "delivered", label: "נמסרה ללקוח", done: isDelivered },
+    {
+      key: "delivered",
+      label: "נמסרה ללקוח",
+      done: isDelivered,
+      // §112: 🐛 כאן היה הבאג. זה היה השלב היחיד **בלי** blocked,
+      // ולכן בתצוגה הוא נפל לענף "לא הושלם ולא חסום" = צהוב מודגש.
+      // התוצאה: הזמנה חדשה לגמרי הציגה את שלב 1 ואת שלב 4 מודגשים
+      // בו-זמנית, כאילו היא גם נשקלה וגם נמסרה.
+      blocked: !isReady ? "יש לסמן כמוכנה לחלוקה תחילה" : undefined,
+    },
   ];
 
   // הצעד הבא: הראשון שלא הושלם ואינו חסום
   const next = steps.find((s) => !s.done && !s.blocked);
   const blockedNext = steps.find((s) => !s.done && s.blocked);
+
+  // §112: השלב הנוכחי מחושב לפי **מיקום** ולא לפי blocked.
+  //
+  // הצבע נגזר קודם מ-done/blocked בלבד, וכל שלב ששכחו לתת לו
+  // blocked הודגש בטעות. עכשיו הכלל מפורש ואינו תלוי בכך שכל
+  // שלב עתידי יזכור להגדיר חסימה: מודגש **רק** השלב הראשון
+  // שטרם הושלם, וכל מה שאחריו אפור.
+  const currentIndex = steps.findIndex((s) => !s.done);
 
   if (isCancelled) {
     return (
@@ -105,16 +122,21 @@ export function OrderStatusPanel({
                   className={`w-7 h-7 rounded-full grid place-items-center text-xs font-bold shrink-0 ${
                     s.done
                       ? "bg-emerald-500 text-white"
-                      : s.blocked
-                        ? "bg-zinc-200 text-zinc-400"
-                        : "bg-amber-100 text-amber-700 ring-2 ring-amber-400"
+                      : i === currentIndex
+                        ? // §112: מודגש רק השלב הנוכחי - אחד בלבד
+                          "bg-amber-100 text-amber-700 ring-2 ring-amber-400"
+                        : "bg-zinc-200 text-zinc-400"
                   }`}
                 >
                   {s.done ? "✓" : i + 1}
                 </div>
                 <span
                   className={`text-[10px] mt-1 text-center truncate w-full ${
-                    s.done ? "text-emerald-700 font-bold" : "text-zinc-500"
+                    s.done
+                      ? "text-emerald-700 font-bold"
+                      : i === currentIndex
+                        ? "text-amber-800 font-bold"
+                        : "text-zinc-400"
                   }`}
                 >
                   {s.label}
