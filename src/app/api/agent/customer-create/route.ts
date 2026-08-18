@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
 import { auth } from "@/lib/auth";
 
 // יצירת סיסמא אקראית חזקה - 32 תווים, לא לזכירה, לא לשימוש חוזר
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const name = String(body.name || "").trim();
+  const name = cleanName(body.name);
   const phoneRaw = String(body.phone || "").trim();
   const emailRaw = body.email ? String(body.email).trim() : "";
   const defaultPointId = body.defaultPointId || null;
@@ -56,8 +57,8 @@ export async function POST(req: Request) {
   }
 
   // נירמול טלפון
-  const digits = phoneRaw.replace(/\D/g, "");
-  const phone = digits.startsWith("972") ? "0" + digits.slice(3) : digits;
+  // §71: מקור אמת אחד לנירמול - ראה src/lib/identity.ts
+  const phone = normalizePhone(phoneRaw);
   if (phone.length < 9 || phone.length > 10) {
     return NextResponse.json({ error: "מספר טלפון לא תקין" }, { status: 400 });
   }

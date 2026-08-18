@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import bcrypt from "bcryptjs";
+import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
 
 // סיסמה קריאה: בלי תווים שקל לבלבל (0/O, 1/l) - היא נמסרת בטלפון
 function generatePassword(): string {
@@ -22,9 +23,13 @@ function generatePassword(): string {
   return out;
 }
 
-function normalizePhone(raw: string): string {
-  return String(raw || "").replace(/[\s\-()]/g, "").trim();
-}
+// §71: 🐛 כאן היה הבאג. הנירמול המקומי הסיר רק רווחים, מקפים
+// וסוגריים - אבל **לא** המיר קידומת 972 ולא הסיר את ה-"+".
+// לקוח שהוזן ע"י מנהל כ-"+972501234567" ולקוח שנרשם באתר כ-
+// "0501234567" הם אותו אדם עם שתי מחרוזות שונות, ולכן ה-@unique
+// של המסד לא חסם ונוצרה כפילות.
+//
+// עכשיו כל מסלולי היצירה עוברים דרך אותה פונקציה ב-lib.
 
 // ─────────────────────────────────────────────────────────────
 // GET - חיפוש לקוח קיים לפי טלפון
@@ -86,7 +91,7 @@ export async function POST(req: Request) {
   if (!g.ok) return g.res;
 
   const b = await req.json().catch(() => ({}));
-  const name = String(b.name || "").trim();
+  const name = cleanName(b.name);
   const phone = normalizePhone(b.phone || "");
   const email = b.email ? String(b.email).trim().toLowerCase() : null;
   const defaultPointId = b.defaultPointId ? String(b.defaultPointId) : null;
@@ -107,8 +112,11 @@ export async function POST(req: Request) {
   if (name.length < 2) {
     return NextResponse.json({ error: "שם קצר מדי" }, { status: 400 });
   }
-  if (phone.length < 9) {
-    return NextResponse.json({ error: "מספר טלפון לא תקין" }, { status: 400 });
+  if (!isValidPhone(phone)) {
+    return NextResponse.json(
+      { error: "מספר טלפון לא תקין. יש להזין מספר ישראלי תקין." },
+      { status: 400 }
+    );
   }
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "כתובת מייל לא תקינה" }, { status: 400 });

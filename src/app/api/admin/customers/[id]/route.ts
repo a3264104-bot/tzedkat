@@ -276,6 +276,62 @@ export async function PATCH(
             { status: 400 }
           );
         }
+
+        // §70: נקודת חלוקה שייכת לנציג אחד בלבד.
+        //
+        // למה זה נאכף בקוד ולא כאינדקס ייחודי במסד: הטבלה נבנתה
+        // כ-many-to-many (נציג אחד ↔ כמה נקודות), והכיוון ההפוך פתוח
+        // מבחינה מבנית. הוספת @@unique([pointId]) הייתה מיגרציה
+        // שנכשלת אם קיימת כבר כפילות, ובלי הודעה שאומרת *מי* תופס.
+        //
+        // ההודעה נוקבת בשם הנציג והנקודה בכוונה: "הנקודה תפוסה"
+        // מותיר את המנהל לחפש ידנית מי מתוך עשרות הנציגים.
+        //
+        // ⚠️ הכלל חל על **נציגים בלבד**. מנהל יכול להיות רשום בכמה
+        // נקודות במקביל, והוא גם אינו חוסם נציג מלהשתייך לאותה נקודה -
+        // הוא נוכח שם בתפקיד ניהולי ולא כנציג המקבל עמלה.
+        //
+        // לכן שתי הבדיקות:
+        //   1. אם *הנערך* הוא מנהל - לא בודקים כלל.
+        //   2. התנגשות נספרת רק מול נציג (role=AGENT) קיים.
+        const target = await prisma.customer.findUnique({
+          where: { id },
+          select: { role: true },
+        });
+        const conflicts =
+          target?.role === "ADMIN"
+            ? []
+            : await prisma.agentPoint.findMany({
+                where: {
+                  pointId: { in: agentPointIds },
+                  NOT: { agentId: id },
+                  agent: { role: "AGENT" },
+                },
+                select: {
+                  agent: { select: { id: true, name: true } },
+                  point: { select: { name: true, city: true } },
+                },
+              });
+        if (conflicts.length > 0) {
+          const list = conflicts
+            .map(
+              (c) =>
+                `${c.point.name}${c.point.city ? ` (${c.point.city})` : ""} — משויכת ל${c.agent.name}`
+            )
+            .join("; ");
+          return NextResponse.json(
+            {
+              error: `לא ניתן לשייך: ${list}. יש להסיר את השיוך הקיים תחילה.`,
+              code: "POINT_TAKEN",
+              conflicts: conflicts.map((c) => ({
+                agentId: c.agent.id,
+                agentName: c.agent.name,
+                pointName: c.point.name,
+              })),
+            },
+            { status: 409 }
+          );
+        }
       }
       const customer = await prisma.$transaction(async (tx) => {
         // מחיקת כל הקשרים הקיימים של הנציג

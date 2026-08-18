@@ -6,6 +6,7 @@ import { fmt, STATUS_LABELS } from "@/lib/pricing";
 import { formatItemQty, orderItemBadge } from "@/lib/order-display";
 import { payStatusLabel } from "@/lib/pay-status-lib";
 import AgentChargeButton from "./AgentChargeButton";
+import { AgentAddItemPanel } from "./AgentAddItemPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -63,16 +64,61 @@ export default async function AgentOrderDetailPage({
   if (role === "AGENT") {
     const agent = await prisma.customer.findUnique({
       where: { id: sessionUserId },
-      select: { agentCanCharge: true, agentPointId: true },
+      select: {
+        agentCanCharge: true,
+        agentPointId: true, // deprecated - תאימות אחורה
+        agentPoints: { select: { pointId: true } },
+      },
     });
+    // §70: 🐛 תוקן דפוס ג'. הבדיקה השוותה רק ל-agentPointId הישן,
+    // והתנאי `&& agent?.agentPointId` גרם לכך שנציג רב-נקודתי
+    // (agentPoints[] מלא, agentPointId ריק) **דילג על החסימה כולה**
+    // וראה כל הזמנה במערכת, כולל פרטי כרטיס ואפשרות חיוב.
+    const myPoints = new Set(agent?.agentPoints.map((ap) => ap.pointId) ?? []);
+    if (agent?.agentPointId) myPoints.add(agent.agentPointId);
+
     const isCreator = order.customer.createdByAgentId === sessionUserId;
-    const samePoint = order.pointId === agent?.agentPointId;
-    // צפייה מותרת אם יוצר/אותה נקודה (כמו במסך יצירת ההזמנה)
-    if (!isCreator && !samePoint && agent?.agentPointId) {
+    const samePoint = myPoints.has(order.pointId);
+    // נציג בלי נקודות כלל נחסם - לא "עובר בלי בדיקה" כמו קודם
+    if (!isCreator && !samePoint) {
       redirect("/agent");
     }
     canCharge = !!agent?.agentCanCharge && (isCreator || samePoint);
   }
+
+  // §70: מוצרי המכירה, להוספת פריט מהמסך הזה.
+  // רק המכירה שההזמנה שייכת אליה, ורק כשטרם נקבע מחיר סופי.
+  const canAddItems = order.finalTotal == null && !!order.pricelistId;
+  const salePricelist = canAddItems
+    ? await prisma.pricelist.findUnique({
+        where: { id: order.pricelistId! },
+        select: { id: true, status: true, singleSurcharge: true },
+      })
+    : null;
+  const addableProducts =
+    salePricelist && salePricelist.status === "ACTIVE"
+      ? await prisma.pricelistProduct.findMany({
+          where: { pricelistId: salePricelist.id },
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                unit: true,
+                cartonPrice: true,
+                priceType: true,
+                allowSingles: true,
+                singlesMode: true,
+                singleUnitPrice: true,
+                avgWeightPerUnit: true,
+                // §7: מוצרים לא-פעילים ("מועדפים") נכללים ומסומנים
+                isActive: true,
+                category: { select: { name: true } },
+              },
+            },
+          },
+        })
+      : [];
 
   const hasToken = !!order.customer.paymentToken;
   const finalTotal = order.finalTotal != null ? Number(order.finalTotal) : null;
@@ -162,6 +208,35 @@ export default async function AgentOrderDetailPage({
             </span>
           </div>
         </div>
+
+        {/* §70: הוספת מוצר להזמנה - עם בורר בודדים/קרטון וכמות,
+            בדיוק כמו באתר. מוצג רק במכירה פעילה ולפני קביעת מחיר
+            סופי - אותן חסימות שיש ב-API. */}
+        {addableProducts.length > 0 && (
+          <AgentAddItemPanel
+            orderId={order.id}
+            singleSurcharge={Number(salePricelist?.singleSurcharge ?? 0)}
+            products={addableProducts.map((pp) => ({
+              id: pp.product.id,
+              name: pp.product.name,
+              unit: pp.product.unit,
+              cartonPrice: Number(pp.price ?? pp.product.cartonPrice),
+              priceType: pp.product.priceType,
+              allowSingles: pp.product.allowSingles,
+              singlesMode: pp.product.singlesMode,
+              singleUnitPrice:
+                pp.product.singleUnitPrice != null
+                  ? Number(pp.product.singleUnitPrice)
+                  : null,
+              avgWeightPerUnit:
+                pp.product.avgWeightPerUnit != null
+                  ? Number(pp.product.avgWeightPerUnit)
+                  : null,
+              isActive: pp.product.isActive,
+              categoryName: pp.product.category?.name ?? null,
+            }))}
+          />
+        )}
 
         {/* כרטיס אשראי + חיוב */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-4">

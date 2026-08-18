@@ -137,7 +137,14 @@ export async function GET(
       },
     },
   });
-  if (!summary) {
+  // §70: הסיכום נוצר רק לנציג.
+  //
+  // 🐛 קודם הוא נוצר לכל מי שפתח את המסך - כולל מנהל, שקיבל בכך
+  // רשומת AgentSaleSummary ריקה והופיע בדוח התשלומים לנציגים
+  // עם עמלה 0 (ואחרי עדכון משקל - עם עמלה על כל המכירה).
+  //
+  // מנהל מקבל אובייקט סיכום ריק לתצוגה בלבד, בלי כתיבה למסד.
+  if (!summary && !g.isAdmin) {
     summary = await prisma.agentSaleSummary.create({
       data: {
         pricelistId,
@@ -296,17 +303,33 @@ export async function GET(
           : null,
       },
     })),
-    summary: {
-      id: summary.id,
-      status: summary.status,
-      totalCartonWeight: Number(summary.totalCartonWeight),
-      totalSinglesWeight: Number(summary.totalSinglesWeight),
-      totalWalkinWeight: Number(summary.totalWalkinWeight),
-      totalCustomers: summary.totalCustomers,
-      totalWalkins: summary.totalWalkins,
-      totalCommission: Number(summary.totalCommission),
-      remainderNote: summary.remainderNote,
-      confirmedAt: summary.confirmedAt?.toISOString(),
-    },
+    // §70: למנהל אין סיכום - מוחזר אובייקט ריק לתצוגה, והמסך
+    // לא ינסה לסגור אותו (ה-PATCH ממילא חוסם מנהל).
+    isAdminView: g.isAdmin,
+    summary: summary
+      ? {
+          id: summary.id,
+          status: summary.status,
+          totalCartonWeight: Number(summary.totalCartonWeight),
+          totalSinglesWeight: Number(summary.totalSinglesWeight),
+          totalWalkinWeight: Number(summary.totalWalkinWeight),
+          totalCustomers: summary.totalCustomers,
+          totalWalkins: summary.totalWalkins,
+          totalCommission: Number(summary.totalCommission),
+          remainderNote: summary.remainderNote,
+          confirmedAt: summary.confirmedAt?.toISOString(),
+        }
+      : {
+          id: "",
+          status: "DRAFT",
+          totalCartonWeight: 0,
+          totalSinglesWeight: 0,
+          totalWalkinWeight: 0,
+          totalCustomers: 0,
+          totalWalkins: 0,
+          totalCommission: 0,
+          remainderNote: null,
+          confirmedAt: undefined,
+        },
   });
 }

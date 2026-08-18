@@ -170,6 +170,15 @@ model Product {
   cartonPrice   Decimal  @db.Decimal(10, 2)
   // §24: תפריט טלפוני. phoneKey = הספרה שהלקוח מקיש לבחירת המוצר בתפריט
   // הקולי (קבוע לאורך זמן כדי שלקוחות קבועים יזכרו אותו).
+  // §69: מק"ט טלפוני. המנהל קובע מספר קצר (למשל 101) ומפרסם אותו
+  // במודעה; הלקוח מקיש אותו בטלפון והמוצר עולה מיד - בלי לשמוע את
+  // כל התפריט. unique כדי שהקשה תוביל תמיד למוצר אחד; NULL מותר
+  // לכמה מוצרים (Postgres לא אוכף unique על NULL).
+  phoneCode     String?  @unique
+  // §69: כתיב פונטי להקראה. ה-TTS של ימות משבש חלק מהשמות
+  // ("אנטריקוט"); כאן כותבים איך שזה צריך *להישמע* ("אנטרי קוט").
+  // ריק = מקריאים את השם הרגיל. משפיע רק על הטלפון, לא על האתר.
+  phoneName     String?
   // phoneEnabled = האם להציע את המוצר בטלפון בכלל.
   phoneKey      Int?
   phoneEnabled  Boolean  @default(true)
@@ -214,6 +223,9 @@ model Product {
 }
 
 model DeliveryPoint {
+  // §69: כתיב פונטי להקראת שם הנקודה והעיר בטלפון. ריק = השם הרגיל.
+  phoneName     String?
+  cityPhoneName String?
   id           String   @id @default(cuid())
   name         String
   city         String?

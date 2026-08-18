@@ -35,8 +35,46 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // §24: תפריט טלפוני - בלי אלה הטופס שולח והשרת מתעלם בשקט
     "phoneEnabled",
     "phoneKey",
+    // §69: כתיב פונטי להקראה. phoneCode מטופל בנפרד למטה כי הוא
+    // דורש נירמול ובדיקת ייחודיות.
+    "phoneName",
   ]) {
     if (k in b) data[k] = b[k];
+  }
+
+  // §69: מק"ט טלפוני.
+  //
+  // מנורמל לספרות בלי אפסים מובילים, בדיוק כמו שה-IVR מנרמל את
+  // ההקשה של הלקוח - אחרת "0101" במסך ו-"101" בטלפון לא היו נפגשים.
+  //
+  // הייחודיות נבדקת כאן ולא נשארת ל-DB: שגיאת unique של Postgres
+  // מגיעה כ-P2002 גנרי, והמנהל היה רואה "שגיאה" בלי לדעת שהמספר
+  // כבר תפוס ובאיזה מוצר.
+  if ("phoneCode" in b) {
+    const digits = String(b.phoneCode ?? "").replace(/\D/g, "");
+    const code = digits ? String(parseInt(digits, 10)) : null;
+    if (code && code !== "0") {
+      const taken = await prisma.product.findFirst({
+        where: { phoneCode: code, NOT: { id } },
+        select: { name: true },
+      });
+      if (taken) {
+        return NextResponse.json(
+          { error: `המק"ט ${code} כבר משויך למוצר "${taken.name}"` },
+          { status: 409 }
+        );
+      }
+      data.phoneCode = code;
+    } else {
+      data.phoneCode = null;
+    }
+  }
+
+  // §69: שדה ריק מהטופס נשמר כ-null ולא כמחרוזת ריקה, אחרת
+  // `phoneName || name` ב-IVR היה עדיין נופל לשם הרגיל - אבל
+  // הערך במסד היה מבלבל בבדיקות.
+  if ("phoneName" in data) {
+    data.phoneName = String(data.phoneName ?? "").trim() || null;
   }
   // הגנה על מחיקת הזמנות אישיות שמפנות למוצר
   const product = await prisma.product.update({ where: { id }, data });

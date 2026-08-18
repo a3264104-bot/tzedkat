@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
 
 // מודל הזיהוי: טלפון = חובה (המזהה הראשי להתחברות, לכולם יש).
 // מייל = אופציונלי אך מומלץ (מאפשר איפוס סיסמה עצמאי + אישורי הזמנה).
@@ -32,9 +33,9 @@ export async function POST(req: Request) {
 
     // נירמול טלפון: שומרים תמיד ספרות בלבד בפורמט מקומי (0501234567),
     // כדי שההתחברות תמצא את המספר בלי תלות באיך המשתמש הקליד (מקפים/רווחים/+972)
-    const digits = data.phone.replace(/\D/g, "");
-    const phone = digits.startsWith("972") ? "0" + digits.slice(3) : digits;
-    if (phone.length < 9 || phone.length > 10) {
+    // §71: מקור אמת אחד לנירמול - ראה src/lib/identity.ts
+    const phone = normalizePhone(data.phone);
+    if (!isValidPhone(phone)) {
       return NextResponse.json({ error: "מספר טלפון לא תקין" }, { status: 400 });
     }
     const email = data.email?.trim().toLowerCase() || null;
@@ -93,7 +94,7 @@ export async function POST(req: Request) {
 
     const customer = await prisma.customer.create({
       data: {
-        name: data.name.trim(),
+        name: cleanName(data.name),
         phone,
         email,
         passwordHash,

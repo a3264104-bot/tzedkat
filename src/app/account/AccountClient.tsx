@@ -347,8 +347,11 @@ export function AccountClient({
           )}
         </div>
 
-        {/* כפתור הזמנה חדשה - רק אם יש מכירה פעילה */}
-        {hasActiveSale && (
+        {/* §73: כפתור הזמנה חדשה - רק כשיש מכירה פעילה *וגם* הזמנות
+            קיימות. כשאין הזמנות, כרטיס "אין הזמנות פעילות" שמתחת הוא
+            הקריאה לפעולה - עם כפתור משלו - ושני כפתורים זהים אחד מעל
+            השני נראו כמו כפל מסך. */}
+        {hasActiveSale && activeOrders.length > 0 && (
           <Link href="/order" className="btn-primary w-full block text-center">
             הזמנה חדשה ←
           </Link>
@@ -359,7 +362,9 @@ export function AccountClient({
           <div className="flex items-center gap-3 mb-3">
             <div className="w-1 h-6 bg-brand-rust rounded-full"></div>
             <h2 className="font-extrabold text-brand-slatedark text-lg">
-              {activeOrders.length > 0 ? "ההזמנות שלי" : "אין הזמנות פעילות"}
+              {/* §73: כשאין הזמנות, הכרטיס שמתחת כבר אומר "אין הזמנות
+                  פעילות" - הכותרת לא חוזרת עליו */}
+              ההזמנות שלי
             </h2>
             <div className="flex-1 h-px bg-zinc-200"></div>
             {activeOrders.length > 0 && (

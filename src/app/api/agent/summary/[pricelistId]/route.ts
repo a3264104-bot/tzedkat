@@ -16,6 +16,22 @@ export async function PATCH(
   const { pricelistId } = await params;
   const body = await req.json().catch(() => ({}));
 
+  // §70: מנהל אינו נציג לצורך עמלות.
+  //
+  // ה-route הזה *יוצר* סיכום אם אין - ולכן מנהל שנכנס למסך המכירה
+  // וכתב הערה היה מייצר לעצמו רשומת AgentSaleSummary, מופיע בדוח
+  // התשלומים לנציגים, ומקבל שורה לתשלום. הוא רואה את המסך לצורכי
+  // פיקוח; הסגירה והעמלה שייכות לנציג בשטח.
+  if (g.isAdmin) {
+    return NextResponse.json(
+      {
+        error: "סיכום ועמלות הם של הנציג בשטח. מנהל אינו סוגר סיכום מכירה.",
+        code: "ADMIN_NO_SUMMARY",
+      },
+      { status: 403 }
+    );
+  }
+
   // חיפוש/יצירה של הסיכום
   let summary = await prisma.agentSaleSummary.findUnique({
     where: {

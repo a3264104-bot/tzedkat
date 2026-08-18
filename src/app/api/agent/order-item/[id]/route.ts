@@ -151,6 +151,28 @@ export async function PATCH(
   // עדכון סיכום הנציג בזמן אמת
   await recalculateAgentSummary(item.order.pricelistId || "", g.agent.id);
 
+  // §72: אם זה היה הפריט הפעיל האחרון - ההזמנה כולה מתבטלת.
+  // אותו כלל כמו אצל המנהל: הזמנה בלי פריטים היא רשומת רפאים
+  // שמופיעה כ"ממתינה לשקילה" בלי שיש מה לשקול, ויוצרת פער בין
+  // הדשבורד (סופר פריטים) לרשימת ההזמנות (מציגה סטטוס).
+  if (updated.isCancelled) {
+    const remaining = await prisma.orderItem.count({
+      where: { orderId: updated.orderId, isCancelled: false },
+    });
+    if (remaining === 0) {
+      await prisma.order.update({
+        where: { id: updated.orderId },
+        data: {
+          status: "CANCELLED",
+          internalNotes: "בוטלה אוטומטית - בוטלו כל הפריטים",
+        },
+      });
+      console.log(
+        `[agent-order-item] order ${updated.orderId} auto-cancelled (last item cancelled)`
+      );
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     item: {
@@ -176,6 +198,7 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
   const agent = await prisma.customer.findUnique({
     where: { id: agentId },
     select: {
+      role: true,
       agentPointId: true,
       // 🆕 כל נקודות הנציג (many-to-many)
       agentPoints: { select: { pointId: true } },
@@ -184,6 +207,18 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
     },
   });
   if (!agent) return;
+
+  // §70: מנהל אינו מקבל עמלה ואין לו סיכום נציג.
+  //
+  // 🐛 הבאג שנסגר כאן היה פיננסי וחמור: אצל מנהל agentPointIds ריק,
+  // ואז `if (agentPointIds.length > 0)` דילג על קביעת הסינון - כלומר
+  // whereOrders נשאר בלי pointId ו**כל ההזמנות במכירה כולה** נספרו
+  // לזכותו. מנהל שנכנס פעם אחת למסך המכירה ועדכן משקל היה מקבל
+  // שורת עמלה על מחזור המכירה השלם, ומופיע בדוח התשלומים לנציגים.
+  //
+  // מנהל שמשויך לנקודות (כפי שאתה עובד) אינו יוצא מן הכלל: השיוך
+  // שלו הוא תפעולי, לא עמלתי.
+  if (agent.role === "ADMIN") return;
 
   const rateCarton = Number(agent.commissionRateCarton);
   const rateSingles = Number(agent.commissionRateSingles);
@@ -199,9 +234,19 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
         ? [agent.agentPointId]
         : [];
 
+  // §70: נציג בלי נקודות כלל - אין לו על מה לקבל עמלה.
+  //
+  // 🐛 אותו דפוס בדיוק כמו אצל המנהל: מערך ריק גרם לכך שהסינון לא
+  // נקבע, וכל המכירה נספרה לזכותו. מערך ריק אינו "בלי הגבלה" - הוא
+  // "אין נקודות", ושתי המשמעויות הפוכות.
+  if (agentPointIds.length === 0) return;
+
   // כל ההזמנות של נקודות הנציג במכירה זו
-  const whereOrders: any = { pricelistId, status: { notIn: ["CANCELLED"] } };
-  if (agentPointIds.length > 0) whereOrders.pointId = { in: agentPointIds };
+  const whereOrders: any = {
+    pricelistId,
+    status: { notIn: ["CANCELLED"] },
+    pointId: { in: agentPointIds },
+  };
 
   const orders = await prisma.order.findMany({
     where: whereOrders,

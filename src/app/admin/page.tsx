@@ -210,8 +210,12 @@ export default function Dashboard() {
               <NextAction
                 count={realWeighOrders}
                 label={
-                  realWeighItems > 0
-                    ? `הזמנות עם ${realWeighItems} פריטים שממתינים לשקילה`
+                  // §72: הניסוח הקודם - "הזמנות עם 2 פריטים שממתינים לשקילה"
+                  // ליד עיגול עם המספר 2 - הציג את אותו מספר פעמיים בשתי
+                  // משמעויות (הזמנות/פריטים), ואי אפשר היה לדעת מה סופר מה.
+                  // עכשיו: העיגול = הזמנות, והפריטים מפורטים רק כשהם שונים.
+                  realWeighItems > 0 && realWeighItems !== realWeighOrders
+                    ? `הזמנות ממתינות לשקילה (${realWeighItems} פריטים בסך הכל)`
                     : "הזמנות ממתינות לשקילה"
                 }
                 href="/admin/pending-weights"

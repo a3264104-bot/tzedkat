@@ -51,7 +51,20 @@ export async function POST(req: Request) {
       // §24: תפריט טלפוני
       phoneEnabled: b.phoneEnabled ?? true,
       phoneKey: b.phoneKey ?? null,
+      // §69: מק"ט טלפוני להזמנה מהמודעה + כתיב פונטי להקראה.
+      // המק"ט מנורמל לספרות בלבד בלי אפסים מובילים - כך "0101"
+      // ו-"101" הם אותו קוד, בדיוק כמו שה-IVR מנרמל את ההקשה.
+      phoneCode: normalizePhoneCode(b.phoneCode),
+      phoneName: b.phoneName?.trim() || null,
     },
   });
   return NextResponse.json(product);
+}
+
+// §69: נירמול מק"ט - ספרות בלבד, בלי אפסים מובילים, ריק -> null
+function normalizePhoneCode(raw: unknown): string | null {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  const n = parseInt(digits, 10);
+  return n > 0 ? String(n) : null;
 }

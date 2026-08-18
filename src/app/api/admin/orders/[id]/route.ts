@@ -206,6 +206,36 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
   }
 
+  // §72: הזמנה שנשארה בלי פריטים - מבוטלת אוטומטית.
+  //
+  // 🐛 הפער שהתגלה בדשבורד: מחיקת כל הפריטים השאירה הזמנה "פתוחה"
+  // עם 0 ש"ח. היא תפסה מספר, הופיעה ברשימה כ"ממתינה לשקילה" לנצח -
+  // אבל מסך המשקלים (שסופר *פריטים*) דילג עליה. התוצאה: הדשבורד
+  // אמר 2 והרשימה הראתה 3, והמנהל חיפש הזמנה שאין בה מה לעשות.
+  //
+  // ביטול ולא מחיקה: המספר כבר נתפס, ורשומה מבוטלת משאירה שובל
+  // ברור של מה שקרה במקום חור במספור.
+  if (Array.isArray(b.items)) {
+    const remaining = await prisma.orderItem.count({
+      where: { orderId: id, isCancelled: false },
+    });
+    if (remaining === 0) {
+      await prisma.order.update({
+        where: { id },
+        data: {
+          status: "CANCELLED",
+          // internalNotes - שדה קיים; אין cancelReason בסכמה
+          internalNotes: "בוטלה אוטומטית - נמחקו כל הפריטים",
+        },
+      });
+      const emptied = await prisma.order.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+      return NextResponse.json({ ...emptied, _autoCancelled: true });
+    }
+  }
+
   // recompute finalTotal from items if any final prices exist
   let justSetFinalTotal = false;
 

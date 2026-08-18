@@ -26,10 +26,13 @@ import {
   readVoice,
   normalizePhone,
   messages,
+  goToFolder,
 } from "@/lib/yemot-lib";
 import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
 // §64: קוד התחברות ללקוח שנרשם בטלפון
 import { encryptCode, generateLoginCode } from "@/lib/login-code";
+// §71: ניקוי שם מזיהוי הדיבור - מקור התווים הנסתרים
+import { cleanName } from "@/lib/identity";
 import {
   sendCustomerOrderConfirmation,
   sendAdminOrderNotification,
@@ -66,11 +69,20 @@ type ActiveSale = {
 // §61: ימות מחכים לתשובה שלנו לפני שהם משמיעים את ההודעה הבאה, ולכן
 // כל מילישנייה כאן היא שקט באוזן של הלקוח.
 //
-// dub1 = דבלין, אותו אזור פיזי של Supabase (AWS eu-west-1). בלי
-// ההגדרה הזו הפונקציה רצה באזור ברירת המחדל של Vercel (iad1,
-// וירג'יניה), וכל שאילתה עושה נסיעה חוצה-אוקיינוס של ~80-100ms.
-// עם 8-11 שאילתות סדרתיות להקשה - זו שנייה שלמה של המתנה סתם.
-export const preferredRegion = "dub1";
+// §69: שונה מ-dub1 ל-fra1 אחרי בדיקה בלוגים. הממצא היה:
+//   Received in Frankfurt (fra1) → Routed to Washington (iad1)
+//   Execution Duration: 2.44s
+// כלומר הבקשה של ימות *מגיעה* לפרנקפורט, נשלחה לוירג'יניה, ומשם
+// דיברה עם Supabase באירלנד - כל שאילתה חצתה את האוקיינוס פעמיים.
+//
+// fra1 ולא dub1: פרנקפורט היא נקודת הכניסה של ימות ממילא, ולכן היא
+// מבטלת גם את הקפיצה הראשונה. פרנקפורט↔אירלנד הוא ~20ms לעומת
+// ~90ms חוצה-אוקיינוס.
+//
+// ⚠️ ההגדרה כאן חלה על ה-route הזה בלבד. אם הלוגים עדיין מראים
+// ניתוב ל-iad1, יש לקבוע את האזור גם ברמת הפרויקט:
+// Vercel → Settings → Functions → Function Region → Frankfurt.
+export const preferredRegion = "fra1";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -102,6 +114,26 @@ async function handle(req: Request): Promise<Response> {
     return yemotResponse(
       playMessage(prompt("id_error", "אירעה שגיאה בזיהוי המספר"))
     );
+  }
+
+  // ═══ §69: כוכבית = חזרה לתפריט הראשי, מכל מקום ═══
+  //
+  // כל הפרמטרים של השיחה נצברים אצל ימות ונשלחים בכל בקשה, ולכן
+  // אי אפשר "לאפס תפריט" מתוך ה-API - הערכים הישנים (CAT0, MENU...)
+  // ימשיכו להגיע והניתוב יקפוץ לאמצע הזרימה. הדרך היחידה להתחלה
+  // נקייה היא go_to_folder: ימות עוברים לשלוחה מחדש, וכל הפרמטרים
+  // שנאספו נמחקים.
+  //
+  // הסריקה על *כל* הפרמטרים: הכוכבית יכולה להגיע מכל שאלה בזרימה
+  // (yemot-lib מוסיף אותה לרשימת המקשים המותרים בכל read).
+  //
+  // YEMOT_IVR_FOLDER = נתיב השלוחה של המערכת בימות (למשל "/9").
+  // ברירת מחדל "/" - השלוחה הראשית.
+  const starPressed = Object.entries(p).some(
+    ([k, v]) => v === "*" && !k.startsWith("Api") && k !== "hangup"
+  );
+  if (starPressed) {
+    return yemotResponse(goToFolder(process.env.YEMOT_IVR_FOLDER || "/"));
   }
 
   // ─── זיהוי הלקוח ───
@@ -283,7 +315,7 @@ async function handle(req: Request): Promise<Response> {
       );
     }
 
-    if (p.OPEN === "1") return handleMyOrders(customer.id);
+    if (p.OPEN === "1") return handleMyOrders(p, customer.id);
     if (p.OPEN === "2") return handleEditOrder(p, openOrder, customer);
     if (p.OPEN === "3") return handleCancelOrder(p, openOrder, customer);
     if (p.OPEN === "4")
@@ -309,7 +341,7 @@ async function handle(req: Request): Promise<Response> {
     );
   }
 
-  if (p.MENU === "2") return handleMyOrders(customer.id);
+  if (p.MENU === "2") return handleMyOrders(p, customer.id);
   // אין הזמנה פתוחה כאן (התפריט הרגיל)
   if (p.MENU === "3") return handleMyPoint(customer, p, null);
   // §61: המחירון כבר נטען למעלה - מועבר ולא נשלף מחדש
@@ -351,9 +383,11 @@ async function handleUnregistered(
 
   // ─── פתיחת חשבון ───
   // שלב 1: עיר
+  // §69: cityPhoneName - כתיב פונטי לעיר. נלקח מהנקודה הראשונה
+  // שהגדירה אותו (הערך זהה לכל נקודות אותה עיר בפועל).
   const cities = await prisma.deliveryPoint.findMany({
     where: { isActive: true },
-    select: { city: true },
+    select: { city: true, cityPhoneName: true },
     distinct: ["city"],
     orderBy: { city: "asc" },
   });
@@ -365,7 +399,15 @@ async function handleUnregistered(
         playMessage(prompt("no_points", "אין נקודות חלוקה פעילות כרגע"))
       );
     }
-    const menu = cityList.map((c, i) => say(`ל${c} הקש ${i + 1}`));
+    // §69: מקריאים את הכתיב הפונטי אם הוגדר; הבחירה והשמירה נשארות
+    // לפי שם העיר האמיתי.
+    const cityTts = new Map<string, string>();
+    for (const c of cities) {
+      if (c.city && c.cityPhoneName && !cityTts.has(c.city)) {
+        cityTts.set(c.city, c.cityPhoneName);
+      }
+    }
+    const menu = cityList.map((c, i) => say(`ל${cityTts.get(c) || c} הקש ${i + 1}`));
     return yemotResponse(
       read(messages(prompt("choose_city", "בחר עיר"), ...menu), {
         name: "CITY",
@@ -385,7 +427,7 @@ async function handleUnregistered(
   // שלב 2: נקודה בעיר. אם יש רק אחת - נבחרת אוטומטית.
   const points = await prisma.deliveryPoint.findMany({
     where: { isActive: true, city },
-    select: { id: true, name: true },
+    select: { id: true, name: true, phoneName: true },
     orderBy: { name: "asc" },
   });
 
@@ -393,7 +435,8 @@ async function handleUnregistered(
   if (points.length === 1) {
     pointId = points[0].id;
   } else if (!p.POINT) {
-    const menu = points.map((pt, i) => say(`ל${pt.name} הקש ${i + 1}`));
+    // §69: כתיב פונטי לשם הנקודה, אם הוגדר
+    const menu = points.map((pt, i) => say(`ל${pt.phoneName || pt.name} הקש ${i + 1}`));
     return yemotResponse(
       read(messages(prompt("choose_point", "בחר נקודת חלוקה"), ...menu), {
         name: "POINT",
@@ -461,7 +504,11 @@ async function handleUnregistered(
   }
 
   // יצירת הלקוח + בקשת הטיפול
-  const name = String(p.NAME).replace(/^Digits-/, "").trim() || "לקוח טלפוני";
+  // §71: 🐛 כאן נולדו התווים הנסתרים. זיהוי הדיבור של ימות מחזיר
+  // לעיתים סימני כיווניות (RLM/LRM) ורווחים לא-שבירים בתוך השם,
+  // ו-.trim() לא נוגע בהם. התוצאה: `LIKE '%בושקפן%'` החזיר אפס
+  // שורות על לקוח שקיים - הנציג לא מצא אותו, יצר מחדש, וכפילות.
+  const name = cleanName(String(p.NAME).replace(/^Digits-/, "")) || "לקוח טלפוני";
 
   // הגנה מפני יצירה כפולה אם ימות שולחים את אותה בקשה פעמיים
   const already = await prisma.customer.findUnique({ where: { phone } });
@@ -863,16 +910,37 @@ async function handleCancelOrder(
 // ─────────────────────────────────────────────────────────────
 // ההזמנות שלי
 // ─────────────────────────────────────────────────────────────
-async function handleMyOrders(customerId: string): Promise<Response> {
+// §69: מה הלקוח שומע על ההזמנות שלו.
+//
+// 🐛 קודם: מספר + סכום + נקודה בלבד. הלקוח לא ידע אם ההזמנה שולמה,
+// אם היא מוכנה לאיסוף, וכמה חויב בפועל - בדיוק השאלות שבגללן הוא
+// מתקשר. עכשיו: סטטוס בעברית, מצב תשלום עם הסכום שחויב, ואפשרות
+// להקיש 1 לפירוט הפריטים של ההזמנה האחרונה.
+const PHONE_STATUS_LABELS: Record<string, string> = {
+  PENDING_REVIEW: "התקבלה וממתינה לטיפול",
+  CONFIRMED: "אושרה",
+  FINAL_PRICE_SET: "המחיר הסופי נקבע",
+  READY_FOR_PICKUP: "מוכנה לאיסוף",
+  COMPLETED: "נמסרה",
+};
+
+async function handleMyOrders(
+  p: Record<string, string>,
+  customerId: string
+): Promise<Response> {
   const orders = await prisma.order.findMany({
     where: { customerId, status: { notIn: ["CANCELLED"] } },
     orderBy: { createdAt: "desc" },
     take: 3,
     select: {
+      id: true,
       orderNumber: true,
       status: true,
+      paymentStatus: true,
+      amountPaid: true,
       estimatedTotal: true,
       finalTotal: true,
+      deliveredAt: true,
       pointNameSnapshot: true,
       deliveryDateSnapshot: true,
     },
@@ -884,20 +952,90 @@ async function handleMyOrders(customerId: string): Promise<Response> {
     );
   }
 
+  // ─── §69: פירוט פריטים של ההזמנה האחרונה, לפי דרישה ───
+  if (p.ORDDET === "1") {
+    const latest = orders[0];
+    const its = await prisma.orderItem.findMany({
+      where: { orderId: latest.id, isCancelled: false },
+      select: {
+        productName: true,
+        quantity: true,
+        isSingle: true,
+        unit: true,
+        finalWeight: true,
+        finalPrice: true,
+        estimatedPrice: true,
+      },
+    });
+    const parts: string[] = [say("פירוט הזמנה מספר"), sayNumber(latest.orderNumber)];
+    for (const it of its) {
+      const qty = Number(it.quantity);
+      parts.push(
+        say(
+          it.isSingle
+            ? `${qty} קילוגרם בודדים של ${it.productName}`
+            : `${qty} קרטונים של ${it.productName}`
+        )
+      );
+      // משקל ומחיר בפועל - רק אחרי שקילה. לפני כן מקריאים הערכה.
+      if (it.finalWeight != null) {
+        parts.push(say(`משקל בפועל ${Number(it.finalWeight)} קילו`));
+      }
+      const price =
+        it.finalPrice != null ? Number(it.finalPrice) : Number(it.estimatedPrice);
+      parts.push(say(it.finalPrice != null ? "מחיר" : "מחיר משוער"));
+      parts.push(sayNumber(Math.round(price)));
+      parts.push(prompt("shekels", "שקלים"));
+    }
+    return yemotResponse(playMessage(...parts));
+  }
+
   const parts: string[] = [];
   for (const o of orders) {
     const total = o.finalTotal != null ? Number(o.finalTotal) : Number(o.estimatedTotal);
     const isFinal = o.finalTotal != null;
     parts.push(say(`הזמנה מספר`));
     parts.push(sayNumber(o.orderNumber));
+
+    // §69: סטטוס. deliveredAt גובר על הסטטוס הרשום - הנציג מסמן
+    // מסירה וזה מה שמעניין את הלקוח, גם אם הסטטוס טרם הוסב.
+    const statusLabel = o.deliveredAt
+      ? "נמסרה"
+      : PHONE_STATUS_LABELS[o.status] ?? null;
+    if (statusLabel) {
+      parts.push(prompt("order_status_pre", "מצב ההזמנה"));
+      parts.push(say(statusLabel));
+    }
+
     parts.push(say(isFinal ? "סכום סופי" : "סכום משוער"));
     parts.push(sayNumber(Math.round(total)));
     parts.push(prompt("shekels", "שקלים"));
+
+    // §69: מצב התשלום - השאלה שבגללה מתקשרים. שולם = כולל הסכום
+    // שחויב בפועל (amountPaid כשקיים, אחרת הסכום הסופי).
+    if (o.paymentStatus === "PAID") {
+      const paid = o.amountPaid != null ? Number(o.amountPaid) : total;
+      parts.push(prompt("order_charged_pre", "ההזמנה שולמה, חויבת בסך"));
+      parts.push(sayNumber(Math.round(paid)));
+      parts.push(prompt("shekels", "שקלים"));
+    } else if (isFinal) {
+      parts.push(say("ההזמנה טרם שולמה"));
+    }
+
     if (o.pointNameSnapshot) parts.push(say(`בנקודה ${o.pointNameSnapshot}`));
     if (o.deliveryDateSnapshot) parts.push(say(`בתאריך ${o.deliveryDateSnapshot}`));
   }
 
-  return yemotResponse(playMessage(...parts));
+  // §69: פירוט לפי בקשה בלבד - לא מקריאים לכל מתקשר את כל הפריטים.
+  return yemotResponse(
+    read(
+      messages(
+        ...parts,
+        prompt("orders_detail_ask", "לשמיעת פירוט הפריטים של ההזמנה האחרונה הקש 1. לסיום הקש 2")
+      ),
+      { name: "ORDDET", max: 1, min: 1, allowed: "12" }
+    )
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -965,9 +1103,11 @@ async function handleMyPoint(
   }
 
   // בחירת עיר
+  // §69: cityPhoneName - כתיב פונטי לעיר. נלקח מהנקודה הראשונה
+  // שהגדירה אותו (הערך זהה לכל נקודות אותה עיר בפועל).
   const cities = await prisma.deliveryPoint.findMany({
     where: { isActive: true },
-    select: { city: true },
+    select: { city: true, cityPhoneName: true },
     distinct: ["city"],
     orderBy: { city: "asc" },
   });
@@ -983,7 +1123,11 @@ async function handleMyPoint(
       read(
         messages(
           prompt("choose_city", "בחר עיר"),
-          ...cityList.map((c, i) => say(`ל${c} הקש ${i + 1}`))
+          // §69: כתיב פונטי אם הוגדר; הבחירה לפי שם העיר האמיתי
+          ...cityList.map((c, i) => {
+            const tts = cities.find((x) => x.city === c)?.cityPhoneName;
+            return say(`ל${tts || c} הקש ${i + 1}`);
+          })
         ),
         {
           name: "NEWCITY",
@@ -1002,7 +1146,7 @@ async function handleMyPoint(
 
   const pts = await prisma.deliveryPoint.findMany({
     where: { isActive: true, city },
-    select: { id: true, name: true },
+    select: { id: true, name: true, phoneName: true },
     orderBy: { name: "asc" },
   });
 
@@ -1014,7 +1158,8 @@ async function handleMyPoint(
       read(
         messages(
           prompt("choose_point", "בחר נקודת חלוקה"),
-          ...pts.map((x, i) => say(`ל${x.name} הקש ${i + 1}`))
+          // §69: כתיב פונטי לשם הנקודה, אם הוגדר
+          ...pts.map((x, i) => say(`ל${x.phoneName || x.name} הקש ${i + 1}`))
         ),
         {
           name: "NEWPOINT",
@@ -1248,90 +1393,170 @@ async function handleOrder(
   const kProd = `PROD${round}`;
   const kMode = `MODE${round}`;
   const kQty = `QTY${round}`;
+  const kSku = `SKU${round}`;
 
-  if (!p[kCat]) {
-    const menu = catList.map(([, name], i) => say(`ל${name} הקש ${i + 1}`));
-    return yemotResponse(
-      read(messages(prompt("choose_category", "בחר קטגוריה"), ...menu), {
-        name: kCat,
-        max: 2,
-        min: 1,
-        allowed: catList.map((_, i) => String(i + 1)).join("."),
-      })
-    );
-  }
-
-  const catId = catList[parseInt(p[kCat], 10) - 1]?.[0];
-  if (!catId) {
-    return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
-  }
-
-  // ─── בחירת מוצר ───
-  const prods = await prisma.pricelistProduct.findMany({
+  // ═══ §69: הזמנה לפי מק"ט מהמודעה ═══
+  //
+  // הלקוח שראה את המודעה לא צריך לשמוע את כל התפריט - הוא מקיש את
+  // מספר המוצר והמערכת מעלה אותו מיד. זה גם המענה המרכזי לתלונת
+  // ההמתנה: הקראת קטגוריות ומוצרים היא החלק הארוך ביותר בשיחה.
+  //
+  // השער מוצג רק אם יש בכלל מוצרים עם מק"ט במכירה - אחרת האפשרות
+  // הייתה רעש שמאריך את השיחה של כולם בשביל תכונה שאינה בשימוש.
+  //
+  // ORDMODE נשאל פעם אחת לשיחה (לא לכל סבב): מי שבחר מק"ט ממשיך
+  // במק"טים גם ב"מוצר נוסף", כי ה-round מתקדם אבל ORDMODE נשאר.
+  const skuCount = await prisma.pricelistProduct.count({
     where: {
       pricelistId: pricelist.id,
-      product: { isActive: true, phoneEnabled: true, categoryId: catId },
+      product: { isActive: true, phoneEnabled: true, phoneCode: { not: null } },
     },
-    include: {
-      product: {
-        select: {
-          id: true,
-          name: true,
-          unit: true,
-          saleType: true,
-          priceType: true,
-          cartonPrice: true,
-          allowSingles: true,
-          singlesMode: true,
-          singleUnitPrice: true,
-          avgWeightPerUnit: true,
-          phoneKey: true,
-          limitedQty: true,
-          limitedQtyAmount: true,
-          // §33: כשרות - הלקוח חייב לדעת לפני שהוא בוחר, במיוחד כשיש
-          // שני מוצרים דומים בכשרויות שונות.
-          kashrut: true,
-          kashrutRef: { select: { name: true } },
+  });
+
+  if (skuCount > 0 && !p.ORDMODE) {
+    return yemotResponse(
+      read(
+        messages(
+          prompt(
+            "order_mode_ask",
+            "אם ברשותך מספר מוצר מהמודעה הקש 1. לשמיעת המוצרים לפי קטגוריות הקש 2"
+          )
+        ),
+        { name: "ORDMODE", max: 1, min: 1, allowed: "12" }
+      )
+    );
+  }
+
+  // chosen מוגדר פעם אחת ומשותף לשני המסלולים - מכאן והלאה זרימת
+  // הכמות/בודדים זהה לחלוטין, בדיוק כמו שביקשת: אחרי כל מוצר מק"ט
+  // אותה שאלת "להמשיך או לסיים" של המסלול הרגיל.
+  let chosen: { price: any; product: any } | null = null;
+
+  const productSelect = {
+    id: true,
+    name: true,
+    unit: true,
+    saleType: true,
+    priceType: true,
+    cartonPrice: true,
+    allowSingles: true,
+    singlesMode: true,
+    singleUnitPrice: true,
+    avgWeightPerUnit: true,
+    phoneKey: true,
+    // §69: כתיב פונטי - עדיפות בהקראה על השם הרגיל
+    phoneName: true,
+    limitedQty: true,
+    limitedQtyAmount: true,
+    // §33: כשרות - הלקוח חייב לדעת לפני שהוא בוחר, במיוחד כשיש
+    // שני מוצרים דומים בכשרויות שונות.
+    kashrut: true,
+    kashrutRef: { select: { name: true } },
+  } as const;
+
+  if (skuCount > 0 && p.ORDMODE === "1") {
+    // ─── מסלול מק"ט ───
+    if (!p[kSku]) {
+      return yemotResponse(
+        read(
+          messages(
+            prompt("sku_ask", "הקש את מספר המוצר מהמודעה")
+          ),
+          { name: kSku, max: 5, min: 1, timeout: 10, playback: "Digits" }
+        )
+      );
+    }
+
+    const found = await prisma.pricelistProduct.findFirst({
+      where: {
+        pricelistId: pricelist.id,
+        product: {
+          isActive: true,
+          phoneEnabled: true,
+          phoneCode: String(parseInt(p[kSku], 10)),
         },
       },
-    },
-  });
-  // סדר לפי phoneKey אם הוגדר, אחרת לפי שם
-  prods.sort((a, b) => {
-    const ak = a.product.phoneKey ?? 999;
-    const bk = b.product.phoneKey ?? 999;
-    if (ak !== bk) return ak - bk;
-    return a.product.name.localeCompare(b.product.name, "he");
-  });
-
-  if (prods.length === 0) {
-    return yemotResponse(
-      playMessage(prompt("no_products_cat", "אין מוצרים בקטגוריה זו"))
-    );
-  }
-
-  if (!p[kProd]) {
-    // §33: שם המוצר + הכשרות שלו. בלי זה לקוח שרואה שני מוצרים דומים
-    // בתפריט לא יודע במה לבחור.
-    const menu = prods.map((pp, i) => {
-      const k = pp.product.kashrutRef?.name || pp.product.kashrut || "";
-      return say(
-        k
-          ? `ל${pp.product.name} בכשרות ${k} הקש ${i + 1}`
-          : `ל${pp.product.name} הקש ${i + 1}`
-      );
+      include: { product: { select: productSelect } },
     });
-    return yemotResponse(
-      read(messages(prompt("choose_product", "בחר מוצר"), ...menu), {
-        name: kProd,
-        max: 2,
-        min: 1,
-        allowed: prods.map((_, i) => String(i + 1)).join("."),
-      })
-    );
+
+    if (!found) {
+      // שאילת אותו שם פרמטר מחדש - ימות דורסים את הערך הקודם, ולכן
+      // זו לולאת ניסיון-חוזר טבעית בלי מצב נוסף.
+      return yemotResponse(
+        read(
+          messages(
+            prompt("sku_not_found", "מספר מוצר לא נמצא במכירה הנוכחית. נסה שוב, או הקש כוכבית לתפריט הראשי")
+          ),
+          { name: kSku, max: 5, min: 1, timeout: 10, playback: "Digits" }
+        )
+      );
+    }
+    chosen = found;
+  } else {
+    // ─── המסלול הרגיל: קטגוריה ואז מוצר ───
+    if (!p[kCat]) {
+      const menu = catList.map(([, name], i) => say(`ל${name} הקש ${i + 1}`));
+      return yemotResponse(
+        read(messages(prompt("choose_category", "בחר קטגוריה"), ...menu), {
+          name: kCat,
+          max: 2,
+          min: 1,
+          allowed: catList.map((_, i) => String(i + 1)).join("."),
+        })
+      );
+    }
+
+    const catId = catList[parseInt(p[kCat], 10) - 1]?.[0];
+    if (!catId) {
+      return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
+    }
+
+    // ─── בחירת מוצר ───
+    const prods = await prisma.pricelistProduct.findMany({
+      where: {
+        pricelistId: pricelist.id,
+        product: { isActive: true, phoneEnabled: true, categoryId: catId },
+      },
+      include: { product: { select: productSelect } },
+    });
+    // סדר לפי phoneKey אם הוגדר, אחרת לפי שם
+    prods.sort((a, b) => {
+      const ak = a.product.phoneKey ?? 999;
+      const bk = b.product.phoneKey ?? 999;
+      if (ak !== bk) return ak - bk;
+      return a.product.name.localeCompare(b.product.name, "he");
+    });
+
+    if (prods.length === 0) {
+      return yemotResponse(
+        playMessage(prompt("no_products_cat", "אין מוצרים בקטגוריה זו"))
+      );
+    }
+
+    if (!p[kProd]) {
+      // §33: שם המוצר + הכשרות שלו. בלי זה לקוח שרואה שני מוצרים דומים
+      // בתפריט לא יודע במה לבחור.
+      // §69: phoneName קודם לשם הרגיל - זה כל ייעודו.
+      const menu = prods.map((pp, i) => {
+        const k = pp.product.kashrutRef?.name || pp.product.kashrut || "";
+        const nm = pp.product.phoneName || pp.product.name;
+        return say(
+          k ? `ל${nm} בכשרות ${k} הקש ${i + 1}` : `ל${nm} הקש ${i + 1}`
+        );
+      });
+      return yemotResponse(
+        read(messages(prompt("choose_product", "בחר מוצר"), ...menu), {
+          name: kProd,
+          max: 2,
+          min: 1,
+          allowed: prods.map((_, i) => String(i + 1)).join("."),
+        })
+      );
+    }
+
+    chosen = prods[parseInt(p[kProd], 10) - 1] ?? null;
   }
 
-  const chosen = prods[parseInt(p[kProd], 10) - 1];
   if (!chosen) {
     return yemotResponse(playMessage(prompt("invalid_choice", "בחירה לא חוקית")));
   }
@@ -1355,6 +1580,14 @@ async function handleOrder(
   if (prod.allowSingles) {
     if (!p[kMode]) {
       const parts: string[] = [];
+
+      // §69: במסלול מק"ט הלקוח לא שמע תפריט - חייבים להקריא לו איזה
+      // מוצר עלה מהמספר שהקיש, אחרת הוא מאשר כמות בלי לדעת של מה.
+      if (p.ORDMODE === "1") {
+        const k = prod.kashrutRef?.name || prod.kashrut || "";
+        parts.push(prompt("sku_chosen", "בחרת"));
+        parts.push(say(k ? `${prod.phoneName || prod.name} בכשרות ${k}` : prod.phoneName || prod.name));
+      }
 
       if (avgW) {
         parts.push(prompt("mode_carton_pre", "לקניה לפי קרטון במשקל משוער של"));
@@ -1399,6 +1632,12 @@ async function handleOrder(
     // מוצר ללא בודדים: אין תפריט בחירה, אבל הלקוח עדיין צריך לשמוע
     // מה המחיר לפני שהוא נוקב בכמות. משולב בשאלת הכמות עצמה.
     const info: string[] = [];
+    // §69: במסלול מק"ט - קודם איזה מוצר עלה
+    if (p.ORDMODE === "1") {
+      const k = prod.kashrutRef?.name || prod.kashrut || "";
+      info.push(prompt("sku_chosen", "בחרת"));
+      info.push(say(k ? `${prod.phoneName || prod.name} בכשרות ${k}` : prod.phoneName || prod.name));
+    }
     if (avgW) {
       info.push(prompt("carton_only_pre", "קרטון במשקל משוער של"));
       info.push(sayNumber(Math.round(avgW)));

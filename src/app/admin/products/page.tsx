@@ -16,6 +16,9 @@ type Product = {
   // §24: תפריט טלפוני
   phoneEnabled?: boolean;
   phoneKey?: number | null;
+  // §69: מק"ט טלפוני (מהמודעה) + כתיב פונטי להקראה
+  phoneCode?: string | null;
+  phoneName?: string | null;
   singleSurcharge: string | null;
   singlesMode: string; // "KG" (default) | "UNITS" - מצב בודדים (סלומון = UNITS)
   singleUnitPrice: string | null; // מחיר קבוע ליחידה בבודדים (רק ב-UNITS)
@@ -183,6 +186,10 @@ export default function ProductsPage() {
         editing.phoneKey != null && String(editing.phoneKey) !== ""
           ? parseInt(String(editing.phoneKey), 10)
           : null,
+      // §69: מק"ט טלפוני + שם להקראה. הנירמול הסופי (הסרת אפסים
+      // מובילים) נעשה בשרת - כאן רק ספרות.
+      phoneCode: String(editing.phoneCode ?? "").replace(/\D/g, "") || null,
+      phoneName: (editing.phoneName || "").trim() || null,
     };
     if (editing.id) {
       await api(`/api/admin/products/${editing.id}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -798,6 +805,54 @@ export default function ProductsPage() {
                     קובע את סדר ההקראה בתפריט. מומלץ לשמור על מספר קבוע לאורך זמן
                     כדי שלקוחות קבועים יזכרו אותו. ללא מספר — המוצר יופיע בסוף
                     לפי סדר אלפביתי.
+                  </p>
+                </label>
+              )}
+              {/* §69: מק"ט להזמנה מהירה מהמודעה. שונה מ"מקש בתפריט":
+                  המקש קובע סדר הקראה, המק"ט מדלג על התפריט כולו. */}
+              {(editing.phoneEnabled ?? true) && (
+                <label className="block">
+                  <span className="text-xs font-bold text-zinc-500">
+                    מק&quot;ט טלפוני למודעה{" "}
+                    <span className="font-normal text-zinc-400">(אופציונלי)</span>
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    dir="ltr"
+                    value={editing.phoneCode ?? ""}
+                    onChange={(e) =>
+                      setEditing({
+                        ...editing,
+                        phoneCode: e.target.value.replace(/\D/g, "").slice(0, 5),
+                      })
+                    }
+                    placeholder="לדוגמה 101"
+                    className="w-full mt-1 px-3 py-2 border border-zinc-300 rounded-lg text-sm"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    המספר שמתפרסם במודעה. לקוח שמקיש אותו בטלפון מקבל את
+                    המוצר ישירות, בלי לשמוע את כל התפריט. חייב להיות ייחודי —
+                    מוצר אחר עם אותו מספר ייחסם בשמירה.
+                  </p>
+                </label>
+              )}
+              {(editing.phoneEnabled ?? true) && (
+                <label className="block">
+                  <span className="text-xs font-bold text-zinc-500">
+                    שם להקראה בטלפון{" "}
+                    <span className="font-normal text-zinc-400">(אופציונלי)</span>
+                  </span>
+                  <input
+                    type="text"
+                    value={editing.phoneName ?? ""}
+                    onChange={(e) => setEditing({ ...editing, phoneName: e.target.value })}
+                    placeholder='לדוגמה: אנטרי קוט'
+                    className="w-full mt-1 px-3 py-2 border border-zinc-300 rounded-lg text-sm"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    למוצרים שההקראה הממוחשבת משבשת את שמם — כתוב כאן איך
+                    שהשם צריך <b>להישמע</b>. משפיע רק על הטלפון, לא על האתר.
                   </p>
                 </label>
               )}

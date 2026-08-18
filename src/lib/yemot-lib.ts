@@ -136,6 +136,19 @@ export function prompt(file: string, text: string): string {
  * אם מוסיפים כאן שם - להסיר אותו גם מ-RECORDINGS.md.
  */
 const TTS_ONLY = new Set<string>([
+  // ═══ §69: הודעות חדשות שטרם הוקלטו ═══
+  // נשארות ב-TTS בכוונה עד שיהיה זמן להקליט. כשמקליטים - להסיר
+  // מכאן ולהוסיף ל-RECORDINGS.md. השמות כבר לפי המוסכמה.
+  "order_mode_ask",
+  "sku_ask",
+  "sku_not_found",
+  "sku_chosen",
+  "star_hint",
+  "orders_detail_ask",
+  "order_status_pre",
+  "order_paid_pre",
+  "order_charged_pre",
+  // ═══ מסלולי שגיאה ותיקים ═══
   "id_error",
   "account_exists",
   "no_point_assigned",
@@ -146,7 +159,30 @@ const TTS_ONLY = new Set<string>([
 
 /** שרשור כמה הודעות ברצף - מופרדות בנקודה לפי הפרוטוקול */
 export function messages(...parts: string[]): string {
-  return parts.filter(Boolean).join(".");
+  // §69: מיזוג מקטעי הקראה עוקבים.
+  //
+  // 🐛 מקור ה"גמגום": כל מקטע t- עובר סינתזת TTS *נפרדת* אצל ימות,
+  // עם עצירה מורגשת בין מקטע למקטע. תפריט של 8 מוצרים נבנה כ-9
+  // מקטעים - ולכן נשמעו 8 עצירות באמצע המשפט, כאילו המערכת מנסה
+  // לדבר ולא מצליחה.
+  //
+  // הפתרון: כל רצף של t- עוקבים מתמזג למקטע אחד, מופרד בפסיקים -
+  // סינתזה אחת, הקראה רציפה, והפסיק גם נותן הפוגה טבעית בין
+  // הפריטים. הקלטות (f-) ומספרים (n-/d-) נשארים מקטעים נפרדים כי
+  // אי אפשר למזג אותם לתוך טקסט.
+  //
+  // sanitizeTts כבר הסיר נקודות ומקפים מהטקסטים, ולכן המיזוג לא
+  // יכול לייצר מפריד-פרוטוקול בטעות.
+  const merged: string[] = [];
+  for (const part of parts.filter(Boolean)) {
+    const prev = merged[merged.length - 1];
+    if (prev?.startsWith("t-") && part.startsWith("t-")) {
+      merged[merged.length - 1] = `${prev}, ${part.slice(2)}`;
+      continue;
+    }
+    merged.push(part);
+  }
+  return merged.join(".");
 }
 
 /** השמעת הודעות ואז יציאה/מעבר */
@@ -194,6 +230,23 @@ export function read(prompt: string, opts: ReadOptions): string {
     allowed = "",
   } = opts;
 
+  // §69: כוכבית = חזרה לתפריט הראשי, בכל שאלה במערכת.
+  //
+  // רשימת "מקשים מותרים" (מיקום 10) חוסמת כל מקש שאינו בה - ולכן
+  // בלי הוספה מרכזית של * לרשימה, ימות היו דוחים את ההקשה עוד לפני
+  // שהיא מגיעה אלינו, והלקוח היה שומע "בחירה לא חוקית".
+  //
+  // ההוספה כאן ולא בכל אתר קריאה: עשרות read() בקוד, וכל שאלה
+  // חדשה בעתיד צריכה לקבל את זה אוטומטית. הטיפול בערך "*" עצמו
+  // נעשה בראש ה-handler של ה-IVR (סריקה לפני כל ניתוב).
+  //
+  // הפורמט נשמר בסגנון הקיים: רשימה עם נקודות מקבלת ".*",
+  // רשימה רציפה ("12") מקבלת "*".
+  const allowedWithStar =
+    allowed && !allowed.includes("*")
+      ? allowed + (allowed.includes(".") ? ".*" : "*")
+      : allowed;
+
   // מיקומי הערכים לפי התיעוד:
   // 1=שם, 2=שימוש חוזר, 3=max, 4=min, 5=timeout, 6=playback,
   // 7=חסימת כוכבית, 8=חסימת אפס, 9=החלפת תו, 10=מקשים מותרים,
@@ -208,7 +261,7 @@ export function read(prompt: string, opts: ReadOptions): string {
     "", // כוכבית מותרת
     "", // אפס מותר
     "", // ללא החלפת תווים
-    allowed,
+    allowedWithStar,
     "", // חזרות - ברירת מחדל
     "", // התנהגות בריק - ברירת מחדל
     "", // טקסט לריק
