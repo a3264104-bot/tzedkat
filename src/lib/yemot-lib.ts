@@ -171,7 +171,9 @@ const TTS_ONLY = new Set<string>([
   // נשארות ב-TTS בכוונה עד שיהיה זמן להקליט. כשמקליטים - להסיר
   // מכאן ולהוסיף ל-RECORDINGS.md. השמות כבר לפי המוסכמה.
   "code_missing",
-  "menu_main_code",
+  // §97: menu_main_code הוסר - התפריט חזר להשתמש בהקלטה הקיימת
+  // menu_main, ואפשרות 4 היא הודעה נפרדת (menu_opt_code).
+  "menu_opt_code",
   "code_not_ready",
   "login_code_pre",
   "login_code_repeat",
@@ -225,13 +227,40 @@ export function messages(...parts: string[]): string {
   for (const part of parts.filter(Boolean)) {
     const prev = merged[merged.length - 1];
     if (prev?.startsWith("t-") && part.startsWith("t-")) {
-      merged[merged.length - 1] = `${prev}${TTS_PAUSE}${part.slice(2)}`;
+      const combined = `${prev}${TTS_PAUSE}${part.slice(2)}`;
+      // §98: תקרת אורך למקטע ממוזג.
+      //
+      // 🐛 הניתוק באמצע השמעת רשימת המוצרים: המיזוג של §69 חיבר
+      // את כל הפריטים למקטע TTS **אחד**. תפריט של 12 מוצרים עם
+      // שמות וכשרויות הגיע ל-350+ תווים בסינתזה אחת, וימות נפלו
+      // באמצע ההשמעה - השיחה התנתקה בלי הקשה ובלי timeout.
+      //
+      // התקרה נותנת את שני הדברים: מקטעים ארוכים דיים כדי שלא
+      // יישמע גמגום בין כל פריט, וקצרים דיים כדי שלא יחרגו.
+      // הפיצול נעשה **בין** פריטים ולא באמצע משפט.
+      if (combined.length <= MAX_TTS_SEGMENT) {
+        merged[merged.length - 1] = combined;
+        continue;
+      }
+      // חורג - פותחים מקטע חדש במקום להאריך
+      merged.push(part);
       continue;
     }
     merged.push(part);
   }
   return merged.join(".");
 }
+
+/**
+ * §98: אורך מרבי למקטע הקראה בודד.
+ *
+ * 200 תווים ≈ 4-5 פריטי תפריט - מספיק כדי שההקראה תזרום, ורחוק
+ * מהגבול שבו ימות נופלים.
+ *
+ * ⚠️ אם יופיעו שוב ניתוקים באמצע השמעה - להוריד את הערך הזה
+ * לפני שמחפשים במקום אחר. זו הייתה הסיבה בפעם הקודמת.
+ */
+const MAX_TTS_SEGMENT = 200;
 
 /**
  * §88: ההפסקה בין פריטים בתוך מקטע הקראה אחד.
@@ -285,6 +314,8 @@ export type ReadOptions = {
   confirm?: boolean;
   /** אילו מקשים מותרים. למשל "123" או "1.2.3" לרב-ספרתי */
   allowed?: string;
+  /** §97: כמה פעמים לחזור על השאלה בלי קלט. ברירת מחדל 2. */
+  retries?: number;
 };
 
 /**
@@ -296,10 +327,22 @@ export function read(prompt: string, opts: ReadOptions): string {
     name,
     max = 2,
     min = 1,
-    timeout = 7,
+    // §97: 20 שניות במקום 7.
+    //
+    // 🐛 הניתוק שדווח: הלקוח שמע רשימת מוצרים ארוכה, שקל מה לבחור,
+    // וכעבור 7 שניות השיחה נותקה. הסיבה: ext.ini מגדיר
+    // api_end_goto=hangup, ולכן read שפג בלי קלט **מסיים את
+    // השיחה** במקום לחזור על השאלה.
+    //
+    // 20 שניות נותנות זמן אמיתי לשקול. בשילוב עם retries למטה,
+    // לקוח מהוסס שומע את השאלה שוב במקום למצוא את עצמו מנותק.
+    timeout = 20,
     playback = "No",
     confirm = false,
     allowed = "",
+    // §97: כמה פעמים לחזור על השאלה לפני ויתור. ברירת המחדל של
+    // ימות הייתה ריקה, ולכן ניסיון אחד בלבד.
+    retries = 2,
   } = opts;
 
   // §89: 🐛 כאן היה הבאג שהשבית את המערכת הטלפונית.
@@ -334,7 +377,7 @@ export function read(prompt: string, opts: ReadOptions): string {
     "", // אפס מותר
     "", // ללא החלפת תווים
     allowed,
-    "", // חזרות - ברירת מחדל
+    String(retries), // §97: חזרות - במקום ויתור מיידי
     "", // התנהגות בריק - ברירת מחדל
     "", // טקסט לריק
     "", // מקלדת
