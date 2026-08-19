@@ -49,6 +49,13 @@ type DraftItem = {
   productName: string;
   // §33: נשמר בטיוטה כדי שהסיכום יקריא אותה בלי שאילתה נוספת
   kashrut?: string | null;
+  // §128: יחידת המכירה האמיתית של המוצר.
+  //
+  // 🐛 לא נשמרה, ולכן ביצירת ההזמנה נכתב `isSingle ? ק"ג : קרטון`
+  // באופן קבוע. מוצר שנמכר ביחידות - כבד, בקר טחון - נשמר במסד
+  // כ"קרטון", וכל מסך שקרא אותו הציג שגוי. זה לא באג תצוגה אלא
+  // **נתון שגוי במסד**, ולכן הוא שרד כל תיקון בתצוגה.
+  unit?: string | null;
   isSingle: boolean;
   quantity: number;
   unitPrice: number;
@@ -2299,6 +2306,13 @@ async function handleOrder(
     productId: prod.id,
     productName: prod.name,
     kashrut: prod.kashrutRef?.name || prod.kashrut || null,
+    // §128: היחידה האמיתית. בבודדים היא נגזרת מ-singlesMode
+    // (ק"ג או יחידות), ואחרת מ-unit של המוצר.
+    unit: isSingle
+      ? prod.singlesMode === "UNITS"
+        ? "יחידה"
+        : 'ק"ג'
+      : prod.unit || "קרטון",
     isSingle,
     quantity: qty,
     unitPrice,
@@ -2392,7 +2406,9 @@ async function finalizeOrder(
         create: items.map((i) => ({
           productId: i.productId,
           productName: i.productName,
-          unit: i.isSingle ? "ק\"ג" : "קרטון",
+          // §128: היחידה האמיתית מהמוצר. בבודדים - ק"ג או יחידות
+          // לפי singlesMode; אחרת - unit של המוצר עצמו.
+          unit: i.unit || (i.isSingle ? 'ק"ג' : "קרטון"),
           isSingle: i.isSingle,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
