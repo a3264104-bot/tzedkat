@@ -81,6 +81,9 @@ export default function AdminCustomersPage() {
   const [points, setPoints] = useState<Point[]>([]);
   // §82: מודל עדכון האשראי
   const [cardModalFor, setCardModalFor] = useState<Customer | null>(null);
+  // §127: כמה לקוחות קיימים בפועל, מול כמה מוצגים
+  const [totalCount, setTotalCount] = useState(0);
+  const [truncated, setTruncated] = useState(false);
   const [convertingToAgent, setConvertingToAgent] = useState(false);
   const [newRole, setNewRole] = useState<string>("");
   const [newPointId, setNewPointId] = useState<string>("");
@@ -154,7 +157,13 @@ export default function AdminCustomersPage() {
 
   async function reload() {
     const data = await api(`/api/admin/customers?q=${encodeURIComponent(query)}`);
-    const enriched = (Array.isArray(data) ? data : []).map((c: any) => ({
+    // §127: התשובה עברה ממערך לאובייקט עם מטא-דאטה.
+    // ⚠️ הנפילה למערך נשמרת בכוונה - אם קליינט ישן פוגש שרת חדש
+    // או להפך, המסך לא נשבר.
+    const rowsRaw = Array.isArray(data) ? data : (data?.rows ?? []);
+    setTotalCount(typeof data?.total === "number" ? data.total : rowsRaw.length);
+    setTruncated(!!data?.truncated);
+    const enriched = rowsRaw.map((c: any) => ({
       ...c,
       city: c.city || c.pointCity || null,
     }));
@@ -499,6 +508,30 @@ export default function AdminCustomersPage() {
           {/* §54: המנהל יוצר לקוחות בעצמו, כמו נציג.
               ההבדל: הוא בוחר נקודת חלוקה במפורש (אין לו ברירת מחדל). */}
           <AdminAddCustomerButton points={points} onCreated={reload} />
+        </div>
+
+        {/* §127: כמה מוצגים מתוך כמה.
+            
+            ⚠️ בלי זה המנהל רואה רשימה שנראית מלאה ולא יודע
+            שחסרים לקוחות - והוא עלול ליצור כפילות למי שכבר קיים
+            ופשוט לא הופיע. */}
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-zinc-500">
+            {truncated ? (
+              <>
+                מוצגים <b>{customers.length}</b> מתוך <b>{totalCount}</b> לקוחות
+              </>
+            ) : (
+              <>
+                <b>{totalCount}</b> לקוחות
+              </>
+            )}
+          </span>
+          {truncated && (
+            <span className="bg-amber-100 text-amber-800 border border-amber-300 rounded px-2 py-0.5 font-medium">
+              ⚠️ הרשימה חלקית — יש להשתמש בחיפוש כדי למצוא לקוח שאינו מופיע
+            </span>
+          )}
           <button
             onClick={() => setViewMode(viewMode === "table" ? "grouped" : "table")}
             className="btn-ghost btn-sm"

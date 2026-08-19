@@ -25,11 +25,27 @@ export async function GET(req: Request) {
       }
     : {};
 
-  const customers = await prisma.customer.findMany({
-    where: {
-      ...searchFilter, // בלי סינון role - להראות הכל, גם נציגים ומנהלים
-      ...(includeInactive ? {} : { isActive: true }),
-    },
+  // §127: 🐛 ההגבלה הייתה 100 **בשקט**.
+  //
+  // המנהל ראה רשימה שנראתה מלאה, בלי שום סימן שחסרים לקוחות.
+  // עם 150 לקוחות, 50 מהם פשוט לא היו קיימים מבחינתו - והוא
+  // היה יוצר לקוח כפול למי שכבר קיים ולא הופיע בחיפוש.
+  //
+  // ⚠️ ההגבלה עצמה נשארת: 2,000 שורות עם כל ה-include הזה הן
+  // תשובה כבדה שתאט את המסך. אבל עכשיו היא **גבוהה מספיק**
+  // לשימוש אמיתי, ובעיקר - מדווחת.
+  const LIMIT = 500;
+
+  const where = {
+    ...searchFilter, // בלי סינון role - להראות הכל, גם נציגים ומנהלים
+    ...(includeInactive ? {} : { isActive: true }),
+  };
+
+  // ⚠️ הספירה במקביל ולא בטור: עם המסד באירלנד כל שאילתה היא
+  // נסיעה חוצת-אוקיינוס, והרצה בטור מכפילה את זמן הטעינה.
+  const [customers, totalCount] = await Promise.all([
+    prisma.customer.findMany({
+    where,
     include: {
       defaultPoint: { select: { name: true, city: true } },
       _count: { select: { orders: true } },
@@ -41,11 +57,18 @@ export async function GET(req: Request) {
       },
     },
     orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+    take: LIMIT,
+    }),
+    prisma.customer.count({ where }),
+  ]);
 
-  return NextResponse.json(
-    customers.map((c) => ({
+  // §127: התשובה כוללת עכשיו מטא-דאטה, כדי שהמסך יוכל לומר
+  // "מוצגים 500 מתוך 730". מבנה מערך נשמר בשדה rows לתאימות.
+  return NextResponse.json({
+    total: totalCount,
+    shown: customers.length,
+    truncated: totalCount > customers.length,
+    rows: customers.map((c) => ({
       id: c.id,
       name: c.name,
       phone: c.phone,
@@ -105,6 +128,6 @@ export async function GET(req: Request) {
       commissionRateCarton: Number(c.commissionRateCarton),
       commissionRateSingles: Number(c.commissionRateSingles),
       createdAt: c.createdAt,
-    }))
-  );
+    })),
+  });
 }
