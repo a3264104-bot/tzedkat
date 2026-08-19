@@ -27,6 +27,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
 import { fmt } from "@/lib/pricing";
+// §128: תצוגת יחידות - מקור אחד לכל המערכת
+import { formatItemQty } from "@/lib/order-display";
 
 type Props = {
   orders: Order[];
@@ -119,9 +121,19 @@ export function WeightsTable({
             productName: it.productName,
             isSingle: it.isSingle,
             isCancelled: it.isCancelled,
-            ordered: it.isSingle
-              ? `${it.quantity} ק"ג`
-              : `${it.quantity} קרטון${it.quantity > 1 ? "ים" : ""}`,
+            // §128: 🐛 שני באגים כאן.
+            //
+            // 1. "קרטון" היה מקודד: מוצר שנמכר ביחידות (בקר טחון,
+            //    כבד) הוצג לנציג כקרטון, והוא היה שוקל את הדבר
+            //    הלא נכון.
+            //
+            // 2. `קרטון + "ים"` נותן "קרטוןים" - האות הסופית לא
+            //    טופלה. formatItemQty מטפל בשניהם.
+            ordered: formatItemQty({
+              isSingle: it.isSingle,
+              quantity: it.quantity,
+              unit: it.unit,
+            }),
             orderedQty: it.quantity,
             unitPrice: it.unitPrice,
             estimatedWeight: it.estimatedWeight,

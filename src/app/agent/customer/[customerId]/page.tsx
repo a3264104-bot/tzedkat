@@ -127,6 +127,9 @@ export default async function AgentCustomerPage({
       id: it.id,
       productName: it.productName,
       unit: it.unit,
+      // §128: בלי isSingle הקליינט מניח שהכל קרטונים - בדיוק
+      // הבאג שחזר. formatItemQty לא יכול לעבוד בלעדיו.
+      isSingle: it.isSingle,
       quantity: Number(it.quantity),
       estimatedPrice: Number(it.estimatedPrice),
       estimatedWeight: it.estimatedWeight != null ? Number(it.estimatedWeight) : null,

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { STATUS_LABELS, fmt } from "@/lib/pricing";
+import { formatItemQty } from "@/lib/order-display";
 import { UpdateCardModal } from "@/components/UpdateCardButton";
 import { AddOrderItem, type AddableProduct } from "@/components/AddOrderItem";
 
@@ -10,6 +11,9 @@ type Item = {
   id: string;
   productName: string;
   unit: string;
+  // §128: נדרש לתצוגת יחידות נכונה. בלעדיו formatItemQty מניח
+  // שהכל קרטונים, וזה בדיוק הבאג שחזר.
+  isSingle: boolean;
   quantity: number;
   estimatedPrice: number;
   estimatedWeight: number | null;
@@ -357,7 +361,17 @@ export function AgentCustomerClient({
                           {it.productName}
                         </div>
                         <div className="text-xs text-zinc-400">
-                          {it.quantity} {it.unit} · {fmt(it.unitPrice)}/{it.unit}
+                          {/* §128: 🐛 היה `{quantity} {unit}` גולמי -
+                              בדיוק מה שההערה ב-order-display אוסרת.
+                              פריט בודדים הוצג כ"5.5 קרטון", ומוצר
+                              שנמכר ביחידות הוצג לפי unit של ההזמנה
+                              שהיה עלול להיות שגוי. */}
+                          {formatItemQty({
+                            isSingle: it.isSingle,
+                            quantity: it.quantity,
+                            unit: it.unit,
+                          })}{" "}
+                          · {fmt(it.unitPrice)}/{it.unit}
                           {it.estimatedWeight != null && (
                             <span className="text-amber-600"> · משוער: {it.estimatedWeight} ק"ג</span>
                           )}
