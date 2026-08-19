@@ -58,6 +58,9 @@ export async function GET(req: Request) {
       //
       // ⚠️ בוליאני בלבד - ה-hash עצמו לעולם לא יוצא מהשרת.
       hasPassword: !!c.passwordHash,
+      // §126: יתרת זכות פתוחה - המנהל צריך לראות למי חייבים,
+      // בלי להיכנס לכל כרטיס בנפרד.
+      creditBalance: Number(c.creditBalance ?? 0),
       defaultPointId: c.defaultPointId,
       pointName: c.defaultPoint?.name ?? null,
       city: c.defaultPoint?.city ?? null,

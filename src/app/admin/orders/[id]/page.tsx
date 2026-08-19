@@ -393,18 +393,54 @@ export default function OrderDetail() {
         <Info label="תאריך הזמנה" value={new Date(order.createdAt).toLocaleString("he-IL")} />
         {/* §24: מקור ההזמנה - חשוב לתחקור, במיוחד בהזמנות טלפוניות
             שבהן אין למנהל שום דרך אחרת לדעת איך ההזמנה נוצרה. */}
+        {/* §126: זיכוי ויתרת זכות.
+
+    ⚠️ בלעדיהם המנהל רואה מחיר סופי שאינו מסתדר עם הפריטים,
+    ואין לו שום דרך לדעת למה. הוא היה מניח שיש באג בחישוב. */}
+
+        {order.creditAmount != null && (
+
+          <Info
+
+            label="↩️ זיכוי"
+
+            value={`${fmt(Number(order.creditAmount))}${
+
+              order.creditReason ? ` · ${order.creditReason}` : ""
+
+            }`}
+
+          />
+
+        )}
+
+        {order.appliedCreditBalance != null && (
+
+          <Info
+
+            label="יתרת זכות שקוזזה"
+
+            value={fmt(Number(order.appliedCreditBalance))}
+
+          />
+
+        )}
+
         <Info
           label="מקור ההזמנה"
+          // ⚠️ מיפוי inline. §115 הוציא אותו לפונקציה משותפת
+          // ב-pricing.ts, אבל אותו קובץ שוחזר מ-git (הוא נדרס
+          // בטעות), והפונקציה כבר לא קיימת. חזרה לתנאי המקורי.
           value={
             order.source === "PHONE"
               ? "מערכת טלפונית"
               : order.source === "EXCEL"
-                ? "קובץ אקסל במייל"
-              : order.source === "AGENT"
-                ? "נציג"
-                : order.source === "ADMIN"
-                  ? "מנהל"
-                  : "האתר"
+                ? "קובץ אקסל"
+                : order.source === "AGENT"
+                  ? "נציג"
+                  : order.source === "ADMIN"
+                    ? "מנהל"
+                    : "האתר"
           }
         />
         {order.phoneCallId && (

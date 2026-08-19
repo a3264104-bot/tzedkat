@@ -27,6 +27,8 @@ type Customer = {
   // §62: מצב הקוד בלבד. הקוד עצמו לעולם לא מגיע ברשימה.
   hasLoginCode?: boolean;
   hasPassword?: boolean;
+  /** §126: יתרת זכות פתוחה */
+  creditBalance?: number;
   loginCodeSetAt?: string | null;
   lockedUntil?: string | null;
   failedLoginAttempts?: number;
@@ -653,6 +655,17 @@ export default function AdminCustomersPage() {
                                 💳
                               </span>
                             )}
+                            {/* §126: יתרת זכות - כסף שהעמותה חייבת
+                                ללקוח. גלוי ברשימה כדי שהמנהל יראה
+                                למי חייבים בלי להיכנס לכל כרטיס. */}
+                            {!!c.creditBalance && c.creditBalance > 0 && (
+                              <span
+                                className="text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 rounded px-1.5 py-0.5"
+                                title="יתרת זכות שתקוזז מההזמנה הבאה"
+                              >
+                                ↩️ {c.creditBalance}
+                              </span>
+                            )}
                             {c.paymentPreference === "CASH" && (
                               <span
                                 className="text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded px-1.5 py-0.5"
@@ -840,6 +853,19 @@ export default function AdminCustomersPage() {
                   💳 {editing.hasPaymentToken ? "החלפת כרטיס אשראי" : "הזנת כרטיס אשראי"}
                 </button>
               </div>
+
+              {/* §126: יתרת זכות בכרטיס - עם הסיבה. */}
+              {!!editing.creditBalance && editing.creditBalance > 0 && (
+                <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-3">
+                  <div className="font-bold text-blue-900 text-sm">
+                    ↩️ יתרת זכות: {editing.creditBalance} ₪
+                  </div>
+                  <div className="text-[11px] text-blue-800 mt-0.5 leading-relaxed">
+                    הסכום יקוזז אוטומטית מההזמנה הבאה של הלקוח. הוא רואה
+                    אותו באזור האישי ובמערכת הטלפונית.
+                  </div>
+                </div>
+              )}
 
               {/* §82: נקודת חלוקה - לכל לקוח, לא רק לנציג */}
               <Field label="📍 נקודת חלוקה">
