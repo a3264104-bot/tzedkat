@@ -66,6 +66,9 @@ type CustomerRow = {
   missing: number;
   /** §103: מתי הנציג סימן שסיים. null = טרם טופל. */
   agentClosedAt: string | null;
+  // §130: מצב התשלום - לסימון מזומן מהטבלה
+  paymentStatus: string | null;
+  finalTotal: number | null;
 };
 
 export function WeightsTable({
@@ -149,6 +152,8 @@ export function WeightsTable({
           total,
           missing,
           agentClosedAt: (o as any).agentClosedAt ?? null,
+          paymentStatus: (o as any).paymentStatus ?? null,
+          finalTotal: (o as any).finalTotal ?? null,
         };
       });
   }, [orders]);
@@ -269,6 +274,15 @@ export function WeightsTable({
               </th>
               {/* §103: עמודת הסימון - קפואה בקצה, כי זו הפעולה
                   שהנציג מחפש אחרי שסיים למלא את השורה. */}
+              {/* §130: תשלום. הלקוח מביא מזומן בחלוקה, והנציג
+                  חייב לסמן **בזמן אמת** - אחרת הכרטיס יחויב בערב
+                  והוא ישלם פעמיים.
+                  
+                  ⚠️ בטבלה ולא רק בכרטיס ההזמנה: כאן הנציג עובד
+                  בפועל, ומעבר בין מסכים על כל לקוח לא יקרה. */}
+              <th className="px-3 py-2 min-w-[90px] border-l border-zinc-200 text-[11px] font-bold text-zinc-600">
+                תשלום
+              </th>
               <th className="sticky left-0 z-10 bg-zinc-100 px-3 py-2 min-w-[80px] border-r-2 border-zinc-300 text-[11px] font-bold text-zinc-600">
                 טופל
               </th>
@@ -329,6 +343,19 @@ export function WeightsTable({
                   ) : (
                     fmt(r.total)
                   )}
+                </td>
+
+                <td className="px-2 py-2 border-l border-zinc-200 text-center">
+                  <CashCell
+                    orderId={r.orderId}
+                    orderNumber={r.orderNumber}
+                    customerName={r.customerName}
+                    paymentStatus={r.paymentStatus}
+                    finalTotal={r.finalTotal}
+                    missing={r.missing}
+                    readOnly={readOnly}
+                    onDone={onNeedsReload}
+                  />
                 </td>
 
                 <td className="sticky left-0 z-10 bg-inherit px-2 py-2 border-r-2 border-zinc-300 text-center">
@@ -550,6 +577,106 @@ function CloseOrderCheck({
       }`}
     >
       {saving ? "…" : "✓"}
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// §130: סימון תשלום מזומן מתוך הטבלה
+// ─────────────────────────────────────────────────────────────
+// התרחיש: לקוח רשום כמשלם באשראי, אבל ביום החלוקה הביא מזומן.
+// אם הנציג לא מסמן - הכרטיס יחויב בערב והלקוח ישלם פעמיים.
+//
+// ⚠️ למה כאן ולא רק בכרטיס ההזמנה: הנציג עובד בטבלה. מעבר למסך
+// אחר על כל לקוח פשוט לא יקרה בחלוקה, והסימון יישכח.
+//
+// ⚠️ דורש מחיר סופי, כלומר שכל המשקלים של הלקוח מולאו. סימון
+// לפני כן היה נועל סכום שאינו מה שהלקוח חייב.
+function CashCell({
+  orderId,
+  orderNumber,
+  customerName,
+  paymentStatus,
+  finalTotal,
+  missing,
+  readOnly,
+  onDone,
+}: {
+  orderId: string;
+  orderNumber: number;
+  customerName: string;
+  paymentStatus: string | null;
+  finalTotal: number | null;
+  missing: number;
+  readOnly?: boolean;
+  onDone: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const paid = paymentStatus === "PAID" || paymentStatus === "PARTIALLY_PAID";
+
+  if (paid) {
+    return (
+      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-1 block">
+        ✓ שולם
+      </span>
+    );
+  }
+
+  const blocked = missing > 0 || finalTotal == null;
+
+  async function markCash() {
+    if (blocked) {
+      alert(
+        missing > 0
+          ? `יש להשלים את המשקלים של ${customerName} לפני סימון תשלום.\n\nחסרים ${missing} משקלים.`
+          : "יש לקבוע מחיר סופי לפני סימון תשלום."
+      );
+      return;
+    }
+    if (
+      !window.confirm(
+        `${customerName} שילם ${finalTotal} ש"ח במזומן?\n\nההזמנה תסומן כשולמה והכרטיס לא יחויב.`
+      )
+    )
+      return;
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/cash-payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amountPaid: finalTotal,
+          note: "שולם במזומן בחלוקה",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+      onDone();
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={markCash}
+      disabled={saving || readOnly}
+      title={
+        blocked
+          ? "יש להשלים משקלים לפני סימון תשלום"
+          : `סמן שקיבלת ${finalTotal} ש"ח במזומן`
+      }
+      className={`w-full text-[10px] font-bold rounded border-2 py-1 transition-colors disabled:opacity-50 ${
+        blocked
+          ? "border-zinc-200 bg-zinc-50 text-zinc-300 cursor-not-allowed"
+          : "border-amber-400 bg-white text-amber-800 hover:bg-amber-500 hover:text-white"
+      }`}
+    >
+      {saving ? "…" : "💵 מזומן"}
     </button>
   );
 }

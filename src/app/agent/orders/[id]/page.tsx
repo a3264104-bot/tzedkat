@@ -10,6 +10,10 @@ import { AgentAddItemPanel } from "./AgentAddItemPanel";
 import { AgentCashPanel } from "./AgentCashPanel";
 // §123: זיכוי ללקוח
 import { CreditPanel } from "@/components/CreditPanel";
+// §133: הערת הלקוח ותשובת הנציג
+import { OrderNotePanel } from "@/components/OrderNotePanel";
+// §134: סימון משלוח
+import { DeliveryPanel } from "@/components/DeliveryPanel";
 // §120: הוספת תוספת להזמנה שכבר תומחרה
 import { AddSupplement } from "@/components/AddSupplement";
 
@@ -178,6 +182,19 @@ export default async function AgentOrderDetailPage({
           )}
         </div>
 
+        {/* §133: הערת הלקוח - **מעל** הפריטים.
+            
+            ⚠️ המיקום מכוון: אם הלקוח ביקש משהו, הנציג צריך לראות
+            את זה לפני שהוא מתחיל לשקול - לא אחרי שסיים. */}
+        <OrderNotePanel
+          orderId={order.id}
+          note={order.customerNote}
+          noteAt={order.customerNoteAt?.toISOString() ?? null}
+          reply={order.agentReply}
+          replyAt={order.agentReplyAt?.toISOString() ?? null}
+          mode="agent"
+        />
+
         {/* פריטים */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
           <div className="bg-zinc-50 border-b border-zinc-200 px-4 py-2.5 font-bold text-sm text-brand-slatedark">
@@ -212,6 +229,29 @@ export default async function AgentOrderDetailPage({
               
               ⚠️ בלעדיהן הנציג רואה סכום סופי שאינו מסתדר עם הפריטים,
               ואין לו שום דרך לדעת למה. זו בדיוק השיחה "למה זה פחות?" */}
+          {order.extraCharge != null && Number(order.extraCharge) > 0 && (
+            <div className="border-t border-zinc-100 px-4 py-2 text-xs">
+              <div className="flex justify-between text-orange-700">
+                <span>
+                  ➕ חיוב נוסף
+                  {order.extraChargeReason && (
+                    <span className="text-zinc-500"> · {order.extraChargeReason}</span>
+                  )}
+                </span>
+                <span className="font-bold">+{fmt(Number(order.extraCharge))}</span>
+              </div>
+            </div>
+          )}
+
+          {order.deliveryRequested && order.deliveryFee != null && Number(order.deliveryFee) > 0 && (
+            <div className="border-t border-zinc-100 px-4 py-2 text-xs">
+              <div className="flex justify-between text-violet-700">
+                <span>🚚 משלוח</span>
+                <span className="font-bold">+{fmt(Number(order.deliveryFee))}</span>
+              </div>
+            </div>
+          )}
+
           {(order.creditAmount != null || order.appliedCreditBalance != null) && (
             <div className="border-t border-zinc-100 px-4 py-2 space-y-1 text-xs">
               {order.creditAmount != null && (
@@ -356,6 +396,25 @@ export default async function AgentOrderDetailPage({
             </div>
           )}
 
+          {/* §134: משלוח - לפני הזיכוי והחיוב.
+              
+              ⚠️ הסדר: משלוח **מוסיף** לסכום, זיכוי **מוריד**, ורק
+              אז גובים. סימון משלוח אחרי החיוב לא ייגבה. */}
+          <div className="mb-3">
+            <DeliveryPanel
+              orderId={order.id}
+              requested={order.deliveryRequested}
+              fee={order.deliveryFee != null ? Number(order.deliveryFee) : null}
+              address={order.deliveryAddress}
+              note={order.deliveryNote}
+              deliveredAt={order.deliveredToCustomerAt?.toISOString() ?? null}
+              alreadyPaid={
+                order.paymentStatus === "PAID" ||
+                order.paymentStatus === "PARTIALLY_PAID"
+              }
+            />
+          </div>
+
           {/* §123: זיכוי - לפני החיוב ולפני סימון המזומן.
               הסדר מכוון: אם מגיע ללקוח זיכוי, הוא צריך להיכנס
               לפני שנגבה ממנו כסף. */}
@@ -371,6 +430,24 @@ export default async function AgentOrderDetailPage({
                 order.paymentStatus === "PAID" ||
                 order.paymentStatus === "PARTIALLY_PAID"
               }
+            />
+          </div>
+
+          {/* §135: חיוב נוסף - התמונה הראית של הזיכוי.
+              אותו רכיב, kind="charge". */}
+          <div className="mb-3">
+            <CreditPanel
+              orderId={order.id}
+              currentAmount={
+                order.extraCharge != null ? Number(order.extraCharge) : null
+              }
+              currentReason={order.extraChargeReason}
+              orderTotal={finalTotal ?? estimatedTotal}
+              alreadyPaid={
+                order.paymentStatus === "PAID" ||
+                order.paymentStatus === "PARTIALLY_PAID"
+              }
+              kind="charge"
             />
           </div>
 

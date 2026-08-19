@@ -285,9 +285,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       // משקל או לוחץ "חישוב מחדש" - החישוב היה דורס את הסכום
       // ומחזיר אותו למחיר המלא, בלי שאיש ישים לב.
       const credit = current.creditAmount != null ? Number(current.creditAmount) : 0;
+      // §134: דמי משלוח. בלעדיהם כל "חישוב מחדש" היה מוחק אותם.
+      const delivery =
+        current.deliveryRequested && current.deliveryFee != null
+          ? Number(current.deliveryFee)
+          : 0;
+      // §135: חיוב נוסף
+      const extra = current.extraCharge != null ? Number(current.extraCharge) : 0;
       const beforeBalance = Math.max(
         0,
-        Math.round((total + orderFee - credit) * 100) / 100
+        Math.round((total + orderFee + delivery + extra - credit) * 100) / 100
       );
       // §124: קיזוז יתרת זכות. אידמפוטנטי - ראה applyBalanceToOrder.
       const { payable: newFinalTotal } = await applyBalanceToOrder(

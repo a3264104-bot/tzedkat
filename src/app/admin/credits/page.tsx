@@ -38,7 +38,23 @@ type Balance = {
   at: string | null;
 };
 
+type Delivery = {
+  orderId: string;
+  orderNumber: number;
+  customerName: string;
+  phone: string | null;
+  fee: number;
+  address: string | null;
+  note: string | null;
+  byName: string;
+  pointName: string | null;
+  paid: boolean;
+};
+
 type Data = {
+  // §134: משלוחים - רשימת עבודה ליום החלוקה
+  deliveries: Delivery[];
+  deliveryTotals: { count: number; totalFees: number };
   credits: Credit[];
   balances: Balance[];
   byAgent: { name: string; count: number; total: number }[];
@@ -54,7 +70,7 @@ export default function CreditsPage() {
   const [data, setData] = useState<Data | null>(null);
   const [lists, setLists] = useState<{ id: string; name: string }[]>([]);
   const [pricelistId, setPricelistId] = useState("");
-  const [tab, setTab] = useState<"credits" | "balances">("credits");
+  const [tab, setTab] = useState<"credits" | "balances" | "deliveries">("credits");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -158,6 +174,18 @@ export default function CreditsPage() {
         >
           זיכויים ({data.credits.length})
         </button>
+        {/* §134: משלוחים. הנציג מסמן, והמנהל צריך לראות כמה יש,
+            לאן, וכמה כסף - זו רשימת עבודה ליום החלוקה. */}
+        <button
+          onClick={() => setTab("deliveries")}
+          className={`px-4 py-2 text-sm font-bold border-b-2 -mb-px ${
+            tab === "deliveries"
+              ? "border-brand-rust text-brand-rust"
+              : "border-transparent text-zinc-500"
+          }`}
+        >
+          🚚 משלוחים ({data.deliveries?.length ?? 0})
+        </button>
         <button
           onClick={() => setTab("balances")}
           className={`px-4 py-2 text-sm font-bold border-b-2 -mb-px ${
@@ -170,7 +198,75 @@ export default function CreditsPage() {
         </button>
       </div>
 
-      {tab === "credits" ? (
+      {tab === "deliveries" ? (
+        !data.deliveries || data.deliveries.length === 0 ? (
+          <p className="text-zinc-500 text-sm p-4">אין משלוחים במכירה שנבחרה.</p>
+        ) : (
+          <>
+            <div className="card p-4 mb-3">
+              <div className="text-xs text-zinc-500">סה״כ דמי משלוח</div>
+              <div className="text-2xl font-extrabold text-violet-700">
+                {fmt(data.deliveryTotals.totalFees)}
+              </div>
+              <div className="text-[11px] text-zinc-500">
+                {data.deliveryTotals.count} משלוחים
+              </div>
+            </div>
+            <div className="card p-0 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-zinc-50 border-b border-zinc-200 text-[11px] text-zinc-600">
+                  <tr>
+                    <th className="text-right p-2.5">לקוח</th>
+                    <th className="p-2.5">טלפון</th>
+                    <th className="text-right p-2.5">כתובת</th>
+                    <th className="p-2.5">דמי משלוח</th>
+                    <th className="p-2.5">סימן</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.deliveries.map((d) => (
+                    <tr key={d.orderId} className="border-b border-zinc-100">
+                      <td className="p-2.5">
+                        <a
+                          href={`/admin/orders/${d.orderId}`}
+                          className="font-medium text-brand-slatedark hover:text-brand-rust"
+                        >
+                          {d.customerName}
+                        </a>
+                        <div className="text-[10px] text-zinc-400">
+                          #{d.orderNumber}
+                          {d.pointName ? ` · ${d.pointName}` : ""}
+                        </div>
+                      </td>
+                      <td className="p-2.5 text-center text-xs text-zinc-600" dir="ltr">
+                        {d.phone || "—"}
+                      </td>
+                      <td className="p-2.5 text-xs text-zinc-700">
+                        {d.address || "—"}
+                        {d.note && (
+                          <div className="text-[10px] text-zinc-400">{d.note}</div>
+                        )}
+                      </td>
+                      <td className="p-2.5 text-center font-bold text-violet-700">
+                        {d.fee > 0 ? fmt(d.fee) : "—"}
+                        {/* ⚠️ הזמנה ששולמה - דמי המשלוח לא נגבו בכרטיס */}
+                        {d.paid && d.fee > 0 && (
+                          <span className="block text-[9px] text-amber-600 font-normal">
+                            שולם — לוודא גבייה
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-2.5 text-center text-xs text-zinc-600">
+                        {d.byName}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )
+      ) : tab === "credits" ? (
         data.credits.length === 0 ? (
           <p className="text-zinc-500 text-sm p-4">אין זיכויים במכירה שנבחרה.</p>
         ) : (

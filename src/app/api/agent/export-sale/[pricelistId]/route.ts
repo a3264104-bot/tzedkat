@@ -10,6 +10,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
 import ExcelJS from "exceljs";
+// §129: תצוגת יחידות - מקור אחד לכל המערכת
+import { formatItemQty } from "@/lib/order-display";
 
 export async function GET(
   _req: Request,
@@ -179,24 +181,37 @@ function buildDistributionSheet(
   );
 
   // רוחב עמודות: שם, טלפון, מוצרים, טופל
+  // §131: עמודת מזומן לפני "טופל".
+  //
+  // התרחיש: לקוח רשום כמשלם באשראי, וביום החלוקה הביא מזומן.
+  // הנציג מסמן על הנייר, ואחר כך מזין במערכת - ואם אין לו איפה
+  // לרשום, הוא יזכור שלושה לקוחות ויפספס את הרביעי. הכרטיס
+  // יחויב בערב והלקוח ישלם פעמיים.
   ws.columns = [
     { width: 20 },
     { width: 14 },
     ...products.map(() => ({ width: 11 })),
+    { width: 10 },
     { width: 7 },
   ];
-  const lastCol = 2 + products.length + 1;
+  const cashCol = 2 + products.length + 1;
+  const lastCol = cashCol + 1;
 
   // ─── כותרת ───
   ws.mergeCells(1, 1, 1, lastCol);
   const t = ws.getCell(1, 1);
   t.value = `${pointName} — ${saleTitle}`;
-  t.font = { size: 14, bold: true };
+  // §130: צבעי המותג. דף שנראה כמו מסמך של העמותה ולא כמו
+  // פלט גולמי - הנציג מחזיק אותו מול לקוחות.
+  t.font = { size: 15, bold: true, color: { argb: "FFFFFFFF" } };
+  t.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC0461E" } };
   t.alignment = { horizontal: "center" };
 
   ws.mergeCells(2, 1, 2, lastCol);
   const sub = ws.getCell(2, 1);
-  sub.value = `נציג: ${agentName} · ${orders.length} לקוחות · הודפס ${new Date().toLocaleDateString("he-IL")}`;
+  sub.value =
+    `נציג: ${agentName} · ${orders.length} לקוחות · הודפס ${new Date().toLocaleDateString("he-IL")}` +
+    ` · לקוח ששילם במזומן — לסמן בעמודת "מזומן" ולעדכן במערכת`;
   sub.font = { size: 10, color: { argb: "FF666666" } };
   sub.alignment = { horizontal: "center" };
 
@@ -222,6 +237,11 @@ function buildDistributionSheet(
     c2.alignment = { horizontal: "center" };
   });
 
+  ws.mergeCells(4, cashCol, 5, cashCol);
+  const cashHdr = ws.getCell(4, cashCol);
+  cashHdr.value = "מזומן\nשולם";
+  cashHdr.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+
   ws.mergeCells(4, lastCol, 5, lastCol);
   ws.getCell(4, lastCol).value = "טופל";
 
@@ -229,7 +249,11 @@ function buildDistributionSheet(
     for (let r = 4; r <= 5; r++) {
       const cell = ws.getCell(r, c);
       cell.font = { bold: r === 4, size: r === 4 ? 10 : 8, ...(r === 5 ? { color: { argb: "FF888888" } } : {}) };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8E8E8" } };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: r === 4 ? "FFF5E6DC" : "FFFAF3EE" },
+      };
       cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
       cell.border = {
         top: { style: "thin" },
@@ -254,7 +278,7 @@ function buildDistributionSheet(
 
     const nameCell = ws.getCell(r, 1);
     nameCell.value = o.customerName;
-    nameCell.font = { bold: true, size: 10 };
+    nameCell.font = { bold: true, size: 10, color: { argb: "FF2C3E4F" } };
     nameCell.alignment = { vertical: "middle" };
 
     const phoneCell = ws.getCell(r, 2);
@@ -275,7 +299,14 @@ function buildDistributionSheet(
         // הכמות שהוזמנה מודפסת; המשקל נכתב ביד לצידה.
         // הקו האנכי מפריד ויזואלית בין השניים.
         const qty = Number(it.quantity);
-        const label = it.isSingle ? `${qty} ק"ג` : `${qty}`;
+        // §129: 🐛 אותו באג של §128 - `isSingle ? ק"ג : מספר עירום`.
+        // מוצר שנמכר ביחידות הופיע כמספר בלי יחידה, והנציג לא ידע
+        // אם לשקול או לספור. formatItemQty הוא המקור היחיד.
+        const label = formatItemQty({
+          isSingle: it.isSingle,
+          quantity: qty,
+          unit: it.unit,
+        });
         cell.value = `${label}  |`;
         cell.font = { size: 9, color: { argb: "FF555555" } };
         cell.alignment = { horizontal: "right", vertical: "middle" };
@@ -288,17 +319,41 @@ function buildDistributionSheet(
     });
 
     // משבצת סימון - מקבילה לוי"ו שבאתר (§103)
+    // §131: משבצת המזומן. גוון ירקרק כדי שתיבדל מהמשקלים -
+    // הנציג רושם שם סכום או ✓, ולא משקל.
+    const cashCell = ws.getCell(r, cashCol);
+    cashCell.border = cellBorder;
+    cashCell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF0FDF4" },
+    };
+    cashCell.alignment = { horizontal: "center", vertical: "middle" };
+
+    // §130: משבצת הסימון מודגשת - היא הפעולה שהנציג מחפש
     const doneCell = ws.getCell(r, lastCol);
-    doneCell.border = cellBorder;
+    doneCell.border = {
+      top: { style: "thin", color: { argb: "FF999999" } },
+      left: { style: "medium", color: { argb: "FFC0461E" } },
+      bottom: { style: "thin", color: { argb: "FF999999" } },
+      right: { style: "thin", color: { argb: "FF999999" } },
+    };
 
     // פסים לסירוגין - קל לעקוב אחרי שורה ארוכה על דף מודפס
+    // §130: פס לסירוגין על **כל** השורה. קודם הוא כוסה רק על שתי
+    // העמודות הראשונות, ובדף רחב העין איבדה את השורה באמצע -
+    // בדיוק מה שהפס נועד למנוע.
     if (idx % 2 === 1) {
-      for (let c = 1; c <= 2; c++) {
-        ws.getCell(r, c).fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFF7F7F7" },
-        };
+      for (let c = 1; c <= lastCol; c++) {
+        const cell = ws.getCell(r, c);
+        // לא דורסים מילוי קיים (תא מוצר שהוזמן / מוצלל)
+        if (!cell.fill || (cell.fill as any).pattern !== "solid") {
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFFAFAFA" },
+          };
+        }
       }
     }
     ws.getCell(r, 1).border = cellBorder;

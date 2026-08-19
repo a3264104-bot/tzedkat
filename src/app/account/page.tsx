@@ -65,6 +65,11 @@ export default async function AccountPage() {
     paymentStatus: o.paymentStatus,
     paymentMethod: o.paymentMethod,
     paymentLink: o.paymentLink,
+    // §133: הערת הלקוח ותשובת הנציג
+    customerNote: o.customerNote,
+    customerNoteAt: o.customerNoteAt?.toISOString() ?? null,
+    agentReply: o.agentReply,
+    agentReplyAt: o.agentReplyAt?.toISOString() ?? null,
     pointName: o.point?.name ?? o.pointNameSnapshot ?? "",
     pointAddress: o.point?.address ?? null,
     pointDeliveryHours: o.point?.deliveryHours ?? null,

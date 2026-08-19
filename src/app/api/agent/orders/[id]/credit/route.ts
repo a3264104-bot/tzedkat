@@ -15,6 +15,8 @@ import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
 // §124: מייל על יתרת זכות
 import { sendCreditBalanceEmail } from "@/lib/email";
+// §136: קיזוז יתרת זכות - אותה נוסחה בכל נקודות החישוב
+import { applyBalanceToOrder } from "@/lib/credit-balance-lib";
 
 export async function POST(
   req: Request,
@@ -215,6 +217,14 @@ async function recomputeTotal(orderId: string): Promise<number | null> {
     select: {
       pricelistId: true,
       creditAmount: true,
+      // §136: 🐛 חסרו כאן. נציג שסימן משלוח ואז נתן זיכוי - דמי
+      // המשלוח והחיוב הנוסף **נמחקו**, כי הנוסחה כאן לא הכירה
+      // אותם. הלקוח היה מחויב פחות מהמוסכם.
+      deliveryFee: true,
+      deliveryRequested: true,
+      extraCharge: true,
+      customerId: true,
+      appliedCreditBalance: true,
       items: { where: { isCancelled: false }, select: { finalPrice: true } },
     },
   });
@@ -231,18 +241,36 @@ async function recomputeTotal(orderId: string): Promise<number | null> {
       })
     : null;
   const credit = order.creditAmount != null ? Number(order.creditAmount) : 0;
+  // §136: אותה נוסחה כמו בשאר שלוש הנקודות. חוסר עקביות כאן
+  // פירושו שהסכום תלוי במי נגע בהזמנה אחרון.
+  const delivery =
+    order.deliveryRequested && order.deliveryFee != null
+      ? Number(order.deliveryFee)
+      : 0;
+  const extra = order.extraCharge != null ? Number(order.extraCharge) : 0;
 
   // ⚠️ Math.max(0, ...) - רשת ביטחון. הוולידציה חוסמת זיכוי גדול
   // מהסכום, אבל פריט שבוטל אחרי הזיכוי יכול להקטין את הבסיס.
   // סכום שלילי מול הסליקה הוא התנהגות בלתי מוגדרת.
-  const total = Math.max(
+  const beforeBalance = Math.max(
     0,
-    Math.round((itemsSum + Number(pl?.orderFee ?? 0) - credit) * 100) / 100
+    Math.round(
+      (itemsSum + Number(pl?.orderFee ?? 0) + delivery + extra - credit) * 100
+    ) / 100
+  );
+
+  // §136: קיזוז יתרת זכות - היה חסר כאן לגמרי, ולכן זיכוי אחרי
+  // קיזוז היה מבטל אותו. applyBalanceToOrder אידמפוטנטי.
+  const { payable } = await applyBalanceToOrder(
+    prisma,
+    orderId,
+    order.customerId,
+    beforeBalance
   );
 
   await prisma.order.update({
     where: { id: orderId },
-    data: { finalTotal: total },
+    data: { finalTotal: payable },
   });
-  return total;
+  return payable;
 }

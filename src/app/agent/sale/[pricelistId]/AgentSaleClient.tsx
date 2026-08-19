@@ -508,6 +508,26 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
             )}
           </div>
         </div>
+
+        {/* §129: הורדת דף החלוקה.
+            
+            🐛 הפער: ה-API היה קיים (/api/agent/export-sale) אבל
+            **בלי שום כפתור**. הנציג - שהוא היחיד שצריך את הדף
+            בשטח - לא יכול היה להוריד אותו, ורק המנהל יכל.
+            
+            ⚠️ ניווט ישיר ולא fetch: הדפדפן מטפל בהורדה, ואין
+            צורך להחזיק קובץ אקסל בזיכרון של הדף. */}
+        <div className="px-4 pb-3">
+          <a
+            href={`/api/agent/export-sale/${pricelistId}`}
+            className="inline-flex items-center gap-1.5 text-xs font-bold bg-white/15 hover:bg-white/25 text-white rounded-lg px-3 py-2 transition-colors"
+          >
+            📥 הורדת דף חלוקה להדפסה
+          </a>
+          <p className="text-[10px] text-white/60 mt-1">
+            שורה לכל לקוח, טלפון ליד השם, ומקום למילוי משקלים ביד.
+          </p>
+        </div>
       </header>
 
       {/* Sticky summary bar */}

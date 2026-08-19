@@ -740,6 +740,38 @@ function buildItemsTable(order: any): string {
         </tr>`
       : "";
 
+  // §134/§135: משלוח וחיוב נוסף - שורות שמוסיפות לסכום.
+  //
+  // ⚠️ כל שורה עם הסיבה שלה. לקוח שרואה סכום גבוה מהצפוי בלי
+  // הסבר מתקשר לברר - וזו בדיוק השיחה שהפירוט נועד למנוע.
+  const delivery =
+    order?.deliveryRequested && order?.deliveryFee != null
+      ? Number(order.deliveryFee)
+      : 0;
+  const extra = order?.extraCharge != null ? Number(order.extraCharge) : 0;
+
+  const addRow = (label: string, sub: string, amount: number, color: string) => `
+        <tr>
+          <td style="padding:8px;border-top:1px solid #eee;font-weight:bold;color:${color};">
+            ${label}
+            ${sub ? `<div style="font-weight:normal;font-size:12px;color:#666;">${escapeHtml(sub)}</div>` : ""}
+          </td>
+          <td style="padding:8px;border-top:1px solid #eee;"></td>
+          <td style="padding:8px;border-top:1px solid #eee;"></td>
+          <td style="padding:8px;border-top:1px solid #eee;text-align:center;font-weight:bold;color:${color};">
+            +${fmt(amount)}
+          </td>
+        </tr>`;
+
+  const deliveryRow =
+    delivery > 0
+      ? addRow("משלוח", order.deliveryAddress ?? "", delivery, "#7c3aed")
+      : "";
+  const extraRow =
+    extra > 0
+      ? addRow("חיוב נוסף", order.extraChargeReason ?? "", extra, "#c2410c")
+      : "";
+
   const anyNotSupplied = items.some(
     (it) =>
       !it.isCancelled &&
@@ -758,7 +790,7 @@ function buildItemsTable(order: any): string {
             <th style="padding:6px 8px;text-align:center;font-size:12px;color:#666;">סכום</th>
           </tr>
         </thead>
-        <tbody>${rows}${creditRow}${balanceRow}</tbody>
+        <tbody>${rows}${deliveryRow}${extraRow}${creditRow}${balanceRow}</tbody>
       </table>
       ${
         anyNotSupplied
@@ -832,6 +864,65 @@ export async function sendCreditBalanceEmail(params: {
       to: params.email,
       subject: `זוכית ב-${fmt(params.amount)} — יתרה להזמנה הבאה`,
       html: baseTemplate("נזקפה לזכותך יתרה", body),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}
+
+/**
+ * §133: תשובת הנציג להערת הלקוח.
+ *
+ * ⚠️ המייל מכיל את **שתי** הצדדים - ההערה והתשובה. לקוח שכתב
+ * לפני יומיים לא זוכר מה שאל, ותשובה בלי ההקשר שלה מבלבלת.
+ */
+export async function sendAgentReplyEmail(params: {
+  customerName: string;
+  email: string;
+  orderNumber: number;
+  note: string;
+  reply: string;
+  agentName: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+    if (!settings.sendEmailToCustomer) return { ok: true };
+
+    const body = `
+      <p>שלום ${escapeHtml(params.customerName)},</p>
+      <p>
+        התקבלה תשובה להערה שהוספת להזמנה
+        <strong>#${params.orderNumber}</strong>.
+      </p>
+
+      ${
+        params.note
+          ? `<div style="background:#f9fafb;border-right:3px solid #d1d5db;padding:12px;margin:12px 0;border-radius:0 8px 8px 0;">
+               <div style="font-size:12px;color:#888;margin-bottom:4px;">ההערה שלך:</div>
+               <div style="font-size:14px;color:#444;">${escapeHtml(params.note)}</div>
+             </div>`
+          : ""
+      }
+
+      <div style="background:#f0fdf4;border-right:3px solid #22c55e;padding:12px;margin:12px 0;border-radius:0 8px 8px 0;">
+        <div style="font-size:12px;color:#15803d;margin-bottom:4px;">
+          תשובת ${escapeHtml(params.agentName)}:
+        </div>
+        <div style="font-size:15px;color:#14532d;font-weight:500;">
+          ${escapeHtml(params.reply)}
+        </div>
+      </div>
+
+      <p style="color:#888;font-size:12px;margin-top:16px;">
+        ניתן לראות את ההזמנה ואת התשובה ב<a href="${APP_URL}/account" style="color:#C0461E;">אזור האישי</a>.
+      </p>`;
+
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: params.email,
+      subject: `תשובה להערה שלך — הזמנה #${params.orderNumber}`,
+      html: baseTemplate("התקבלה תשובה", body),
     });
     return { ok: true };
   } catch (e: any) {

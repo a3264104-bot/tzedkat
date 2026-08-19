@@ -1,27 +1,44 @@
 "use client";
 
-// InstallPrompt חכם - מציג הצעה להתקין את האתר כאפליקציה
-// התנהגות:
-// 1. אם המשתמש כבר התקין - לא מציג לעולם
-// 2. אם דחה עם X - לא מציג שוב תוך 24 שעות
-// 3. אם עברו 24 שעות מדחייה - מציג שוב
-// 4. תוך אותו session - לא מציג שוב אחרי dismiss
+// InstallPrompt - הצעה להתקין את האתר כאפליקציה
 //
-// שימוש ב-localStorage לזיכרון מתמשך בין sessions.
-// שימוש ב-sessionStorage לזיכרון בתוך session אחד.
+// ═══════════════════════════════════════════════════════════════
+// §132: פעם אחת **בכל ביקור**, ולא פעם אחת לתמיד
+// ═══════════════════════════════════════════════════════════════
+// 🐛 מה שהיה: דחייה נשמרה ב-localStorage עם חסימה של 24 שעות.
+// התוצאה: הלקוח סגר את ההצעה, יצא מהאתר, חזר - ולא ראה אותה
+// שוב. הוא איבד את ההזדמנות להתקין עד למחרת.
+//
+// ההיגיון העסקי: דחייה היא "לא עכשיו", לא "לעולם". לקוח שדחה
+// באמצע הזמנה עשוי לרצות להתקין בביקור הבא, כשהוא פנוי.
+//
+// עכשיו:
+//   • מעבר בין דפים באתר  -> לא קופץ שוב  (sessionStorage)
+//   • סגר את האתר וחזר    -> קופץ שוב     ✓
+//   • דחה ואז חזר         -> קופץ שוב     ✓
+//   • התקין בפועל         -> לא קופץ יותר (localStorage)
+//
+// ⚠️ ההבחנה: sessionStorage נמחק בסגירת הטאב, localStorage שורד.
+// לכן דחייה נשמרת בראשון בלבד, והתקנה בשני.
 
 import { useEffect, useState } from "react";
 
-// זמנים
-const DISMISS_HOURS = 24;
-const DISMISS_MS = DISMISS_HOURS * 60 * 60 * 1000;
-
-// מפתחות localStorage
-const LS_DISMISSED_AT = "installPromptDismissedAt";
+// §132: מפתח ההתקנה נשאר ב-localStorage - מי שהתקין לא צריך
+// לראות הצעה להתקין, לעולם.
 const LS_INSTALLED = "installPromptInstalled";
-const SS_DISMISSED_SESSION = "installPromptDismissedSession";
 
-// Type של beforeinstallprompt event
+// §132: הדחייה עברה ל-sessionStorage. היא נמחקת ברגע שהלקוח
+// סוגר את הטאב, ולכן ההצעה חוזרת בביקור הבא.
+const SS_DISMISSED = "installPromptDismissedSession";
+
+/**
+ * §132: השהיה לפני ההצגה.
+ *
+ * לקוח שנכנס באמצע הזמנה ומקבל חלון קופץ מיד סוגר אותו אוטומטית
+ * בלי לקרוא. מי שכבר גלל קצת באתר נמצא במצב פתוח יותר להצעה.
+ */
+const SHOW_DELAY_MS = 12_000;
+
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -35,11 +52,9 @@ export function InstallPrompt() {
   const [showIOSInstructions, setShowIOSInstructions] = useState(false);
 
   useEffect(() => {
-    // בדיקות ראשונות
     if (typeof window === "undefined") return;
 
     // 🚨 הבנר לא מוצג במחשב - רק במובייל
-    // זיהוי מובייל לפי userAgent + touch + width
     const isMobile =
       /iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
         navigator.userAgent
@@ -47,17 +62,12 @@ export function InstallPrompt() {
       (typeof window.matchMedia === "function" &&
         window.matchMedia("(max-width: 768px)").matches);
 
-    if (!isMobile) {
-      // מחשב - לא מציגים בכלל
-      return;
-    }
+    if (!isMobile) return;
 
-    // 1. האם המשתמש כבר התקין בעבר?
-    if (localStorage.getItem(LS_INSTALLED) === "1") {
-      return;
-    }
+    // 1. כבר התקין בעבר
+    if (localStorage.getItem(LS_INSTALLED) === "1") return;
 
-    // 2. האם כבר רץ כאפליקציה מותקנת (standalone)?
+    // 2. כבר רץ כאפליקציה מותקנת
     if (
       window.matchMedia?.("(display-mode: standalone)").matches ||
       (window.navigator as any).standalone
@@ -66,42 +76,38 @@ export function InstallPrompt() {
       return;
     }
 
-    // 3. האם דחה תוך 24 שעות האחרונות?
-    const dismissedAt = localStorage.getItem(LS_DISMISSED_AT);
-    if (dismissedAt) {
-      const ago = Date.now() - Number(dismissedAt);
-      if (ago < DISMISS_MS) {
-        // עוד לא עברו 24 שעות - לא מציגים
-        return;
-      }
-    }
+    // 3. §132: דחה בביקור הנוכחי בלבד.
+    //
+    // ⚠️ כאן היה גם `localStorage.getItem(LS_DISMISSED_AT)` עם
+    // חסימה של 24 שעות - וזה מה שמנע מההצעה לחזור. הוסר.
+    if (sessionStorage.getItem(SS_DISMISSED) === "1") return;
 
-    // 4. האם דחה בsession הנוכחי? (גם אם עברו יומיים בסשן ארוך)
-    if (sessionStorage.getItem(SS_DISMISSED_SESSION) === "1") {
-      return;
-    }
-
-    // בדיקת iOS - iOS לא תומך ב-beforeinstallprompt
-    // צריך להראות הוראות ידניות במקום
-    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) &&
-      !(window as any).MSStream;
+    // ─── iOS: אין beforeinstallprompt, מציגים הוראות ידניות ───
+    const iOS =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
     setIsIOS(iOS);
 
     if (iOS) {
-      // ב-iOS מציגים את הbanner ידנית אחרי דיליי קצר
-      const t = setTimeout(() => setVisible(true), 3000);
+      const t = setTimeout(() => setVisible(true), SHOW_DELAY_MS);
       return () => clearTimeout(t);
     }
 
-    // מאזין לevent של Chrome/Edge/Android
+    // ─── Chrome / Edge / Android ───
+    //
+    // ⚠️ ההשהיה כאן ולא ב-handler: הדפדפן יורה את האירוע מוקדם,
+    // ואם נציג מיד הלקוח יראה חלון קופץ לפני שהספיק לקרוא משהו.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
     const handler = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
-      setVisible(true);
+      timer = setTimeout(() => {
+        // בדיקה חוזרת: ייתכן שהלקוח דחה בינתיים בטאב אחר
+        if (sessionStorage.getItem(SS_DISMISSED) !== "1") setVisible(true);
+      }, SHOW_DELAY_MS);
     };
     window.addEventListener("beforeinstallprompt", handler);
 
-    // מאזין לevent של התקנה מוצלחת
     const installedHandler = () => {
       localStorage.setItem(LS_INSTALLED, "1");
       setVisible(false);
@@ -110,6 +116,7 @@ export function InstallPrompt() {
     window.addEventListener("appinstalled", installedHandler);
 
     return () => {
+      if (timer) clearTimeout(timer);
       window.removeEventListener("beforeinstallprompt", handler);
       window.removeEventListener("appinstalled", installedHandler);
     };
@@ -127,7 +134,6 @@ export function InstallPrompt() {
       if (choice.outcome === "accepted") {
         localStorage.setItem(LS_INSTALLED, "1");
       } else {
-        // המשתמש דחה - סימון כ-dismissed
         recordDismiss();
       }
     } catch {
@@ -139,9 +145,9 @@ export function InstallPrompt() {
   }
 
   function recordDismiss() {
-    // שומרים גם ב-localStorage (מתמשך) וגם ב-sessionStorage (סשן נוכחי)
-    localStorage.setItem(LS_DISMISSED_AT, String(Date.now()));
-    sessionStorage.setItem(SS_DISMISSED_SESSION, "1");
+    // §132: sessionStorage בלבד. שמירה ב-localStorage הייתה
+    // מונעת מההצעה לחזור בביקור הבא - הבאג שתוקן.
+    sessionStorage.setItem(SS_DISMISSED, "1");
   }
 
   function handleDismiss() {
@@ -154,7 +160,6 @@ export function InstallPrompt() {
 
   return (
     <>
-      {/* Banner להצעת התקנה */}
       {!showIOSInstructions && (
         <div className="fixed bottom-4 inset-x-4 z-50 max-w-md mx-auto animate-slide-up">
           <div className="bg-white rounded-2xl shadow-2xl border border-brand-rust/20 overflow-hidden">
@@ -196,7 +201,6 @@ export function InstallPrompt() {
         </div>
       )}
 
-      {/* Modal הוראות iOS */}
       {showIOSInstructions && (
         <div
           className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-4"
@@ -233,7 +237,7 @@ export function InstallPrompt() {
                   2
                 </span>
                 <span>
-                  גלול למטה ובחר <strong>"הוסף למסך הבית"</strong>
+                  גלול למטה ובחר <strong>&quot;הוסף למסך הבית&quot;</strong>
                 </span>
               </li>
               <li className="flex items-start gap-2">
@@ -241,7 +245,8 @@ export function InstallPrompt() {
                   3
                 </span>
                 <span>
-                  לחץ <strong>"הוסף"</strong> ואייקון של האתר יופיע במסך הראשי
+                  לחץ <strong>&quot;הוסף&quot;</strong> ואייקון של האתר יופיע
+                  במסך הראשי
                 </span>
               </li>
             </ol>

@@ -403,6 +403,11 @@ async function recomputeOrderTotal(orderId: string): Promise<void> {
       pricelistId: true,
       creditAmount: true,
       customerId: true,
+      // §134: דמי משלוח - חלק מהסכום לחיוב
+      deliveryFee: true,
+      deliveryRequested: true,
+      // §135: חיוב נוסף
+      extraCharge: true,
       items: { where: { isCancelled: false }, select: { finalPrice: true } },
     },
   });
@@ -420,9 +425,22 @@ async function recomputeOrderTotal(orderId: string): Promise<void> {
     : null;
   const credit = order.creditAmount != null ? Number(order.creditAmount) : 0;
 
+  // §134: 🐛 בלי דמי המשלוח כאן, **כל שקילה הייתה מוחקת אותם**.
+  // הנציג מסמן משלוח, מזין משקל, והסכום חוזר לבלי משלוח - בלי
+  // שאיש ישים לב עד שהלקוח מקבל חיוב נמוך מהמוסכם.
+  const delivery =
+    order.deliveryRequested && order.deliveryFee != null
+      ? Number(order.deliveryFee)
+      : 0;
+  // §135: חיוב נוסף. בלעדיו כל שקילה הייתה מוחקת אותו - אותו
+  // באג בדיוק שהיה עם דמי המשלוח.
+  const extra = order.extraCharge != null ? Number(order.extraCharge) : 0;
+
   const beforeBalance = Math.max(
     0,
-    Math.round((itemsSum + Number(pl?.orderFee ?? 0) - credit) * 100) / 100
+    Math.round(
+      (itemsSum + Number(pl?.orderFee ?? 0) + delivery + extra - credit) * 100
+    ) / 100
   );
 
   // §124: קיזוז יתרת זכות מהזמנות קודמות.

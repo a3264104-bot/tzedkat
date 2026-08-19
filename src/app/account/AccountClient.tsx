@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+// §133: הערה לנציג ותשובתו
+import { OrderNotePanel } from "@/components/OrderNotePanel";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { CustomerOrderActions } from "@/components/CustomerOrderActions";
@@ -34,6 +36,11 @@ type Order = {
   paymentStatus: string;
   paymentMethod: string | null;
   paymentLink: string | null;
+  // §133: הערת הלקוח ותשובת הנציג
+  customerNote?: string | null;
+  customerNoteAt?: string | null;
+  agentReply?: string | null;
+  agentReplyAt?: string | null;
   pointName: string;
   pointAddress: string | null;
   pointDeliveryHours: string | null;
@@ -482,6 +489,25 @@ export function AccountClient({
                       <div>📍 {o.pointName}{o.pointAddress ? ` — ${o.pointAddress}` : ""}</div>
                       {o.deliveryDate && <div>📦 חלוקה: {o.deliveryDate}</div>}
                       {o.pointDeliveryHours && <div>🕐 שעות: {o.pointDeliveryHours}</div>}
+                    </div>
+
+                    {/* §133: הערה לנציג ותשובתו.
+                        
+                        ⚠️ ניתן לכתוב רק בהזמנה פעילה. הזמנה שנמסרה
+                        או בוטלה - הנציג כבר לא יראה את ההערה, ואין
+                        טעם לאפשר לכתוב לחלל. */}
+                    <div className="mt-3">
+                      <OrderNotePanel
+                        orderId={o.id}
+                        note={o.customerNote ?? null}
+                        noteAt={o.customerNoteAt ?? null}
+                        reply={o.agentReply ?? null}
+                        replyAt={o.agentReplyAt ?? null}
+                        mode="customer"
+                        editable={
+                          o.status !== "CANCELLED" && o.status !== "COMPLETED"
+                        }
+                      />
                     </div>
 
                     {/* כפתור תשלום - רק אם ממתין לתשלום ויש לינק */}
