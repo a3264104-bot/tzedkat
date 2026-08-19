@@ -26,6 +26,7 @@ type Customer = {
   passwordPlain: string | null;
   // §62: מצב הקוד בלבד. הקוד עצמו לעולם לא מגיע ברשימה.
   hasLoginCode?: boolean;
+  hasPassword?: boolean;
   loginCodeSetAt?: string | null;
   lockedUntil?: string | null;
   failedLoginAttempts?: number;
@@ -727,6 +728,7 @@ export default function AdminCustomersPage() {
                 hasCode={!!editing.hasLoginCode}
                 codeSetAt={editing.loginCodeSetAt}
                 role={editing.role}
+                hasPassword={editing.hasPassword}
                 onChanged={reload}
               />
 

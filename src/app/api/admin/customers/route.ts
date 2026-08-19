@@ -52,6 +52,12 @@ export async function GET(req: Request) {
       email: c.email,
       // §82: המזהה עצמו, לא רק השם - הבורר במסך העריכה צריך לדעת
       // מה נבחר, ובלעדיו הוא נפתח ריק תמיד.
+      // §122: האם יש ללקוח סיסמה משלו. בלי זה הפאנל לא יודע
+      // להבדיל בין "אין לו דרך להיכנס" ל"נכנס בסיסמה שבחר",
+      // ומציג אזהרה שגויה ללקוח שנרשם באתר בעצמו.
+      //
+      // ⚠️ בוליאני בלבד - ה-hash עצמו לעולם לא יוצא מהשרת.
+      hasPassword: !!c.passwordHash,
       defaultPointId: c.defaultPointId,
       pointName: c.defaultPoint?.name ?? null,
       city: c.defaultPoint?.city ?? null,
