@@ -8,6 +8,8 @@ import { payStatusLabel } from "@/lib/pay-status-lib";
 import AgentChargeButton from "./AgentChargeButton";
 import { AgentAddItemPanel } from "./AgentAddItemPanel";
 import { AgentCashPanel } from "./AgentCashPanel";
+// §120: הוספת תוספת להזמנה שכבר תומחרה
+import { AddSupplement } from "@/components/AddSupplement";
 
 export const dynamic = "force-dynamic";
 
@@ -90,9 +92,11 @@ export default async function AgentOrderDetailPage({
   // §70: מוצרי המכירה, להוספת פריט מהמסך הזה.
   // רק המכירה שההזמנה שייכת אליה, ורק כשטרם נקבע מחיר סופי.
   const canAddItems = order.finalTotal == null && !!order.pricelistId;
-  const salePricelist = canAddItems
+  // §120: כשההזמנה כבר תומחרה, ההוספה הרגילה חסומה - אבל התוספת
+  // עדיין אפשרית (הזמנה נפרדת). לכן המחירון נשלף בשני המקרים.
+  const salePricelist = order.pricelistId
     ? await prisma.pricelist.findUnique({
-        where: { id: order.pricelistId! },
+        where: { id: order.pricelistId },
         select: { id: true, status: true, singleSurcharge: true },
       })
     : null;
@@ -112,8 +116,10 @@ export default async function AgentOrderDetailPage({
                 singlesMode: true,
                 singleUnitPrice: true,
                 avgWeightPerUnit: true,
-                // §7: מוצרים לא-פעילים ("מועדפים") נכללים ומסומנים
+                // §7: מוצרים לא-פעילים נכללים ומסומנים
                 isActive: true,
+                // §119: מוצר מועדף - לנציגים בלבד, עם תמחור עצמי
+                isFavorite: true,
                 category: { select: { name: true } },
               },
             },
@@ -234,9 +240,63 @@ export default async function AgentOrderDetailPage({
                   ? Number(pp.product.avgWeightPerUnit)
                   : null,
               isActive: pp.product.isActive,
+              isFavorite: pp.product.isFavorite,
               categoryName: pp.product.category?.name ?? null,
             }))}
           />
+        )}
+
+        {/* §120: תוספת בחלוקה - כשההזמנה כבר תומחרה.
+            
+            ⚠️ מוצג **רק** כשההוספה הרגילה חסומה, כדי שלא יהיו
+            שתי דרכים להוסיף פריט באותו רגע. הזמנה שטרם תומחרה
+            מקבלת את הפאנל הרגיל למעלה; זו שתומחרה מקבלת את זה. */}
+        {!canAddItems &&
+          salePricelist?.status === "ACTIVE" &&
+          addableProducts.length > 0 &&
+          order.status !== "CANCELLED" && (
+            <AddSupplement
+              parentOrderId={order.id}
+              parentOrderNumber={order.orderNumber}
+              customerName={order.customerName}
+              hasCard={hasToken}
+              singleSurcharge={Number(salePricelist.singleSurcharge ?? 0)}
+              products={addableProducts.map((pp) => ({
+                id: pp.product.id,
+                name: pp.product.name,
+                unit: pp.product.unit,
+                cartonPrice: Number(pp.price ?? pp.product.cartonPrice),
+                priceType: pp.product.priceType,
+                allowSingles: pp.product.allowSingles,
+                singlesMode: pp.product.singlesMode,
+                singleUnitPrice:
+                  pp.product.singleUnitPrice != null
+                    ? Number(pp.product.singleUnitPrice)
+                    : null,
+                avgWeightPerUnit:
+                  pp.product.avgWeightPerUnit != null
+                    ? Number(pp.product.avgWeightPerUnit)
+                    : null,
+                isActive: pp.product.isActive,
+                isFavorite: pp.product.isFavorite,
+                categoryName: pp.product.category?.name ?? null,
+              }))}
+            />
+          )}
+
+        {/* §120: קישור להזמנה המקורית, אם זו תוספת */}
+        {order.parentOrderId && (
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-3">
+            <div className="text-sm font-bold text-amber-900">
+              ➕ זו הזמנת תוספת
+            </div>
+            <Link
+              href={`/agent/orders/${order.parentOrderId}`}
+              className="text-xs text-amber-800 underline"
+            >
+              ← מעבר להזמנה המקורית
+            </Link>
+          </div>
         )}
 
         {/* כרטיס אשראי + חיוב */}

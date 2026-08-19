@@ -68,6 +68,7 @@ type Data = {
     totalCustomers: number;
     totalWalkins: number;
     totalCommission: number;
+    customCommission?: number;
     cashCollected: number;
     cashHandedIn: number;
     paidToAgent: number;

@@ -296,6 +296,9 @@ export async function GET(
       totalCustomers: s.totalCustomers,
       totalWalkins: s.totalWalkins,
       totalCommission: Number(s.totalCommission),
+      // §119: עמלת מוצרים מועדפים - מוצגת בנפרד למנהל, כדי
+      // שיראה למה הסכום גבוה מהתעריף הרגיל ולא יחשוד בטעות.
+      customCommission: Number((s as any).customCommission ?? 0),
       cashCollected,
       cashHandedIn,
       paidToAgent,

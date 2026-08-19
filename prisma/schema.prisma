@@ -220,6 +220,17 @@ model Product {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   supplierPlans SupplierOrderPlan[]
+
+  // §119: מוצר מועדף - לנציגים בלבד.
+  //
+  // ראש, בננה וכדומה: מוצרים שאינם במכירה לציבור, והנציג מוסיף
+  // אותם ללקוחות שהוא בוחר. **שונה מ-isActive=false**: מוצר לא
+  // פעיל הוא מוצר שהוסר מהמכירה; מועדף הוא מוצר שקיים בכוונה
+  // ומיועד לנציגים.
+  //
+  // ⚠️ ההבחנה חשובה כי רק במוצר מועדף הנציג רשאי לקבוע מחיר
+  // גבוה מהמחירון ולקחת את ההפרש (ראה OrderItem.agentSetPrice).
+  isFavorite    Boolean  @default(false)
 }
 
 model DeliveryPoint {
@@ -353,6 +364,21 @@ model Order {
   // ADMIN = המנהל יצר ידנית
   // משלים את placedByAgentId: הוא אומר *מי* הזמין, source אומר *דרך מה*.
   source          String   @default("WEB")
+
+  // §120: הזמנת תוספת.
+  //
+  // התרחיש: ההזמנה נשקלה וכבר חויבה, ובחלוקה הנציג מוסיף ללקוח
+  // מוצר - למשל ראש. הוספה להזמנה המקורית הייתה יוצרת חוב שלא
+  // ייגבה: החיוב כבר יצא, והפער היה נשאר פתוח.
+  //
+  // הפתרון: הזמנה נפרדת שנגבית בנפרד, אך **קשורה** למקורית -
+  // כדי שהלקוח, הנציג והמנהל יראו שזו תוספת ולא הזמנה כפולה.
+  //
+  // ⚠️ onDelete: SetNull ולא Cascade - מחיקת ההזמנה המקורית לא
+  // תמחוק תוספת שכבר חויבה. הכסף נגבה, והרישום חייב להישאר.
+  parentOrderId   String?
+  parentOrder     Order?   @relation("OrderSupplements", fields: [parentOrderId], references: [id], onDelete: SetNull)
+  supplements     Order[]  @relation("OrderSupplements")
   // מזהה השיחה בימות המשיח (ApiCallId) - לתחקור הזמנה טלפונית מול הלוגים
   phoneCallId     String?
 
@@ -446,6 +472,25 @@ model OrderItem {
   actualWeight  Decimal? @db.Decimal(10, 3) // משקל בפועל - מעודכן ע"י נציג/מנהל אחרי שקילה
   finalWeight   Decimal? @db.Decimal(10, 3) // נשמר לתאימות לאחור (זהה ל-actualWeight)
   finalPrice    Decimal? @db.Decimal(10, 2)
+
+  // §119: מחיר שהנציג קבע בעצמו, במוצר מועדף בלבד.
+  //
+  // הכלל העסקי: הנציג תמיד מרוויח שקל לק"ג (commissionRateCarton).
+  // כלומר "רצפת הנציג" היא מחיר המחירון פחות שקל - למשל 128.90
+  // כשהמחירון 129.90.
+  //
+  // במוצר מועדף הוא רשאי לקבוע מחיר **גבוה יותר**, וכל ההפרש
+  // מהרצפה שלו ועד המחיר שקבע שייך לו:
+  //     קבע 139.90  ->  עמלה = 139.90 - 128.90 = 11 ש"ח
+  //
+  // ⚠️ זה **מחליף** את העמלה הרגילה ולא מתווסף אליה. אין כאן
+  // גם שקל, גם 3 של בודדים, וגם ההפרש - הכל מובלע בהפרש.
+  //
+  // ⚠️ העלאה בלבד. מחיר נמוך מהמחירון נדחה בשרת: הוא היה פוגע
+  // בהכנסה שלך ומייצר עמלה שלילית.
+  //
+  // null = הנציג לא קבע מחיר, ואז חלים כללי העמלה הרגילים.
+  agentSetPrice Decimal? @db.Decimal(10, 2)
   // §20: שדות של נציג - נעולים לחישוב עמלה (המנהל יכול לתקן finalWeight, אבל agentEnteredWeight נשמר)
   agentEnteredWeight Decimal? @db.Decimal(10, 3) // המשקל שהנציג הזין - נעול לעמלה
   agentEnteredById   String?  // מזהה הנציג שהזין (Customer.id)
@@ -568,6 +613,10 @@ model AgentSaleSummary {
   totalWalkins        Int       @default(0) // מספר מזדמנים
   cartonCommission    Decimal   @default(0) @db.Decimal(10, 2) // עמלה על קרטונים
   singlesCommission   Decimal   @default(0) @db.Decimal(10, 2) // עמלה על בודדים
+  // §119: עמלה על מוצרים מועדפים שהנציג תמחר בעצמו.
+  // נשמרת בנפרד כי היא אינה נגזרת מתעריף לק"ג אלא מהפרש המחיר,
+  // ובלי הפרדה אי אפשר להסביר לנציג איך התקבל הסכום.
+  customCommission    Decimal   @default(0) @db.Decimal(10, 2)
   totalCommission     Decimal   @default(0) @db.Decimal(10, 2) // עמלה כוללת
   // "נותר/זרוק" - להסבר פערים מתעודת המשלוח
   remainderNote       String?   @db.Text

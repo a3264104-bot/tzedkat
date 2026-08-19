@@ -15,6 +15,9 @@ type LiveSummary = {
   walkinsCount: number;
   cartonCommission: number;
   singlesCommission: number;
+  // §119: עמלה על מוצרים מועדפים שהנציג תמחר בעצמו.
+  // אופציונלי כדי שגרסאות ישנות של הנתונים לא ישברו.
+  customCommission?: number;
   totalCommission: number;
   walkinCash: number;
   walkinCard: number;
@@ -198,6 +201,15 @@ export function SummaryPanel({
                 label={`בודדים (${(liveSummary.totalSinglesWeight + liveSummary.totalWalkinSinglesWeight).toFixed(2)} × ₪${commissionRateSingles})`}
                 value={`₪${liveSummary.singlesCommission.toFixed(2)}`}
               />
+              {/* §119: מוצרים מועדפים - שורה נפרדת, כי החישוב שונה
+                  לגמרי (הפרש מחיר ולא תעריף לק"ג). מיזוג לשורות
+                  הקיימות היה מציג "קרטונים × 1" על סכום שלא חושב כך. */}
+              {!!liveSummary.customCommission && liveSummary.customCommission > 0 && (
+                <SummaryLine
+                  label="⭐ מוצרים מועדפים (הפרש מחיר)"
+                  value={`₪${liveSummary.customCommission.toFixed(2)}`}
+                />
+              )}
               <div className="border-t border-zinc-200 pt-2 mt-2 flex justify-between items-center">
                 <span className="font-bold text-brand-slatedark">
                   סה"כ עמלה שלי

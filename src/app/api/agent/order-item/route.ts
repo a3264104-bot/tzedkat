@@ -24,6 +24,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
 import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
+// §119: ולידציה של מחיר שהנציג קובע במוצר מועדף
+import { validateAgentPrice } from "@/lib/commission-lib";
 
 export async function POST(req: Request) {
   const g = await requireAgent();
@@ -124,6 +126,8 @@ export async function POST(req: Request) {
           singleUnitPrice: true,
           avgWeightPerUnit: true,
           isActive: true,
+          // §119: רק במוצר מועדף מותר לנציג לקבוע מחיר
+          isFavorite: true,
         },
       },
     },
@@ -161,15 +165,42 @@ export async function POST(req: Request) {
 
   // אותה הערכה כמו באתר: מוצר שנשקל מוערך לפי משקל ממוצע, בודדים
   // בק"ג מחושבים ישירות.
+  // ═══════════════════════════════════════════════════════════
+  // §119: מחיר שהנציג קבע - מוצר מועדף בלבד
+  // ═══════════════════════════════════════════════════════════
+  // הכלל: הנציג רשאי להעלות את המחיר, וההפרש מ"רצפת הנציג"
+  // (המחירון פחות השקל שתמיד שלו) שייך לו במלואו.
+  //
+  // ⚠️ שתי הגנות שנאכפות **בשרת** ולא רק בממשק:
+  //   1. רק מוצר מועדף - אחרת נציג היה מייקר כל מוצר במכירה
+  //   2. העלאה בלבד - הורדה פוגעת בהכנסה ומייצרת עמלה שלילית
+  let agentSetPrice: number | null = null;
+  if (body.agentSetPrice !== null && body.agentSetPrice !== undefined && body.agentSetPrice !== "") {
+    if (!product.isFavorite) {
+      return NextResponse.json(
+        { error: "ניתן לקבוע מחיר מותאם רק במוצר מועדף" },
+        { status: 400 }
+      );
+    }
+    const n = Number(body.agentSetPrice);
+    const v = validateAgentPrice(n, unitPrice);
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+    agentSetPrice = n;
+  }
+
+  // ⚠️ הלקוח מחויב לפי המחיר שהנציג קבע, ולא לפי המחירון. זו כל
+  // הנקודה: הנציג מכר לו ב-139.90, וזה מה שהוא ישלם.
+  const chargedPrice = agentSetPrice ?? unitPrice;
+
   const estimatedPrice = isSingle
-    ? Math.round(unitPrice * quantity * 100) / 100
+    ? Math.round(chargedPrice * quantity * 100) / 100
     : smartLineEstimate(
-        unitPrice,
+        chargedPrice,
         quantity,
         product.saleType,
         product.priceType,
         product.avgWeightPerUnit != null ? Number(product.avgWeightPerUnit) : null
-      ) ?? Math.round(unitPrice * quantity * 100) / 100;
+      ) ?? Math.round(chargedPrice * quantity * 100) / 100;
 
   const estimatedWeight =
     !isSingle && product.avgWeightPerUnit != null
@@ -185,7 +216,11 @@ export async function POST(req: Request) {
       unit: isSingle && product.singlesMode !== "UNITS" ? 'ק"ג' : product.unit,
       isSingle,
       quantity,
+      // ⚠️ unitPrice נשאר **מחיר המחירון** - הוא הבסיס לחישוב
+      // העמלה. המחיר שנגבה בפועל יושב ב-agentSetPrice, ובלי
+      // ההפרדה הזו אי אפשר לחשב כמה מגיע לנציג.
       unitPrice,
+      agentSetPrice,
       estimatedPrice,
       estimatedWeight,
       // תיעוד מי הוסיף. agentEnteredById הוא שדה קיים ומשמש גם
@@ -194,7 +229,11 @@ export async function POST(req: Request) {
       agentEnteredById: g.agent.id,
       // הערת מערכת: פריט שנוסף אחרי יצירת ההזמנה. חשוב שיהיה גלוי -
       // אחרת הלקוח מקבל בחלוקה משהו שלא הזמין, ואיש לא יודע ממי זה בא.
-      agentNote: `נוסף ע"י ${g.agent.name}`,
+      agentNote:
+        `נוסף ע"י ${g.agent.name}` +
+        (agentSetPrice != null
+          ? ` · מחיר שנקבע: ${agentSetPrice.toFixed(2)} (מחירון ${unitPrice.toFixed(2)})`
+          : ""),
     },
     select: { id: true },
   });

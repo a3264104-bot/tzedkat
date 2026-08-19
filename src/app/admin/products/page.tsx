@@ -32,6 +32,8 @@ type Product = {
   limitedQtyAmount: number | null;
   allowPersonalOrder: boolean; // §9: זמין להזמנה אישית
   isActive: boolean;
+  // §119: מוצר מועדף - לנציגים בלבד
+  isFavorite?: boolean;
   sortOrder: number;
   imageUrl: string | null;
   kashrut: string | null;
@@ -173,6 +175,7 @@ export default function ProductsPage() {
           ? parseInt(String(editing.limitedQtyAmount), 10)
           : null,
       isActive: editing.isActive ?? true,
+      isFavorite: editing.isFavorite ?? false,
       allowPersonalOrder: editing.allowPersonalOrder ?? true,
       sortOrder: editing.sortOrder ?? 0,
       imageUrl: editing.imageUrl || null,
@@ -756,6 +759,26 @@ export default function ProductsPage() {
                   className="h-4 w-4 accent-brand-rust"
                 />
                 ⭐ מוצר מבצע (מודגש ללקוח)
+              </label>
+              {/* §119: מוצר מועדף - ראש, בננה וכדומה.
+                  שונה מ"לא פעיל": לא פעיל הוסר מהמכירה, ומועדף
+                  קיים בכוונה ומיועד לנציגים בלבד. רק בו הנציג
+                  רשאי לקבוע מחיר גבוה ולקחת את ההפרש. */}
+              <label className="flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-lg p-2.5">
+                <input
+                  type="checkbox"
+                  checked={editing.isFavorite ?? false}
+                  onChange={(e) => setEditing({ ...editing, isFavorite: e.target.checked })}
+                  className="h-4 w-4 accent-brand-rust mt-0.5 shrink-0"
+                />
+                <div>
+                  <span className="font-bold text-amber-900">⭐ מוצר מועדף (לנציגים בלבד)</span>
+                  <p className="text-xs text-amber-800 font-normal leading-relaxed">
+                    לא יוצג ללקוחות באתר ובטלפון. הנציג מוסיף אותו ללקוחות
+                    שהוא בוחר, ורשאי לקבוע מחיר גבוה מהמחירון — ההפרש
+                    נזקף לעמלתו.
+                  </p>
+                </div>
               </label>
               <label className="flex items-center gap-2">
                 <input

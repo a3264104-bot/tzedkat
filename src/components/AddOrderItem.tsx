@@ -38,6 +38,8 @@ export type AddableProduct = {
   singleUnitPrice?: number | string | null;
   avgWeightPerUnit?: number | string | null;
   isActive?: boolean;
+  /** §119: מוצר מועדף - לנציגים בלבד, עם אפשרות לתמחור עצמי */
+  isFavorite?: boolean;
   categoryName?: string | null;
 };
 
@@ -55,12 +57,16 @@ export function AddOrderItem({
     quantity: number;
     isSingle: boolean;
     unitPrice: number;
+    /** §119: מחיר שהנציג קבע (מוצר מועדף בלבד) */
+    agentSetPrice?: number | null;
   }) => Promise<void> | void;
   disabled?: boolean;
 }) {
   const [productId, setProductId] = useState("");
   const [isSingle, setIsSingle] = useState(false);
   const [qty, setQty] = useState("1");
+  // §119: מחיר שהנציג קובע במוצר מועדף
+  const [customPrice, setCustomPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -70,8 +76,15 @@ export function AddOrderItem({
   );
 
   // §7: הפרדה לשתי קבוצות. פעילים קודם - זו ברירת המחדל.
-  const activeProducts = products.filter((p) => p.isActive !== false);
-  const inactiveProducts = products.filter((p) => p.isActive === false);
+  const activeProducts = products.filter(
+    (p) => p.isActive !== false && !p.isFavorite
+  );
+  const inactiveProducts = products.filter(
+    (p) => p.isActive === false && !p.isFavorite
+  );
+  // §119: מועדפים - קבוצה נפרדת. שונה מ"לא פעיל": מוצר לא פעיל
+  // הוסר מהמכירה, ומועדף קיים בכוונה ומיועד לנציגים.
+  const favoriteProducts = products.filter((p) => p.isFavorite);
 
   // מוצר שאינו מאפשר בודדים - מאפסים את הבחירה כדי שלא יישלח
   // isSingle על מוצר שלא תומך בו
@@ -80,6 +93,7 @@ export function AddOrderItem({
     setError("");
     const p = products.find((x) => x.id === id);
     if (!p?.allowSingles) setIsSingle(false);
+    setCustomPrice("");
     // בודדים בק"ג מתחילים ב-1 ק"ג, קרטונים בקרטון אחד
     setQty("1");
   }
@@ -120,10 +134,25 @@ export function AddOrderItem({
     }
     setBusy(true);
     try {
-      await onAdd({ productId: selected.id, quantity: n, isSingle, unitPrice });
+      // §119: מחיר מותאם נשלח רק אם הוזן והוא תקין
+      const custom =
+        selected.isFavorite && customPrice !== "" ? Number(customPrice) : null;
+      if (custom !== null && custom < unitPrice) {
+        setError(`לא ניתן לקבוע מחיר נמוך מהמחירון (${unitPrice.toFixed(2)} ₪)`);
+        setBusy(false);
+        return;
+      }
+      await onAdd({
+        productId: selected.id,
+        quantity: n,
+        isSingle,
+        unitPrice,
+        agentSetPrice: custom,
+      });
       setProductId("");
       setIsSingle(false);
       setQty("1");
+      setCustomPrice("");
     } catch (e: any) {
       setError(e?.message || "שגיאה בהוספה");
     } finally {
@@ -148,6 +177,16 @@ export function AddOrderItem({
               {p.name}
             </option>
           ))}
+          {/* §119: מוצרים מועדפים - ראש, בננה וכדומה. */}
+          {favoriteProducts.length > 0 && (
+            <optgroup label="── ⭐ מוצרים מועדפים (לנציגים בלבד) ──">
+              {favoriteProducts.map((p) => (
+                <option key={p.id} value={p.id}>
+                  ⭐ {p.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
           {/* §7: קבוצה נפרדת ומסומנת. המנהל/נציג רואה שאלה מוצרים
               שאינם מוצגים ללקוחות, ובוחר מהם במודע. */}
           {inactiveProducts.length > 0 && (
@@ -168,6 +207,53 @@ export function AddOrderItem({
             <div className="bg-violet-50 border border-violet-200 rounded-lg px-2.5 py-1.5 text-[11px] text-violet-800">
               ⭐ מוצר שאינו מוצג ללקוחות באתר. ההוספה כאן היא החלטה
               יזומה שלך עבור הלקוח הזה.
+            </div>
+          )}
+
+          {/* §119: תמחור עצמי - מוצר מועדף בלבד.
+              הנציג רשאי להעלות את המחיר, וההפרש מ"רצפת הנציג"
+              (המחירון פחות השקל שתמיד שלו) שייך לו במלואו.
+              ⚠️ העלאה בלבד - הורדה תיחסם בשרת. */}
+          {selected.isFavorite && (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-2.5 space-y-1.5">
+              <div className="text-[11px] font-bold text-amber-900">
+                ⭐ מוצר מועדף — ניתן לקבוע מחיר גבוה יותר
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input flex-1"
+                  type="number"
+                  step="0.01"
+                  min={unitPrice}
+                  dir="ltr"
+                  placeholder={`מחירון: ${unitPrice.toFixed(2)}`}
+                  value={customPrice}
+                  onChange={(e) => setCustomPrice(e.target.value)}
+                  disabled={disabled || busy}
+                />
+                <span className="text-xs text-zinc-600 whitespace-nowrap">
+                  ₪ ליחידה
+                </span>
+              </div>
+              {customPrice !== "" && Number(customPrice) >= unitPrice && (
+                <div className="text-[11px] text-emerald-800 font-bold">
+                  העמלה שלך:{" "}
+                  {(Number(customPrice) - (unitPrice - 1)).toFixed(2)} ₪ לק&quot;ג
+                  <span className="font-normal text-emerald-700">
+                    {" "}
+                    ({Number(customPrice).toFixed(2)} פחות{" "}
+                    {(unitPrice - 1).toFixed(2)})
+                  </span>
+                </div>
+              )}
+              {customPrice !== "" && Number(customPrice) < unitPrice && (
+                <div className="text-[11px] text-red-700 font-bold">
+                  לא ניתן לקבוע מחיר נמוך מהמחירון ({unitPrice.toFixed(2)} ₪)
+                </div>
+              )}
+              <p className="text-[10px] text-amber-800 leading-relaxed">
+                בלי מחיר מותאם חלה העמלה הרגילה (שקל לק&quot;ג, 4 בבודדים).
+              </p>
             </div>
           )}
 

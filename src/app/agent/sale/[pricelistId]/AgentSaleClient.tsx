@@ -34,6 +34,9 @@ export type OrderItem = {
   estimatedWeight: number | null;
   actualWeight: number | null;
   agentEnteredWeight: number | null;
+  // §119: מחיר שהנציג קבע במוצר מועדף. null = לא נקבע, וחלים
+  // כללי העמלה הרגילים.
+  agentSetPrice?: number | null;
   agentNote: string | null;
   isCancelled: boolean;
   originalProductId: string | null;
@@ -238,6 +241,16 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
     let totalSinglesWeight = 0;
     let customersServed = 0;
 
+    // §119: עמלת מוצרים מועדפים שתומחרו ע"י הנציג.
+    //
+    // ⚠️ הם **אינם** נספרים בקרטונים/בודדים: העמלה שלהם היא ההפרש
+    // בין המחיר שהנציג קבע ל"רצפת הנציג" (המחירון פחות השקל),
+    // וזה **מחליף** את הכלל הרגיל ולא מתווסף אליו.
+    //
+    // ספירה כפולה כאן הייתה משלמת לנציג גם שקל וגם את ההפרש על
+    // אותו קילו - כלומר תשלום כפול על אותו רווח.
+    let customCommission = 0;
+
     for (const order of data.orders) {
       let hasData = false;
       for (const it of order.items) {
@@ -245,8 +258,16 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
         const w = it.agentEnteredWeight || 0;
         if (w > 0) {
           hasData = true;
-          if (it.isSingle) totalSinglesWeight += w;
-          else totalCartonWeight += w;
+          if (it.agentSetPrice != null) {
+            // רצפת הנציג = המחירון פחות השקל שתמיד שלו
+            const floor = Number(it.unitPrice) - rateCarton;
+            const perKg = Number(it.agentSetPrice) - floor;
+            if (perKg > 0) customCommission += perKg * w;
+          } else if (it.isSingle) {
+            totalSinglesWeight += w;
+          } else {
+            totalCartonWeight += w;
+          }
         }
       }
       if (hasData) customersServed++;
@@ -280,7 +301,9 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
       walkinsCount: data.walkins.length,
       cartonCommission,
       singlesCommission,
-      totalCommission: cartonCommission + singlesCommission,
+      customCommission: Math.round(customCommission * 100) / 100,
+      totalCommission:
+        Math.round((cartonCommission + singlesCommission + customCommission) * 100) / 100,
       walkinCash,
       walkinCard,
       walkinTransfer,

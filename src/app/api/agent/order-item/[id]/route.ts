@@ -78,8 +78,19 @@ export async function PATCH(
     if (item.actualWeight === null || Number(item.actualWeight) === Number(item.agentEnteredWeight || 0)) {
       data.actualWeight = w;
       data.finalWeight = w;
-      // חישוב מחיר בפועל לפי המשקל החדש
-      data.finalPrice = w * Number(item.unitPrice);
+      // §119: 🐛 חיוב לפי המחיר שנקבע בפועל.
+      //
+      // כאן היה `w * unitPrice` - כלומר **מחיר המחירון**. במוצר
+      // מועדף שהנציג תמחר ב-139.90, הלקוח היה מחויב 129.90:
+      //   • הלקוח משלם פחות ממה שסוכם איתו בעל פה
+      //   • ההפרש שהנציג הרוויח לא נגבה מאיש
+      //   • הסיכום הציג לנציג עמלה של 11 ש"ח שמעולם לא נכנסה
+      //
+      // agentSetPrice הוא המחיר שהלקוח באמת אמור לשלם; unitPrice
+      // נשאר המחירון ומשמש רק לחישוב העמלה.
+      const chargePrice =
+        item.agentSetPrice != null ? Number(item.agentSetPrice) : Number(item.unitPrice);
+      data.finalPrice = Math.round(w * chargePrice * 100) / 100;
     }
   }
 
@@ -258,6 +269,13 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
   let totalCartonWeight = 0;
   let totalSinglesWeight = 0;
   let customersWithData = 0;
+  // §119: עמלת מוצרים מועדפים שתומחרו ע"י הנציג.
+  //
+  // ⚠️ **זו הפונקציה שכותבת את totalCommission למסד**, וממנה
+  // קורא דוח התשלומים לנציגים אצל המנהל. בלי התוספת כאן, הנציג
+  // רואה 11 ש"ח במסך שלו והמנהל משלם לו שקל - שני מספרים שונים
+  // לאותה מכירה, ולשניהם יש הוכחה על המסך.
+  let customCommission = 0;
 
   for (const order of orders) {
     let hasData = false;
@@ -267,8 +285,18 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
       const w = it.agentEnteredWeight ? Number(it.agentEnteredWeight) : 0;
       if (w > 0) {
         hasData = true;
-        if (it.isSingle) totalSinglesWeight += w;
-        else totalCartonWeight += w;
+        if (it.agentSetPrice != null) {
+          // רצפת הנציג = המחירון פחות השקל שתמיד שלו.
+          // ⚠️ המוצר **אינו** נספר גם בקרטונים/בודדים - אחרת
+          // הנציג מקבל גם שקל וגם את ההפרש על אותו קילו.
+          const floor = Number(it.unitPrice) - rateCarton;
+          const perKg = Number(it.agentSetPrice) - floor;
+          if (perKg > 0) customCommission += perKg * w;
+        } else if (it.isSingle) {
+          totalSinglesWeight += w;
+        } else {
+          totalCartonWeight += w;
+        }
       }
     }
     if (hasData) customersWithData++;
@@ -293,7 +321,10 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
 
   const cartonCommission = (totalCartonWeight + totalWalkinCarton) * rateCarton;
   const singlesCommission = (totalSinglesWeight + totalWalkinSingles) * rateSingles;
-  const totalCommission = cartonCommission + singlesCommission;
+  // §119: שלושת הרכיבים. customCommission נפרד כי הוא לא נגזר
+  // מתעריף לק"ג אלא מהפרש מחיר.
+  const totalCommission =
+    Math.round((cartonCommission + singlesCommission + customCommission) * 100) / 100;
 
   await prisma.agentSaleSummary.upsert({
     where: { pricelistId_agentId: { pricelistId, agentId } },
@@ -308,6 +339,7 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
       totalWalkins: walkins.length,
       cartonCommission,
       singlesCommission,
+      customCommission: Math.round(customCommission * 100) / 100,
       totalCommission,
     },
     update: {
@@ -318,6 +350,10 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
       totalWalkins: walkins.length,
       cartonCommission,
       singlesCommission,
+      // §119: 🐛 חסר כאן. create כלל את השדה ו-update לא, ולכן
+      // בעדכון חוזר (כל שקילה!) הערך היה נשאר מהפעם הראשונה
+      // בזמן ש-totalCommission כן מתעדכן - שני מספרים שלא מסתדרים.
+      customCommission: Math.round(customCommission * 100) / 100,
       totalCommission,
     },
   });

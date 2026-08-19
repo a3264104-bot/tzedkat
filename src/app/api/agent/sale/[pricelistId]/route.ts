@@ -229,6 +229,9 @@ export async function GET(
         estimatedWeight: it.estimatedWeight ? Number(it.estimatedWeight) : null,
         actualWeight: it.actualWeight ? Number(it.actualWeight) : null,
         agentEnteredWeight: it.agentEnteredWeight ? Number(it.agentEnteredWeight) : null,
+        // §119: המחיר שהנציג קבע במוצר מועדף. בלעדיו החישוב
+        // בקליינט לעולם לא יופעל, והעמלה תישאר בכלל הרגיל.
+        agentSetPrice: it.agentSetPrice != null ? Number(it.agentSetPrice) : null,
         agentNote: it.agentNote,
         isCancelled: it.isCancelled,
         originalProductId: it.originalProductId,
