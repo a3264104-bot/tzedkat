@@ -114,8 +114,15 @@ export default function AdminCustomersPage() {
   // סידור ושדה מיון
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  // סינון לפי עיר
-  const [cityFilter, setCityFilter] = useState<string>("");
+  // §139: סינון וקיבוץ לפי **נקודת חלוקה** ולא לפי עיר.
+  //
+  // 🐛 הפער: בביתר יש כמה נקודות (B1, B2), וקיבוץ לפי עיר הציג
+  // את כולן יחד. המנהל שרצה לראות מי מגיע ל-B1 ראה את כל ביתר,
+  // וזה חסר תועלת בחלוקה - שם כל נקודה עומדת בפני עצמה.
+  //
+  // ⚠️ העיר נשמרת כתת-כותרת: היא עדיין שימושית להתמצאות, אבל
+  // היא לא יחידת העבודה.
+  const [pointFilter, setPointFilter] = useState<string>("");
   // מצב תצוגה: table / grouped
   const [viewMode, setViewMode] = useState<"table" | "grouped">("grouped");
 
@@ -469,7 +476,7 @@ export default function AdminCustomersPage() {
 
   // סינון + מיון
   const filtered = customers
-    .filter((c) => !cityFilter || (c.city || "(ללא עיר)") === cityFilter)
+    .filter((c) => !pointFilter || (c.pointName || "(ללא נקודה)") === pointFilter)
     .filter((c) => !hideInactive || c.isActive !== false)
     .sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
@@ -481,18 +488,26 @@ export default function AdminCustomersPage() {
 
   const inactiveCount = customers.filter((c) => c.isActive === false).length;
 
-  // רשימת ערים ייחודיות לסינון
-  const cities = Array.from(
-    new Set(customers.map((c) => c.city || "(ללא עיר)"))
+  // §139: רשימת הנקודות לסינון
+  const pointNames = Array.from(
+    new Set(customers.map((c) => c.pointName || "(ללא נקודה)"))
   ).sort((a, b) => a.localeCompare(b, "he"));
 
-  // קיבוץ לפי עיר
+  // §139: קיבוץ לפי נקודת חלוקה. זו יחידת העבודה בחלוקה - כל
+  // נקודה עומדת בפני עצמה, עם נציג משלה ומועד משלה.
   const grouped = filtered.reduce((acc, c) => {
-    const city = c.city || "(ללא עיר)";
-    if (!acc[city]) acc[city] = [];
-    acc[city].push(c);
+    const key = c.pointName || "(ללא נקודה)";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(c);
     return acc;
   }, {} as Record<string, Customer[]>);
+
+  // העיר של כל נקודה - לתת-כותרת
+  const cityOfPoint = new Map<string, string>();
+  for (const c of customers) {
+    const k = c.pointName || "(ללא נקודה)";
+    if (c.city && !cityOfPoint.has(k)) cityOfPoint.set(k, c.city);
+  }
 
   return (
     <div className="space-y-4">
@@ -500,7 +515,7 @@ export default function AdminCustomersPage() {
         <div>
           <h1 className="text-2xl font-extrabold text-brand-slatedark">לקוחות</h1>
           <p className="text-sm text-zinc-500">
-            {customers.length} לקוחות{cityFilter ? ` · ${cityFilter}` : ""}
+            {customers.length} לקוחות{pointFilter ? ` · ${pointFilter}` : ""}
             {inactiveCount > 0 && ` · ${inactiveCount} לא פעילים`}
           </p>
         </div>
@@ -536,7 +551,7 @@ export default function AdminCustomersPage() {
             onClick={() => setViewMode(viewMode === "table" ? "grouped" : "table")}
             className="btn-ghost btn-sm"
           >
-            {viewMode === "table" ? "👥 לפי ערים" : "📋 טבלה"}
+            {viewMode === "table" ? "📍 לפי נקודות" : "📋 טבלה"}
           </button>
         </div>
       </div>
@@ -550,14 +565,19 @@ export default function AdminCustomersPage() {
           onChange={(e) => setQuery(e.target.value)}
           autoFocus
         />
+        {/* §139: סינון לפי נקודת חלוקה. בביתר יש B1 ו-B2, וסינון
+            לפי עיר הציג את שתיהן יחד - חסר תועלת בחלוקה. */}
         <select
-          className="input w-auto min-w-[140px]"
-          value={cityFilter}
-          onChange={(e) => setCityFilter(e.target.value)}
+          className="input w-auto min-w-[180px]"
+          value={pointFilter}
+          onChange={(e) => setPointFilter(e.target.value)}
         >
-          <option value="">כל הערים</option>
-          {cities.map((c) => (
-            <option key={c} value={c}>{c}</option>
+          <option value="">כל נקודות החלוקה</option>
+          {pointNames.map((p) => (
+            <option key={p} value={p}>
+              {p}
+              {cityOfPoint.get(p) ? ` — ${cityOfPoint.get(p)}` : ""}
+            </option>
           ))}
         </select>
         {inactiveCount > 0 && (
@@ -577,7 +597,7 @@ export default function AdminCustomersPage() {
         <p className="text-zinc-500 text-center py-8">טוען...</p>
       ) : filtered.length === 0 ? (
         <div className="card p-8 text-center text-zinc-500">
-          {query || cityFilter ? "לא נמצאו לקוחות" : "אין עדיין לקוחות רשומים"}
+          {query || pointFilter ? "לא נמצאו לקוחות" : "אין עדיין לקוחות רשומים"}
         </div>
       ) : viewMode === "table" ? (
         /* ═══ תצוגת טבלה ═══ */
@@ -592,6 +612,9 @@ export default function AdminCustomersPage() {
                   טלפון{sortArrow("phone")}
                 </th>
                 <th className="p-3 hidden md:table-cell">מייל</th>
+                {/* §139: הנקודה קודם - היא יחידת העבודה. העיר
+                    אחריה, להתמצאות בלבד. */}
+                <th className="p-3">נקודת חלוקה</th>
                 <th className="p-3 cursor-pointer hover:bg-zinc-100" onClick={() => toggleSort("city")}>
                   עיר{sortArrow("city")}
                 </th>
@@ -621,7 +644,10 @@ export default function AdminCustomersPage() {
                   </td>
                   <td className="p-3 text-zinc-600" dir="ltr">{c.phone || "—"}</td>
                   <td className="p-3 text-zinc-500 hidden md:table-cell text-xs">{c.email || "—"}</td>
-                  <td className="p-3 text-zinc-600">{c.city || "—"}</td>
+                  <td className="p-3 text-zinc-700 text-xs font-medium">
+                    {c.pointName || "—"}
+                  </td>
+                  <td className="p-3 text-zinc-500 text-xs">{c.city || "—"}</td>
                   <td className="p-3 text-center">{c.orderCount}</td>
                   <td className="p-3 text-center">
                     {c.hasPaymentToken ? (
@@ -645,17 +671,28 @@ export default function AdminCustomersPage() {
         <div className="space-y-4">
           {Object.entries(grouped)
             .sort(([a], [b]) => a.localeCompare(b, "he"))
-            .map(([city, cityCustomers]) => (
-            <div key={city}>
-              <div className="flex items-center gap-2 mb-2">
-                <h2 className="text-base font-bold text-brand-slatedark">{city}</h2>
-                <span className="text-xs text-zinc-400">{cityCustomers.length} לקוחות</span>
+            .map(([pointName, pointCustomers]) => (
+            <div key={pointName}>
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <h2 className="text-base font-bold text-brand-slatedark">
+                  📍 {pointName}
+                </h2>
+                {/* העיר כתת-כותרת: שימושית להתמצאות, אבל היא לא
+                    יחידת העבודה - הנקודה היא. */}
+                {cityOfPoint.get(pointName) && (
+                  <span className="text-xs text-zinc-500">
+                    {cityOfPoint.get(pointName)}
+                  </span>
+                )}
+                <span className="text-xs text-zinc-400">
+                  {pointCustomers.length} לקוחות
+                </span>
                 <div className="flex-1 border-b border-zinc-200" />
               </div>
               <div className="card overflow-x-auto">
                 <table className="w-full text-sm">
                   <tbody>
-                    {cityCustomers.map((c) => (
+                    {pointCustomers.map((c) => (
                       <tr
                         key={c.id}
                         className={`border-b last:border-b-0 hover:bg-zinc-50 transition ${

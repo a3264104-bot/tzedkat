@@ -69,7 +69,7 @@ type CustomerRow = {
   customerName: string;
   phone: string;
   /** productId -> תא. לקוח שלא הזמין מוצר מסוים פשוט לא יופיע כאן */
-  cells: Map<string, Cell>;
+  cells: Cell[];
   total: number;
   missing: number;
   /** §103: מתי הנציג סימן שסיים. null = טרם טופל. */
@@ -93,23 +93,24 @@ export function WeightsTable({
   //
   // הסדר לפי כמות המזמינים: המוצרים הנפוצים משמאל, קרוב לשם
   // הלקוח, כדי שהנציג ימלא את רובם בלי גלילה אופקית.
-  const columns = useMemo(() => {
-    const counts = new Map<string, { id: string; name: string; n: number }>();
+  // §141: כמה עמודות צריך - לפי הלקוח העמוס ביותר.
+  //
+  // 🐛 המבנה הקודם: עמודה קבועה לכל מוצר שהוזמן בנקודה. עשרים
+  // לקוחות שכל אחד לקח מוצר אחר = עשרים עמודות, גלילה אינסופית
+  // ימינה ושמאלה, ורוב הטבלה ריקה.
+  //
+  // עכשיו: **כל תא הוא פריט**. שם המוצר בתוך התא, והפריטים של
+  // כל לקוח צמודים משמאל בלי רווחים. לקוח שהזמין 2 פריטים תופס
+  // 2 תאים, ולא 2 מתוך 20.
+  const maxItems = useMemo(() => {
+    let m = 1;
     for (const o of orders) {
-      for (const it of o.items) {
-        if (it.isCancelled) continue;
-        const cur = counts.get(it.productId) || {
-          id: it.productId,
-          name: it.productName,
-          n: 0,
-        };
-        cur.n++;
-        counts.set(it.productId, cur);
-      }
+      const n = o.items.filter((i) => !i.isCancelled).length;
+      if (n > m) m = n;
     }
-    return Array.from(counts.values()).sort(
-      (a, b) => b.n - a.n || a.name.localeCompare(b.name, "he")
-    );
+    // ⚠️ תקרה של 8: מעבר לזה הטבלה רחבה מדי גם בדסקטופ. לקוח
+    // חריג יגלוש, וזה עדיף על טבלה שאי אפשר לקרוא.
+    return Math.min(m, 8);
   }, [orders]);
 
   // ─── שורות: לקוח אחד לשורה ───
@@ -117,7 +118,7 @@ export function WeightsTable({
     return orders
       .filter((o) => o.items.some((i) => !i.isCancelled))
       .map((o) => {
-        const cells = new Map<string, Cell>();
+        const cells: Cell[] = [];
         let total = 0;
         let missing = 0;
         for (const it of o.items) {
@@ -148,7 +149,7 @@ export function WeightsTable({
           } else {
             total += w * it.unitPrice;
           }
-          cells.set(it.productId, {
+          cells.push({
             itemId: it.id,
             orderId: o.id,
             productName: it.productName,
@@ -197,19 +198,18 @@ export function WeightsTable({
   const firstMissing = useMemo(() => {
     for (const r of rows) {
       if (r.missing === 0) continue;
-      for (const c of columns) {
-        const cell = r.cells.get(c.id);
-        if (cell && cell.agentEnteredWeight === null) {
+      for (const cell of r.cells) {
+        if (!cell.noWeighing && cell.agentEnteredWeight === null) {
           return {
-            cellId: `w-${r.orderId}-${c.id}`,
+            cellId: `w-${cell.itemId}`,
             customerName: r.customerName,
-            productName: c.name,
+            productName: cell.productName,
           };
         }
       }
     }
     return null;
-  }, [rows, columns]);
+  }, [rows]);
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
 
   useEffect(() => {
@@ -292,12 +292,14 @@ export function WeightsTable({
               <th className="sticky right-0 z-10 bg-zinc-100 text-right px-3 py-2 min-w-[140px] border-l-2 border-zinc-300 text-[11px] font-bold text-zinc-600">
                 שם הלקוח
               </th>
-              {columns.map((c) => (
+              {/* §141: כותרות גנריות - שם המוצר יושב בתא עצמו.
+                  כך אין עמודה ריקה ללקוח שלא הזמין את המוצר. */}
+              {Array.from({ length: maxItems }, (_, i) => (
                 <th
-                  key={c.id}
-                  className="px-2 py-2 min-w-[120px] border-l border-zinc-200 text-[11px] font-bold text-zinc-700"
+                  key={i}
+                  className="px-2 py-2 min-w-[110px] border-l border-zinc-200 text-[10px] font-bold text-zinc-500"
                 >
-                  {c.name}
+                  פריט {i + 1}
                 </th>
               ))}
               <th className="px-3 py-2 min-w-[90px] border-l border-zinc-200 text-[11px] font-bold text-zinc-600">
@@ -337,27 +339,28 @@ export function WeightsTable({
                   <span className="text-[10px] text-zinc-400">#{r.orderNumber}</span>
                 </td>
 
-                {columns.map((c) => {
-                  const cell = r.cells.get(c.id);
+                {/* §141: הפריטים של הלקוח, צמודים משמאל.
+                    
+                    ⚠️ אין יותר "לא הזמין את המוצר" - התאים הריקים
+                    הם רק מה שנשאר אחרי הפריטים שלו, ולא חורים
+                    באמצע. לקוח שהזמין 2 פריטים רואה 2 תאים
+                    מלאים ואת השאר ריקים - במקום 2 מתוך 20. */}
+                {Array.from({ length: maxItems }, (_, i) => {
+                  const cell = r.cells[i];
                   return (
                     <td
-                      key={c.id}
-                      className="px-1.5 py-1.5 border-l border-zinc-200 align-middle text-center"
+                      key={i}
+                      className="px-1 py-1 border-l border-zinc-200 align-top"
                     >
                       {cell ? (
                         <WeightCell
-                          // §118: מזהה לקפיצה אל התא החסר
-                          cellId={`w-${r.orderId}-${c.id}`}
+                          cellId={`w-${cell.itemId}`}
                           cell={cell}
                           readOnly={readOnly}
                           onItemUpdate={onItemUpdate}
                           onNeedsReload={onNeedsReload}
                         />
-                      ) : (
-                        // לא הזמין את המוצר - תא מושתק ולא ריק, כדי
-                        // שלא ייראה כמו משקל שנשכח
-                        <span className="text-zinc-200 select-none">—</span>
-                      )}
+                      ) : null}
                     </td>
                   );
                 })}
@@ -451,7 +454,40 @@ function WeightCell({
 
   async function save() {
     const raw = val.trim();
-    if (raw === "") return; // ריק = לא נגעו; לא שולחים כלום
+
+    // §141: 🐛 מחיקת משקל לא נשמרה.
+    //
+    // כאן היה `if (raw === "") return` - כלומר שדה שרוקן פשוט לא
+    // נשלח לשרת. הנציג מחק, השדה נראה ריק, התא נשאר ירוק, וברגע
+    // שהוא חזר למסך המשקל היה שם.
+    //
+    // זה חמור יותר מבאג תצוגה: הנציג חשב שהוא ביטל משקל שגוי,
+    // והלקוח חויב לפיו.
+    //
+    // ⚠️ ההבחנה בין null ל-0 נשמרת: null = "טרם נשקל" (תא אדום),
+    // 0 = "לא קיבל" (ערך תקף). מחיקה מחזירה ל-null.
+    if (raw === "") {
+      if (cell.agentEnteredWeight === null) return; // כבר ריק
+      setSaving(true);
+      try {
+        const res = await fetch(`/api/agent/order-item/${cell.itemId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentEnteredWeight: null }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "שגיאה");
+        onNeedsReload();
+      } catch {
+        setError(true);
+        setVal(String(cell.agentEnteredWeight));
+        setTimeout(() => setError(false), 1500);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     const w = Number(raw);
     if (!Number.isFinite(w) || w < 0) {
       setError(true);
@@ -487,17 +523,30 @@ function WeightCell({
   }
 
   return (
-    <div className="flex flex-col items-center gap-0.5 min-w-[100px]">
-      {/* מה הוזמן - קטן, רק כדי לדעת מול מה שוקלים */}
-      <div className="text-[10px] text-zinc-500 leading-none">{cell.ordered}</div>
+    <div className="flex flex-col gap-0.5 min-w-[100px]">
+      {/* §141: שם המוצר בתוך התא.
+          
+          במבנה הישן השם היה בכותרת העמודה, ולכן היה צריך עמודה
+          לכל מוצר. עכשיו הוא כאן, והעמודות גנריות - מה שמאפשר
+          לדחוס את הפריטים של כל לקוח משמאל בלי חורים.
+          
+          ⚠️ truncate ולא wrap: שם ארוך היה מותח את גובה כל
+          השורה, ובטבלה של 40 לקוחות זה עמוד שלם של רווח מבוזבז.
+          השם המלא ב-title. */}
+      <div
+        className="text-[10px] font-bold text-brand-slatedark leading-tight truncate"
+        title={cell.productName}
+      >
+        {cell.productName}
+      </div>
+      <div className="text-[9px] text-zinc-500 leading-none">{cell.ordered}</div>
 
       {/* §137: מוצר שנמכר ביחידות - המשקל ידוע מהאריזה, ואין
           שדה למלא. הצגת שדה ריק הייתה גורמת לנציג לחפש משקולת
           למשהו שכתוב עליו 500 גרם. */}
       {cell.noWeighing ? (
-        <div className="w-full text-center text-[11px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded py-1.5">
-          יחידות
-          <span className="block text-[9px] text-zinc-400">לא נשקל</span>
+        <div className="w-full text-center text-[10px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded py-1">
+          יחידות · לא נשקל
         </div>
       ) : (
       <input
@@ -521,7 +570,7 @@ function WeightCell({
         placeholder={cell.estimatedWeight ? `~${cell.estimatedWeight}` : "משקל"}
         // ⚠️ תא חסר צועק: אדום מלא + מסגרת עבה + פעימה. משקל שנשכח
         // הוא כסף שלא נגבה, ולכן הוא לא יכול להיראות כמו שדה רגיל.
-        className={`w-full text-center font-bold rounded-md py-1.5 border-2 transition-colors ${
+        className={`w-full text-center font-bold text-sm rounded py-1 border-2 transition-colors ${
           error
             ? "border-red-600 bg-red-100 text-red-800"
             : isMissing

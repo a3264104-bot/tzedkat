@@ -130,8 +130,22 @@ export async function GET(
 }
 
 // ─────────────────────────────────────────────────────────────
-// גיליון נקודה אחת
+// §140: גיליון נקודה אחת - תא לכל פריט, לא עמודה לכל מוצר
 // ─────────────────────────────────────────────────────────────
+// 🐛 המבנה הקודם: עמודה קבועה לכל מוצר שהוזמן בנקודה. זה עובד
+// כשכולם מזמינים מאותם 5-6 מוצרים - וקורס ברגע שלא. עשרים
+// לקוחות שכל אחד לקח שני מוצרים שונים = 40 עמודות ודף בלתי
+// קריא.
+//
+// המבנה עכשיו: **כל תא הוא פריט**. שם המוצר והכמות בתוך התא,
+// ומתחתיהם משבצת למשקל. מספר העמודות נקבע לפי כמה פריטים
+// מזמין הלקוח, ולא לפי גודל הקטלוג.
+//
+// ⚠️ ארבע עמודות ולא שבע: הנתונים מהמערכת מראים חציון של 3
+// פריטים ו-p90 של 6.5. ארבע מכסות את רוב הלקוחות בשורה אחת,
+// והשאר גולשים לשורה שנייה - צר וקריא, במקום דף רחב שרובו ריק.
+const ITEMS_PER_ROW = 4;
+
 function buildDistributionSheet(
   wb: ExcelJS.Workbook,
   pointName: string,
@@ -142,7 +156,7 @@ function buildDistributionSheet(
   // שם גיליון: אקסל אוסר : \ / ? * [ ] ומגביל ל-31 תווים
   const safeName = pointName.replace(/[:\\/?*[\]]/g, "-").slice(0, 31) || "נקודה";
   const ws = wb.addWorksheet(safeName, {
-    views: [{ rightToLeft: true, state: "frozen", xSplit: 2, ySplit: 5 }],
+    views: [{ rightToLeft: true, state: "frozen", xSplit: 2, ySplit: 4 }],
     pageSetup: {
       paperSize: 9,
       orientation: "landscape",
@@ -150,179 +164,175 @@ function buildDistributionSheet(
       fitToWidth: 1,
       fitToHeight: 0,
       margins: { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
-      // ⚠️ הכותרת חוזרת בכל דף מודפס. בלי זה, מהדף השני והלאה
-      // הנציג רואה עמודות מספרים בלי לדעת איזה מוצר זה איזה.
-      printTitlesRow: "4:5",
+      // ⚠️ הכותרת חוזרת בכל דף מודפס. בלעדיה, מהדף השני והלאה
+      // הנציג רואה טבלה בלי שמות עמודות.
+      printTitlesRow: "4:4",
     },
   });
 
-  // ─── העמודות: רק מוצרים שהוזמנו בפועל ───
-  //
-  // לא כל הקטלוג - רק מה שמישהו בנקודה הזו הזמין. מוצר שאיש לא
-  // הזמין הוא עמודה ריקה שגוזלת רוחב יקר על דף מודפס.
-  //
-  // הסדר לפי מספר המזמינים: הנפוצים ראשונים, קרוב לשם הלקוח.
-  const prodCount = new Map<string, { id: string; name: string; unit: string; n: number }>();
-  for (const o of orders) {
-    for (const it of o.items) {
-      if (it.isCancelled) continue;
-      const cur = prodCount.get(it.productId) || {
-        id: it.productId,
-        name: it.product?.name || it.productName,
-        unit: it.unit || "",
-        n: 0,
-      };
-      cur.n++;
-      prodCount.set(it.productId, cur);
-    }
-  }
-  const products = Array.from(prodCount.values()).sort(
-    (a, b) => b.n - a.n || a.name.localeCompare(b.name, "he")
-  );
-
-  // רוחב עמודות: שם, טלפון, מוצרים, טופל
-  // §131: עמודת מזומן לפני "טופל".
-  //
-  // התרחיש: לקוח רשום כמשלם באשראי, וביום החלוקה הביא מזומן.
-  // הנציג מסמן על הנייר, ואחר כך מזין במערכת - ואם אין לו איפה
-  // לרשום, הוא יזכור שלושה לקוחות ויפספס את הרביעי. הכרטיס
-  // יחויב בערב והלקוח ישלם פעמיים.
+  // ─── עמודות: שם, טלפון, 4 פריטים, מזומן, טופל ───
   ws.columns = [
-    { width: 20 },
-    { width: 14 },
-    ...products.map(() => ({ width: 11 })),
-    { width: 10 },
+    { width: 18 },
+    { width: 13 },
+    ...Array.from({ length: ITEMS_PER_ROW }, () => ({ width: 17 })),
+    { width: 9 },
     { width: 7 },
   ];
-  const cashCol = 2 + products.length + 1;
+  const cashCol = 2 + ITEMS_PER_ROW + 1;
   const lastCol = cashCol + 1;
 
   // ─── כותרת ───
   ws.mergeCells(1, 1, 1, lastCol);
   const t = ws.getCell(1, 1);
   t.value = `${pointName} — ${saleTitle}`;
-  // §130: צבעי המותג. דף שנראה כמו מסמך של העמותה ולא כמו
-  // פלט גולמי - הנציג מחזיק אותו מול לקוחות.
   t.font = { size: 15, bold: true, color: { argb: "FFFFFFFF" } };
   t.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC0461E" } };
-  t.alignment = { horizontal: "center" };
+  t.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getRow(1).height = 22;
 
   ws.mergeCells(2, 1, 2, lastCol);
   const sub = ws.getCell(2, 1);
   sub.value =
     `נציג: ${agentName} · ${orders.length} לקוחות · הודפס ${new Date().toLocaleDateString("he-IL")}` +
     ` · לקוח ששילם במזומן — לסמן בעמודת "מזומן" ולעדכן במערכת`;
-  sub.font = { size: 10, color: { argb: "FF666666" } };
+  sub.font = { size: 9, color: { argb: "FF666666" } };
   sub.alignment = { horizontal: "center" };
 
-  // ─── כותרות עמודות (שתי שורות) ───
-  // שורה 4: שם המוצר. שורה 5: "הוזמן | משקל".
-  ws.mergeCells(4, 1, 5, 1);
-  ws.mergeCells(4, 2, 5, 2);
-  ws.getCell(4, 1).value = "שם הלקוח";
-  // ⚠️ הטלפון בעמודה קבועה ליד השם, ולא בשורה נפרדת: בחלוקה
-  // הנציג צריך להתקשר ללקוח שלא הגיע, ובלי מספר מול העיניים
-  // הוא חוזר לרכב לחפש ברשימה אחרת.
-  ws.getCell(4, 2).value = "טלפון";
-
-  products.forEach((p, i) => {
-    const col = 3 + i;
-    ws.mergeCells(4, col, 4, col);
-    const c = ws.getCell(4, col);
-    c.value = p.name;
-    c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    const c2 = ws.getCell(5, col);
-    c2.value = "הוזמן / משקל";
-    c2.font = { size: 8, color: { argb: "FF888888" } };
-    c2.alignment = { horizontal: "center" };
-  });
-
-  ws.mergeCells(4, cashCol, 5, cashCol);
-  const cashHdr = ws.getCell(4, cashCol);
-  cashHdr.value = "מזומן\nשולם";
-  cashHdr.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-
-  ws.mergeCells(4, lastCol, 5, lastCol);
-  ws.getCell(4, lastCol).value = "טופל";
+  // ─── כותרות עמודות ───
+  const hdr = ws.getRow(4);
+  hdr.getCell(1).value = "שם הלקוח";
+  hdr.getCell(2).value = "טלפון";
+  for (let i = 0; i < ITEMS_PER_ROW; i++) {
+    hdr.getCell(3 + i).value = `מוצר ${i + 1} · משקל`;
+  }
+  hdr.getCell(cashCol).value = "מזומן";
+  hdr.getCell(lastCol).value = "טופל";
 
   for (let c = 1; c <= lastCol; c++) {
-    for (let r = 4; r <= 5; r++) {
-      const cell = ws.getCell(r, c);
-      cell.font = { bold: r === 4, size: r === 4 ? 10 : 8, ...(r === 5 ? { color: { argb: "FF888888" } } : {}) };
-      cell.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: r === 4 ? "FFF5E6DC" : "FFFAF3EE" },
-      };
-      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      cell.border = {
-        top: { style: "thin" },
-        left: { style: "thin" },
-        bottom: { style: r === 5 ? "medium" : "thin" },
-        right: { style: "thin" },
-      };
-    }
+    const cell = ws.getCell(4, c);
+    cell.font = { bold: true, size: 10, color: { argb: "FF7C2D12" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5E6DC" } };
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    cell.border = {
+      top: { style: "thin" },
+      left: { style: "thin" },
+      bottom: { style: "medium" },
+      right: { style: "thin" },
+    };
   }
-  ws.getRow(4).height = 30;
-  ws.getRow(5).height = 12;
+  ws.getRow(4).height = 20;
 
   // ─── שורות הלקוחות ───
   const thin = { style: "thin" as const, color: { argb: "FFBBBBBB" } };
   const cellBorder = { top: thin, left: thin, bottom: thin, right: thin };
+  let r = 5;
 
   orders.forEach((o, idx) => {
-    const r = 6 + idx;
-    const row = ws.getRow(r);
-    // גובה נדיב - צריך מקום לכתוב משקל ביד
-    row.height = 26;
-
-    const nameCell = ws.getCell(r, 1);
-    nameCell.value = o.customerName;
-    nameCell.font = { bold: true, size: 10, color: { argb: "FF2C3E4F" } };
-    nameCell.alignment = { vertical: "middle" };
-
-    const phoneCell = ws.getCell(r, 2);
-    phoneCell.value = o.phone || "";
-    phoneCell.font = { size: 9 };
-    phoneCell.alignment = { horizontal: "center", vertical: "middle" };
-
-    const itemByProduct = new Map<string, any>();
-    for (const it of o.items) {
-      if (!it.isCancelled) itemByProduct.set(it.productId, it);
+    const items = o.items.filter((it: any) => !it.isCancelled);
+    // ⚠️ לקוח בלי פריטים עדיין מקבל שורה: ייתכן שהוא יגיע ויקנה
+    // כמזדמן, והנציג צריך לראות שהוא ברשימה.
+    const chunks: any[][] = [];
+    for (let i = 0; i < Math.max(1, items.length); i += ITEMS_PER_ROW) {
+      chunks.push(items.slice(i, i + ITEMS_PER_ROW));
     }
 
-    products.forEach((p, i) => {
-      const col = 3 + i;
-      const cell = ws.getCell(r, col);
-      const it = itemByProduct.get(p.id);
-      if (it) {
-        // הכמות שהוזמנה מודפסת; המשקל נכתב ביד לצידה.
-        // הקו האנכי מפריד ויזואלית בין השניים.
-        const qty = Number(it.quantity);
-        // §129: 🐛 אותו באג של §128 - `isSingle ? ק"ג : מספר עירום`.
-        // מוצר שנמכר ביחידות הופיע כמספר בלי יחידה, והנציג לא ידע
-        // אם לשקול או לספור. formatItemQty הוא המקור היחיד.
-        const label = formatItemQty({
-          isSingle: it.isSingle,
-          quantity: qty,
-          unit: it.unit,
-        });
-        cell.value = `${label}  |`;
-        cell.font = { size: 9, color: { argb: "FF555555" } };
-        cell.alignment = { horizontal: "right", vertical: "middle" };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEF" } };
+    const startRow = r;
+    const stripe = idx % 2 === 1;
+
+    chunks.forEach((chunk, ci) => {
+      // גובה נדיב: שתי שורות טקסט בתא (מוצר + מקום למשקל)
+      ws.getRow(r).height = 30;
+
+      // שם וטלפון רק בשורה הראשונה של הלקוח
+      if (ci === 0) {
+        const nameCell = ws.getCell(r, 1);
+        nameCell.value = o.customerName;
+        nameCell.font = { bold: true, size: 10, color: { argb: "FF2C3E4F" } };
+        nameCell.alignment = { vertical: "middle", wrapText: true };
+
+        const phoneCell = ws.getCell(r, 2);
+        phoneCell.value = o.phone || "";
+        phoneCell.font = { size: 9 };
+        phoneCell.alignment = { horizontal: "center", vertical: "middle" };
       } else {
-        // לא הזמין - מוצלל, כדי שלא ייראה כמו משקל שנשכח
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F2F2" } };
+        // ⚠️ סימן המשך: בלעדיו שורה שנייה נראית כמו לקוח חדש
+        // בלי שם, והנציג מחפש למי היא שייכת.
+        const contCell = ws.getCell(r, 1);
+        contCell.value = "↳ המשך";
+        contCell.font = { size: 8, italic: true, color: { argb: "FF999999" } };
+        contCell.alignment = { horizontal: "right", vertical: "middle" };
+        // ⚠️ הטלפון **לא** נכתב שוב. עמודת הטלפון ממוזגת על כל
+        // שורות הלקוח בהמשך, אבל ExcelJS משאיר ערך שכבר נכתב -
+        // ובבדיקה בפועל הוא הופיע פעמיים.
       }
-      cell.border = cellBorder;
+
+      // הפריטים
+      for (let i = 0; i < ITEMS_PER_ROW; i++) {
+        const col = 3 + i;
+        const cell = ws.getCell(r, col);
+        const it = chunk[i];
+
+        if (it) {
+          // §140: המוצר והכמות בשורה אחת, ומתחתיהם קו למשקל.
+          // חוסך גובה ומאפשר יותר שורות בדף.
+          const qty = formatItemQty({
+            isSingle: it.isSingle,
+            quantity: Number(it.quantity),
+            unit: it.unit,
+          });
+          const name = it.product?.name || it.productName;
+          cell.value = `${name}\n${qty}   ______`;
+          cell.font = { size: 9 };
+          cell.alignment = { vertical: "top", wrapText: true, horizontal: "right" };
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFFFFBEF" },
+          };
+        } else if (stripe) {
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFFAFAFA" },
+          };
+        }
+        cell.border = cellBorder;
+      }
+
+      // מזומן וטופל - רק בשורה הראשונה, ממוזגים על כל השורות
+      for (const c of [cashCol, lastCol]) {
+        ws.getCell(r, c).border = cellBorder;
+      }
+
+      // פס לסירוגין על שם וטלפון
+      if (stripe) {
+        for (const c of [1, 2]) {
+          const cell = ws.getCell(r, c);
+          if (!cell.fill) {
+            cell.fill = {
+              type: "pattern",
+              pattern: "solid",
+              fgColor: { argb: "FFFAFAFA" },
+            };
+          }
+        }
+      }
+      ws.getCell(r, 1).border = cellBorder;
+      ws.getCell(r, 2).border = cellBorder;
+
+      r++;
     });
 
-    // משבצת סימון - מקבילה לוי"ו שבאתר (§103)
-    // §131: משבצת המזומן. גוון ירקרק כדי שתיבדל מהמשקלים -
-    // הנציג רושם שם סכום או ✓, ולא משקל.
-    const cashCell = ws.getCell(r, cashCol);
-    cashCell.border = cellBorder;
+    // ⚠️ מיזוג עמודות המזומן והסימון על כל שורות הלקוח: הן
+    // שייכות ללקוח ולא לשורה, וסימון כפול היה מבלבל.
+    if (chunks.length > 1) {
+      ws.mergeCells(startRow, cashCol, r - 1, cashCol);
+      ws.mergeCells(startRow, lastCol, r - 1, lastCol);
+      // הטלפון ממוזג על כל שורות הלקוח - הוא שייך לו, לא לשורה
+      ws.mergeCells(startRow, 2, r - 1, 2);
+    }
+
+    const cashCell = ws.getCell(startRow, cashCol);
     cashCell.fill = {
       type: "pattern",
       pattern: "solid",
@@ -330,50 +340,30 @@ function buildDistributionSheet(
     };
     cashCell.alignment = { horizontal: "center", vertical: "middle" };
 
-    // §130: משבצת הסימון מודגשת - היא הפעולה שהנציג מחפש
-    const doneCell = ws.getCell(r, lastCol);
+    const doneCell = ws.getCell(startRow, lastCol);
     doneCell.border = {
       top: { style: "thin", color: { argb: "FF999999" } },
       left: { style: "medium", color: { argb: "FFC0461E" } },
       bottom: { style: "thin", color: { argb: "FF999999" } },
       right: { style: "thin", color: { argb: "FF999999" } },
     };
-
-    // פסים לסירוגין - קל לעקוב אחרי שורה ארוכה על דף מודפס
-    // §130: פס לסירוגין על **כל** השורה. קודם הוא כוסה רק על שתי
-    // העמודות הראשונות, ובדף רחב העין איבדה את השורה באמצע -
-    // בדיוק מה שהפס נועד למנוע.
-    if (idx % 2 === 1) {
-      for (let c = 1; c <= lastCol; c++) {
-        const cell = ws.getCell(r, c);
-        // לא דורסים מילוי קיים (תא מוצר שהוזמן / מוצלל)
-        if (!cell.fill || (cell.fill as any).pattern !== "solid") {
-          cell.fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: "FFFAFAFA" },
-          };
-        }
-      }
-    }
-    ws.getCell(r, 1).border = cellBorder;
-    ws.getCell(r, 2).border = cellBorder;
+    doneCell.alignment = { horizontal: "center", vertical: "middle" };
   });
 
   // ─── שורות ריקות למזדמנים ───
-  const firstBlank = 6 + orders.length + 1;
-  ws.mergeCells(firstBlank - 1, 1, firstBlank - 1, lastCol);
-  const bt = ws.getCell(firstBlank - 1, 1);
+  const firstBlank = r + 1;
+  ws.mergeCells(r, 1, r, lastCol);
+  const bt = ws.getCell(r, 1);
   bt.value = "מזדמנים (למילוי בשטח)";
   bt.font = { bold: true, size: 10, color: { argb: "FF8B5A00" } };
   bt.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF4E0" } };
   bt.alignment = { horizontal: "center" };
 
   for (let i = 0; i < 8; i++) {
-    const r = firstBlank + i;
-    ws.getRow(r).height = 26;
+    const rowNum = firstBlank + i;
+    ws.getRow(rowNum).height = 30;
     for (let c = 1; c <= lastCol; c++) {
-      ws.getCell(r, c).border = cellBorder;
+      ws.getCell(rowNum, c).border = cellBorder;
     }
   }
 }

@@ -9,6 +9,8 @@
 //   - גודל הטקסט נשלט ע"י CSS variable --a11y-font-scale על <html>
 
 import { useEffect, useState, useCallback } from "react";
+// §142: הכפתור הצף ניתן להזזה בלחיצה ארוכה
+import { DraggableFloating } from "./DraggableFloating";
 
 type A11ySettings = {
   fontScale: number; // 1 = רגיל, עד 1.5
@@ -114,40 +116,61 @@ export function AccessibilityWidget() {
 
   return (
     <>
-      {/* כפתור פתיחה צף */}
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-4 left-4 z-[90] w-14 h-14 rounded-full bg-brand-rust text-white shadow-lg flex items-center justify-center hover:bg-[#a83a15] focus:outline-none focus:ring-4 focus:ring-brand-rust/40 transition-colors"
-        aria-label={open ? "סגור תפריט נגישות" : "פתח תפריט נגישות"}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-      >
-        {/* סמל הנגישות הבינלאומי: ראש עגול, ידיים פרושות אופקית, רגליים
-            בזווית סימטרית. הגרסה הקודמת ציירה path מורכב עם פרופורציות
-            שגויות (ראש קטן מדי, ידיים לא סימטריות) והדמות נראתה מעוותת.
-            כאן כל איבר הוא צורה גיאומטרית נפרדת - סימטרי ומדויק בכל גודל. */}
-        <svg
-          className="w-8 h-8"
-          viewBox="0 0 100 100"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={9}
-          strokeLinecap="round"
-          aria-hidden="true"
-        >
-          {/* ראש */}
-          <circle cx="50" cy="20" r="9" fill="currentColor" stroke="none" />
-          {/* ידיים - קו אופקי אחד, סימטרי */}
-          <line x1="22" y1="44" x2="78" y2="44" />
-          {/* גוף */}
-          <line x1="50" y1="38" x2="50" y2="62" />
-          {/* רגליים - שתי זוויות סימטריות */}
-          <line x1="50" y1="62" x2="34" y2="88" />
-          <line x1="50" y1="62" x2="66" y2="88" />
-        </svg>
-      </button>
+      {/* §142: כפתור פתיחה צף - ניתן להזזה בלחיצה ארוכה.
 
-      {/* פאנל ההגדרות */}
+          🐛 הבעיה: הכפתור ישב קבוע בפינה שמאלית-תחתונה, ובמסכים
+          ארוכים הוא כיסה בדיוק את מה שמתחתיו - כפתור "שמור",
+          שדה אחרון בטופס, או שורה בטבלה. במובייל זה קרה הרבה
+          כי המסך צר.
+
+          ⚠️ המחלקות fixed/bottom/left הוסרו מהכפתור עצמו והועברו
+          לעטיפה. שני מקורות למיקום היו נלחמים זה בזה, והכפתור
+          היה קופץ למקום המקורי בכל רינדור. */}
+      <DraggableFloating
+        storageKey="a11y-button-pos"
+        side="left"
+        defaultBottom={16}
+        defaultSide={16}
+        zIndex={90}
+      >
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="w-14 h-14 rounded-full bg-brand-rust text-white shadow-lg flex items-center justify-center hover:bg-[#a83a15] focus:outline-none focus:ring-4 focus:ring-brand-rust/40 transition-colors"
+          aria-label={open ? "סגור תפריט נגישות" : "פתח תפריט נגישות"}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+        >
+          {/* סמל הנגישות הבינלאומי: ראש עגול, ידיים פרושות אופקית, רגליים
+              בזווית סימטרית. כל איבר הוא צורה גיאומטרית נפרדת - סימטרי
+              ומדויק בכל גודל. */}
+          <svg
+            className="w-8 h-8"
+            viewBox="0 0 100 100"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={9}
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            {/* ראש */}
+            <circle cx="50" cy="20" r="9" fill="currentColor" stroke="none" />
+            {/* ידיים - קו אופקי אחד, סימטרי */}
+            <line x1="22" y1="44" x2="78" y2="44" />
+            {/* גוף */}
+            <line x1="50" y1="38" x2="50" y2="62" />
+            {/* רגליים - שתי זוויות סימטריות */}
+            <line x1="50" y1="62" x2="34" y2="88" />
+            <line x1="50" y1="62" x2="66" y2="88" />
+          </svg>
+        </button>
+      </DraggableFloating>
+
+      {/* פאנל ההגדרות.
+
+          ⚠️ הפאנל **נשאר במיקום קבוע** ולא זז עם הכפתור. הוא רחב
+          (288px) וגבוה, וקישור שלו לכפתור שהוזז למרכז המסך היה
+          מוציא אותו מהמסך. המשתמש פותח, מגדיר, וסוגר - הוא לא
+          צריך שהפאנל יעקוב. */}
       {open && (
         <div
           role="dialog"
@@ -227,6 +250,12 @@ export function AccessibilityWidget() {
             >
               איפוס הגדרות
             </button>
+
+            {/* §142: רמז על ההזזה. בלעדיו איש לא יגלה שזה אפשרי -
+                לחיצה ארוכה אינה מוסכמה מוכרת. */}
+            <p className="text-[11px] text-zinc-400 text-center leading-relaxed pt-1">
+              הכפתור מסתיר משהו? לחיצה ארוכה עליו מאפשרת להזיז אותו.
+            </p>
 
             <a
               href="/accessibility"

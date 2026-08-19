@@ -12,6 +12,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
+// §144: כניסה מהירה כלקוח, בלי לחפש במסך הלקוחות
+import { QuickImpersonate } from "./QuickImpersonate";
 
 type NavItem = { href: string; label: string; icon: string };
 
@@ -287,6 +289,13 @@ function SessionBox() {
           <span>מסך הנציג</span>
         </Link>
       )}
+
+      {/* §144: כניסה כלקוח - ליד "מסך הנציג", כי זו אותה משפחה
+          של פעולה: לראות את המערכת מזווית אחרת.
+
+          ⚠️ מנהל בלבד. נציג שיוכל להתחזות ללקוחות היה עוקף את
+          כל הגבלות הנקודה שבנינו. */}
+      {who?.role === "ADMIN" && <QuickImpersonate />}
 
       <button
         onClick={logout}

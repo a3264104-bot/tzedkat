@@ -70,6 +70,23 @@ export async function PATCH(
 
   // עדכון משקל בפועל (agentEnteredWeight נעול לעמלה)
   if ("agentEnteredWeight" in body) {
+    // §141: null = ביטול השקילה, לא משקל 0.
+    //
+    // 🐛 `Number(null)` הוא 0, ולכן מחיקה הייתה נשמרת כ"הלקוח לא
+    // קיבל" - ערך תקף לגמרי שהתא היה מציג כירוק. הנציג שרצה
+    // לבטל משקל שגוי קיבל 0, וההזמנה נסגרה בסכום שגוי.
+    //
+    // ⚠️ ההבחנה קריטית: null = טרם נשקל (חוסם סגירת מכירה),
+    // 0 = נשקל ומולא במפורש (תקף).
+    if (body.agentEnteredWeight === null) {
+      data.agentEnteredWeight = null;
+      data.agentEnteredById = null;
+      // המשקל והמחיר הנגזרים מתאפסים גם הם - אחרת נשאר מחיר
+      // סופי שאין לו בסיס.
+      data.actualWeight = null;
+      data.finalWeight = null;
+      data.finalPrice = null;
+    } else {
     const w = Number(body.agentEnteredWeight);
     if (isNaN(w) || w < 0) {
       return NextResponse.json({ error: "משקל לא תקין" }, { status: 400 });
@@ -93,6 +110,7 @@ export async function PATCH(
       const chargePrice =
         item.agentSetPrice != null ? Number(item.agentSetPrice) : Number(item.unitPrice);
       data.finalPrice = Math.round(w * chargePrice * 100) / 100;
+    }
     }
   }
 

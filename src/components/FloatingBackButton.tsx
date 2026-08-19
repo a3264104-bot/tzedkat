@@ -25,6 +25,8 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+// §142: הכפתור הצף ניתן להזזה בלחיצה ארוכה
+import { DraggableFloating } from "./DraggableFloating";
 
 // מסכים שבהם הכפתור לא יופיע.
 // - "/" אין לאן לחזור ממנו.
@@ -77,26 +79,47 @@ export function FloatingBackButton() {
   }
 
   return (
-    <button
-      type="button"
-      onClick={go}
-      aria-label="חזרה לדף הקודם"
-      // צף בתחתית ימין: בהישג אגודל במובייל, ולא מכסה כותרות.
-      // z נמוך מהבאנר של ההתחזות (100) ומהמודאלים.
-      className="fixed bottom-4 right-4 z-40 flex items-center gap-1.5 bg-white/95 backdrop-blur-sm text-brand-slatedark border-2 border-zinc-300 shadow-lg rounded-full px-4 py-2.5 text-sm font-bold hover:border-brand-rust hover:text-brand-rust transition-colors print:hidden"
+    // §142: ניתן להזזה בלחיצה ארוכה.
+    //
+    // 🐛 הבעיה: הכפתור ישב קבוע בפינה ימנית-תחתונה, ובמסכים
+    // ארוכים הוא כיסה בדיוק את מה שמתחתיו - כפתור "שמור", שדה
+    // אחרון בטופס, או שורה בטבלה. במובייל זה קרה הרבה כי המסך צר.
+    //
+    // ⚠️ storageKey נפרד מכפתור הנגישות: שניהם צפים, ומפתח משותף
+    // היה גורם להם לרדוף זה אחרי זה לאותו מקום.
+    //
+    // ⚠️ המחלקות fixed/bottom/right הוסרו מהכפתור עצמו והועברו
+    // לעטיפה. שני מקורות למיקום היו נלחמים, והכפתור היה קופץ
+    // חזרה בכל רינדור.
+    //
+    // ⚠️ print:hidden נשאר על הכפתור הפנימי ולא על העטיפה, כי
+    // העטיפה היא זו שנושאת את המיקום ואין טעם להסתיר רק אותה.
+    <DraggableFloating
+      storageKey="back-button-pos"
+      side="right"
+      defaultBottom={16}
+      defaultSide={16}
     >
-      {/* ב-RTL החץ ימינה הוא כיוון ה"אחורה" */}
-      <svg
-        className="w-4 h-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2.5}
-        aria-hidden="true"
+      <button
+        type="button"
+        onClick={go}
+        aria-label="חזרה לדף הקודם"
+        title="לחיצה ארוכה מאפשרת להזיז את הכפתור"
+        className="flex items-center gap-1.5 bg-white/95 backdrop-blur-sm text-brand-slatedark border-2 border-zinc-300 shadow-lg rounded-full px-4 py-2.5 text-sm font-bold hover:border-brand-rust hover:text-brand-rust transition-colors print:hidden"
       >
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-      </svg>
-      חזרה
-    </button>
+        {/* ב-RTL החץ ימינה הוא כיוון ה"אחורה" */}
+        <svg
+          className="w-4 h-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2.5}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        חזרה
+      </button>
+    </DraggableFloating>
   );
 }

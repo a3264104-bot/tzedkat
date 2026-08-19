@@ -57,7 +57,7 @@ export default async function OrderPage({
   }
 
   const pricelist = await prisma.pricelist.findFirst({
-    where: { status: "ACTIVE" },
+    where: { status: "ACTIVE", agentOnly: false },
     orderBy: { createdAt: "desc" },
     include: {
       points: { include: { point: true } },
@@ -231,13 +231,19 @@ export default async function OrderPage({
         email: customerRecord.email,
         defaultPointId: customerRecord.defaultPointId,
       }}
-      // §60: לקוח מזומן שנכנס לאתר בעצמו חייב לעבור את שלב הכרטיס,
-      // גם אם משום-מה נשאר לו טוקן ישן (למשל נציג העביר אותו למזומן).
-      // save-token יחזיר אותו לאשראי, וה-API ממילא חוסם CASH בשרת -
-      // כך ה-flow מוביל אותו למסלול היחיד שעובד במקום להיכשל בסוף.
+      // §143: לקוח מזומן **פטור** מאימות כרטיס.
+      //
+      // 🐛 מה שהיה (§60): `paymentToken && preference !== "CASH"` -
+      // כלומר לקוח מזומן קיבל cardVerified=false והופנה למסך
+      // הכרטיס, גם כשהמנהל סימן אותו כמזומן בדיוק כדי שלא יצטרך
+      // כרטיס. שתי חסימות מקבילות - כאן ובשרת - וזו נשארה אחרי
+      // שהשרת תוקן.
+      //
+      // ⚠️ הגבייה שלו פיזית בחלוקה, והנציג מסמן אותה בטבלת
+      // המשקלים (§130).
       cardVerified={
-        !!customerRecord.paymentToken &&
-        customerRecord.paymentPreference !== "CASH"
+        !!customerRecord.paymentToken ||
+        customerRecord.paymentPreference === "CASH"
       }
       customerId={customerRecord.id}
       hasSeenOrderIntro={customerRecord.hasSeenOrderIntro}
