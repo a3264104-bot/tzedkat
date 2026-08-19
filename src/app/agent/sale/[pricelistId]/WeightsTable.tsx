@@ -49,6 +49,14 @@ type Cell = {
   isSingle: boolean;
   isCancelled: boolean;
   ordered: string;
+  /**
+   * §137: מוצר שנמכר ביחידות ולא נשקל.
+   *
+   * "בקר טחון 500 ג'" הוא saleType=UNIT - המשקל ידוע מראש
+   * ומודפס על האריזה. דרישה לשקול אותו היא עבודה מיותרת בחלוקה,
+   * והיא גם חוסמת את סגירת המכירה על לא כלום.
+   */
+  noWeighing: boolean;
   orderedQty: number;
   unitPrice: number;
   estimatedWeight: number | null;
@@ -115,9 +123,31 @@ export function WeightsTable({
         for (const it of o.items) {
           if (it.isCancelled) continue;
           const w = it.agentEnteredWeight;
+
+          // §137: מוצר שנמכר ביחידות אינו נשקל.
+          //
+          // 🐛 הבאג: הטבלה דרשה משקל **מכל פריט**, בלי לבדוק אם
+          // המוצר בכלל נמכר לפי משקל. "בקר טחון 500 ג'" הוא
+          // saleType=UNIT - המשקל מודפס על האריזה. הנציג נדרש
+          // לשקול אותו, וסגירת המכירה נחסמה על לא כלום.
+          //
+          // ⚠️ saleType בלבד. מוצר שנמכר ביחידות נמכר ביחידות -
+          // אין מצב שהוא נשקל, ותנאי נוסף רק היה מבלבל.
+          const noWeighing = (it as any).product?.saleType === "UNIT";
+
           // null = לא מולא. 0 = מולא במפורש ("לא קיבל").
-          if (w === null || w === undefined) missing++;
-          else total += w * it.unitPrice;
+          if (w === null || w === undefined) {
+            // ⚠️ מוצר יחידה: אין משקל בכוונה, ולכן הוא **אינו**
+            // נספר כחסר - אבל הסכום שלו כן צריך להיכנס.
+            //
+            // 🐛 הענף הישן היה `else total += w * price`, ובמוצר
+            // יחידה w הוא null - כלומר הסכום שלו נעלם מסה"כ
+            // ההזמנה. הלקוח היה מחויב פחות ממה שהזמין.
+            if (noWeighing) total += it.quantity * it.unitPrice;
+            else missing++;
+          } else {
+            total += w * it.unitPrice;
+          }
           cells.set(it.productId, {
             itemId: it.id,
             orderId: o.id,
@@ -132,6 +162,7 @@ export function WeightsTable({
             //
             // 2. `קרטון + "ים"` נותן "קרטוןים" - האות הסופית לא
             //    טופלה. formatItemQty מטפל בשניהם.
+            noWeighing,
             ordered: formatItemQty({
               isSingle: it.isSingle,
               quantity: it.quantity,
@@ -413,7 +444,8 @@ function WeightCell({
 
   // null ולא 0: "לא מולא" ו"מולא 0" הם שני מצבים שונים לגמרי, וזו
   // כל ההבחנה שמאפשרת לחסום סגירת מכירה על שכחה.
-  const isMissing = cell.agentEnteredWeight === null;
+  // §137: מוצר יחידה - אין מה לשקול, ולכן אין "חסר".
+  const isMissing = !cell.noWeighing && cell.agentEnteredWeight === null;
   const lineTotal =
     cell.agentEnteredWeight !== null ? cell.agentEnteredWeight * cell.unitPrice : 0;
 
@@ -459,6 +491,15 @@ function WeightCell({
       {/* מה הוזמן - קטן, רק כדי לדעת מול מה שוקלים */}
       <div className="text-[10px] text-zinc-500 leading-none">{cell.ordered}</div>
 
+      {/* §137: מוצר שנמכר ביחידות - המשקל ידוע מהאריזה, ואין
+          שדה למלא. הצגת שדה ריק הייתה גורמת לנציג לחפש משקולת
+          למשהו שכתוב עליו 500 גרם. */}
+      {cell.noWeighing ? (
+        <div className="w-full text-center text-[11px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded py-1.5">
+          יחידות
+          <span className="block text-[9px] text-zinc-400">לא נשקל</span>
+        </div>
+      ) : (
       <input
         ref={inputRef}
         id={cellId}
@@ -488,6 +529,7 @@ function WeightCell({
               : "border-emerald-400 bg-emerald-50 text-emerald-900"
         } ${readOnly ? "opacity-60" : ""}`}
       />
+      )}
 
       {/* הסכום שיצא למוצר הזה */}
       <div

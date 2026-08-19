@@ -70,6 +70,10 @@ export async function PATCH(
       where: {
         agentEnteredWeight: null,
         isCancelled: false,
+        // §137: מוצר שנמכר ביחידות אינו נשקל - המשקל מודפס על
+        // האריזה. בלי הסינון הזה סגירת המכירה נחסמה על פריטים
+        // שאין מה למלא בהם, והנציג נתקע בלי דרך להתקדם.
+        product: { saleType: { not: "UNIT" } },
         order: {
           pricelistId,
           status: { notIn: ["CANCELLED"] },

@@ -61,7 +61,13 @@ export async function POST(
     //
     // null = לא מולא. 0 = מולא במפורש ("הלקוח לא קיבל") ותקף.
     const missing = await prisma.orderItem.count({
-      where: { orderId: id, isCancelled: false, agentEnteredWeight: null },
+      where: {
+        orderId: id,
+        isCancelled: false,
+        agentEnteredWeight: null,
+        // §137: מוצר יחידה אינו נשקל, ולכן אינו נספר כחסר.
+        product: { saleType: { not: "UNIT" } },
+      },
     });
     if (missing > 0) {
       return NextResponse.json(

@@ -509,25 +509,6 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
           </div>
         </div>
 
-        {/* §129: הורדת דף החלוקה.
-            
-            🐛 הפער: ה-API היה קיים (/api/agent/export-sale) אבל
-            **בלי שום כפתור**. הנציג - שהוא היחיד שצריך את הדף
-            בשטח - לא יכול היה להוריד אותו, ורק המנהל יכל.
-            
-            ⚠️ ניווט ישיר ולא fetch: הדפדפן מטפל בהורדה, ואין
-            צורך להחזיק קובץ אקסל בזיכרון של הדף. */}
-        <div className="px-4 pb-3">
-          <a
-            href={`/api/agent/export-sale/${pricelistId}`}
-            className="inline-flex items-center gap-1.5 text-xs font-bold bg-white/15 hover:bg-white/25 text-white rounded-lg px-3 py-2 transition-colors"
-          >
-            📥 הורדת דף חלוקה להדפסה
-          </a>
-          <p className="text-[10px] text-white/60 mt-1">
-            שורה לכל לקוח, טלפון ליד השם, ומקום למילוי משקלים ביד.
-          </p>
-        </div>
       </header>
 
       {/* Sticky summary bar */}
@@ -586,6 +567,25 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
 
       {/* Main content */}
       <main className="mx-auto max-w-6xl px-4 py-5">
+        {/* §129/§137: הורדת דף החלוקה.
+            
+            🐛 §129: ה-API היה קיים אבל **בלי שום כפתור** - רק
+            המנהל יכל להוריד, לא הנציג שצריך את הדף בשטח.
+            
+            🐛 הכפתור ישב בתוך הבאנר הצהוב של הכותרת ונבלע בו
+            לגמרי - שקוף על צהוב, וגם קטן מדי למגע בנייד.
+            
+            עכשיו הוא כאן: על הרקע הבהיר, בראש התוכן, ברוחב מלא.
+            זה גם המקום הנכון בזרימה - הנציג פותח את המסך ערב
+            החלוקה, והדבר הראשון שהוא צריך הוא הדף להדפסה. */}
+        <a
+          href={`/api/agent/export-sale/${pricelistId}`}
+          className="flex items-center justify-center gap-2 w-full mb-4 bg-brand-slatedark text-white font-extrabold rounded-xl py-3.5 shadow-sm hover:opacity-90 active:scale-[0.99] transition-all"
+        >
+          <span className="text-xl">📥</span>
+          <span>הורדת דף חלוקה להדפסה</span>
+        </a>
+
         {isSealed && (
           <div className="mb-4 bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
