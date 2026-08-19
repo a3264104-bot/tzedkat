@@ -687,6 +687,59 @@ function buildItemsTable(order: any): string {
     })
     .join("");
 
+  // §123: שורת הזיכוי.
+  //
+  // ⚠️ מוצגת **רק** אם ניתן זיכוי. לקוח שלא קיבל זיכוי לא רואה
+  // שום אזכור לכך - לא "זיכוי: 0" ולא שורה ריקה. זו הייתה דרישה
+  // מפורשת, והיא גם נכונה: אזכור של משהו שלא קרה רק מבלבל.
+  const credit = order?.creditAmount != null ? Number(order.creditAmount) : 0;
+  const creditRow =
+    credit > 0
+      ? `
+        <tr style="background:#f0fdf4;">
+          <td style="padding:8px;border-top:2px solid #86efac;font-weight:bold;color:#15803d;">
+            זיכוי
+            ${
+              order.creditReason
+                ? `<div style="font-weight:normal;font-size:12px;color:#166534;">${escapeHtml(
+                    String(order.creditReason)
+                  )}</div>`
+                : ""
+            }
+          </td>
+          <td style="padding:8px;border-top:2px solid #86efac;"></td>
+          <td style="padding:8px;border-top:2px solid #86efac;"></td>
+          <td style="padding:8px;border-top:2px solid #86efac;text-align:center;font-weight:bold;color:#15803d;">
+            −${fmt(credit)}
+          </td>
+        </tr>`
+      : "";
+
+  // §124: יתרת זכות שקוזזה מהזמנות קודמות.
+  //
+  // ⚠️ שורה נפרדת מהזיכוי: creditAmount הוא זיכוי שניתן **בהזמנה
+  // הזו**, ו-appliedCreditBalance הוא זיכוי **מהעבר** שקוזז בה.
+  // מיזוג היה מונע מהלקוח להבין מאיפה כל סכום הגיע.
+  const applied =
+    order?.appliedCreditBalance != null ? Number(order.appliedCreditBalance) : 0;
+  const balanceRow =
+    applied > 0
+      ? `
+        <tr style="background:#eff6ff;">
+          <td style="padding:8px;border-top:1px solid #bfdbfe;font-weight:bold;color:#1d4ed8;">
+            יתרת זכות שקוזזה
+            <div style="font-weight:normal;font-size:12px;color:#1e40af;">
+              מזיכוי בהזמנה קודמת
+            </div>
+          </td>
+          <td style="padding:8px;border-top:1px solid #bfdbfe;"></td>
+          <td style="padding:8px;border-top:1px solid #bfdbfe;"></td>
+          <td style="padding:8px;border-top:1px solid #bfdbfe;text-align:center;font-weight:bold;color:#1d4ed8;">
+            −${fmt(applied)}
+          </td>
+        </tr>`
+      : "";
+
   const anyNotSupplied = items.some(
     (it) =>
       !it.isCancelled &&
@@ -705,7 +758,7 @@ function buildItemsTable(order: any): string {
             <th style="padding:6px 8px;text-align:center;font-size:12px;color:#666;">סכום</th>
           </tr>
         </thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rows}${creditRow}${balanceRow}</tbody>
       </table>
       ${
         anyNotSupplied
@@ -716,4 +769,72 @@ function buildItemsTable(order: any): string {
           : ""
       }
     </div>`;
+}
+
+/**
+ * §124: הודעה ללקוח על יתרת זכות שנוצרה.
+ *
+ * נשלחת כשההזמנה כבר שולמה ולכן הזיכוי לא יכול להקטין את החיוב.
+ * הלקוח צריך לדעת שני דברים: שמגיע לו כסף, ושהוא יקבל אותו
+ * אוטומטית - בלי לפנות לאיש ובלי לזכור.
+ */
+export async function sendCreditBalanceEmail(params: {
+  customerName: string;
+  email: string;
+  amount: number;
+  reason: string;
+  newBalance: number;
+  orderNumber: number;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+    if (!settings.sendEmailToCustomer) return { ok: true };
+
+    const body = `
+      <p>שלום ${escapeHtml(params.customerName)},</p>
+      <p>
+        בעקבות בדיקה בהזמנה <strong>#${params.orderNumber}</strong> נזקפה
+        לזכותך יתרה.
+      </p>
+
+      <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:16px;margin:16px 0;text-align:center;">
+        <div style="color:#15803d;font-size:14px;">יתרת הזכות שלך</div>
+        <div style="color:#15803d;font-size:28px;font-weight:bold;margin:4px 0;">
+          ${fmt(params.newBalance)}
+        </div>
+        <div style="color:#166534;font-size:13px;">
+          תקוזז אוטומטית מההזמנה הבאה שלך
+        </div>
+      </div>
+
+      <table style="width:100%;font-size:14px;margin-bottom:12px;">
+        <tr>
+          <td style="padding:4px 0;color:#666;width:100px;">זיכוי נוכחי:</td>
+          <td><strong>${fmt(params.amount)}</strong></td>
+        </tr>
+        <tr>
+          <td style="padding:4px 0;color:#666;">הסיבה:</td>
+          <td>${escapeHtml(params.reason)}</td>
+        </tr>
+      </table>
+
+      <p style="background:#f9fafb;border-right:3px solid #C0461E;padding:12px;font-size:13px;color:#444;">
+        <strong>אין צורך לעשות דבר.</strong> בפעם הבאה שתזמינו, הסכום
+        יקוזז אוטומטית מהחשבון — תראו אותו בסיכום ההזמנה ובחיוב.
+      </p>
+
+      <p style="color:#888;font-size:12px;margin-top:16px;">
+        ניתן לראות את יתרת הזכות בכל עת ב<a href="${APP_URL}/account" style="color:#C0461E;">אזור האישי</a>.
+      </p>`;
+
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: params.email,
+      subject: `זוכית ב-${fmt(params.amount)} — יתרה להזמנה הבאה`,
+      html: baseTemplate("נזקפה לזכותך יתרה", body),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
 }

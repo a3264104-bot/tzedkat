@@ -368,6 +368,22 @@ export async function GET(
   }
 
   // ─── סיכום כספי ─────────────────
+  // §124: זיכויים ויתרות זכות שקוזזו במכירה הזו.
+  //
+  // ⚠️ הם **מקטינים את ההכנסה בפועל**. סיכום שמציג מחזור בלי
+  // לנכות אותם מציג כסף שלא נכנס לקופה, והמנהל מקבל תמונה
+  // אופטימית מהמציאות.
+  let totalCredits = 0;
+  let totalBalanceApplied = 0;
+  for (const o of orders) {
+    if (o.creditAmount != null) totalCredits += Number(o.creditAmount);
+    if ((o as any).appliedCreditBalance != null) {
+      totalBalanceApplied += Number((o as any).appliedCreditBalance);
+    }
+  }
+  totalCredits = Math.round(totalCredits * 100) / 100;
+  totalBalanceApplied = Math.round(totalBalanceApplied * 100) / 100;
+
   const totalRevenue = totalOrderRevenue + walkinRevenue;
   const totalCommissions = agentsReport.reduce((s, a) => s + a.totalCommission, 0);
   const netRevenue = totalRevenue - totalCommissions;
@@ -378,7 +394,12 @@ export async function GET(
   // תצוגות קיימות, אבל הוא **אינו רווח** ולא ראוי להציגו ככזה.
   const totalSupplierCost = productComparison.reduce((s, p) => s + p.totalCost, 0);
   const grossProfit = totalRevenue - totalSupplierCost;
-  const netProfit = grossProfit - totalCommissions;
+  // ⚠️ הזיכויים מנוכים מהרווח: totalOrderRevenue מסתמך על
+  // finalPrice של הפריטים, שאינו יודע על זיכוי ברמת ההזמנה.
+  const netProfit =
+    Math.round(
+      (grossProfit - totalCommissions - totalCredits - totalBalanceApplied) * 100
+    ) / 100;
 
   // ⚠️ אמין רק אם הוזנה עלות לכל מוצר שהגיע. אחרת הרווח מנופח,
   // והמנהל עלול להסיק מסקנה עסקית שגויה על סמך מספר חלקי.
@@ -409,6 +430,9 @@ export async function GET(
       walkinOnline,
       totalCommissions,
       netRevenue,
+      // §124: זיכויים - כסף שלא נכנס
+      totalCredits,
+      totalBalanceApplied,
       // §116: עלות הספק והרווח בפועל
       totalSupplierCost,
       grossProfit,

@@ -124,6 +124,9 @@ export default async function AccountPage() {
         defaultPointId: customer.defaultPointId,
         defaultPointName: customer.defaultPoint?.name ?? null,
         agreedToEmails: customer.agreedToEmails,
+        // §124: יתרת זכות להזמנה הבאה. הלקוח צריך לראות שמגיע לו
+        // כסף - אחרת הוא לא יודע, ויפנה לנציג לשאול.
+        creditBalance: Number(customer.creditBalance ?? 0),
         // §64: נציג במצב לקוח - מתג חזרה לאזור הנציג (סעיף 5)
         role: customer.role,
         // §64: השלמת הרשמה עצמאית (סעיף 9). לקוח מזומן לא נדרש

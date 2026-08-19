@@ -37,6 +37,8 @@ import { waitUntil } from "@vercel/functions";
 import { sendPhoneSignupNotification } from "@/lib/email";
 // §71: ניקוי שם מזיהוי הדיבור - מקור התווים הנסתרים
 import { cleanName, cleanSpokenName, isPlausibleName } from "@/lib/identity";
+// §124: יתרת זכות בטלפון
+import { creditBalanceForPhone } from "@/lib/credit-balance-lib";
 import {
   sendCustomerOrderConfirmation,
   sendAdminOrderNotification,
@@ -183,6 +185,8 @@ async function handle(req: Request): Promise<Response> {
       defaultPoint: { select: { id: true, name: true } },
       // §76: לשמיעת קוד הכניסה לאתר (תפריט 4)
       loginCode: true,
+      // §124: יתרת זכות - מוקראת בתפריט הראשי
+      creditBalance: true,
     },
     }),
     getActiveSale(),
@@ -364,6 +368,11 @@ async function handle(req: Request): Promise<Response> {
     // §76: אפשרות הקוד מוצעת רק ללקוח שהוקם במלואו (יש לו אופן
     // תשלום). אחרת התפריט מציע אפשרות שכל מה שהיא עושה זה לומר
     // "עדיין לא" - מאריך את השיחה של כולם ומתסכל את מי שבוחר בה.
+    // §124: היתרה להקראה. null = אין יתרה, ואז שום דבר לא נאמר.
+    const creditForPhone = creditBalanceForPhone(
+      Number((customer as any).creditBalance ?? 0)
+    );
+
     const canHearCode =
       !!customer.paymentToken || customer.paymentPreference === "CASH";
 
@@ -387,6 +396,16 @@ async function handle(req: Request): Promise<Response> {
           ),
           canHearCode
             ? prompt("menu_opt_code", "לשמיעת קוד הכניסה לאתר הקש 4")
+            : "",
+          // §124: יתרת זכות. מוקראת מיד אחרי הברכה, לפני התפריט -
+          // זה כסף שמגיע ללקוח, והוא צריך לדעת עליו בלי לחפש.
+          //
+          // ⚠️ רק כשיש יתרה. "יתרת הזכות שלך: אפס" מבלבל, ומאריך
+          // את השיחה של כל מי שאין לו.
+          creditForPhone != null ? prompt("credit_balance_pre", "יש לך יתרת זכות של") : "",
+          creditForPhone != null ? sayNumber(creditForPhone) : "",
+          creditForPhone != null
+            ? prompt("credit_balance_post", "שקלים, שתקוזז מההזמנה הבאה שלך")
             : "",
           // §107: ההסבר על הכוכבית **בסוף** התפריט ולא בתחילתו.
           //

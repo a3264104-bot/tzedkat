@@ -8,6 +8,8 @@ import { payStatusLabel } from "@/lib/pay-status-lib";
 import AgentChargeButton from "./AgentChargeButton";
 import { AgentAddItemPanel } from "./AgentAddItemPanel";
 import { AgentCashPanel } from "./AgentCashPanel";
+// §123: זיכוי ללקוח
+import { CreditPanel } from "@/components/CreditPanel";
 // §120: הוספת תוספת להזמנה שכבר תומחרה
 import { AddSupplement } from "@/components/AddSupplement";
 
@@ -206,6 +208,34 @@ export default async function AgentOrderDetailPage({
               );
             })}
           </div>
+          {/* §123/§124: שורות ההנחה - לפני הסה"כ.
+              
+              ⚠️ בלעדיהן הנציג רואה סכום סופי שאינו מסתדר עם הפריטים,
+              ואין לו שום דרך לדעת למה. זו בדיוק השיחה "למה זה פחות?" */}
+          {(order.creditAmount != null || order.appliedCreditBalance != null) && (
+            <div className="border-t border-zinc-100 px-4 py-2 space-y-1 text-xs">
+              {order.creditAmount != null && (
+                <div className="flex justify-between text-emerald-700">
+                  <span>
+                    ↩️ זיכוי
+                    {order.creditReason && (
+                      <span className="text-zinc-500"> · {order.creditReason}</span>
+                    )}
+                  </span>
+                  <span className="font-bold">−{fmt(Number(order.creditAmount))}</span>
+                </div>
+              )}
+              {order.appliedCreditBalance != null && (
+                <div className="flex justify-between text-blue-700">
+                  <span>יתרת זכות שקוזזה</span>
+                  <span className="font-bold">
+                    −{fmt(Number(order.appliedCreditBalance))}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="bg-brand-cream/50 border-t border-zinc-200 px-4 py-3 flex justify-between items-center">
             <span className="text-sm font-bold text-brand-slatedark">
               {finalTotal !== null ? "סה\"כ סופי" : "סה\"כ משוער"}
@@ -325,6 +355,24 @@ export default async function AgentOrderDetailPage({
               <div className="font-mono">{order.lastChargeError}</div>
             </div>
           )}
+
+          {/* §123: זיכוי - לפני החיוב ולפני סימון המזומן.
+              הסדר מכוון: אם מגיע ללקוח זיכוי, הוא צריך להיכנס
+              לפני שנגבה ממנו כסף. */}
+          <div className="mb-3">
+            <CreditPanel
+              orderId={order.id}
+              currentAmount={
+                order.creditAmount != null ? Number(order.creditAmount) : null
+              }
+              currentReason={order.creditReason}
+              orderTotal={finalTotal ?? estimatedTotal}
+              alreadyPaid={
+                order.paymentStatus === "PAID" ||
+                order.paymentStatus === "PARTIALLY_PAID"
+              }
+            />
+          </div>
 
           {/* §91: סימון תשלום מזומן - לכל נציג, לא רק בעל הרשאת חיוב.
               מי שעומד בחלוקה ומקבל את הכסף חייב דרך לסמן, אחרת

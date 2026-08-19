@@ -14,7 +14,7 @@ export default function TermsPage() {
           תנאי שימוש
         </h1>
         <p className="text-sm text-zinc-500 mb-6">
-          עודכן לאחרונה: 18 באוגוסט 2026
+          עודכן לאחרונה: 19 באוגוסט 2026
         </p>
 
         <div className="max-w-none space-y-5 text-brand-slatedark leading-relaxed">
@@ -81,7 +81,39 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-bold mt-6 mb-2">4. ביטול הזמנה</h2>
+            <h2 className="text-xl font-bold mt-6 mb-2">4. זיכויים ויתרת זכות</h2>
+            <ul className="list-disc pr-6 space-y-1">
+              <li>
+                במקרה של מוצר פגום, חסר במשקל או תקלה אחרת בחלוקה, העמותה
+                רשאית לזכות את הלקוח בסכום מתאים.
+              </li>
+              <li>
+                <strong>זיכוי לפני חיוב:</strong> הסכום מנוכה ישירות מההזמנה,
+                והלקוח מחויב בסכום המופחת. פירוט הזיכוי והסיבה מופיעים באישור
+                התשלום.
+              </li>
+              <li>
+                <strong>זיכוי לאחר חיוב:</strong> כאשר ההזמנה כבר שולמה, הסכום
+                נזקף כ<strong>יתרת זכות</strong> לזכות הלקוח.
+              </li>
+              <li>
+                יתרת הזכות <strong>מקוזזת אוטומטית</strong> מההזמנה הבאה, ללא
+                צורך בפעולה כלשהי מצד הלקוח. הקיזוז מוצג בסיכום ההזמנה ובאישור
+                התשלום.
+              </li>
+              <li>
+                יתרת זכות שאינה מכסה את מלוא ההזמנה מקוזזת חלקית, והיתרה נשמרת
+                להזמנות הבאות.
+              </li>
+              <li>
+                ניתן לראות את יתרת הזכות בכל עת באזור האישי באתר, וכן במערכת
+                הטלפונית.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-bold mt-6 mb-2">5. ביטול הזמנה</h2>
             <p>
               ניתן לבטל או לשנות הזמנה כל עוד לא נקבע המחיר הסופי (טרם שקילה) ובתוך
               מועד הסגירה של המכירה. ביטול עסקה יתבצע בהתאם להוראות חוק הגנת הצרכן,
@@ -90,7 +122,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-bold mt-6 mb-2">5. אחריות</h2>
+            <h2 className="text-xl font-bold mt-6 mb-2">6. אחריות</h2>
             <p>
               העמותה עושה מאמץ לספק מידע מדויק ושירות תקין. עם זאת, העמותה לא תישא
               באחריות לנזק עקיף הנובע משימוש באתר או מתקלות טכניות שאינן בשליטתה.
@@ -98,7 +130,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-bold mt-6 mb-2">6. קניין רוחני</h2>
+            <h2 className="text-xl font-bold mt-6 mb-2">7. קניין רוחני</h2>
             <p>
               כל התכנים באתר, לרבות עיצוב, טקסטים ותמונות, הם קניינה של העמותה ואין
               לעשות בהם שימוש ללא רשות.
@@ -106,7 +138,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-bold mt-6 mb-2">7. פרטיות</h2>
+            <h2 className="text-xl font-bold mt-6 mb-2">8. פרטיות</h2>
             <p>
               השימוש באתר כפוף גם ל
               <a href="/privacy" className="text-brand-rust underline underline-offset-2">
@@ -117,7 +149,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-bold mt-6 mb-2">8. דין וסמכות שיפוט</h2>
+            <h2 className="text-xl font-bold mt-6 mb-2">9. דין וסמכות שיפוט</h2>
             <p>
               על תנאים אלו יחולו דיני מדינת ישראל, וסמכות השיפוט הבלעדית בכל
               מחלוקת נתונה לבתי המשפט המוסמכים במדינת ישראל.
@@ -125,7 +157,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-bold mt-6 mb-2">9. יצירת קשר</h2>
+            <h2 className="text-xl font-bold mt-6 mb-2">10. יצירת קשר</h2>
             <p>
               בכל שאלה בנוגע לתנאי שימוש אלו:{" "}
               <a href="mailto:m5402088@gmail.com" className="text-brand-rust underline underline-offset-2">

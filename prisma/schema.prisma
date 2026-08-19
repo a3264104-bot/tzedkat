@@ -64,6 +64,21 @@ model Customer {
   paymentToken         String?
   cardLast4            String?
   cardVerifiedAt       DateTime?
+  // §124: יתרת זכות למכירה הבאה.
+  //
+  // התרחיש: ההזמנה כבר שולמה, ומגיע ללקוח זיכוי - מוצר פגום,
+  // משקל חסר. החזר כספי בפועל דורש התעסקות מול הסליקה, ולכן
+  // הסכום נשמר כיתרה ומקוזז אוטומטית בהזמנה הבאה.
+  //
+  // ⚠️ מקוזז ולא "נשמר לתמיד": ברגע שנוצרת הזמנה חדשה, היתרה
+  // יורדת ממנה והשדה מתאפס. אחרת אותו זיכוי היה מקוזז שוב ושוב.
+  //
+  // ⚠️ תמיד חיובי או 0. יתרה שלילית אינה יתרת זכות אלא חוב,
+  // וזה מנגנון אחר לגמרי שאינו קיים כאן.
+  creditBalance         Decimal   @default(0) @db.Decimal(10, 2)
+  creditBalanceNote     String?
+  creditBalanceAt       DateTime?
+
   creditVerificationCharged Boolean @default(false)
   // תוקף כרטיס (MM/YY או YYMM כפי שנדרים מחזירים) - נשמר מ-webhook להצגה במסך המנהל
   cardExpiry           String?
@@ -376,6 +391,28 @@ model Order {
   //
   // ⚠️ onDelete: SetNull ולא Cascade - מחיקת ההזמנה המקורית לא
   // תמחוק תוספת שכבר חויבה. הכסף נגבה, והרישום חייב להישאר.
+  // §123: זיכוי ללקוח.
+  //
+  // התרחיש: מוצר הגיע פגום, חסר חצי קילו, או כל תקלה אחרת בחלוקה.
+  // הנציג מזכה סכום, והלקוח משלם פחות.
+  //
+  // ⚠️ הסיבה **חובה** כשיש סכום. זיכוי בלי הסבר הוא כסף שיצא בלי
+  // תיעוד - והלקוח שרואה שורה במייל צריך לדעת על מה קיבל אותה.
+  //
+  // ⚠️ null ולא 0: הבחנה חיונית. null = לא ניתן זיכוי, ואז שום
+  // דבר לא מוצג ללקוח. 0 היה מייצר שורה ריקה במייל.
+  creditAmount    Decimal? @db.Decimal(10, 2)
+
+  // §124: יתרת זכות שקוזזה בהזמנה הזו.
+  //
+  // נפרד מ-creditAmount בכוונה: creditAmount הוא זיכוי **שניתן**
+  // בהזמנה הזו, ו-appliedCreditBalance הוא זיכוי **מהעבר** שקוזז
+  // בה. ערבוב היה מונע מהלקוח להבין מאיפה כל סכום הגיע.
+  appliedCreditBalance Decimal? @db.Decimal(10, 2)
+  creditReason    String?
+  creditById      String?
+  creditAt        DateTime?
+
   parentOrderId   String?
   parentOrder     Order?   @relation("OrderSupplements", fields: [parentOrderId], references: [id], onDelete: SetNull)
   supplements     Order[]  @relation("OrderSupplements")

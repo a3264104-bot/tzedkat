@@ -31,6 +31,9 @@ type Data = {
     netProfit: number;
     costComplete: boolean;
     missingCostProducts: string[];
+    // §124: זיכויים ויתרות זכות שקוזזו - כסף שלא נכנס לקופה
+    totalCredits?: number;
+    totalBalanceApplied?: number;
   };
   progress: {
     totalOrders: number;
@@ -248,6 +251,17 @@ export default function AdminSaleControlClient({
 
                 עכשיו מוצגת שרשרת מלאה: הכנסות ← ספק ← עמלות ←
                 רווח נקי. */}
+            {/* §124: זיכויים - כסף שלא נכנס לקופה */}
+            {!!(fin.totalCredits || fin.totalBalanceApplied) && (
+              <FinancialCard
+                label="זיכויים ויתרות"
+                amount={-((fin.totalCredits ?? 0) + (fin.totalBalanceApplied ?? 0))}
+                // ⚠️ FinancialCard מקבל "emerald" | "red" בלבד.
+                // אדום נכון כאן: זיכויים מקטינים הכנסה, בדיוק
+                // כמו עלות הספק שמוצגת באותו צבע.
+                color="red"
+              />
+            )}
             <FinancialCard
               label="עלות לספק"
               amount={-fin.totalSupplierCost}

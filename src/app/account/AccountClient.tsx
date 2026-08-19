@@ -69,6 +69,8 @@ type Customer = {
   defaultPointId: string | null;
   defaultPointName: string | null;
   agreedToEmails: boolean;
+  /** §124: יתרת זכות שתקוזז מההזמנה הבאה */
+  creditBalance?: number;
   // §64: תפקיד - נציג רואה מתג חזרה לאזור הנציג
   role?: string;
   // §64: השלמת הרשמה עצמאית ללקוח שנרשם בטלפון (סעיף 9)
@@ -339,6 +341,29 @@ export function AccountClient({
               </div>
             </div>
           )}
+          {/* §124: יתרת זכות.
+              
+              ⚠️ מוצגת גבוה בעמוד ורק כשיש יתרה. זה כסף שמגיע
+              ללקוח, והוא צריך לראות אותו בלי לחפש - אחרת הוא
+              יפנה לנציג לשאול, או שלא יידע בכלל. */}
+          {!!customer.creditBalance && customer.creditBalance > 0 && (
+            <div className="px-4 pb-2">
+              <div className="bg-emerald-50 border-2 border-emerald-300 rounded-xl p-3.5">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="font-extrabold text-emerald-800">
+                      ↩️ יתרת זכות: {fmt(customer.creditBalance)}
+                    </div>
+                    <div className="text-xs text-emerald-700 mt-0.5 leading-relaxed">
+                      הסכום יקוזז אוטומטית מההזמנה הבאה שלך. אין צורך לעשות
+                      דבר.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* באנר הסכמת מיילים — נשאר גבוה בעמוד כדי שלא ייקבר */}
           {!customer.agreedToEmails && customer.email && (
             <div className="px-4 pb-2">

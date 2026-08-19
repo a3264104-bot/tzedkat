@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+// §124: קיזוז יתרת זכות
+import { applyBalanceToOrder } from "@/lib/credit-balance-lib";
 import { requireAdmin } from "@/lib/guard";
 import { STATUSES_REQUIRING_PAYMENT, smartLineEstimate } from "@/lib/pricing";
 import { sendFinalPriceEmail } from "@/lib/email";
@@ -277,7 +279,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         select: { orderFee: true },
       });
       const orderFee = Number(pricelist?.orderFee || 0);
-      const newFinalTotal = Math.round((total + orderFee) * 100) / 100;
+      // §123: ניכוי הזיכוי, אם ניתן.
+      //
+      // ⚠️ בלי זה, זיכוי שהנציג נתן היה נמחק ברגע שהמנהל מעדכן
+      // משקל או לוחץ "חישוב מחדש" - החישוב היה דורס את הסכום
+      // ומחזיר אותו למחיר המלא, בלי שאיש ישים לב.
+      const credit = current.creditAmount != null ? Number(current.creditAmount) : 0;
+      const beforeBalance = Math.max(
+        0,
+        Math.round((total + orderFee - credit) * 100) / 100
+      );
+      // §124: קיזוז יתרת זכות. אידמפוטנטי - ראה applyBalanceToOrder.
+      const { payable: newFinalTotal } = await applyBalanceToOrder(
+        prisma,
+        id,
+        current.customerId,
+        beforeBalance
+      );
       // אם זו הפעם הראשונה שנקבע finalTotal, נעדכן גם את הסטטוס ל-FINAL_PRICE_SET (אם עדיין PENDING_REVIEW)
       if (current.finalTotal === null && current.status === "PENDING_REVIEW") {
         data.status = data.status ?? "FINAL_PRICE_SET";

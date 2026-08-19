@@ -11,6 +11,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
+// §124: קיזוז יתרת זכות
+import { applyBalanceToOrder } from "@/lib/credit-balance-lib";
 
 export async function PATCH(
   req: Request,
@@ -158,6 +160,22 @@ export async function PATCH(
       product: { select: { id: true, name: true, unit: true } },
     },
   });
+
+  // §123: חישוב מחדש של המחיר הסופי - כולל הזיכוי.
+  //
+  // ⚠️ שני דברים נסגרים כאן:
+  //
+  // 1. עד היום רק המנהל קבע finalTotal. הנציג שקל, סימן "טופל",
+  //    וההזמנה נשארה בלי מחיר סופי עד שהמנהל נגע בה - כלומר גם
+  //    בלי אפשרות לחייב או לסמן מזומן.
+  //
+  // 2. וכשהמנהל כן חישב, הוא היה עלול לדרוס זיכוי שהנציג נתן.
+  //    שני החישובים מנכים אותו עכשיו באותה נוסחה.
+  //
+  // ⚠️ רק כשכל הפריטים נשקלו. חישוב חלקי היה קובע מחיר שאינו
+  // משקף את ההזמנה, והחיוב היה יוצא שגוי - הבאג שכבר תוקן פעם
+  // בצד המנהל.
+  await recomputeOrderTotal(item.order.id);
 
   // עדכון סיכום הנציג בזמן אמת
   await recalculateAgentSummary(item.order.pricelistId || "", g.agent.id);
@@ -368,5 +386,59 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
       customCommission: Math.round(customCommission * 100) / 100,
       totalCommission,
     },
+  });
+}
+
+/**
+ * §123: חישוב מחדש של המחיר הסופי, כולל ניכוי זיכוי.
+ *
+ * זהה בנוסחה לחישוב שבצד המנהל. שתי נוסחאות נפרדות היו נפרדות
+ * ביום שמישהו משנה אחת מהן, והלקוח היה מחויב בסכום שתלוי במי
+ * נגע בהזמנה אחרון.
+ */
+async function recomputeOrderTotal(orderId: string): Promise<void> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      pricelistId: true,
+      creditAmount: true,
+      customerId: true,
+      items: { where: { isCancelled: false }, select: { finalPrice: true } },
+    },
+  });
+  if (!order || order.items.length === 0) return;
+
+  // כל הפריטים חייבים להיות שקולים. אחרת המחיר אינו סופי.
+  if (!order.items.every((i) => i.finalPrice !== null)) return;
+
+  const itemsSum = order.items.reduce((s, i) => s + Number(i.finalPrice), 0);
+  const pl = order.pricelistId
+    ? await prisma.pricelist.findUnique({
+        where: { id: order.pricelistId },
+        select: { orderFee: true },
+      })
+    : null;
+  const credit = order.creditAmount != null ? Number(order.creditAmount) : 0;
+
+  const beforeBalance = Math.max(
+    0,
+    Math.round((itemsSum + Number(pl?.orderFee ?? 0) - credit) * 100) / 100
+  );
+
+  // §124: קיזוז יתרת זכות מהזמנות קודמות.
+  //
+  // ⚠️ אידמפוטנטי: הפונקציה מחזירה ליתרה את מה שכבר קוזז בהזמנה
+  // הזו לפני שהיא מחשבת מחדש. בלי זה, כל שקילה הייתה גוזלת
+  // מהיתרה שוב - והלקוח היה מאבד אותה תוך דקות.
+  const { payable } = await applyBalanceToOrder(
+    prisma,
+    orderId,
+    order.customerId,
+    beforeBalance
+  );
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { finalTotal: payable },
   });
 }
