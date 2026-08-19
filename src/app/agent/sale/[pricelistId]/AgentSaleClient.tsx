@@ -16,6 +16,14 @@ type Product = {
   name: string;
   unit: string;
   cartonPrice: number;
+  // §138: קובע אם המוצר **נשקל**.
+  //
+  // UNIT = נמכר ביחידות, המשקל מודפס על האריזה, ואין מה לשקול.
+  //
+  // ⚠️ שונה מ-unit: unit הוא איך **קוראים** ליחידה ("יחידה",
+  // "קרטון"), ו-saleType הוא איך המוצר **נמכר**. מוצר יכול
+  // להיות unit="יחידה" ועדיין נשקל.
+  saleType?: string | null;
   singlesMode: string;
   singleUnitPrice: number | null;
   singleSurcharge: number | null;
@@ -105,6 +113,8 @@ export type AvailableProduct = {
     // §65: נדרשים לבורר קרטון/בודדים בהוספת פריט (סעיף 4)
     allowSingles?: boolean;
     priceType?: string | null;
+    // §138: saleType קובע גם אם המוצר **נשקל**. UNIT = נמכר
+    // ביחידות, המשקל מודפס על האריזה, ואין מה לשקול.
     saleType?: string | null;
     avgWeightPerUnit?: number | null;
     // §7: מוצר שאינו מוצג ללקוחות - מוצג לנציג בקבוצה נפרדת

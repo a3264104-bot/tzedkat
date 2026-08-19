@@ -133,7 +133,7 @@ export function WeightsTable({
           //
           // ⚠️ saleType בלבד. מוצר שנמכר ביחידות נמכר ביחידות -
           // אין מצב שהוא נשקל, ותנאי נוסף רק היה מבלבל.
-          const noWeighing = (it as any).product?.saleType === "UNIT";
+          const noWeighing = it.product?.saleType === "UNIT";
 
           // null = לא מולא. 0 = מולא במפורש ("לא קיבל").
           if (w === null || w === undefined) {

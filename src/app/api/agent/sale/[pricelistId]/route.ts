@@ -77,6 +77,15 @@ export async function GET(
               singleSurcharge: true,
               avgWeightPerUnit: true,
               imageUrl: true,
+              // §138: 🐛 saleType לא נשלף, ולכן הבדיקה בטבלה
+              // (product?.saleType === "UNIT") הייתה תמיד
+              // undefined - והתיקון של §137 לא עשה כלום.
+              //
+              // ⚠️ הלקח: הוספת בדיקה על שדה מחייבת לוודא שהשדה
+              // באמת מגיע. הקוד עבר קומפילציה והתנהג כאילו כל
+              // המוצרים נשקלים.
+              saleType: true,
+              priceType: true,
             },
           },
         },
