@@ -143,6 +143,25 @@ export function WeightsTable({
 
   const totalMissing = rows.reduce((s, r) => s + r.missing, 0);
   const closedCount = rows.filter((r) => r.agentClosedAt).length;
+
+  // §118: התא החסר הראשון - לקפיצה ישירה. סורק לפי סדר התצוגה,
+  // כך שהנציג עובר על החסרים בסדר הגיוני ולא קופץ אחורה וקדימה.
+  const firstMissing = useMemo(() => {
+    for (const r of rows) {
+      if (r.missing === 0) continue;
+      for (const c of columns) {
+        const cell = r.cells.get(c.id);
+        if (cell && cell.agentEnteredWeight === null) {
+          return {
+            cellId: `w-${r.orderId}-${c.id}`,
+            customerName: r.customerName,
+            productName: c.name,
+          };
+        }
+      }
+    }
+    return null;
+  }, [rows, columns]);
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
 
   useEffect(() => {
@@ -172,6 +191,23 @@ export function WeightsTable({
                 <div className="text-[11px] text-red-700">
                   לא ניתן לסגור את המכירה עד שכולם ימולאו. לא קיבל סחורה? הזן 0.
                 </div>
+                {/* §118: קפיצה אל החסר הראשון.
+                    "חסרים 7" בלי דרך למצוא אותם הוא תסכול: בטבלה
+                    של 100 שורות ו-12 עמודות, הנציג גולל ומחפש
+                    תאים אדומים במקום לעבוד. */}
+                {firstMissing && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById(firstMissing.cellId);
+                      el?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+                      (el as HTMLInputElement | null)?.focus();
+                    }}
+                    className="mt-1 text-[11px] font-bold bg-red-600 text-white rounded-lg px-2.5 py-1"
+                  >
+                    ← קפוץ אל {firstMissing.customerName} · {firstMissing.productName}
+                  </button>
+                )}
               </div>
             </>
           ) : (
@@ -253,6 +289,8 @@ export function WeightsTable({
                     >
                       {cell ? (
                         <WeightCell
+                          // §118: מזהה לקפיצה אל התא החסר
+                          cellId={`w-${r.orderId}-${c.id}`}
                           cell={cell}
                           readOnly={readOnly}
                           onItemUpdate={onItemUpdate}
@@ -312,11 +350,13 @@ export function WeightsTable({
 // ─────────────────────────────────────────────────────────────
 function WeightCell({
   cell,
+  cellId,
   readOnly,
   onItemUpdate,
   onNeedsReload,
 }: {
   cell: Cell;
+  cellId: string;
   readOnly?: boolean;
   onItemUpdate: (orderId: string, itemId: string, updates: Partial<OrderItem>) => void;
   onNeedsReload: () => void;
@@ -382,6 +422,7 @@ function WeightCell({
 
       <input
         ref={inputRef}
+        id={cellId}
         type="number"
         inputMode="decimal"
         step="0.01"

@@ -314,6 +314,9 @@ export async function sendPaymentConfirmedEmail(
       </div>
       ${order.pointNameSnapshot ? `<p>נקודת חלוקה: <strong>${escapeHtml(order.pointNameSnapshot)}</strong></p>` : ""}
       ${order.deliveryDateSnapshot ? `<p>תאריך חלוקה: <strong>${escapeHtml(order.deliveryDateSnapshot)}</strong></p>` : ""}
+
+      ${buildItemsTable(order)}
+
       <p style="color:#888;font-size:12px;margin-top:16px;">
         ניתן לצפות בפרטי ההזמנה בכל עת ב<a href="${APP_URL}/account" style="color:#C0461E;">אזור האישי</a>.
       </p>`;
@@ -612,4 +615,105 @@ export async function sendPhoneSignupNotification(params: {
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e).slice(0, 500) };
   }
+}
+
+/**
+ * §118: פירוט הפריטים במייל אישור התשלום.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * הפער שנסגר
+ * ═══════════════════════════════════════════════════════════════
+ * המייל הציג סכום בלבד. לקוח שהזמין חמישה מוצרים וקיבל ארבעה
+ * ראה סכום נמוך מהצפוי, בלי שום הסבר - והניח שההזמנה שלו
+ * פוספסה. השיחה הבאה הייתה אל הנציג.
+ *
+ * ⚠️ **הטבלה נצמדת להזמנה, לא למה שסופק.** מוצר שהוזמן ולא
+ * הגיע **מופיע** ברשימה עם הסימון "לא סופק", ולא נעלם ממנה.
+ * זו כל הנקודה: הלקוח צריך לראות שהמערכת יודעת שהוא הזמין את
+ * זה, ושהמוצר פשוט לא היה - ולא שמישהו שכח אותו.
+ *
+ * הנציג רושם 0 בשקילה (§81 מחייב זאת), וה-0 הזה הופך כאן
+ * להודעה מפורשת ללקוח.
+ *
+ * ⚠️ 0 מפורש שונה מ-null: null פירושו שטרם נשקל, ואז מוצג
+ * "ממתין לשקילה" ולא "לא סופק". הבחנה חשובה - הודעה שגויה
+ * שמוצר לא סופק, כשהוא בסך הכל טרם נשקל, גרועה מכלום.
+ */
+function buildItemsTable(order: any): string {
+  const items: any[] = Array.isArray(order?.items) ? order.items : [];
+  if (items.length === 0) return "";
+
+  const rows = items
+    .filter((it) => !it.isCancelled)
+    .map((it) => {
+      const w =
+        it.actualWeight != null
+          ? Number(it.actualWeight)
+          : it.agentEnteredWeight != null
+            ? Number(it.agentEnteredWeight)
+            : null;
+      const price = it.finalPrice != null ? Number(it.finalPrice) : null;
+      const notSupplied = w !== null && w === 0;
+      const pending = w === null;
+
+      const qtyLabel = it.isSingle
+        ? `${Number(it.quantity)} ${it.unit || 'ק"ג'}`
+        : `${Number(it.quantity)} ${it.unit || "קרטון"}`;
+
+      // שורה של מוצר שלא סופק - מוצגת מושתקת אך **נוכחת**
+      const nameCell = notSupplied
+        ? `<span style="color:#999;">${escapeHtml(it.productName)}</span>`
+        : escapeHtml(it.productName);
+
+      const statusCell = notSupplied
+        ? `<span style="color:#b45309;font-weight:bold;">לא סופק</span>`
+        : pending
+          ? `<span style="color:#888;">ממתין לשקילה</span>`
+          : `${w!.toFixed(2)} ק"ג`;
+
+      const priceCell = notSupplied
+        ? `<span style="color:#999;">—</span>`
+        : price != null
+          ? fmt(price)
+          : `<span style="color:#888;">—</span>`;
+
+      return `
+        <tr style="${notSupplied ? "background:#fafafa;" : ""}">
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;">${nameCell}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;color:#666;font-size:13px;">${qtyLabel}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;font-size:13px;">${statusCell}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:bold;">${priceCell}</td>
+        </tr>`;
+    })
+    .join("");
+
+  const anyNotSupplied = items.some(
+    (it) =>
+      !it.isCancelled &&
+      (it.actualWeight != null ? Number(it.actualWeight) : it.agentEnteredWeight != null ? Number(it.agentEnteredWeight) : null) === 0
+  );
+
+  return `
+    <div style="margin:18px 0;">
+      <div style="font-weight:bold;font-size:14px;margin-bottom:6px;">פירוט ההזמנה</div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#f4f4f4;">
+            <th style="padding:6px 8px;text-align:right;font-size:12px;color:#666;">מוצר</th>
+            <th style="padding:6px 8px;text-align:center;font-size:12px;color:#666;">הוזמן</th>
+            <th style="padding:6px 8px;text-align:center;font-size:12px;color:#666;">משקל בפועל</th>
+            <th style="padding:6px 8px;text-align:center;font-size:12px;color:#666;">סכום</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${
+        anyNotSupplied
+          ? `<p style="background:#fffbeb;border-right:3px solid #d97706;padding:10px;margin-top:10px;font-size:13px;color:#92400e;">
+               מוצר המסומן <strong>"לא סופק"</strong> הוזמן על ידך אך לא הגיע מהספק, ולכן לא חויבת עליו.
+               ההזמנה שלך נקלטה במלואה — המוצר פשוט לא היה במלאי.
+             </p>`
+          : ""
+      }
+    </div>`;
 }
