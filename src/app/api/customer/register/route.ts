@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
+// §121: הפקת קוד כניסה אוטומטית
+import { ensureLoginCode } from "@/lib/login-code";
 
 // מודל הזיהוי: טלפון = חובה (המזהה הראשי להתחברות, לכולם יש).
 // מייל = אופציונלי אך מומלץ (מאפשר איפוס סיסמה עצמאי + אישורי הזמנה).
@@ -231,6 +233,20 @@ export async function POST(req: Request) {
         termsVersion: TERMS_VERSION,
       },
     });
+
+    // §121: הפקת קוד כניסה גם בהרשמה עצמית.
+    //
+    // 🐛 הפער שנסגר: הרשמה באתר שמרה סיסמה בלבד. הלקוח נכנס איתה
+    // בהצלחה, אבל:
+    //   • בכרטיס שלו אצל המנהל היה כתוב "אין קוד"
+    //   • בטלפון, אפשרות "שמיעת קוד הכניסה" לא הייתה זמינה לו
+    //   • המנהל היה צריך להפיק ידנית כדי שיוכל להשתמש בטלפון
+    //
+    // עכשיו לכל לקוח יש קוד מרגע ההרשמה, בלי קשר לאיך נרשם.
+    // הסיסמה שבחר ממשיכה לעבוד - הקוד הוא דרך **נוספת**, לא חלופה.
+    //
+    // ⚠️ לא חוסם: כשל בהפקה לא יפיל הרשמה שכבר הצליחה.
+    await ensureLoginCode(prisma, customer.id);
 
     // לא מחזירים passwordHash בתשובה
     return NextResponse.json({

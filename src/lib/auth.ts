@@ -160,8 +160,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const storedCode = decryptCode(customer.loginCode);
           let ok = storedCode !== null && codesMatch(storedCode, secret);
 
-          // תאימות אחורה: לקוח שעדיין לא קיבל קוד מתחבר בסיסמה הישנה.
-          // הבדיקה שנייה בכוונה - ברגע שיש קוד, הוא הקובע.
+          // §121: לקוח בלי קוד מתחבר בסיסמה שהוא בחר בהרשמה.
+          //
+          // ⚠️ זו **לא** תאימות אחורה - המסד אופס ואין לקוחות ותיקים.
+          // המסלול הזה חי ורלוונטי כי לקוח שנרשם באתר בעצמו בוחר
+          // סיסמה בטופס, ומצפה להיכנס איתה. אם נחסום אותו כאן, הוא
+          // ייחסם מהחשבון שהרגע פתח - עד שמישהו יפיק לו קוד ידנית.
+          //
+          // הבדיקה שנייה בכוונה: ברגע שיש קוד, הוא הקובע.
           if (!ok && !customer.loginCode && customer.passwordHash) {
             ok = await bcrypt.compare(secret, customer.passwordHash);
           }

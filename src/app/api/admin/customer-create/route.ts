@@ -9,6 +9,8 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+// §121: הפקת קוד כניסה אוטומטית בכל יצירת לקוח
+import { ensureLoginCode } from "@/lib/login-code";
 import { requireAdmin } from "@/lib/guard";
 import bcrypt from "bcryptjs";
 import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
@@ -185,6 +187,15 @@ export async function POST(req: Request) {
     },
     select: { id: true, name: true, phone: true, email: true, paymentPreference: true },
   });
+
+  // §121: קוד כניסה לכל לקוח, מרגע היצירה.
+  //
+  // 🐛 הפער: לקוח שנוצר כאן קיבל סיסמה אקראית שלא נשמרת בגלוי -
+  // כלומר לא הייתה לו שום דרך להיכנס. בכרטיס שלו הופיע "אין קוד",
+  // ובטלפון אפשרות "שמיעת קוד" לא הייתה זמינה.
+  //
+  // ⚠️ לא חוסם: כשל בהפקה לא יפיל יצירת לקוח שכבר הצליחה.
+  await ensureLoginCode(prisma, customer.id);
 
   console.log(
     `[admin-customer-create] ${g.session?.user?.email} created customer ${customer.id} at point ${point.name} payment=${paymentPreference}`

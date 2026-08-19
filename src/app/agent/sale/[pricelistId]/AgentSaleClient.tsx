@@ -262,7 +262,19 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
             // רצפת הנציג = המחירון פחות השקל שתמיד שלו
             const floor = Number(it.unitPrice) - rateCarton;
             const perKg = Number(it.agentSetPrice) - floor;
-            if (perKg > 0) customCommission += perKg * w;
+            // ⚠️ perKg <= 0 אינו אמור לקרות (השרת חוסם מחיר נמוך
+            // מהמחירון), אבל אם נתון ישן או פגום מגיע לכאן - הפריט
+            // **חייב** ליפול לכלל הרגיל ולא להיעלם.
+            //
+            // 🐛 קודם היה `if (perKg > 0)` בלבד: פריט כזה לא נספר
+            // לא במותאם ולא בקרטונים, והנציג הפסיד גם את השקל שלו.
+            if (perKg > 0) {
+              customCommission += perKg * w;
+            } else if (it.isSingle) {
+              totalSinglesWeight += w;
+            } else {
+              totalCartonWeight += w;
+            }
           } else if (it.isSingle) {
             totalSinglesWeight += w;
           } else {
