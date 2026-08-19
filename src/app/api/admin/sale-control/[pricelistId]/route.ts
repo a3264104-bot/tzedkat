@@ -38,16 +38,41 @@ export async function GET(
   });
 
   // סיכום ק"ג לפי מוצר מהתעודות
-  const productWeightsFromNotes: Record<string, { name: string; weight: number; cartons: number }> = {};
+  const productWeightsFromNotes: Record<
+    string,
+    { name: string; weight: number; cartons: number; cost: number; costedWeight: number }
+  > = {};
   for (const note of deliveryNotes) {
     for (const item of note.items) {
       if (!item.productId) continue;
       const name = item.product?.name || item.productNameOnNote;
       if (!productWeightsFromNotes[item.productId]) {
-        productWeightsFromNotes[item.productId] = { name, weight: 0, cartons: 0 };
+        productWeightsFromNotes[item.productId] = {
+          name,
+          weight: 0,
+          cartons: 0,
+          cost: 0,
+          costedWeight: 0,
+        };
       }
       productWeightsFromNotes[item.productId].weight += Number(item.weight);
       productWeightsFromNotes[item.productId].cartons += item.quantity;
+
+      // §116: עלות בפועל מהספק.
+      //
+      // הפער שנסגר: netRevenue חושב כ"הכנסות פחות עמלות" - וזה
+      // **אינו רווח**. מה ששולם לספק, שהוא הרכיב הגדול ביותר
+      // בעלות, לא נוכה כלל. המנהל ראה מספר שנראה כרווח והיה
+      // גבוה פי כמה מהאמת.
+      //
+      // ⚠️ סכימה משוקללת: מוצר יכול להגיע בכמה תעודות במחירים
+      // שונים. 100 ק"ג ב-30 ו-10 ק"ג ב-50 הם 3,500 ולא ממוצע
+      // פשוט של 40 כפול 110.
+      const w = Number(item.weight);
+      if (item.costPerKg != null) {
+        productWeightsFromNotes[item.productId].cost += Number(item.costPerKg) * w;
+        productWeightsFromNotes[item.productId].costedWeight += w;
+      }
     }
   }
 
@@ -157,6 +182,9 @@ export async function GET(
     difference: number;         // מה שהתקבל - מה שחולק
     differencePercent: number;
     status: "OK" | "OVER" | "UNDER" | "SIGNIFICANT_UNDER" | "NO_NOTE";
+    costPerKg: number | null;   // §116: עלות ממוצעת משוקללת מהספק
+    totalCost: number;
+    costPartial: boolean;
   }> = [];
 
   const allProductIds = new Set([
@@ -192,6 +220,12 @@ export async function GET(
       else status = "OK";
     }
 
+    // §116: עלות ממוצעת משוקללת לק"ג, ועלות כוללת למוצר
+    const costPerKg =
+      received && received.costedWeight > 0
+        ? received.cost / received.costedWeight
+        : null;
+
     productComparison.push({
       productId,
       productName,
@@ -201,6 +235,11 @@ export async function GET(
       difference,
       differencePercent,
       status,
+      costPerKg,
+      totalCost: received?.cost || 0,
+      // ⚠️ מסמן שורה שהעלות בה חלקית - חלק מהתעודות בלי מחיר.
+      // בלי הסימון הזה המרווח נראה גבוה מהאמת ואי אפשר לדעת למה.
+      costPartial: !!received && received.costedWeight < received.weight - 0.001,
     });
   }
 
@@ -330,6 +369,23 @@ export async function GET(
   const totalCommissions = agentsReport.reduce((s, a) => s + a.totalCommission, 0);
   const netRevenue = totalRevenue - totalCommissions;
 
+  // §116: הרווח האמיתי - אחרי הספק **וגם** אחרי העמלות.
+  //
+  // netRevenue נשאר כפי שהיה (הכנסות פחות עמלות) כדי לא לשבור
+  // תצוגות קיימות, אבל הוא **אינו רווח** ולא ראוי להציגו ככזה.
+  const totalSupplierCost = productComparison.reduce((s, p) => s + p.totalCost, 0);
+  const grossProfit = totalRevenue - totalSupplierCost;
+  const netProfit = grossProfit - totalCommissions;
+
+  // ⚠️ אמין רק אם הוזנה עלות לכל מוצר שהגיע. אחרת הרווח מנופח,
+  // והמנהל עלול להסיק מסקנה עסקית שגויה על סמך מספר חלקי.
+  const withNotes = productComparison.filter((p) => p.receivedWeight > 0);
+  const costComplete =
+    withNotes.length > 0 && withNotes.every((p) => p.costPerKg != null && !p.costPartial);
+  const missingCostProducts = withNotes
+    .filter((p) => p.costPerKg == null || p.costPartial)
+    .map((p) => p.productName);
+
   return NextResponse.json({
     pricelist: {
       id: pricelist.id,
@@ -350,6 +406,12 @@ export async function GET(
       walkinOnline,
       totalCommissions,
       netRevenue,
+      // §116: עלות הספק והרווח בפועל
+      totalSupplierCost,
+      grossProfit,
+      netProfit,
+      costComplete,
+      missingCostProducts,
     },
     progress: {
       totalOrders: orders.length,
@@ -365,4 +427,69 @@ export async function GET(
     agents: agentsReport,
     alerts,
   });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// §116: הזנת עלות הספק
+// ═══════════════════════════════════════════════════════════════
+// POST /api/admin/sale-control/[pricelistId]  { productId, costPerKg }
+//
+// למה כאן ולא במסך תעודות המשלוח: המנהל מזין את העלות כשהוא
+// מסתכל על הפער ועל ההכנסה - זה הרגע שבו המספר מקבל משמעות.
+// דרישה לעבור למסך אחר הייתה מבטיחה שזה לא ייעשה.
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ pricelistId: string }> }
+) {
+  const g = await requireAdmin();
+  if (!g.ok) return g.res;
+
+  const { pricelistId } = await params;
+  const b = await req.json().catch(() => ({}));
+  const productId = String(b.productId || "");
+  if (!productId) {
+    return NextResponse.json({ error: "חסר מזהה מוצר" }, { status: 400 });
+  }
+
+  // ⚠️ המספר הזה הופך לבסיס לחישוב רווח. ערך שגוי אינו "תצוגה
+  // מכוערת" אלא מסקנה עסקית שגויה - עדיף לדחות מאשר לשמור.
+  let costPerKg: number | null = null;
+  const raw = b.costPerKg;
+  if (raw !== null && raw !== undefined && raw !== "") {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) {
+      return NextResponse.json(
+        { error: 'העלות לק"ג חייבת להיות מספר חיובי' },
+        { status: 400 }
+      );
+    }
+    if (n > 10000) {
+      // תפיסת טעות מובהקת: סכום כולל שהוזן במקום מחיר לק"ג
+      return NextResponse.json(
+        { error: 'העלות נראית שגויה. יש להזין מחיר לקילוגרם, לא סכום כולל.' },
+        { status: 400 }
+      );
+    }
+    costPerKg = n;
+  }
+
+  // העלות נשמרת על **כל שורות התעודה** של אותו מוצר במכירה.
+  // מוצר יכול להגיע בכמה משלוחים, והמחיר מהספק זהה לכולם באותה
+  // מכירה. עדכון שורה אחת היה מייצר חישוב חלקי שנראה תקין.
+  const result = await prisma.deliveryNoteItem.updateMany({
+    where: { productId, deliveryNote: { pricelistId, status: "CONFIRMED" } },
+    data: { costPerKg },
+  });
+
+  if (result.count === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "לא נמצאה שורה מאושרת בתעודות המשלוח עבור המוצר הזה. יש לוודא שהתעודה נקלטה ואושרה.",
+      },
+      { status: 404 }
+    );
+  }
+
+  return NextResponse.json({ ok: true, updated: result.count, costPerKg });
 }

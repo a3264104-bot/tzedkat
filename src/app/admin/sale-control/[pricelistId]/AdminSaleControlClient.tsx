@@ -2,7 +2,7 @@
 
 // §20: לוח בקרת מכירה למנהל - כל התמונה בעמוד אחד
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 type Data = {
@@ -25,6 +25,12 @@ type Data = {
     walkinOnline: number;
     totalCommissions: number;
     netRevenue: number;
+    // §116: עלות הספק והרווח בפועל
+    totalSupplierCost: number;
+    grossProfit: number;
+    netProfit: number;
+    costComplete: boolean;
+    missingCostProducts: string[];
   };
   progress: {
     totalOrders: number;
@@ -40,6 +46,9 @@ type Data = {
     productId: string;
     productName: string;
     receivedWeight: number;
+    costPerKg: number | null;
+    totalCost: number;
+    costPartial: boolean;
     receivedCartons: number;
     distributedWeight: number;
     difference: number;
@@ -77,22 +86,28 @@ export default function AdminSaleControlClient({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`/api/admin/sale-control/${pricelistId}`, {
-          cache: "no-store",
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error);
-        setData(json);
-      } catch (e: any) {
-        setError(e.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
+  // §116: הוצא מ-useEffect לפונקציה, כדי שהזנת עלות תוכל לרענן
+  // את המסך - הרווח משתנה עם כל הזנה, וללא רענון המנהל היה רואה
+  // מספר ישן ולא יודע אם השמירה הצליחה.
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/sale-control/${pricelistId}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setData(json);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
   }, [pricelistId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   if (loading) {
     return (
@@ -226,14 +241,45 @@ export default function AdminSaleControlClient({
               amount={-fin.totalCommissions}
               color="red"
             />
+            {/* §116: 🐛 "הכנסה נטו" הוצג כרווח, אבל הוא רק הכנסות
+                פחות עמלות - **בלי מה ששולם לספק**, שהוא הרכיב
+                הגדול ביותר. המספר נראה גבוה פי כמה מהאמת.
+
+                עכשיו מוצגת שרשרת מלאה: הכנסות ← ספק ← עמלות ←
+                רווח נקי. */}
             <FinancialCard
-              label="הכנסה נטו"
-              amount={fin.netRevenue}
-              color="emerald"
+              label="עלות לספק"
+              amount={-fin.totalSupplierCost}
+              color="red"
+            />
+            <FinancialCard
+              label="רווח נקי"
+              amount={fin.netProfit}
+              color={fin.netProfit >= 0 ? "emerald" : "red"}
               big
             />
-            <div />
           </div>
+
+          {/* ⚠️ בלי הסימון הזה המנהל רואה רווח מנופח ואין לו דרך
+              לדעת שהוא חלקי. */}
+          {!fin.costComplete && (
+            <div className="mt-3 bg-amber-50 border-2 border-amber-300 rounded-xl p-3">
+              <div className="text-sm font-bold text-amber-900">
+                ⚠️ הרווח המוצג חלקי — חסרה עלות ספק
+              </div>
+              <div className="text-xs text-amber-800 mt-1 leading-relaxed">
+                {fin.missingCostProducts.length > 0 ? (
+                  <>
+                    לא הוזנה עלות לק&quot;ג עבור:{" "}
+                    <b>{fin.missingCostProducts.join(", ")}</b>. ניתן להזין
+                    בטבלת ההשוואה למטה.
+                  </>
+                ) : (
+                  <>טרם נקלטו תעודות משלוח מאושרות למכירה זו.</>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="mt-4 pt-4 border-t border-zinc-100">
             <div className="text-xs font-bold text-zinc-500 mb-2">פירוט הכנסות</div>
@@ -292,12 +338,22 @@ export default function AdminSaleControlClient({
                     <th className="text-center px-3 py-2">חילקנו</th>
                     <th className="text-center px-3 py-2">פער ק"ג</th>
                     <th className="text-center px-3 py-2">אחוז</th>
+                    {/* §116: העלות מוזנת כאן - זה הרגע שבו המנהל
+                        רואה את הפער ואת ההכנסה, והמספר מקבל
+                        משמעות. דרישה לעבור למסך אחר הייתה מבטיחה
+                        שזה לא ייעשה. */}
+                    <th className="text-center px-3 py-2">עלות לק&quot;ג</th>
                     <th className="text-center px-3 py-2">סטטוס</th>
                   </tr>
                 </thead>
                 <tbody>
                   {productComparison.map((p) => (
-                    <ProductComparisonRow key={p.productId} product={p} />
+                    <ProductComparisonRow
+                      key={p.productId}
+                      product={p}
+                      pricelistId={pricelistId}
+                      onSaved={load}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -414,9 +470,40 @@ function SubStat({
 
 function ProductComparisonRow({
   product: p,
+  pricelistId,
+  onSaved,
 }: {
   product: Data["productComparison"][number];
+  pricelistId: string;
+  onSaved: () => void;
 }) {
+  // §116: הזנת עלות הספק ישירות בשורה.
+  const [draft, setDraft] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(false);
+
+  async function saveCost() {
+    if (draft === "") return;
+    setSaving(true);
+    setErr(false);
+    try {
+      const res = await fetch(`/api/admin/sale-control/${pricelistId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId: p.productId, costPerKg: draft }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error);
+      setDraft("");
+      onSaved();
+    } catch {
+      setErr(true);
+      setTimeout(() => setErr(false), 2500);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const statusConfig = {
     OK: { bg: "bg-emerald-100", text: "text-emerald-700", label: "✓ תקין" },
     UNDER: { bg: "bg-amber-100", text: "text-amber-700", label: "פער קטן" },
@@ -458,6 +545,45 @@ function ProductComparisonRow({
           </span>
         ) : (
           "—"
+        )}
+      </td>
+      {/* §116: עלות לק"ג. מוצר בלי תעודה מושבת - אין על מה
+          לחשב עלות. */}
+      <td className="px-3 py-2 text-center">
+        {p.receivedWeight > 0 ? (
+          <div className="flex flex-col items-center gap-0.5">
+            <input
+              type="number"
+              step="0.01"
+              min={0}
+              dir="ltr"
+              disabled={saving}
+              placeholder={p.costPerKg != null ? p.costPerKg.toFixed(2) : "—"}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={saveCost}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              className={`w-20 text-center rounded border-2 px-1 py-1 text-xs ${
+                err
+                  ? "border-red-500 bg-red-50"
+                  : p.costPerKg != null && !p.costPartial
+                    ? "border-emerald-300 bg-emerald-50"
+                    : "border-amber-300 bg-amber-50"
+              } disabled:opacity-50`}
+            />
+            {p.totalCost > 0 && (
+              <span className="text-[9px] text-zinc-500">
+                {p.totalCost.toFixed(0)} ₪
+              </span>
+            )}
+            {p.costPartial && (
+              <span className="text-[9px] text-amber-700 font-bold">חלקי</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-zinc-300 text-xs">—</span>
         )}
       </td>
       <td className="px-3 py-2 text-center">

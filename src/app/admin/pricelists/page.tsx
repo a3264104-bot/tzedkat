@@ -156,17 +156,10 @@ export default function PricelistsPage() {
                       סגור הזמנות
                     </button>
                   )}
-                  {/* §113: הכניסה למסך מצב המכירה - שלב, התאמת
-                      משקלים, וסיכום כספי. מוצג רק למכירה שאינה
-                      טיוטה, כי לפני ההפעלה אין מה להתאים. */}
-                  {l.status !== "DRAFT" && (
-                    <a
-                      href={`/admin/sale-status/${l.id}`}
-                      className="btn-sm bg-brand-slatedark text-white rounded-lg px-3 font-bold hover:opacity-90"
-                    >
-                      📊 מצב המכירה
-                    </a>
-                  )}
+                  {/* §116: הקישור למסך "מצב המכירה" הוסר.
+                      הוא הוביל ל-/admin/sale-status, מסך שנבנה
+                      בכפילות ל-/admin/sale-control הקיים ונמחק.
+                      בקרת המכירה נגישה מהתפריט הראשי, שלב ③. */}
                   <button onClick={() => setEditing(l.id)} className="btn-ghost btn-sm">
                     ערוך
                   </button>
