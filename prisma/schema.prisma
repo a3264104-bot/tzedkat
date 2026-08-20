@@ -75,6 +75,17 @@ model Customer {
   //
   // ⚠️ תמיד חיובי או 0. יתרה שלילית אינה יתרת זכות אלא חוב,
   // וזה מנגנון אחר לגמרי שאינו קיים כאן.
+  // §145: הלקוח מקבל קובץ אקסל להזמנה בכל מכירה חדשה.
+  //
+  // למי זה: לקוח שיש לו מייל אבל לא נוח לו עם האתר או עם התפריט
+  // הקולי. במקום להיכנס ולהזמין, הוא מקבל קובץ, ממלא כמויות,
+  // ומחזיר במייל.
+  //
+  // ⚠️ בקשה מפורשת ולא ברירת מחדל: שליחה לכולם הייתה מייצרת
+  // דואר זבל, והלקוחות היו מפסיקים לפתוח את המיילים - כולל
+  // אישורי התשלום שחשוב שיראו.
+  wantsExcelOrder       Boolean   @default(false)
+
   creditBalance         Decimal   @default(0) @db.Decimal(10, 2)
   creditBalanceNote     String?
   creditBalanceAt       DateTime?
@@ -323,6 +334,13 @@ model Pricelist {
   //
   // ⚠️ החיוב זהה למכירה רגילה. אין כאן מסלול עוקף - זו כל הנקודה.
   agentOnly        Boolean  @default(false)
+
+  // §145: מתי נשלחו קבצי האקסל למכירה הזו.
+  //
+  // ⚠️ מונע שליחה כפולה. מנהל שמפעיל מכירה, סוגר ומפעיל שוב -
+  // ובלי הסימון הזה הלקוחות היו מקבלים את אותו קובץ פעמיים.
+  excelSentAt      DateTime?
+  excelSentCount   Int      @default(0)
   notes         String?
   status        String   @default("DRAFT") // DRAFT / ACTIVE / CLOSED / DONE
   singleSurcharge Decimal @default(3) @db.Decimal(10, 2) // תוספת לבודדים גלובלית למחירון
@@ -430,6 +448,17 @@ model Order {
   extraChargeReason String?
   extraChargeById   String?
   extraChargeAt     DateTime?
+
+  // §147: מתי נשלח ללקוח מייל עם המחיר הסופי.
+  //
+  // ⚠️ קיים כדי למנוע הצפה. חישוב המחיר הסופי רץ **בכל שקילה** -
+  // עשרות פעמים בהזמנה אחת - ובלי הסימון הזה הלקוח היה מקבל
+  // עשרה מיילים באותה דקה.
+  //
+  // ⚠️ נפרד מ-customerNotifiedAt: האחרון מסמן את אישור ההזמנה
+  // בעת היצירה, וזה את הודעת המחיר הסופי. ערבוב היה גורם לאחד
+  // מהם לא להישלח.
+  finalPriceNotifiedAt DateTime?
 
   // §133: הערת הלקוח לנציג, ותשובת הנציג.
   //

@@ -11,6 +11,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
+// §147: מייל מחיר סופי - הלקוח צריך לדעת כמה לשלם
+import { sendFinalPriceEmail } from "@/lib/email";
 // §124: קיזוז יתרת זכות
 import { applyBalanceToOrder } from "@/lib/credit-balance-lib";
 
@@ -473,8 +475,47 @@ async function recomputeOrderTotal(orderId: string): Promise<void> {
     beforeBalance
   );
 
+  // §147: 🐛 המחיר הסופי נקבע כאן, אבל הלקוח לא ידע.
+  //
+  // sendFinalPriceEmail נשלח רק ממסלול המנהל. מאז §123 הנציג
+  // קובע את המחיר בעצמו בשקילה - והלקוח נשאר בלי שום הודעה.
+  //
+  // ⚠️ זה קריטי ללקוח **מזומן**: הוא צריך לדעת כמה להביא לחלוקה.
+  // לקוח אשראי יגלה כשהכרטיס יחויב, אבל מזומן פשוט יגיע בלי סכום.
+  //
+  // ⚠️ נשלח **פעם אחת בלבד**. recomputeOrderTotal רץ בכל שקילה,
+  // ובלי הבדיקה הזו הלקוח היה מקבל עשרה מיילים באותה דקה.
+  const wasSet = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      finalTotal: true,
+      finalPriceNotifiedAt: true,
+      customer: { select: { email: true, paymentPreference: true } },
+    },
+  });
+
   await prisma.order.update({
     where: { id: orderId },
     data: { finalTotal: payable },
   });
+
+  if (wasSet?.customer?.email && !wasSet.finalPriceNotifiedAt) {
+    const full = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, customer: true },
+    });
+    if (full) {
+      // לא חוסם: כשל מייל לא יבטל מחיר שכבר נקבע
+      sendFinalPriceEmail(full as any, wasSet.customer.email)
+        .then((res) =>
+          prisma.order.update({
+            where: { id: orderId },
+            data: res.ok
+              ? { finalPriceNotifiedAt: new Date() }
+              : { customerNotifyError: res.error },
+          }).catch(() => null)
+        )
+        .catch((e) => console.error("[final-price] email failed:", e));
+    }
+  }
 }

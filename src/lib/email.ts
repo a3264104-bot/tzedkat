@@ -254,6 +254,28 @@ export async function sendFinalPriceEmail(
     const settings = await getSettings();
     if (!settings.sendEmailToCustomer) return { ok: true };
 
+    // §147: לקוח מזומן מקבל הוראה אחרת - כמה להביא ולאן, במקום
+    // קישור תשלום שאין לו מה לעשות איתו.
+    //
+    // ⚠️ שתי דרכים לזהות: העדפת הלקוח, או שיטת התשלום שנקבעה על
+    // ההזמנה עצמה (למשל תוספת שסומנה כמזומן ב-§120). מספיק שאחת
+    // מהן מתקיימת.
+    const isCashCustomer =
+      (order as any)?.customer?.paymentPreference === "CASH" ||
+      (order as any)?.paymentMethod === "CASH";
+
+    // §147: לקוח עם כרטיס שמור **אינו** מתבקש לשלם.
+    //
+    // 🐛 מה שהיה: הנושא היה "נא להשלים תשלום" לכולם. לקוח אשראי
+    // קרא את זה, לא הבין מה נדרש ממנו, וחשש שמשהו השתבש - בזמן
+    // שהכרטיס שלו עומד להיות מחויב אוטומטית.
+    //
+    // ⚠️ שלושה מצבים, לא שניים:
+    //   • מזומן          -> "נא להביא X לנקודה"
+    //   • כרטיס שמור     -> "הכרטיס יחויב, אין צורך בפעולה"
+    //   • בלי כרטיס      -> קישור תשלום (המצב היחיד שדורש פעולה)
+    const hasStoredCard = !!(order as any)?.customer?.paymentToken;
+
     const body = `
       <p>שלום ${escapeHtml(order.customerName)},</p>
       <p>המחיר הסופי להזמנה <strong>#${order.orderNumber}</strong> נקבע לאחר שקילה.</p>
@@ -267,21 +289,66 @@ export async function sendFinalPriceEmail(
       </table>
       <p style="font-size:18px;text-align:left;"><strong>לתשלום: ${fmt(Number(order.finalTotal))}</strong></p>
       ${
-        order.paymentLink
-          ? `<div style="text-align:center;margin-top:20px;">
-               <a href="${order.paymentLink}" style="display:inline-block;background:#C0461E;color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-size:16px;">
-                 לתשלום מאובטח ←
-               </a>
-             </div>`
-          : ""
-      }
-      <p style="color:#888;font-size:12px;margin-top:16px;">התשלום מתבצע באתר בצורה מאובטחת.</p>`;
+        // §147: לקוח מזומן מקבל הוראה אחרת לגמרי.
+        //
+        // 🐛 מה שהיה: המייל הציע לכולם "לתשלום מאובטח" עם קישור.
+        // לקוח מזומן קיבל הודעה שלא רלוונטית לו - הוא משלם פיזית
+        // בחלוקה, ואין לו מה ללחוץ.
+        //
+        // ⚠️ **זו כל מטרת המייל אצלו**: לדעת כמה להביא. לקוח
+        // אשראי יגלה כשהכרטיס יחויב; מזומן פשוט יגיע בלי סכום.
+        isCashCustomer
+          ? `<div style="background:#fffbef;border:2px solid #d4a017;border-radius:12px;padding:16px;margin-top:20px;text-align:center;">
+               <div style="font-weight:bold;color:#8b5a00;font-size:15px;">
+                 💵 תשלום במזומן בחלוקה
+               </div>
+               <div style="color:#5a4a2a;font-size:14px;margin-top:6px;line-height:1.7;">
+                 נא להביא <strong>${fmt(Number(order.finalTotal))}</strong> לנקודת החלוקה.
+                 ${order.pointNameSnapshot ? `<br>📍 ${escapeHtml(order.pointNameSnapshot)}` : ""}
+                 ${order.deliveryDateSnapshot ? `<br>📦 ${escapeHtml(order.deliveryDateSnapshot)}` : ""}
+               </div>
+             </div>
+             <p style="color:#888;font-size:12px;margin-top:16px;">
+               לאחר התשלום תקבלו אישור נוסף במייל.
+             </p>`
+          : hasStoredCard
+            ? `<div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:16px;margin-top:20px;text-align:center;">
+                 <div style="font-weight:bold;color:#15803d;font-size:15px;">
+                   💳 אין צורך בפעולה מצדכם
+                 </div>
+                 <div style="color:#166534;font-size:14px;margin-top:6px;line-height:1.7;">
+                   הכרטיס השמור יחויב בסכום זה, ותקבלו אישור במייל.
+                 </div>
+               </div>`
+            : order.paymentLink
+              ? `<div style="text-align:center;margin-top:20px;">
+                   <a href="${order.paymentLink}" style="display:inline-block;background:#C0461E;color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-size:16px;">
+                     לתשלום מאובטח ←
+                   </a>
+                 </div>
+                 <p style="color:#888;font-size:12px;margin-top:16px;">התשלום מתבצע באתר בצורה מאובטחת.</p>`
+              : `<p style="color:#888;font-size:12px;margin-top:16px;">
+                   פרטי התשלום יימסרו בנפרד.
+                 </p>`
+      }`;
 
     await getResend().emails.send({
       from: FROM_ADDRESS,
       to: customerEmail,
-      subject: `מחיר סופי להזמנה #${order.orderNumber} - נא להשלים תשלום`,
-      html: baseTemplate(`מחיר סופי נקבע — #${order.orderNumber}`, body),
+      // ⚠️ הנושא משתנה לפי המצב. "נא להשלים תשלום" ללקוח שהכרטיס
+      // שלו יחויב אוטומטית הוא מטעה - הוא פותח את המייל בדריכות
+      // ומחפש מה נדרש ממנו.
+      subject: isCashCustomer
+        ? `סכום לתשלום בחלוקה — הזמנה #${order.orderNumber}`
+        : hasStoredCard
+          ? `המחיר הסופי להזמנה #${order.orderNumber}`
+          : `מחיר סופי להזמנה #${order.orderNumber} - נא להשלים תשלום`,
+      html: baseTemplate(
+        isCashCustomer
+          ? `הסכום לתשלום — #${order.orderNumber}`
+          : `מחיר סופי נקבע — #${order.orderNumber}`,
+        body
+      ),
     });
     return { ok: true };
   } catch (e: any) {
@@ -923,6 +990,104 @@ export async function sendAgentReplyEmail(params: {
       to: params.email,
       subject: `תשובה להערה שלך — הזמנה #${params.orderNumber}`,
       html: baseTemplate("התקבלה תשובה", body),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}
+
+/**
+ * §145: קובץ הזמנה באקסל ללקוח.
+ *
+ * נשלח אוטומטית כשמכירה מופעלת, ללקוחות שסומנו בכרטיס כרוצים
+ * לקבל. הם ממלאים כמויות ומחזירים במייל.
+ *
+ * ⚠️ הקובץ מצורף כ-attachment ולא כקישור: לקוח שלא נוח לו עם
+ * האתר גם לא ילחץ על קישור להורדה. הקובץ חייב להיות שם.
+ */
+export async function sendExcelOrderEmail(params: {
+  customerName: string;
+  email: string;
+  saleName: string;
+  deliveryDateText: string | null;
+  closeDateText: string | null;
+  fileBuffer: Buffer;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+    if (!settings.sendEmailToCustomer) return { ok: true };
+
+    const body = `
+      <p>שלום ${escapeHtml(params.customerName)},</p>
+      <p>
+        נפתחה הזמנה חדשה — <strong>${escapeHtml(params.saleName)}</strong>.
+        מצורף קובץ להזמנה.
+      </p>
+
+      <div style="background:#fffbef;border:2px solid #d4a017;border-radius:12px;padding:16px;margin:16px 0;">
+        <div style="font-weight:bold;color:#8b5a00;margin-bottom:8px;">
+          איך מזמינים
+        </div>
+        <ol style="margin:0;padding-right:20px;color:#5a4a2a;font-size:14px;line-height:1.9;">
+          <li>פותחים את הקובץ המצורף</li>
+          <li>ממלאים כמות בעמודה <strong>&quot;כמות&quot;</strong> בלבד</li>
+          <li>
+            שומרים ושולחים את הקובץ בחזרה לכתובת:
+            <a href="mailto:${escapeHtml(settings.adminEmail)}" style="color:#C0461E;font-weight:bold;">
+              ${escapeHtml(settings.adminEmail)}
+            </a>
+          </li>
+        </ol>
+      </div>
+
+      <table style="width:100%;font-size:14px;margin-bottom:12px;">
+        ${
+          params.deliveryDateText
+            ? `<tr><td style="padding:4px 0;color:#666;width:110px;">תאריך חלוקה:</td><td><strong>${escapeHtml(params.deliveryDateText)}</strong></td></tr>`
+            : ""
+        }
+        ${
+          params.closeDateText
+            ? `<tr><td style="padding:4px 0;color:#666;">מועד אחרון:</td><td><strong>${escapeHtml(params.closeDateText)}</strong></td></tr>`
+            : ""
+        }
+      </table>
+
+      <p style="background:#f9fafb;border-right:3px solid #C0461E;padding:12px;font-size:13px;color:#444;">
+        <strong>⚖️ שימו לב:</strong> המחירים בקובץ משוערים. מוצרים הנמכרים
+        לפי משקל נשקלים בחלוקה, והמחיר הסופי נקבע לפי המשקל בפועל.
+      </p>
+
+      <p style="color:#888;font-size:12px;margin-top:16px;">
+        ניתן גם להזמין ישירות ב<a href="${APP_URL}/order" style="color:#C0461E;">אתר</a>
+        או במערכת הטלפונית.
+      </p>`;
+
+    const safeName =
+      params.saleName.replace(/[^\u0590-\u05FF\w\s-]/g, "").trim() || "order";
+
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: params.email,
+      // §145: 🐛 replyTo חיוני כאן.
+      //
+      // orders@tzidkat.com היא כתובת שליחה בלבד - אין מאחוריה
+      // תיבה. בלי replyTo, לקוח שלוחץ "השב" ומצרף את הקובץ
+      // שולח אותו לחלל, והוא בטוח שהזמין.
+      //
+      // ⚠️ הכתובת נלקחת מההגדרות ולא מקודדת: אם תשנה אותה במסך
+      // ההגדרות, גם היעד כאן משתנה - ולא תגלה חודש אחר כך
+      // שהזמנות הלכו לכתובת ישנה.
+      replyTo: settings.adminEmail,
+      subject: `הזמנה חדשה: ${params.saleName} — קובץ למילוי`,
+      html: baseTemplate("קובץ הזמנה", body),
+      attachments: [
+        {
+          filename: `הזמנה-${safeName}.xlsx`,
+          content: params.fileBuffer,
+        },
+      ],
     });
     return { ok: true };
   } catch (e: any) {
