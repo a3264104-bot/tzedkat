@@ -43,6 +43,8 @@ type Customer = {
   agentCanSendPaymentLink?: boolean;
   agentCanCharge?: boolean;
   agentCanUpdateCards?: boolean;
+  /** §155: הקמה/סימון של לקוחות מזומן */
+  agentCanCreateCashCustomers?: boolean;
   createdAt: string;
   // §52: לקוח לא פעיל - לא מקבל מיילים, לא נכלל בברודקסט ובתזכורות,
   // ולא יכול לבצע הזמנה. ההיסטוריה שלו נשמרת במלואה.
@@ -62,14 +64,28 @@ export default function AdminCustomersPage() {
   //
   // הערך נקרא פעם אחת בטעינה (לא ב-state מתמשך) כדי שהמנהל יוכל
   // לסגור את המודל ולהישאר ברשימה - בלי שייפתח שוב בכל רענון.
-  const [query, setQuery] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return new URLSearchParams(window.location.search).get("q") || "";
-  });
-  const [pendingOpenId, setPendingOpenId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return new URLSearchParams(window.location.search).get("openCustomer");
-  });
+  // §156: אותה בעיה - נקרא בשרת ומוחזר ריק.
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setQuery(q);
+  }, []);
+  // §156: 🐛 קריאת ה-URL עברה מ-useState ל-useEffect.
+  //
+  // האתחול היה `useState(() => new URLSearchParams(...))`. במסך
+  // שעובר רינדור בשרת, ה-initializer רץ שם ומחזיר null - ובהידרציה
+  // React משתמש במצב שהגיע מהשרת. התוצאה: pendingOpenId היה null
+  // תמיד, והמודל לא נפתח לעולם.
+  //
+  // ⚠️ useEffect רץ **רק בדפדפן**, אחרי שההידרציה הסתיימה, ולכן
+  // window.location שם אמין.
+  const [pendingOpenId, setPendingOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("openCustomer");
+    if (id) setPendingOpenId(id);
+  }, []);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [newPassword, setNewPassword] = useState("");
@@ -432,7 +448,12 @@ export default function AdminCustomersPage() {
 
   // עדכון הרשאת נציג בודדת
   async function togglePermission(
-    field: "agentCanSetFinalPrice" | "agentCanSendPaymentLink" | "agentCanCharge" | "agentCanUpdateCards",
+    field:
+      | "agentCanSetFinalPrice"
+      | "agentCanSendPaymentLink"
+      | "agentCanCharge"
+      | "agentCanUpdateCards"
+      | "agentCanCreateCashCustomers",
     value: boolean
   ) {
     if (!editing) return;
@@ -1161,6 +1182,18 @@ export default function AdminCustomersPage() {
                     label="💳 חיוב אוטומטי עם טוקן"
                     hint="הנציג יכול לחייב את הלקוח אוטומטית בכרטיס השמור"
                     onChange={(v) => togglePermission("agentCanCharge", v)}
+                    saving={saving}
+                  />
+                  {/* §155: הקמת לקוחות מזומן.
+                      
+                      ⚠️ זו ההרשאה היחידה כאן שנוגעת ישירות בכסף
+                      שנכנס: לקוח מזומן מזמין בלי כרטיס, והנציג
+                      שסימן אותו לוקח אחריות לגבות בחלוקה. */}
+                  <PermissionCheckbox
+                    checked={!!editing.agentCanCreateCashCustomers}
+                    label="💵 הקמת לקוחות מזומן"
+                    hint="הנציג יוכל להקים לקוח בלי כרטיס אשראי, ולסמן לקוח קיים כמזומן. הגבייה תתבצע על ידו בחלוקה."
+                    onChange={(v) => togglePermission("agentCanCreateCashCustomers", v)}
                     saving={saving}
                   />
                   <PermissionCheckbox

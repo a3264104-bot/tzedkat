@@ -127,6 +127,8 @@ export async function GET(req: Request) {
       agentCanSendPaymentLink: c.agentCanSendPaymentLink,
       agentCanCharge: c.agentCanCharge,
       agentCanUpdateCards: c.agentCanUpdateCards,
+      // §155: הרשאת הקמת לקוחות מזומן
+      agentCanCreateCashCustomers: c.agentCanCreateCashCustomers,
       commissionRateCarton: Number(c.commissionRateCarton),
       commissionRateSingles: Number(c.commissionRateSingles),
       createdAt: c.createdAt,

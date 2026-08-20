@@ -51,6 +51,33 @@ export async function POST(req: Request) {
     );
   }
 
+  // §155: הקמת לקוח מזומן דורשת הרשאה.
+  //
+  // ⚠️ הנימוק: לקוח מזומן מזמין **בלי כרטיס**, והגבייה פיזית
+  // בחלוקה. הנציג שסימן אותו לוקח על עצמו אחריות לגבות - ואם
+  // לא גבה, הכסף לא נכנס ואיש לא יודע עד סוף החודש.
+  //
+  // ⚠️ הבדיקה בשרת ולא רק בממשק: הסתרת כפתור נעקפת בבקשה ישירה,
+  // וכאן העקיפה עולה כסף.
+  // ⚠️ הקובץ הזה מאמת דרך auth() ישירות ולא דרך requireAgent,
+  // ולכן המשתנים הם role ו-agentId.
+  if (paymentPreference === "CASH" && role !== "ADMIN") {
+    const perm = await prisma.customer.findUnique({
+      where: { id: agentId },
+      select: { agentCanCreateCashCustomers: true },
+    });
+    if (!perm?.agentCanCreateCashCustomers) {
+      return NextResponse.json(
+        {
+          error:
+            "אין לך הרשאה להקים לקוחות מזומן. יש להקים את הלקוח עם אשראי, או לפנות למנהל.",
+          code: "NO_CASH_PERMISSION",
+        },
+        { status: 403 }
+      );
+    }
+  }
+
   if (!name || name.length < 2) {
     return NextResponse.json({ error: "שם קצר מדי" }, { status: 400 });
   }

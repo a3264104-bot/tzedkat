@@ -27,6 +27,8 @@ const ALLOWED_FIELDS = [
   "agentCanSendPaymentLink",
   "agentCanCharge",
   "agentCanUpdateCards",
+  // §155: הקמת לקוחות מזומן
+  "agentCanCreateCashCustomers",
   "cardNeedsUpdate",
   // §52: הפעלה/השבתה של לקוח
   "isActive",
@@ -142,6 +144,8 @@ export async function GET(
     agentCanSendPaymentLink: c.agentCanSendPaymentLink,
     agentCanCharge: c.agentCanCharge,
     agentCanUpdateCards: c.agentCanUpdateCards,
+    // §155: הרשאת הקמת לקוחות מזומן
+    agentCanCreateCashCustomers: c.agentCanCreateCashCustomers,
     isActive: c.isActive,
     deactivatedAt: c.deactivatedAt,
     deactivatedReason: c.deactivatedReason,
@@ -277,11 +281,37 @@ export async function PATCH(
         { status: 400 }
       );
     }
+    // §155: נציג עם הרשאה יכול לסמן לקוח כמזומן.
+    //
+    // 🐛 מה שהיה: חסימה מוחלטת לנציג. התוצאה - נציג פגש לקוח בלי
+    // כרטיס בחלוקה, לא יכול היה לסמן אותו כמזומן, והלקוח לא הצליח
+    // להזמין בפעם הבאה. כל מקרה כזה הגיע אליך.
+    //
+    // ⚠️ **רק לכיוון מזומן.** מעבר לאשראי דורש טוקן קיים ונשאר
+    // אצל המנהל - זה מסלול שיכול לנעול לקוח מחוץ למערכת.
     if (!actor.isAdmin) {
-      return NextResponse.json(
-        { error: "נציג רשאי לאפס סיסמה בלבד" },
-        { status: 403 }
-      );
+      if (pref !== "CASH") {
+        return NextResponse.json(
+          { error: "נציג רשאי לסמן לקוח כמזומן בלבד. מעבר לאשראי נעשה ע\"י המנהל." },
+          { status: 403 }
+        );
+      }
+      const perm = actor.agentId
+        ? await prisma.customer.findUnique({
+            where: { id: actor.agentId },
+            select: { agentCanCreateCashCustomers: true },
+          })
+        : null;
+      if (!perm?.agentCanCreateCashCustomers) {
+        return NextResponse.json(
+          {
+            error:
+              "אין לך הרשאה לסמן לקוחות כמזומן. יש לפנות למנהל.",
+            code: "NO_CASH_PERMISSION",
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // ⚠️ אזהרה ולא חסימה: מעבר מ-CASH ל-CREDIT בזמן שיש הזמנות
