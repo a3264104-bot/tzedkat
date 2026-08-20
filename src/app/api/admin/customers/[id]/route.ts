@@ -77,6 +77,78 @@ async function resolveActor(body: any) {
   return { ok: true as const, isAdmin: false, agentId: userId };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// §150: שליפת לקוח בודד לפי מזהה
+// ═══════════════════════════════════════════════════════════════
+// GET /api/admin/customers/[id]
+//
+// למה: פתיחת כרטיס לקוח מקישור ישיר (§109) הייתה תלויה בכך
+// שהחיפוש ברשימה יחזיר אותו. פורמט טלפון שונה, לקוח מושבת, או
+// רשימה חתוכה (§127) - וכל אחד מהם שבר את זה בשקט.
+//
+// ⚠️ אותו מבנה תשובה כמו ברשימה, כדי שהקליינט יוכל להשתמש בו
+// ישירות בלי המרה. שדות שונים בין שני המקורות היו מייצרים מודל
+// עריכה חלקי שנראה תקין.
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const g = await requireAdmin();
+  if (!g.ok) return g.res;
+
+  const { id } = await params;
+
+  const c = await prisma.customer.findUnique({
+    where: { id },
+    include: {
+      defaultPoint: { select: { name: true, city: true } },
+      _count: { select: { orders: true } },
+      agentPoints: {
+        select: { point: { select: { id: true, name: true, city: true } } },
+      },
+    },
+  });
+
+  if (!c) {
+    return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    id: c.id,
+    name: c.name,
+    phone: c.phone,
+    email: c.email,
+    city: c.defaultPoint?.city ?? null,
+    pointName: c.defaultPoint?.name ?? null,
+    orderCount: c._count.orders,
+    hasPaymentToken: !!c.paymentToken,
+    cardLast4: c.cardLast4,
+    cardExpiry: c.cardExpiry,
+    cardNeedsUpdate: c.cardNeedsUpdate,
+    defaultPointId: c.defaultPointId,
+    passwordPlain: c.passwordPlain,
+    hasLoginCode: !!c.loginCode,
+    hasPassword: !!c.passwordHash,
+    wantsExcelOrder: !!c.wantsExcelOrder,
+    creditBalance: Number(c.creditBalance ?? 0),
+    loginCodeSetAt: c.loginCodeSetAt,
+    lockedUntil: c.lockedUntil,
+    failedLoginAttempts: c.failedLoginAttempts,
+    paymentPreference: c.paymentPreference,
+    role: c.role,
+    agentPointId: c.agentPointId,
+    agentPoints: c.agentPoints.map((ap) => ap.point),
+    agentCanSetFinalPrice: c.agentCanSetFinalPrice,
+    agentCanSendPaymentLink: c.agentCanSendPaymentLink,
+    agentCanCharge: c.agentCanCharge,
+    agentCanUpdateCards: c.agentCanUpdateCards,
+    isActive: c.isActive,
+    deactivatedAt: c.deactivatedAt,
+    deactivatedReason: c.deactivatedReason,
+    createdAt: c.createdAt,
+  });
+}
+
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }

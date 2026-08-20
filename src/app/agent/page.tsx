@@ -99,6 +99,23 @@ export default async function AgentIndexPage() {
     countsByPricelist.set(plId, arr);
   }
 
+  // §149: בקשות הרשמה טלפוניות ממתינות בנקודות של הנציג.
+  //
+  // ⚠️ הספירה כאן ולא במסך הבקשות: הנציג צריך לראות שיש משהו
+  // לטפל בו **בלי להיכנס**. מסך שצריך לבדוק כל יום הוא מסך
+  // שלא נבדק.
+  //
+  // ⚠️ hasPoints נבדק לפני: נציג בלי נקודות אינו רואה בקשות כלל,
+  // וספירה בלי הסינון הייתה מציגה לו את כל המערכת.
+  const pendingSignups = hasPoints
+    ? await prisma.phoneSignupRequest.count({
+        where: {
+          pointId: { in: myPointIds },
+          status: { in: ["NEW", "ASSIGNED", "CONTACTED"] },
+        },
+      })
+    : 0;
+
   // סיכומי מכירות שלא נסגרו.
   // 🐛 תוקן כפילות: הסינון היה על *כל* הסיכומים הלא-מאושרים, כולל של
   // המכירה הפעילה - שממילא מופיעה ברשימה למטה. התוצאה הייתה שאותה
@@ -151,7 +168,7 @@ export default async function AgentIndexPage() {
                 אין נקודת חלוקה משויכת
               </div>
               <div className="text-xs text-amber-800 mt-1">
-                המנהל צריך לשייך אותך לנקודת חלוקה במסך "נציגים".
+                המנהל צריך לשייך אותך לנקודת חלוקה במסך &quot;נציגים&quot;.
               </div>
             </div>
           </div>
@@ -175,8 +192,60 @@ export default async function AgentIndexPage() {
           </div>
         )}
 
+        {/* §149: בקשות הרשמה ממתינות.
+
+            ⚠️ מוצג **רק כשיש** בקשות. כרטיס עם "0 בקשות" הוא רעש
+            שהנציג לומד להתעלם ממנו, וביום שתגיע בקשה אמיתית הוא
+            יפספס אותה.
+
+            ⚠️ מעל קיצורי הדרך: זו פעולה שממתינה, ולא כלי שפותחים
+            כשצריך. */}
+        {pendingSignups > 0 && (
+          <Link
+            href="/agent/signups"
+            className="block bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 hover:border-amber-400 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-2xl shrink-0">
+                📞
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-extrabold text-amber-900">
+                  {pendingSignups}{" "}
+                  {pendingSignups === 1 ? "בקשת הרשמה" : "בקשות הרשמה"} ממתינות
+                </div>
+                <div className="text-xs text-amber-800 mt-0.5">
+                  לקוחות שנרשמו בטלפון ובחרו את הנקודה שלך
+                </div>
+              </div>
+              <div className="text-amber-700 text-2xl shrink-0">←</div>
+            </div>
+          </Link>
+        )}
+
         {/* קיצורי דרך */}
         <div className="grid grid-cols-2 gap-3">
+          {/* §149: קישור קבוע - כדי שיהיה אפשר לראות גם בקשות
+              שכבר טופלו, לא רק את הממתינות. */}
+          <Link
+            href="/agent/signups"
+            className="bg-white border border-zinc-200 rounded-2xl p-4 hover:border-brand-rust/40 hover:shadow-sm transition-all"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center text-2xl shrink-0">
+                📞
+              </div>
+              <div className="min-w-0">
+                <div className="font-bold text-brand-slatedark">
+                  בקשות הרשמה
+                </div>
+                <div className="text-xs text-zinc-500">
+                  {pendingSignups > 0 ? `${pendingSignups} ממתינות` : "מהטלפון"}
+                </div>
+              </div>
+            </div>
+          </Link>
+
           <Link
             href="/agent/my-debts"
             className="bg-white border border-zinc-200 rounded-2xl p-4 hover:border-brand-rust/40 hover:shadow-sm transition-all"

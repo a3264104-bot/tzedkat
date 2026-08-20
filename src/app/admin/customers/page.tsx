@@ -213,21 +213,59 @@ export default function AdminCustomersPage() {
   // ⚠️ הפתיחה מתבצעת **פעם אחת בלבד** (pendingOpenId מתאפס מיד).
   // בלי זה, סגירת המודל הייתה גורמת לו להיפתח שוב בכל טעינה
   // מחדש של הרשימה - למשל אחרי עדכון אשראי, שקורא ל-reload.
+  // §150: 🐛 הפתיחה נכשלה כשהחיפוש לא מצא את הלקוח.
+  //
+  // המנגנון חיפש את הלקוח **בתוך הרשימה שנטענה** - ולכן הוא היה
+  // תלוי בכך שהחיפוש לפי טלפון יחזיר אותו. פורמט טלפון שונה,
+  // לקוח מושבת, או רשימה חתוכה (§127) - וכל אחד מהם שבר את זה
+  // בשקט. המנהל הגיע לרשימה מלאה ונאלץ לחפש ידנית.
+  //
+  // ⚠️ עכשיו הלקוח נשלף **ישירות לפי מזהה**, בלי תלות בחיפוש.
+  // זה גם מהיר יותר - שאילתה אחת במקום המתנה לרשימה.
   useEffect(() => {
-    if (!pendingOpenId || customers.length === 0) return;
-    const target = customers.find((c) => c.id === pendingOpenId);
+    if (!pendingOpenId) return;
+    const id = pendingOpenId;
     setPendingOpenId(null);
-    if (target) {
-      openEdit(target);
-      // ניקוי הכתובת כדי שרענון הדף לא יפתח שוב
+
+    (async () => {
+      // ניקוי הכתובת מיד, כדי שרענון לא יפתח שוב
       if (typeof window !== "undefined") {
         const url = new URL(window.location.href);
         url.searchParams.delete("openCustomer");
         window.history.replaceState({}, "", url.toString());
       }
-    }
+
+      // קודם מנסים מהרשימה - אם הוא שם, זה מיידי
+      const inList = customers.find((c) => c.id === id);
+      if (inList) {
+        openEdit(inList);
+        return;
+      }
+
+      // אחרת שולפים ישירות
+      try {
+        const res = await fetch(`/api/admin/customers/${id}`);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const c = data?.customer ?? data;
+        if (c?.id) {
+          openEdit({
+            ...c,
+            city: c.city || c.pointCity || null,
+          } as Customer);
+          return;
+        }
+        throw new Error();
+      } catch {
+        // ⚠️ נפילה שקטה הייתה משאירה את המנהל בלי מושג למה לא
+        // נפתח כלום. הודעה מפורשת עדיפה.
+        setError(
+          "לא ניתן לפתוח את כרטיס הלקוח אוטומטית. ייתכן שהוא נמחק — יש לחפש אותו ברשימה."
+        );
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customers, pendingOpenId]);
+  }, [pendingOpenId, customers.length]);
 
   // חיפוש עם debounce
   useEffect(() => {
