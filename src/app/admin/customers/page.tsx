@@ -31,6 +31,9 @@ type Customer = {
   creditBalance?: number;
   /** §145: מקבל קובץ אקסל להזמנה בכל מכירה */
   wantsExcelOrder?: boolean;
+  /** §158: הזמנה פעילה במכירה הנוכחית */
+  activeOrderId?: string | null;
+  activeOrderNumber?: number | null;
   loginCodeSetAt?: string | null;
   lockedUntil?: string | null;
   failedLoginAttempts?: number;
@@ -718,9 +721,29 @@ export default function AdminCustomersPage() {
                     )}
                   </td>
                   <td className="p-3">
-                    <button onClick={() => openEdit(c)} className="text-brand-rust text-xs font-medium hover:underline">
-                      עריכה
-                    </button>
+                    <div className="flex items-center gap-2 justify-end">
+                      {/* §158: אותה פעולה גם בתצוגת הטבלה */}
+                      <a
+                        href={
+                          c.activeOrderId
+                            ? `/agent/orders/${c.activeOrderId}`
+                            : `/agent/customer/${c.id}`
+                        }
+                        className={`text-xs font-bold rounded-lg px-2 py-1 whitespace-nowrap ${
+                          c.activeOrderId
+                            ? "bg-emerald-50 text-emerald-800 border border-emerald-300"
+                            : "bg-brand-rust/10 text-brand-rust border border-brand-rust/30"
+                        }`}
+                      >
+                        {c.activeOrderId ? `📦 #${c.activeOrderNumber}` : "🛒 הזמנה"}
+                      </a>
+                      <button
+                        onClick={() => openEdit(c)}
+                        className="text-brand-rust text-xs font-medium hover:underline"
+                      >
+                        עריכה
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -816,9 +839,45 @@ export default function AdminCustomersPage() {
                           </div>
                         </td>
                         <td className="p-2.5">
-                          <button onClick={() => openEdit(c)} className="text-brand-rust text-xs font-medium hover:underline">
-                            עריכה
-                          </button>
+                          {/* §158: פעולה ישירה על הלקוח.
+                              
+                              ⚠️ עד היום הפעולה היחידה הייתה "עריכה",
+                              שפותחת מודל של שם/טלפון/הרשאות. כדי
+                              להזמין ללקוח היה צריך לעבור לאזור הנציג
+                              ולחפש אותו שוב מאפס.
+                              
+                              ⚠️ הטקסט משתנה לפי המצב: יש הזמנה פעילה
+                              -> "הזמנה #412", אין -> "הזמנה חדשה".
+                              המנהל יודע מה יקרה לפני שהוא לוחץ. */}
+                          <div className="flex items-center gap-2 justify-end">
+                            <a
+                              href={
+                                c.activeOrderId
+                                  ? `/agent/orders/${c.activeOrderId}`
+                                  : `/agent/customer/${c.id}`
+                              }
+                              className={`text-xs font-bold rounded-lg px-2 py-1 whitespace-nowrap ${
+                                c.activeOrderId
+                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-300"
+                                  : "bg-brand-rust/10 text-brand-rust border border-brand-rust/30"
+                              }`}
+                              title={
+                                c.activeOrderId
+                                  ? "פתיחת ההזמנה הפעילה"
+                                  : "יצירת הזמנה חדשה ללקוח"
+                              }
+                            >
+                              {c.activeOrderId
+                                ? `📦 #${c.activeOrderNumber}`
+                                : "🛒 הזמנה"}
+                            </a>
+                            <button
+                              onClick={() => openEdit(c)}
+                              className="text-brand-rust text-xs font-medium hover:underline"
+                            >
+                              עריכה
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -844,6 +903,27 @@ export default function AdminCustomersPage() {
                 </p>
               </div>
             )}
+
+            {/* §158: הזמנה מתוך המודל.
+                
+                ⚠️ למעלה ובולט: המנהל שפתח כרטיס לקוח בדרך כלל
+                עושה את זה כדי לטפל בהזמנה שלו, לא כדי לערוך שם. */}
+            <a
+              href={
+                editing.activeOrderId
+                  ? `/agent/orders/${editing.activeOrderId}`
+                  : `/agent/customer/${editing.id}`
+              }
+              className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-sm ${
+                editing.activeOrderId
+                  ? "bg-emerald-600 text-white"
+                  : "bg-brand-rust text-white"
+              }`}
+            >
+              {editing.activeOrderId
+                ? `📦 פתח הזמנה #${editing.activeOrderNumber}`
+                : "🛒 בצע הזמנה ללקוח"}
+            </a>
 
             <Field label="שם">
               <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />

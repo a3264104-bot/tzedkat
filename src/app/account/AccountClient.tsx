@@ -970,6 +970,16 @@ export function AccountClient({
                     <div className="font-medium text-brand-slatedark" dir="ltr">
                       •••• {customer.cardLast4}
                     </div>
+                  ) : customer.paymentPreference === "CASH" ? (
+                    /* §157: ללקוח מזומן זו אינה חסר - זו בחירה.
+                       "אין כרטיס שמור" נשמע כמו משהו שחסר לו לתקן,
+                       בזמן שהוא פשוט משלם אחרת. */
+                    <div className="text-sm text-zinc-500">
+                      💵 משלם במזומן בחלוקה
+                      <span className="block text-[11px] text-zinc-400">
+                        ניתן להוסיף כרטיס אם תרצה לשלם באשראי
+                      </span>
+                    </div>
                   ) : (
                     <div className="text-sm text-zinc-400">אין כרטיס שמור</div>
                   )}

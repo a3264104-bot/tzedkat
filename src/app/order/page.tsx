@@ -245,6 +245,9 @@ export default async function OrderPage({
         !!customerRecord.paymentToken ||
         customerRecord.paymentPreference === "CASH"
       }
+      // §157: לקוח מזומן רואה מסך מותאם - בלי פריסה לתשלומים,
+      // ועם "מזומן בחלוקה" במקום "כרטיס אשראי".
+      isCashCustomer={customerRecord.paymentPreference === "CASH"}
       customerId={customerRecord.id}
       hasSeenOrderIntro={customerRecord.hasSeenOrderIntro}
       existingOrder={null}

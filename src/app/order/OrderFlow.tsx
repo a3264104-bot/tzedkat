@@ -85,6 +85,8 @@ export function OrderFlow({
   customer,
   onBehalfOfCustomerId,
   cardVerified = true,
+  // §157: האם הלקוח מוגדר כמשלם במזומן
+  isCashCustomer = false,
   customerId = "",
   hasSeenOrderIntro = false,
   existingOrder = null,
@@ -96,6 +98,14 @@ export function OrderFlow({
   customer: LoggedInCustomer;
   onBehalfOfCustomerId?: string;
   cardVerified?: boolean;
+  /**
+   * §157: לקוח מזומן משלם פיזית בחלוקה.
+   *
+   * ⚠️ שני דברים במסך אינם רלוונטיים לו: פריסה לתשלומים (אין מה
+   * לפרוס - הוא נותן שטר), והדרישה להזין כרטיס. שניהם הוצגו לו
+   * ובלבלו: אחד נראה כמו שאלה מיותרת, והשני כמו חסימה.
+   */
+  isCashCustomer?: boolean;
   customerId?: string;
   hasSeenOrderIntro?: boolean;
   existingOrder?: { id: string; orderNumber: number } | null;
@@ -1296,9 +1306,17 @@ export function OrderFlow({
               )}
               <Row label="שם" value={customer.name} />
               <Row label="טלפון" value={phone || customer.phone || "—"} />
-              {cardVerified && customer.email && (
+              {/* §157: אמצעי התשלום לפי המצב האמיתי.
+                  
+                  🐛 מה שהיה: "כרטיס אשראי ****" לכל מי ש-cardVerified.
+                  מאז §143 לקוח מזומן מקבל cardVerified=true (כדי שלא
+                  ייחסם) - ולכן הוא ראה שהוא עומד להיות מחויב בכרטיס,
+                  בזמן שהוא מתכוון לשלם במזומן בחלוקה. */}
+              {isCashCustomer ? (
+                <Row label="אמצעי תשלום" value="💵 מזומן בחלוקה" />
+              ) : cardVerified && customer.email ? (
                 <Row label="אמצעי תשלום" value={`כרטיס אשראי ****`} />
-              )}
+              ) : null}
             </div>
             {/* רשימת מוצרים עם אפשרות הסרה */}
             <div className="card p-4 mt-3 space-y-2">
@@ -1366,7 +1384,12 @@ export function OrderFlow({
                 </div>
               </div>
             </div>
-            {estimatedTotal > 800 && (
+            {/* §157: פריסה לתשלומים - **לא ללקוח מזומן**.
+                
+                🐛 הוא נשאל "לפצל לשני תשלומים?" כשהוא ממילא נותן
+                שטר בחלוקה. השאלה חסרת משמעות אצלו, והיא גם רומזת
+                שיהיה חיוב אשראי - מה שאינו נכון. */}
+            {estimatedTotal > 800 && !isCashCustomer && (
               <div className="card p-4 mt-3 bg-blue-50 border-blue-200">
                 <div className="text-sm font-medium text-blue-900 mb-2">
                   האם תרצה לפצל את התשלום לשני תשלומים?

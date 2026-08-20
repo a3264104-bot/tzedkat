@@ -49,6 +49,20 @@ export async function GET(req: Request) {
     include: {
       defaultPoint: { select: { name: true, city: true } },
       _count: { select: { orders: true } },
+      // §158: ההזמנה הפעילה במכירה הנוכחית.
+      //
+      // ⚠️ נשלפת כאן ולא בשאילתה נפרדת: הרשימה כבר עושה include
+      // על הלקוח, ותוספת של orders עם take:1 זולה בהרבה מ-N+1
+      // שאילתות או מסיבוב נוסף למסד באירלנד.
+      orders: {
+        where: {
+          status: { notIn: ["CANCELLED", "COMPLETED"] },
+          pricelist: { status: "ACTIVE" },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { id: true, orderNumber: true, pricelistId: true },
+      },
       // 🆕 כל הנקודות של הנציג (many-to-many דרך AgentPoint)
       agentPoints: {
         select: {
@@ -90,6 +104,10 @@ export async function GET(req: Request) {
       pointName: c.defaultPoint?.name ?? null,
       city: c.defaultPoint?.city ?? null,
       orderCount: c._count.orders,
+      // §158: הזמנה פעילה - כדי שהמנהל ידע אם ללחוץ "הזמנה חדשה"
+      // או "פתח הזמנה קיימת", בלי להיכנס ולגלות.
+      activeOrderId: c.orders[0]?.id ?? null,
+      activeOrderNumber: c.orders[0]?.orderNumber ?? null,
       hasPaymentToken: !!c.paymentToken,
       cardLast4: c.cardLast4,
       cardExpiry: c.cardExpiry,
