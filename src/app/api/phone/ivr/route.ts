@@ -39,6 +39,8 @@ import { sendPhoneSignupNotification } from "@/lib/email";
 import { cleanName, cleanSpokenName, isPlausibleName } from "@/lib/identity";
 // §124: יתרת זכות בטלפון
 import { creditBalanceForPhone } from "@/lib/credit-balance-lib";
+// §148: תצוגת יחידות - מקור אחד לכל המערכת
+import { formatItemQty } from "@/lib/order-display";
 import {
   sendCustomerOrderConfirmation,
   sendAdminOrderNotification,
@@ -1346,6 +1348,15 @@ async function handleMyOrders(
       deliveredAt: true,
       pointNameSnapshot: true,
       deliveryDateSnapshot: true,
+      // §148: רכיבים שמשנים את הסכום. בלעדיהם הלקוח שומע סכום
+      // שאינו מסתדר עם הפריטים ואין לו הסבר - וזו שיחה לנציג.
+      creditAmount: true,
+      creditReason: true,
+      appliedCreditBalance: true,
+      deliveryFee: true,
+      deliveryRequested: true,
+      extraCharge: true,
+      extraChargeReason: true,
     },
   });
 
@@ -1353,6 +1364,19 @@ async function handleMyOrders(
     return yemotResponse(
       playMessage(prompt("no_orders", "אין לך הזמנות במערכת"))
     );
+  }
+
+  // §148: 🐛 הקשה אחרי הפירוט - חזרה לתפריט הראשי.
+  //
+  // בלי זה הלקוח מקיש 1, וימות שולחים את DETEND בחזרה - אבל
+  // התנאי `ORDDET === "1"` עדיין מתקיים (ימות שולחים **כל**
+  // הפרמטרים שנצברו, לקח §106), והפירוט מוקרא שוב ושוב.
+  //
+  // ⚠️ הבדיקה **לפני** ORDDET, אחרת היא לא תגיע.
+  if (p.DETEND === "1") {
+    // ⚠️ אותו יעד כמו שאר החזרות במערכת - משתנה סביבה ולא נתיב
+    // מקודד, כדי שהעברת התפריט בימות לא תשבור את זה.
+    return yemotResponse(goToFolder(process.env.YEMOT_IVR_FOLDER || "/"));
   }
 
   // ─── §69: פירוט פריטים של ההזמנה האחרונה, לפי דרישה ───
@@ -1373,13 +1397,17 @@ async function handleMyOrders(
     const parts: string[] = [say("פירוט הזמנה מספר"), sayNumber(latest.orderNumber)];
     for (const it of its) {
       const qty = Number(it.quantity);
-      parts.push(
-        say(
-          it.isSingle
-            ? `${qty} קילוגרם בודדים של ${it.productName}`
-            : `${qty} קרטונים של ${it.productName}`
-        )
-      );
+      // §148: 🐛 "קרטונים" היה מקודד - אותו באג של §128 שלא תוקן
+      // כאן. מוצר שנמכר ביחידות הוקרא ללקוח כ"3 קרטונים של כבד".
+      //
+      // ⚠️ sanitizeTts מסנן גרשיים, ולכן 'ק"ג' הופך ל"קג" בהקראה.
+      // מחליפים ל"קילו" שנשמע נכון.
+      const qtyText = formatItemQty({
+        isSingle: it.isSingle,
+        quantity: qty,
+        unit: it.unit,
+      }).replace(/ק"ג/g, "קילו");
+      parts.push(say(`${qtyText} של ${it.productName}`));
       // משקל ומחיר בפועל - רק אחרי שקילה. לפני כן מקריאים הערכה.
       if (it.finalWeight != null) {
         parts.push(say(`משקל בפועל ${Number(it.finalWeight)} קילו`));
@@ -1390,7 +1418,34 @@ async function handleMyOrders(
       parts.push(sayNumber(Math.round(price)));
       parts.push(prompt("shekels", "שקלים"));
     }
-    return yemotResponse(playMessage(...parts));
+
+    // §148: הסכום הכולל בסוף הפירוט.
+    //
+    // ⚠️ הלקוח שמע פריט-פריט ולא קיבל סיכום. מי שמתקשר לדעת כמה
+    // להביא לחלוקה נאלץ לחבר בעצמו בזמן שיחה - וזו בדיוק השאלה
+    // שבגללה הוא התקשר.
+    const grand =
+      latest.finalTotal != null
+        ? Number(latest.finalTotal)
+        : Number(latest.estimatedTotal);
+    parts.push(
+      say(latest.finalTotal != null ? "סך הכל לתשלום" : "סך הכל משוער")
+    );
+    parts.push(sayNumber(Math.round(grand)));
+    parts.push(prompt("shekels", "שקלים"));
+
+    // §148: 🐛 playMessage **מנתק** את השיחה (api_end_goto=hangup).
+    // הלקוח שמע את הפירוט והשיחה נפלה, בלי דרך לחזור לתפריט או
+    // לשמוע שוב. אותו לקח מ-§93.
+    return yemotResponse(
+      read(
+        messages(
+          ...parts,
+          prompt("detail_end", "לחזרה לתפריט הראשי הקש 1")
+        ),
+        { name: "DETEND", max: 1, min: 1, allowed: "1" }
+      )
+    );
   }
 
   const parts: string[] = [];
@@ -1423,6 +1478,36 @@ async function handleMyOrders(
       parts.push(prompt("shekels", "שקלים"));
     } else if (isFinal) {
       parts.push(say("ההזמנה טרם שולמה"));
+    }
+
+    // §148: הנחות ותוספות - **רק בהזמנה האחרונה**.
+    //
+    // ⚠️ אורך השיחה הוא שיקול אמיתי: 3 הזמנות × 4 הנחות = כמעט
+    // דקה של הקראה לפני שהלקוח יכול להקיש. מי שמתקשר רוצה תשובה
+    // מהירה, והזמנות ישנות כבר שולמו וסגורות.
+    //
+    // הסדר זהה למייל: משלוח ותוספת מוסיפים, זיכוי ויתרה מורידים.
+    const isLatest = o.id === orders[0].id;
+
+    if (isLatest && o.deliveryRequested && o.deliveryFee != null && Number(o.deliveryFee) > 0) {
+      parts.push(say("כולל דמי משלוח"));
+      parts.push(sayNumber(Math.round(Number(o.deliveryFee))));
+      parts.push(prompt("shekels", "שקלים"));
+    }
+    if (isLatest && o.extraCharge != null && Number(o.extraCharge) > 0) {
+      parts.push(say("כולל חיוב נוסף"));
+      parts.push(sayNumber(Math.round(Number(o.extraCharge))));
+      parts.push(prompt("shekels", "שקלים"));
+    }
+    if (isLatest && o.creditAmount != null && Number(o.creditAmount) > 0) {
+      parts.push(say("בניכוי זיכוי"));
+      parts.push(sayNumber(Math.round(Number(o.creditAmount))));
+      parts.push(prompt("shekels", "שקלים"));
+    }
+    if (isLatest && o.appliedCreditBalance != null && Number(o.appliedCreditBalance) > 0) {
+      parts.push(say("בניכוי יתרת זכות"));
+      parts.push(sayNumber(Math.round(Number(o.appliedCreditBalance))));
+      parts.push(prompt("shekels", "שקלים"));
     }
 
     if (o.pointNameSnapshot) parts.push(say(`בנקודה ${o.pointNameSnapshot}`));

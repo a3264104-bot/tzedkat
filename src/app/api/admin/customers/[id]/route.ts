@@ -31,6 +31,9 @@ const ALLOWED_FIELDS = [
   // §52: הפעלה/השבתה של לקוח
   "isActive",
   "deactivatedReason",
+  // §145: 🐛 בלי זה השדה נשלח מהמסך ונזרק בשקט - הצ'קבוקס
+  // היה מסומן, ההודעה "נשמר" הופיעה, וברענון הכל חזר לאחור.
+  "wantsExcelOrder",
 ] as const;
 
 // §24: נציג עם הרשאת agentCanResetPassword יכול לאפס סיסמה ללקוח -

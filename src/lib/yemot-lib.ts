@@ -226,6 +226,8 @@ const TTS_ONLY = new Set<string>([
   "code_missing",
   "code_not_ready",
   "order_paid_pre",
+  // §148: סיום פירוט ההזמנה בטלפון
+  "detail_end",
   "credit_balance_pre",
   "credit_balance_post",
   // §110: star_hint הוסר - הוקלט והועלה.

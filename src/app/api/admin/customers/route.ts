@@ -81,6 +81,8 @@ export async function GET(req: Request) {
       //
       // ⚠️ בוליאני בלבד - ה-hash עצמו לעולם לא יוצא מהשרת.
       hasPassword: !!c.passwordHash,
+      // §145: מקבל קובץ אקסל להזמנה בכל מכירה
+      wantsExcelOrder: !!c.wantsExcelOrder,
       // §126: יתרת זכות פתוחה - המנהל צריך לראות למי חייבים,
       // בלי להיכנס לכל כרטיס בנפרד.
       creditBalance: Number(c.creditBalance ?? 0),

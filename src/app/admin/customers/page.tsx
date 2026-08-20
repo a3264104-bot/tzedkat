@@ -29,6 +29,8 @@ type Customer = {
   hasPassword?: boolean;
   /** §126: יתרת זכות פתוחה */
   creditBalance?: number;
+  /** §145: מקבל קובץ אקסל להזמנה בכל מכירה */
+  wantsExcelOrder?: boolean;
   loginCodeSetAt?: string | null;
   lockedUntil?: string | null;
   failedLoginAttempts?: number;
@@ -936,6 +938,52 @@ export default function AdminCustomersPage() {
                   </div>
                 </div>
               )}
+
+              {/* §145: הזמנה דרך אקסל במייל.
+                  
+                  ⚠️ בקשה מפורשת ולא ברירת מחדל: שליחה לכולם הייתה
+                  מייצרת דואר זבל, והלקוחות היו מפסיקים לפתוח את
+                  המיילים - כולל אישורי התשלום שחשוב שיראו. */}
+              <label className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editing.wantsExcelOrder ?? false}
+                  onChange={async (e) => {
+                    const v = e.target.checked;
+                    setEditing({ ...editing, wantsExcelOrder: v });
+                    try {
+                      await fetch(`/api/admin/customers/${editing.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ wantsExcelOrder: v }),
+                      });
+                      setSuccessMsg(
+                        v
+                          ? "הלקוח יקבל קובץ אקסל בכל מכירה חדשה"
+                          : "הלקוח לא יקבל יותר קבצי אקסל"
+                      );
+                      await reload();
+                    } catch {
+                      setError("שגיאה בשמירה");
+                    }
+                  }}
+                  className="h-4 w-4 accent-emerald-600 mt-0.5 shrink-0"
+                />
+                <div>
+                  <span className="text-sm font-bold text-emerald-900">
+                    📊 שליחת קובץ אקסל להזמנה
+                  </span>
+                  <p className="text-[11px] text-emerald-800 font-normal leading-relaxed">
+                    בכל מכירה חדשה הלקוח יקבל במייל קובץ עם כל המוצרים.
+                    הוא ממלא כמויות ומחזיר במייל.
+                    {!editing.email && (
+                      <b className="block text-red-700 mt-0.5">
+                        ⚠️ אין ללקוח מייל — לא ניתן לשלוח.
+                      </b>
+                    )}
+                  </p>
+                </div>
+              </label>
 
               {/* §82: נקודת חלוקה - לכל לקוח, לא רק לנציג */}
               <Field label="📍 נקודת חלוקה">

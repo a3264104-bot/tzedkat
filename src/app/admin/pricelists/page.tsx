@@ -15,6 +15,9 @@ type Pricelist = {
   notes: string | null;
   // §111: מכירה לנציגים בלבד
   agentOnly?: boolean;
+  // §145: מתי נשלחו קבצי האקסל
+  excelSentAt?: string | null;
+  excelSentCount?: number;
   _count: { orders: number; products: number; points: number };
 };
 
@@ -23,6 +26,8 @@ export default function PricelistsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // §145: חוסם לחיצה כפולה בזמן שליחת האקסלים
+  const [busy, setBusy] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -32,6 +37,55 @@ export default function PricelistsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  // §145: שליחת קבצי אקסל ללקוחות שביקשו.
+  //
+  // ⚠️ פעולה נפרדת ולא אוטומטית בהפעלה: המנהל לעיתים מפעיל
+  // מכירה כדי לבדוק אותה, ושליחה אוטומטית הייתה מציפה לקוחות
+  // בקובץ שעוד לא מוכן.
+  async function sendExcel(l: Pricelist, force = false) {
+    if (
+      !force &&
+      !window.confirm(
+        `לשלוח קבצי אקסל ללקוחות שסימנת ב"${l.name}"?\n\nכל לקוח יקבל קובץ עם המוצרים והמחירים, למילוי והחזרה במייל.`
+      )
+    )
+      return;
+
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/excel-broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pricelistId: l.id, force }),
+      });
+      const data = await res.json();
+
+      // ⚠️ 409 = כבר נשלח. מציעים שליחה חוזרת במקום להיכשל -
+      // לפעמים באמת צריך (מוצר נוסף, מחיר שהשתנה).
+      if (res.status === 409) {
+        if (window.confirm(`${data.error}\n\nלשלוח שוב לכולם?`)) {
+          await sendExcel(l, true);
+        }
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+
+      alert(
+        `נשלחו ${data.sentCount} קבצים.` +
+          (data.failedCount > 0
+            ? `\n\n⚠️ ${data.failedCount} נכשלו:\n${data.failed
+                .map((f: any) => `${f.name} — ${f.error}`)
+                .join("\n")}`
+            : "")
+      );
+      await load();
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function setStatus(l: Pricelist, status: string) {
     // אזהרה: הפעלת מכירה ריקה תציג ללקוחות מכירה בלי מוצרים
@@ -160,6 +214,27 @@ export default function PricelistsPage() {
                       הוא הוביל ל-/admin/sale-status, מסך שנבנה
                       בכפילות ל-/admin/sale-control הקיים ונמחק.
                       בקרת המכירה נגישה מהתפריט הראשי, שלב ③. */}
+                  {/* §145: שליחת אקסל - רק ממכירה פעילה שאינה
+                      לנציגים בלבד. */}
+                  {l.status === "ACTIVE" && !l.agentOnly && (
+                    <button
+                      onClick={() => sendExcel(l)}
+                      disabled={busy}
+                      title={
+                        l.excelSentAt
+                          ? `נשלח ב-${new Date(l.excelSentAt).toLocaleString("he-IL")} · ${l.excelSentCount} נמענים`
+                          : "שליחת קבצי אקסל ללקוחות שביקשו"
+                      }
+                      className="btn-sm bg-emerald-600 text-white rounded-lg px-3 font-bold hover:opacity-90 disabled:opacity-50"
+                    >
+                      📊 שלח אקסל
+                      {!!l.excelSentAt && (
+                        <span className="text-[10px] font-normal mr-1">
+                          ✓{l.excelSentCount}
+                        </span>
+                      )}
+                    </button>
+                  )}
                   <button onClick={() => setEditing(l.id)} className="btn-ghost btn-sm">
                     ערוך
                   </button>
