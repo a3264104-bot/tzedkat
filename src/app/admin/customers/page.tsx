@@ -56,7 +56,18 @@ type Customer = {
   deactivatedReason?: string | null;
 };
 
-type Point = { id: string; name: string; city: string | null };
+type Point = {
+  id: string;
+  name: string;
+  city: string | null;
+  /**
+   * §163: נקודה סמויה - לא מוצגת ללקוחות.
+   *
+   * לחנויות שלוקחות הזמנות לפתח העסק שלהן. המנהל משייך אליה
+   * ידנית, והלקוח לא יכול לבחור בה בעצמו.
+   */
+  isPrivate?: boolean;
+};
 
 type SortKey = "name" | "phone" | "city" | "orderCount" | "createdAt";
 type SortDir = "asc" | "desc";
@@ -1135,10 +1146,17 @@ export default function AdminCustomersPage() {
                   }
                 >
                   <option value="">— ללא נקודה —</option>
+                  {/* §163: נקודה סמויה מסומנת בבירור.
+                      
+                      ⚠️ בלי הסימון המנהל היה משייך אליה בטעות
+                      לקוח רגיל, והלקוח היה מגיע לפתח חנות של
+                      מישהו אחר. */}
                   {points.map((p) => (
                     <option key={p.id} value={p.id}>
+                      {p.isPrivate ? "🔒 " : ""}
                       {p.name}
                       {p.city ? ` — ${p.city}` : ""}
+                      {p.isPrivate ? " (סמויה)" : ""}
                     </option>
                   ))}
                 </select>
@@ -1146,6 +1164,14 @@ export default function AdminCustomersPage() {
                   קובעת לאיזה נציג הלקוח משויך ומאיפה יאסוף את ההזמנה.
                   השינוי נשמר בלחיצה על &quot;שמירה&quot; למטה.
                 </p>
+                {/* §163: חיווי כשהלקוח משויך לנקודה סמויה */}
+                {points.find((p) => p.id === editing.defaultPointId)?.isPrivate && (
+                  <p className="text-[11px] text-violet-700 bg-violet-50 border border-violet-200 rounded p-2 mt-1.5 leading-relaxed">
+                    🔒 <b>נקודה סמויה</b> — הלקוח מקבל את ההזמנה בכתובת הזו,
+                    והיא אינה מוצגת ללקוחות אחרים באתר או בטלפון. היא תופיע
+                    כנקודה נפרדת בסיכום ובדף החלוקה.
+                  </p>
+                )}
               </Field>
 
               {/* §62: נעילה פעילה - הסבר למה הלקוח לא מצליח להיכנס.

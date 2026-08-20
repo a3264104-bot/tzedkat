@@ -16,6 +16,18 @@ type Point = {
   notes: string | null;
   customDeliveryDateText: string | null;
   isActive: boolean;
+  /**
+   * §163: נקודה סמויה - **לא מוצגת ללקוחות**.
+   *
+   * לחנויות שלוקחות הזמנות לפתח העסק שלהן. המנהל משייך אליה
+   * לקוח ידנית, והלקוח לא יכול לבחור בה בעצמו - לא באתר ולא
+   * במערכת הטלפונית.
+   *
+   * ⚠️ שונה מ-isActive: נקודה לא פעילה מוסתרת מכולם ואינה
+   * מקבלת הזמנות. נקודה סמויה **פעילה לגמרי** - יש לה סיכום,
+   * נציג, ודף חלוקה. היא רק לא מוצעת לבחירה.
+   */
+  isPrivate: boolean;
   sortOrder: number;
 };
 
@@ -90,6 +102,8 @@ export default function PointsPage() {
       notes: editing.notes || null,
       customDeliveryDateText: editing.customDeliveryDateText || null,
       isActive: editing.isActive ?? true,
+      // §163: נקודה סמויה
+      isPrivate: editing.isPrivate ?? false,
       sortOrder: editing.sortOrder ?? points.length,
     };
     if (editing.id) {
@@ -134,6 +148,9 @@ export default function PointsPage() {
     return acc;
   }, {} as Record<string, Point[]>);
 
+  // §163: כמה נקודות סמויות יש - למונה בראש המסך
+  const privateCount = points.filter((p) => p.isPrivate).length;
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -152,6 +169,16 @@ export default function PointsPage() {
         אוטומטית. כדי לאחד נקודות (למשל רמות תחת ירושלים) — תן להן אותו שם עיר בדיוק.
       </p>
 
+      {/* §163: הסבר על נקודות סמויות - מוצג רק כשיש כאלה,
+          כדי שלא יהיה רעש למי שלא משתמש בזה. */}
+      {privateCount > 0 && (
+        <p className="text-sm text-violet-800 bg-violet-50 border border-violet-200 rounded-lg p-3">
+          🔒 <b>{privateCount} נקודות סמויות</b> — אינן מוצגות ללקוחות באתר או
+          במערכת הטלפונית. משמשות לחנויות ולכתובות מיוחדות, ומשויכות ידנית
+          בכרטיס הלקוח. הן מופיעות רגיל בסיכומים ובדף החלוקה.
+        </p>
+      )}
+
       {loading ? (
         <p className="text-zinc-500">טוען...</p>
       ) : (
@@ -164,7 +191,10 @@ export default function PointsPage() {
                 <span className="text-xs text-zinc-400">
                   {cityPoints.length} {cityPoints.length === 1 ? "נקודה" : "נקודות"}
                 </span>
-                {cityPoints.length === 1 && (
+                {/* §163: "בחירה אוטומטית" נכון רק לנקודות שהלקוח
+                    רואה. עיר עם נקודה גלויה אחת + סמויה אחת עדיין
+                    נבחרת אוטומטית עבורו. */}
+                {cityPoints.filter((p) => !p.isPrivate).length === 1 && (
                   <span className="badge bg-blue-100 text-blue-700">בחירה אוטומטית</span>
                 )}
                 <div className="flex-1 border-b border-zinc-200" />
@@ -172,7 +202,12 @@ export default function PointsPage() {
 
               <div className="grid md:grid-cols-2 gap-3">
                 {cityPoints.map((p, idx) => (
-                  <div key={p.id} className={`card p-4 ${p.isActive ? "" : "opacity-50"}`}>
+                  <div
+                    key={p.id}
+                    className={`card p-4 ${p.isActive ? "" : "opacity-50"} ${
+                      p.isPrivate ? "border-violet-300 bg-violet-50/30" : ""
+                    }`}
+                  >
                     <div className="flex justify-between items-start">
                       <div className="flex gap-2">
                         {/* חיצי סדר בתוך העיר */}
@@ -195,7 +230,13 @@ export default function PointsPage() {
                           </button>
                         </div>
                         <div>
-                          <div className="font-bold text-brand-slatedark">{p.name}</div>
+                          <div className="font-bold text-brand-slatedark">
+                            {p.isPrivate && "🔒 "}
+                            {p.name}
+                          </div>
+                          {p.address && (
+                            <div className="text-sm text-zinc-500">{p.address}</div>
+                          )}
                           {p.contactName && <div className="text-sm text-zinc-500">{p.contactName}</div>}
                           {p.phone && <div className="text-sm text-zinc-500">{p.phone}</div>}
                           {p.deliveryHours && (
@@ -206,9 +247,18 @@ export default function PointsPage() {
                           )}
                         </div>
                       </div>
-                      <span className={`badge ${p.isActive ? "bg-green-100 text-green-700" : "bg-zinc-200 text-zinc-600"}`}>
-                        {p.isActive ? "פעיל" : "מוסתר"}
-                      </span>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span className={`badge ${p.isActive ? "bg-green-100 text-green-700" : "bg-zinc-200 text-zinc-600"}`}>
+                          {p.isActive ? "פעיל" : "מוסתר"}
+                        </span>
+                        {/* §163: תגית נפרדת - נקודה יכולה להיות
+                            פעילה **וגם** סמויה, וזה המצב הרגיל שלה. */}
+                        {p.isPrivate && (
+                          <span className="badge bg-violet-100 text-violet-700">
+                            🔒 סמויה
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-2 mt-3">
                       <button onClick={() => openEditor(p)} className="btn-ghost btn-sm">
@@ -329,6 +379,7 @@ export default function PointsPage() {
                 אם הנקודה מקבלת בתאריך שונה מהמחירון הכללי. השאר ריק לתאריך הרגיל.
               </p>
             </Field>
+
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -338,6 +389,32 @@ export default function PointsPage() {
               />
               פעיל
             </label>
+
+            {/* §163: נקודה סמויה.
+
+                ⚠️ נפרד מ"פעיל" בכוונה. נקודה לא פעילה מוסתרת מכולם
+                ואינה מקבלת הזמנות; נקודה סמויה **פעילה לגמרי** -
+                יש לה סיכום, נציג ודף חלוקה, והיא רק לא מוצעת ללקוח
+                לבחירה. */}
+            <label className="flex items-start gap-2 bg-violet-50 border border-violet-200 rounded-lg p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={editing.isPrivate ?? false}
+                onChange={(e) => setEditing({ ...editing, isPrivate: e.target.checked })}
+                className="h-4 w-4 accent-violet-600 mt-0.5 shrink-0"
+              />
+              <div>
+                <span className="font-bold text-violet-900 text-sm">
+                  🔒 נקודה סמויה
+                </span>
+                <p className="text-[11px] text-violet-800 font-normal leading-relaxed mt-0.5">
+                  לא תוצג ללקוחות באתר או במערכת הטלפונית. מיועדת לחנויות
+                  ולכתובות מיוחדות — רק אתה תוכל לשייך אליה לקוח, מתוך
+                  כרטיס הלקוח. היא תופיע רגיל בסיכומים ובדף החלוקה.
+                </p>
+              </div>
+            </label>
+
             <button onClick={save} className="btn-primary w-full">
               שמירה
             </button>

@@ -45,8 +45,16 @@ export default async function AccountPage() {
   }
 
   // רשימת נקודות לשינוי תחנה שמורה
+  //
+  // §163: 🚨 נקודה סמויה **אינה** מוצעת ללקוח.
+  //
+  // בלי הסינון הזה הלקוח היה רואה את החנות של מישהו אחר בבורר
+  // התחנות שלו, בוחר בה, וההזמנה הבאה שלו הייתה מגיעה לשם.
+  //
+  // ⚠️ זה היה הפער היחיד שנשאר: מסך ההזמנה וה-IVR כבר סוננו,
+  // והאזור האישי נשכח - למרות שהוא בדיוק אותה בחירה.
   const points = await prisma.deliveryPoint.findMany({
-    where: { isActive: true },
+    where: { isActive: true, isPrivate: false },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true, name: true, city: true },
   });

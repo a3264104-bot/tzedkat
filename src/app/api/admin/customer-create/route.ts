@@ -14,6 +14,8 @@ import { ensureLoginCode } from "@/lib/login-code";
 import { requireAdmin } from "@/lib/guard";
 import bcrypt from "bcryptjs";
 import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
+// §162: חוסם טלפון נוסף שכבר משמש לזיהוי של לקוח אחר
+import { validatePhone2 } from "@/lib/phone2-lib";
 
 // סיסמה קריאה: בלי תווים שקל לבלבל (0/O, 1/l) - היא נמסרת בטלפון
 function generatePassword(): string {
@@ -96,6 +98,20 @@ export async function POST(req: Request) {
   const name = cleanName(b.name);
   const phone = normalizePhone(b.phone || "");
   const email = b.email ? String(b.email).trim().toLowerCase() : null;
+
+  // §161: טלפון נוסף. משמש ליצירת קשר בחלוקה, **וגם** לזיהוי
+  // במערכת הטלפונית - הלקוח יכול להתקשר משני המספרים.
+  //
+  // §162: 🐛 בלי הבדיקה, אפשר היה להזין מספר שכבר משמש לזיהוי
+  // של לקוח אחר - ואז **שניהם** לא היו מזוהים בטלפון, כי ה-IVR
+  // דוחה התאמה מרובה. זו תקלה שקשה מאוד לאבחן בדיעבד.
+  const p2 = await validatePhone2(prisma, b.phone2);
+  if (!p2.ok) {
+    return NextResponse.json(
+      { error: p2.error, code: "PHONE2_CONFLICT", conflictWith: p2.conflictWith },
+      { status: 409 }
+    );
+  }
   const defaultPointId = b.defaultPointId ? String(b.defaultPointId) : null;
   // §60: אופן תשלום. ברירת מחדל CREDIT - לקוח שהמנהל מקים בטלפון
   // אמור להוסיף כרטיס. CASH נבחר מפורשות ללקוח שמשלם בחלוקה.
@@ -174,6 +190,7 @@ export async function POST(req: Request) {
     data: {
       name,
       phone,
+      phone2: p2.value,
       email,
       defaultPointId,
       passwordHash: await bcrypt.hash(password, 10),

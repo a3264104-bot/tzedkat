@@ -5,6 +5,8 @@ import { Resend } from "resend";
 import crypto from "crypto";
 import { PAYMENT_METHOD_LABELS, STATUS_LABELS } from "@/lib/pricing";
 import { payStatusLabel } from "@/lib/pay-status-lib";
+// §162: חוסם טלפון נוסף שכבר משמש לזיהוי של לקוח אחר
+import { validatePhone2 } from "@/lib/phone2-lib";
 
 // מחזיר את פרטי הלקוח המחובר + היסטוריית ההזמנות שלו
 export async function GET() {
@@ -134,27 +136,58 @@ export async function PATCH(req: Request) {
   }
 
   // ── הוספת/עדכון טלפון נוסף (לחלוקה) ──
+  //
+  // §161: המספר משמש **גם לזיהוי במערכת הטלפונית** - הלקוח יכול
+  // להתקשר משני המספרים ולשמוע את ההזמנה שלו.
   if (body.action === "update-phone2") {
     const phone2Raw = String(body.phone2 || "").trim();
-    const finalPhone2 = phone2Raw.length > 0 ? phone2Raw : null;
 
-    // וידוא פורמט - רק אם ניתן ערך (מחיקה תמיד מותרת)
-    if (finalPhone2 && !/^[\d\-\+\(\)\s]{7,15}$/.test(finalPhone2)) {
+    // מחיקה תמיד מותרת ואינה דורשת אימות
+    if (!phone2Raw) {
+      await prisma.customer.update({
+        where: { id: customerId },
+        data: { phone2: null },
+      });
+      return NextResponse.json({
+        ok: true,
+        phone2: null,
+        message: "הטלפון הנוסף הוסר",
+      });
+    }
+
+    // §162: 🚨 זו הייתה הפרצה החמורה מבין השלוש.
+    //
+    // הלקוח יכול היה להזין מספר שכבר משמש לזיהוי של לקוח אחר,
+    // ואז **שניהם** מפסיקים להיות מזוהים בטלפון - כי ה-IVR דוחה
+    // התאמה מרובה (§161).
+    //
+    // ⚠️ וזה גרוע יותר מהמנהל: הלקוח לא יודע שהוא שבר משהו, ואיש
+    // לא מגלה עד שהאדם השני מתקשר ושומע "לא רשום".
+    //
+    // ⚠️ excludeCustomerId - בלעדיו לקוח שמזין מחדש את המספר שכבר
+    // שמור אצלו היה נחסם מול עצמו.
+    const p2 = await validatePhone2(prisma, phone2Raw, customerId);
+    if (!p2.ok) {
       return NextResponse.json(
-        { error: "מספר טלפון לא תקין" },
-        { status: 400 }
+        { error: p2.error, code: "PHONE2_CONFLICT" },
+        { status: 409 }
       );
     }
 
+    // §162: 🐛 המספר לא עבר נרמול.
+    //
+    // הלקוח הקליד "050-123-4567" והוא נשמר כך, בעוד ימות שולחים
+    // "0501234567". ההשוואה ב-IVR נכשלה, והמספר הנוסף מעולם לא
+    // זוהה - למרות שהכל נראה תקין בכרטיס.
     await prisma.customer.update({
       where: { id: customerId },
-      data: { phone2: finalPhone2 },
+      data: { phone2: p2.value },
     });
 
     return NextResponse.json({
       ok: true,
-      phone2: finalPhone2,
-      message: "טלפון נוסף עודכן",
+      phone2: p2.value,
+      message: "טלפון נוסף עודכן. ניתן להתקשר גם ממנו למערכת הטלפונית.",
     });
   }
 

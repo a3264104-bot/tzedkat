@@ -56,6 +56,13 @@ type Product = {
   // §67: מוצר שאינו פעיל למכירה כללית ("מועדפים") - מוצג רק לנציג
   // ולמנהל, בקטגוריה נפרדת. מסלול הלקוח לא שולח את השדה כלל.
   isInactive?: boolean;
+  /**
+   * §160: מוצר מועדף - ראש, בננה וכדומה.
+   *
+   * ⚠️ רק בו הנציג רשאי לקבוע מחיר גבוה מהמחירון ולקחת את
+   * ההפרש (§119). הלקוח באתר לא רואה אותו כלל.
+   */
+  isFavorite?: boolean;
 };
 type Pricelist = {
   id: string;
@@ -218,7 +225,9 @@ export function OrderFlow({
     const map = new Map<string, Product[]>();
     const special: Product[] = [];
     for (const p of products) {
-      if (p.isInactive) {
+      // §160: מועדף נכנס לאותה קטגוריה מיוחדת. שניהם "לא במכירה
+      // הכללית", וקטגוריה שלישית הייתה מפצלת בלי סיבה.
+      if (p.isInactive || p.isFavorite) {
         special.push(p);
         continue;
       }
@@ -267,6 +276,13 @@ export function OrderFlow({
   const itemCount = cartLines.length;
   // ח4: פונקציות עדכון כמות — נפרדות לקרטונים ולבודדים
   // אנימציית "נוסף לסל" - toast קטן שמופיע כשהכמות גדלה
+  // §160: מחירים שהנציג קבע למוצרים מועדפים.
+  //
+  // ⚠️ נפרד מ-cart בכוונה: cart מוחזק גם במצב עריכה ומגיע מהשרת,
+  // ומחיר מותאם הוא החלטה של הנציג ברגע הזה. ערבוב היה גורם
+  // למחיר להישמר בעריכה חוזרת בלי שהוא יתכוון.
+  const [favPrices, setFavPrices] = useState<Record<string, string>>({});
+
   const [cartToast, setCartToast] = useState<{
     id: number;
     productName: string;
@@ -655,6 +671,13 @@ export function OrderFlow({
             phone2: null,
             notes: null,
             requestedInstallments: estimatedTotal > 800 ? installments : 1,
+            // §160: מחירים מותאמים למוצרים מועדפים. השרת מאמת
+            // שהמוצר באמת מועדף ושהמחיר אינו נמוך מהמחירון.
+            favoritePrices: Object.fromEntries(
+              Object.entries(favPrices)
+                .filter(([, v]) => v !== "" && Number(v) > 0)
+                .map(([k, v]) => [k, Number(v)])
+            ),
             onBehalfOfCustomerId: onBehalfOfCustomerId || null,
             items: cartLines.map((l) => ({
               productId: l.product.id,
@@ -1118,6 +1141,51 @@ export function OrderFlow({
                               מבצע חם
                             </div>
                           )}
+                          {/* §160: תמחור עצמי במוצר מועדף.
+                              
+                              ⚠️ מוצג רק כשהפריט **בעגלה**: שדה מחיר
+                              בכל מוצר מועדף היה רעש, והנציג לא מתמחר
+                              משהו שהוא לא מוכר.
+                              
+                              ⚠️ ההפרש מ"רצפת הנציג" (המחירון פחות
+                              השקל שתמיד שלו) שייך לו במלואו - §119. */}
+                          {p.isFavorite &&
+                            (entry.cartonQty > 0 || entry.singlesQty > 0) && (
+                              <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-2 mb-2 space-y-1">
+                                <div className="text-[11px] font-bold text-amber-900">
+                                  ⭐ ניתן לקבוע מחיר גבוה יותר
+                                </div>
+                                <input
+                                  className="input w-full text-center font-bold py-1 text-sm"
+                                  type="number"
+                                  step="0.01"
+                                  min={p.price}
+                                  dir="ltr"
+                                  placeholder={`מחירון: ${p.price.toFixed(2)}`}
+                                  value={favPrices[p.id] ?? ""}
+                                  onChange={(e) =>
+                                    setFavPrices((prev) => ({
+                                      ...prev,
+                                      [p.id]: e.target.value,
+                                    }))
+                                  }
+                                />
+                                {favPrices[p.id] &&
+                                  Number(favPrices[p.id]) >= p.price && (
+                                    <div className="text-[11px] text-emerald-800 font-bold">
+                                      העמלה שלך:{" "}
+                                      {(Number(favPrices[p.id]) - (p.price - 1)).toFixed(2)}{" "}
+                                      ₪ לק&quot;ג
+                                    </div>
+                                  )}
+                                {favPrices[p.id] &&
+                                  Number(favPrices[p.id]) < p.price && (
+                                    <div className="text-[11px] text-red-700 font-bold">
+                                      לא ניתן לרדת מתחת למחירון
+                                    </div>
+                                  )}
+                              </div>
+                            )}
                           {/* שם + תמונה + מחיר בסיסי */}
                           <div className="flex gap-2 items-start">
                             {p.imageUrl && (

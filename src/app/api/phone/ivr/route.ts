@@ -176,9 +176,22 @@ async function handle(req: Request): Promise<Response> {
   //
   // Promise.all ולא allSettled: אם אחת נכשלת אין טעם להמשיך, ואנחנו
   // רוצים שהשגיאה תעלה כרגיל.
-  const [customer, activeSaleEarly] = await Promise.all([
-    prisma.customer.findUnique({
-    where: { phone },
+  const [matches, activeSaleEarly] = await Promise.all([
+    // §161: זיהוי לפי טלפון ראשי **או** טלפון נוסף.
+    //
+    // התרחיש: לקוח שמתקשר פעם מהבית ופעם מהנייד. עד היום השני
+    // לא זוהה כלל - הוא שמע "לא מזוהה" ונאלץ להירשם מחדש.
+    //
+    // ⚠️ **findMany ולא findUnique.** phone2 אינו @unique, ולכן
+    // יכולים להיות שני לקוחות עם אותו מספר - למשל טלפון בית
+    // משותף למשפחה, או טעות הקלדה.
+    //
+    // ⚠️ הבדיקה למטה דוחה תוצאה מרובה: מתקשר שמזוהה כשני אנשים
+    // **לא יזוהה בכלל**. עדיף שיירשם מחדש מאשר שיזמין בשם אחיו,
+    // או ישמע את פרטי הכניסה של מישהו אחר.
+    prisma.customer.findMany({
+    where: { OR: [{ phone }, { phone2: phone }] },
+    take: 2,
     select: {
       id: true,
       name: true,
@@ -205,6 +218,20 @@ async function handle(req: Request): Promise<Response> {
     }),
     getActiveSale(),
   ]);
+
+  // §161: זיהוי חד-משמעי בלבד.
+  //
+  // ⚠️ שתי התאמות = **לא מזוהה**. זה קורה כששני לקוחות חולקים
+  // טלפון נוסף (משפחה, טעות הקלדה), ואז אין דרך לדעת מי מתקשר.
+  //
+  // הבחירה השרירותית הייתה גרועה בהרבה: המתקשר היה מזמין בשם
+  // אחיו, שומע את פרטי הכניסה שלו, ורואה את ההזמנות שלו.
+  if (matches.length > 1) {
+    console.warn(
+      `[ivr] ambiguous phone ${phone} matches ${matches.length} customers`
+    );
+  }
+  const customer = matches.length === 1 ? matches[0] : null;
 
   // ═══ לקוח לא רשום ═══
   if (!customer) {
@@ -492,7 +519,10 @@ async function handleUnregistered(
   // §69: cityPhoneName - כתיב פונטי לעיר. נלקח מהנקודה הראשונה
   // שהגדירה אותו (הערך זהה לכל נקודות אותה עיר בפועל).
   const cities = await prisma.deliveryPoint.findMany({
-    where: { isActive: true },
+    // §163: עיר שיש בה **רק** נקודה סמויה לא תוצע ללקוח.
+    // בלי זה הוא היה שומע את שם העיר, בוחר בה, ומגלה שאין בה
+    // נקודות - מבוי סתום בשיחה.
+    where: { isActive: true, isPrivate: false },
     select: { city: true, cityPhoneName: true },
     distinct: ["city"],
     orderBy: { city: "asc" },
@@ -535,7 +565,9 @@ async function handleUnregistered(
 
   // שלב 2: נקודה בעיר. אם יש רק אחת - נבחרת אוטומטית.
   const points = await prisma.deliveryPoint.findMany({
-    where: { isActive: true, city },
+    where: { // §163: נקודה סמויה אינה מוצעת ללקוח בטלפון
+      isPrivate: false,
+      isActive: true, city },
     select: { id: true, name: true, phoneName: true },
     orderBy: { name: "asc" },
   });
@@ -1643,7 +1675,10 @@ async function handleMyPoint(
   // §69: cityPhoneName - כתיב פונטי לעיר. נלקח מהנקודה הראשונה
   // שהגדירה אותו (הערך זהה לכל נקודות אותה עיר בפועל).
   const cities = await prisma.deliveryPoint.findMany({
-    where: { isActive: true },
+    // §163: עיר שיש בה **רק** נקודה סמויה לא תוצע ללקוח.
+    // בלי זה הוא היה שומע את שם העיר, בוחר בה, ומגלה שאין בה
+    // נקודות - מבוי סתום בשיחה.
+    where: { isActive: true, isPrivate: false },
     select: { city: true, cityPhoneName: true },
     distinct: ["city"],
     orderBy: { city: "asc" },
@@ -1685,7 +1720,9 @@ async function handleMyPoint(
   }
 
   const pts = await prisma.deliveryPoint.findMany({
-    where: { isActive: true, city },
+    where: { // §163: נקודה סמויה אינה מוצעת ללקוח בטלפון
+      isPrivate: false,
+      isActive: true, city },
     select: { id: true, name: true, phoneName: true },
     orderBy: { name: "asc" },
   });

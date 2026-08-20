@@ -72,6 +72,8 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
   const [searched, setSearched] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  // §161: טלפון נוסף - לזיהוי במערכת הטלפונית ולחלוקה
+  const [phone2, setPhone2] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   // §55: בורר נקודה לנציג רב-נקודתי.
@@ -155,6 +157,7 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
           name: name.trim(),
           phone: q.trim(),
           email: email.trim() || null,
+          phone2: phone2.trim() || null,
           defaultPointId: pointId || null,
           // §60: אופן התשלום שנבחר
           paymentPreference: payMethod,
@@ -169,7 +172,11 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
           setError("יש לבחור לאיזו נקודת חלוקה לשייך את הלקוח");
           return;
         }
-        if (json.code === "DUPLICATE_PHONE" && json.existing) {
+        // §162: המספר הנוסף כבר משמש לזיהוי של לקוח אחר.
+        // ההודעה מהשרת אומרת מי מחזיק בו, ולכן מוצגת כמו שהיא.
+        if (json.code === "PHONE2_CONFLICT") {
+          setError(json.error);
+        } else if (json.code === "DUPLICATE_PHONE" && json.existing) {
           setError(
             `לקוח בשם "${json.existing.name}" כבר קיים עם טלפון זה. חפש אותו למעלה.`
           );
@@ -381,6 +388,35 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
                   💡 עם מייל הלקוח יקבל אישורי הזמנה ויוכל לאפס סיסמה בעצמו
                 </p>
               </div>
+
+                {/* §161: טלפון נוסף.
+                    
+                    ⚠️ אינו רק ליצירת קשר - הוא משמש **גם לזיהוי
+                    במערכת הטלפונית**. הלקוח יוכל להתקשר משני
+                    המספרים ולשמוע את ההזמנה שלו.
+                    
+                    ⚠️ §162 חוסם מספר שכבר משמש לזיהוי של לקוח אחר.
+                    בלי זה **שניהם** היו מפסיקים להיות מזוהים. */}
+                <div>
+                  <label className="text-xs font-bold text-zinc-500 block mb-1">
+                    טלפון נוסף{" "}
+                    <span className="font-normal text-zinc-400">(אופציונלי)</span>
+                  </label>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    value={phone2}
+                    onChange={(e) => setPhone2(e.target.value)}
+                    placeholder="050-1234567"
+                    dir="ltr"
+                    className="w-full px-3 py-3 border-2 border-zinc-300 rounded-lg text-sm focus:outline-none focus:border-brand-rust"
+                  />
+                  <p className="text-[10px] text-zinc-500 mt-1">
+                    למשל הנייד של בן/בת הזוג. ניתן יהיה להתקשר גם ממנו
+                    למערכת הטלפונית ולשמוע את ההזמנה.
+                  </p>
+                </div>
+
 
               {/* §60: בחירת אופן תשלום - חובה, בלי ברירת מחדל */}
               <div>

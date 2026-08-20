@@ -53,7 +53,19 @@ export async function GET(
     orderBy: [{ customerName: "asc" }, { createdAt: "asc" }],
     include: {
       items: {
-        include: { product: { select: { id: true, name: true, unit: true } } },
+        include: {
+          product: {
+            select: {
+              id: true,
+              name: true,
+              unit: true,
+              // §161: הקטגוריה - קובעת אילו מוצרים מקבלים צבע.
+              // בלעדיה isColoredCategory תמיד false, והתכונה
+              // לא הייתה עושה כלום.
+              category: { select: { name: true } },
+            },
+          },
+        },
       },
       // §117: הנקודה - לפיצול לגיליון נפרד לכל נקודת חלוקה
       point: { select: { id: true, name: true } },
@@ -146,6 +158,76 @@ export async function GET(
 // והשאר גולשים לשורה שנייה - צר וקריא, במקום דף רחב שרובו ריק.
 const ITEMS_PER_ROW = 4;
 
+// §161: צבע למוצרי **בשר בקר בלבד**.
+//
+// הבקשה מהשטח: "כל הבשרים נראים אותו דבר, ואם אני לא עובד לפי
+// סוג אני מתבלבל". שמות כמו "שריר", "צלי כתף" ו"אנטריקוט"
+// מתמזגים לעין בדף עם 40 שורות.
+//
+// ⚠️ 🐛 הגרסה הראשונה צבעה **את כל המוצרים**, וזה ביטל בדיוק
+// את הערך: כשהכל צבעוני, שום דבר לא בולט. עוף ודגים נבדלים
+// ממילא בשם ואינם צריכים סימון.
+//
+// ⚠️ גוונים בהירים בלבד: הטקסט שחור, וצבע רווי היה הופך את
+// הדף לבלתי קריא בהדפסה בשחור-לבן.
+
+/**
+ * §161: הקטגוריות שמקבלות צבע.
+ *
+ * ⚠️ השוואה חלקית (includes) ולא מדויקת: שם הקטגוריה עשוי
+ * להשתנות ל"בשר בקר טרי" או "בקר", ובדיקה מדויקת הייתה שוברת
+ * את התכונה בשקט ביום שמישהו יערוך את השם.
+ */
+const COLORED_CATEGORIES = ["בשר", "בקר"];
+
+function isColoredCategory(categoryName: string | null | undefined): boolean {
+  const c = (categoryName || "").trim();
+  if (!c) return false;
+  return COLORED_CATEGORIES.some((k) => c.includes(k));
+}
+const PRODUCT_COLORS = [
+  "FFFFF3CD", // חרדל בהיר
+  "FFD4EDDA", // ירוק
+  "FFCCE5FF", // תכלת
+  "FFF8D7DA", // ורוד
+  "FFE2D9F3", // סגול
+  "FFFFE0CC", // כתום
+  "FFD1F2EB", // טורקיז
+  "FFFCE4EC", // ורוד בהיר
+  "FFE8F5E9", // ירקרק
+  "FFFFF9C4", // צהוב
+];
+
+/**
+ * §161: מפת צבעים לגיליון - **בלי התנגשויות**.
+ *
+ * 🐛 הגרסה הראשונה השתמשה ב-hash של השם. עם 10 צבעים,
+ * "אנטריקוט" ו"חזה עוף" קיבלו את אותו גוון - וזה מבטל בדיוק
+ * את מה שהנציג ביקש: להבחין ביניהם בלי לקרוא.
+ *
+ * ⚠️ עכשיו הקצאה סדרתית לפי סדר הופעה בגיליון. המוצרים
+ * ממוינים לפני כן, ולכן הסדר יציב בין הדפסה להדפסה.
+ *
+ * ⚠️ מעבר ל-10 מוצרים הצבעים חוזרים - אבל שני מוצרים עם אותו
+ * צבע יהיו רחוקים זה מזה ברשימה, ולא שכנים כמו בהתנגשות hash.
+ */
+function buildColorMap(orders: any[]): Map<string, string> {
+  const names = new Set<string>();
+  for (const o of orders) {
+    for (const it of o.items) {
+      if (it.isCancelled) continue;
+      // §161: רק בשר בקר. שאר המוצרים נשארים ברקע האחיד.
+      if (!isColoredCategory(it.product?.category?.name)) continue;
+      names.add(it.product?.name || it.productName);
+    }
+  }
+  const map = new Map<string, string>();
+  Array.from(names)
+    .sort((a, b) => a.localeCompare(b, "he"))
+    .forEach((n, i) => map.set(n, PRODUCT_COLORS[i % PRODUCT_COLORS.length]));
+  return map;
+}
+
 function buildDistributionSheet(
   wb: ExcelJS.Workbook,
   pointName: string,
@@ -169,6 +251,9 @@ function buildDistributionSheet(
       printTitlesRow: "4:4",
     },
   });
+
+  // §161: מפת הצבעים - נבנית פעם אחת לגיליון
+  const colorMap = buildColorMap(orders);
 
   // ─── עמודות: שם, טלפון, 4 פריטים, מזומן, טופל ───
   ws.columns = [
@@ -284,10 +369,12 @@ function buildDistributionSheet(
           cell.value = `${name}\n${qty}   ______`;
           cell.font = { size: 9 };
           cell.alignment = { vertical: "top", wrapText: true, horizontal: "right" };
+          // §161: צבע לפי המוצר - כדי שהנציג יזהה בסריקה מהירה
+          // ולא יצטרך לקרוא כל שם.
           cell.fill = {
             type: "pattern",
             pattern: "solid",
-            fgColor: { argb: "FFFFFBEF" },
+            fgColor: { argb: colorMap.get(name) || "FFFFFBEF" },
           };
         } else if (stripe) {
           cell.fill = {

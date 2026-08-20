@@ -265,6 +265,15 @@ export default async function AgentOrderPage({
       // §67: מוצר שאינו מוצג ללקוחות - מסומן כדי שה-flow יציג אותו
       // בקטגוריה נפרדת ולא יערבב אותו במכירה הרגילה.
       isInactive: pp.product.isActive === false,
+      // §160: 🐛 מוצר מועדף לא הגיע למסך ההזמנה בכלל.
+      //
+      // §119 בנה את התמחור העצמי רק במסלול "הוספת פריט להזמנה
+      // קיימת". הנציג שרצה למכור ראש היה צריך: לפתוח הזמנה,
+      // לשמור, לצאת, לחזור לכרטיס הלקוח, ולהוסיף משם.
+      //
+      // ⚠️ ובלי המחיר - גם אחרי כל זה הוא לא יכול היה לתמחר
+      // במסך ההזמנה, כי השדה לא היה קיים שם.
+      isFavorite: !!pp.product.isFavorite,
       packageWeight: pp.product.packageWeight,
       isFrozen: pp.product.isFrozen,
       limitedQty: pp.product.limitedQty,

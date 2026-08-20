@@ -16,6 +16,8 @@ const schema = z.object({
   requestedInstallments: z.number().min(1).max(2).optional(),
   // אם נציג מזמין בשם לקוח - מזהה הלקוח שעבורו מזמינים
   onBehalfOfCustomerId: z.string().optional().nullable(),
+  // §160: מחירים שהנציג קבע למוצרים מועדפים - { productId: price }
+  favoritePrices: z.record(z.string(), z.number()).optional(),
   items: z
     .array(
       z.object({
@@ -233,6 +235,26 @@ export async function POST(req: Request) {
       );
     }
 
+    // §163: 🚨 נקודה סמויה - אימות בשרת, לא רק בתצוגה.
+    //
+    // הסינון במסך ההזמנה מסתיר את הנקודה מהבורר, אבל בקשה ישירה
+    // עם ה-pointId הייתה עוברת. לקוח שראה את המזהה פעם אחת היה
+    // יכול לשלוח את ההזמנה שלו לפתח החנות של מישהו אחר.
+    //
+    // ⚠️ בעל החנות **כן** רשאי: זו הנקודה שהמנהל שייך לו, וזו כל
+    // המטרה. הבדיקה היא שהיא הנקודה **שלו**, ולא סתם סמויה כלשהי.
+    //
+    // ⚠️ נציג/מנהל שמזמין בשם לקוח - פטור. הוא ממילא מורשה לבחור
+    // נקודות שהלקוח לא רואה.
+    if (!placedByAgentId && plPoint.point.isPrivate) {
+      if (customer.defaultPointId !== data.pointId) {
+        return NextResponse.json(
+          { error: "נקודת החלוקה אינה זמינה עבורך" },
+          { status: 403 }
+        );
+      }
+    }
+
     const surcharge = Number(pricelist.singleSurcharge);
 
     // build server-side priced items - לא סומכים על מחירים מהלקוח
@@ -286,6 +308,34 @@ export async function POST(req: Request) {
               avgWeight
             ? Math.round(avgWeight * item.quantity * 1000) / 1000
             : null;
+      // §160: מחיר שהנציג קבע במוצר מועדף.
+      //
+      // ⚠️ שלוש הגנות, כולן בשרת:
+      //   1. רק נציג/מנהל (placedByAgentId) - לקוח לא יכול לתמחר
+      //   2. רק מוצר שמסומן isFavorite
+      //   3. רק כלפי מעלה - מחיר נמוך פוגע בהכנסה ומייצר עמלה שלילית
+      //
+      // ⚠️ unitPrice נשאר **מחיר המחירון** - הוא הבסיס לחישוב
+      // העמלה. מה שנגבה בפועל יושב ב-agentSetPrice.
+      let agentSetPrice: number | null = null;
+      const wanted = data.favoritePrices?.[pp.product.id];
+      if (wanted != null && placedByAgentId && pp.product.isFavorite) {
+        const n = Number(wanted);
+        if (Number.isFinite(n) && n >= unitPrice && n <= unitPrice * 5) {
+          agentSetPrice = n;
+        }
+      }
+
+      // הלקוח מחויב לפי המחיר שנקבע, לא לפי המחירון
+      const chargedPrice = agentSetPrice ?? unitPrice;
+      const finalEst =
+        agentSetPrice != null
+          ? Math.round(chargedPrice * item.quantity * 100) / 100
+          : est ?? 0;
+      if (agentSetPrice != null) {
+        estimatedTotal += finalEst - (est ?? 0);
+      }
+
       itemsData.push({
         productId: pp.product.id,
         productName: pp.product.name,
@@ -293,7 +343,8 @@ export async function POST(req: Request) {
         isSingle,
         quantity: item.quantity,
         unitPrice,
-        estimatedPrice: est ?? 0,
+        agentSetPrice,
+        estimatedPrice: finalEst,
         estimatedWeight,
       });
     }

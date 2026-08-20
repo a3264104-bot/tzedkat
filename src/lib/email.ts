@@ -1094,3 +1094,148 @@ export async function sendExcelOrderEmail(params: {
     return { ok: false, error: String(e?.message || e).slice(0, 500) };
   }
 }
+
+/**
+ * §159: התראה למנהל על ביטול הזמנה ע"י הלקוח.
+ *
+ * 🐛 הפער: הלקוח ביטל, קיבל מייל אישור - **והמנהל לא ידע כלום.**
+ * ההזמנה נעלמה מהרשימה הפעילה, והסחורה שהוזמנה מהספק נשארה בלי
+ * קונה. בחלוקה זה מתגלה כעודף שאין לו הסבר.
+ *
+ * ⚠️ נשלח גם לנציג של הנקודה: הוא זה שמכין את הסחורה, וביטול
+ * שהוא לא יודע עליו הוא עבודה מיותרת ומקום שנשמר לחינם.
+ */
+export async function sendAdminCancellationAlert(
+  order: any
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+
+    // ⚠️ הנציגים של הנקודה - הם מכינים את הסחורה בפועל.
+    //
+    // ⚠️ agentPoint הישן נכלל גם הוא: נציג שטרם הועבר למבנה
+    // הרב-נקודתי היה נשמט מההתראה בלי שאיש ישים לב.
+    const agents = order.pointId
+      ? await prisma.customer.findMany({
+          where: {
+            role: "AGENT",
+            isActive: true,
+            email: { not: null },
+            OR: [
+              { agentPoints: { some: { pointId: order.pointId } } },
+              { agentPointId: order.pointId },
+            ],
+          },
+          select: { email: true },
+        })
+      : [];
+
+    const recipients = Array.from(
+      new Set([settings.adminEmail, ...agents.map((a) => a.email!)].filter(Boolean))
+    );
+    if (recipients.length === 0) return { ok: true };
+
+    const items: any[] = Array.isArray(order?.items) ? order.items : [];
+    const rows = items
+      .filter((it) => !it.isCancelled)
+      .map(
+        (it) => `
+        <tr>
+          <td style="padding:5px 8px;border-bottom:1px solid #eee;">${escapeHtml(it.productName)}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:center;color:#666;font-size:13px;">
+            ${Number(it.quantity)} ${escapeHtml(it.unit || "")}
+          </td>
+        </tr>`
+      )
+      .join("");
+
+    const total =
+      order.finalTotal != null
+        ? Number(order.finalTotal)
+        : Number(order.estimatedTotal ?? 0);
+
+    // §159: הזמנה ששולמה - **מקרה קצה נדיר**.
+    //
+    // ⚠️ ברוב המקרים זה לא יקרה: הביטול חסום ברגע שנקבע finalTotal,
+    // והחיוב תמיד בא אחריו. כלומר לקוח שחויב כבר לא יכול לבטל.
+    //
+    // המקרה היחיד שנשאר: נציג שסימן תשלום מזומן **לפני** שהמשקלים
+    // הושלמו. שם paymentStatus הוא PAID אבל finalTotal עדיין null,
+    // והביטול עובר.
+    //
+    // נדיר - ולכן ההתראה נשארת, אבל בלי באנר אדום שצועק על כל
+    // ביטול רגיל.
+    const wasPaid =
+      order.paymentStatus === "PAID" || order.paymentStatus === "PARTIALLY_PAID";
+
+    const body = `
+      <p style="font-size:16px;">
+        <strong>${escapeHtml(order.customerName || "")}</strong> ביטל את הזמנה
+        <strong>#${order.orderNumber}</strong>.
+      </p>
+
+      ${
+        wasPaid
+          ? `<div style="background:#fef2f2;border:2px solid #fca5a5;border-radius:12px;padding:14px;margin:14px 0;">
+               <div style="font-weight:bold;color:#b91c1c;font-size:15px;">
+                 ⚠️ ההזמנה סומנה כשולמה — יש לבדוק החזר
+               </div>
+               <div style="color:#7f1d1d;font-size:14px;margin-top:4px;">
+                 סכום: <strong>${fmt(Number(order.amountPaid ?? total))}</strong>
+                 <div style="font-size:12px;margin-top:4px;font-weight:normal;">
+                   מקרה חריג — בדרך כלל ביטול נחסם אחרי שקילה. ייתכן שהנציג
+                   סימן מזומן לפני שהמשקלים הושלמו.
+                 </div>
+               </div>
+             </div>`
+          : ""
+      }
+
+      <table style="width:100%;font-size:14px;margin:12px 0;">
+        <tr>
+          <td style="padding:4px 0;color:#666;width:110px;">טלפון:</td>
+          <td dir="ltr" style="text-align:right;">${escapeHtml(order.phone || "—")}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 0;color:#666;">נקודת חלוקה:</td>
+          <td><strong>${escapeHtml(order.pointNameSnapshot || order.point?.name || "—")}</strong></td>
+        </tr>
+        ${
+          order.deliveryDateSnapshot
+            ? `<tr><td style="padding:4px 0;color:#666;">תאריך חלוקה:</td><td>${escapeHtml(order.deliveryDateSnapshot)}</td></tr>`
+            : ""
+        }
+        <tr>
+          <td style="padding:4px 0;color:#666;">סכום ההזמנה:</td>
+          <td><strong>${fmt(total)}</strong></td>
+        </tr>
+      </table>
+
+      ${
+        rows
+          ? `<div style="font-weight:bold;font-size:13px;margin-bottom:4px;">
+               הפריטים שהתבטלו — המלאי משתחרר:
+             </div>
+             <table style="width:100%;border-collapse:collapse;font-size:14px;">
+               <tbody>${rows}</tbody>
+             </table>`
+          : ""
+      }
+
+      <p style="color:#888;font-size:12px;margin-top:16px;">
+        <a href="${APP_URL}/admin/orders" style="color:#C0461E;">לרשימת ההזמנות</a>
+      </p>`;
+
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: recipients,
+      subject: wasPaid
+        ? `⚠️ בוטלה הזמנה ששולמה #${order.orderNumber} — ${order.customerName}`
+        : `בוטלה הזמנה #${order.orderNumber} — ${order.customerName}`,
+      html: baseTemplate("הזמנה בוטלה", body),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}

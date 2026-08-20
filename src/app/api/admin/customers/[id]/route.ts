@@ -248,7 +248,12 @@ export async function PATCH(
     if (pid) {
       const exists = await prisma.deliveryPoint.findUnique({
         where: { id: pid },
-        select: { id: true },
+        // §163: isPrivate - כדי להחזיר חיווי למסך.
+        //
+        // ⚠️ השיוך עצמו **מותר**: זו כל מטרת הנקודה הסמויה -
+        // המנהל משייך אליה לקוח שיש לו חנות. מה שחסום הוא שהלקוח
+        // יבחר בה בעצמו, וזה נאכף בסינון שבמסך ההזמנה.
+        select: { id: true, name: true, isPrivate: true },
       });
       if (!exists) {
         return NextResponse.json(

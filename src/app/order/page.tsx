@@ -145,7 +145,11 @@ export default async function OrderPage({
 
   const points = pricelist.points
     .map((pp) => pp.point)
-    .filter((p) => p.isActive)
+    // §163: נקודה סמויה אינה מוצגת ללקוח.
+    //
+    // ⚠️ הסינון כאן ולא בקליינט: לקוח שיראה את הנקודה בבורר יוכל
+    // לבחור בה, וההזמנה שלו תגיע לפתח החנות של מישהו אחר.
+    .filter((p) => p.isActive && !p.isPrivate)
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((p) => ({
       id: p.id,

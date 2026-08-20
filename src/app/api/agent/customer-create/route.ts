@@ -13,6 +13,8 @@ import { prisma } from "@/lib/prisma";
 // §121: הפקת קוד כניסה אוטומטית בכל יצירת לקוח
 import { ensureLoginCode } from "@/lib/login-code";
 import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
+// §162: חוסם טלפון נוסף שכבר משמש לזיהוי של לקוח אחר
+import { validatePhone2 } from "@/lib/phone2-lib";
 import { auth } from "@/lib/auth";
 
 // יצירת סיסמא אקראית חזקה - 32 תווים, לא לזכירה, לא לשימוש חוזר
@@ -31,6 +33,23 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const name = cleanName(body.name);
   const phoneRaw = String(body.phone || "").trim();
+  // §161: טלפון נוסף. משמש ליצירת קשר בחלוקה, **וגם** לזיהוי
+  // במערכת הטלפונית - הלקוח יכול להתקשר משני המספרים.
+  //
+  // ⚠️ אינו @unique בסכמה, ולכן ה-IVR מזהה רק כשההתאמה
+  // חד-משמעית. שני לקוחות עם אותו מספר נוסף - שניהם לא יזוהו.
+  const phone2Raw = String(body.phone2 || "").trim();
+
+  // §162: 🐛 בלי הבדיקה הזו אפשר היה להוסיף מספר שכבר משמש
+  // לזיהוי של לקוח אחר - ואז **שניהם** לא היו מזוהים בטלפון,
+  // כי ה-IVR דוחה התאמה מרובה (§161).
+  const p2 = await validatePhone2(prisma, phone2Raw);
+  if (!p2.ok) {
+    return NextResponse.json(
+      { error: p2.error, code: "PHONE2_CONFLICT", conflictWith: p2.conflictWith },
+      { status: 409 }
+    );
+  }
   const emailRaw = body.email ? String(body.email).trim() : "";
   const defaultPointId = body.defaultPointId || null;
   // §60: אופן התשלום של המזדמן - הנציג בוחר בהקמה.
@@ -211,6 +230,7 @@ export async function POST(req: Request) {
     data: {
       name,
       phone,
+      phone2: p2.value,
       email,
       passwordHash,
       // לא שומרים passwordPlain כאן - הסיסמא לא מיועדת לזכירה

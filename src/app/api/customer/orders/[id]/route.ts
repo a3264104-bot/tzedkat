@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { sendOrderUpdatedEmail, sendOrderCancelledEmail } from "@/lib/order-update-email";
+// §159: התראה למנהל ולנציג על ביטול
+import { sendAdminCancellationAlert } from "@/lib/email";
 
 // /api/customer/orders/[id]
 //
@@ -314,6 +316,27 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       if (!res.ok) {
         console.error("sendOrderCancelledEmail failed:", res.error);
       }
+    }
+
+    // §159: 🐛 המנהל לא ידע כלום על ביטולים.
+    //
+    // הלקוח ביטל, קיבל מייל אישור, וההזמנה נעלמה מהרשימה הפעילה.
+    // הסחורה שכבר הוזמנה מהספק נשארה בלי קונה - וזה התגלה רק
+    // בחלוקה, כעודף שאין לו הסבר.
+    //
+    // ⚠️ נשלח גם לנציג של הנקודה: הוא זה שמכין את הסחורה, וביטול
+    // שהוא לא יודע עליו הוא עבודה מיותרת ומקום שנשמר לחינם.
+    //
+    // ⚠️ **await ולא fire-and-forget.** ב-Vercel הפונקציה מסתיימת
+    // ברגע שה-route מחזיר תשובה, וכל עבודה שרצה ברקע נקטעת באמצע -
+    // הלקח מ-sendOrderNotificationsAsync ב-/api/orders.
+    //
+    // ⚠️ ה-try/catch מבטיח שכשל מייל לא יפיל ביטול שכבר בוצע.
+    try {
+      const res = await sendAdminCancellationAlert(cancelled as any);
+      if (!res.ok) console.error("[cancel] admin alert failed:", res.error);
+    } catch (e) {
+      console.error("[cancel] admin alert exception:", e);
     }
 
     return NextResponse.json({ ok: true, cancelled: true });
