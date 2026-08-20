@@ -176,6 +176,13 @@ export function AccountClient({
   const [resetErr, setResetErr] = useState("");
   const [sendingReset, setSendingReset] = useState(false);
   const [currentEmail, setCurrentEmail] = useState(customer.email ?? "");
+  // §153: שינוי פרטי כניסה ישירות, בלי מייל
+  const [showCredEdit, setShowCredEdit] = useState(false);
+  const [credCurrent, setCredCurrent] = useState("");
+  const [credNext, setCredNext] = useState("");
+  const [credMsg, setCredMsg] = useState("");
+  const [credErr, setCredErr] = useState("");
+  const [savingCred, setSavingCred] = useState(false);
   // טלפון נוסף - ליצירת קשר בחלוקה
   const [phone2, setPhone2] = useState(customer.phone2 ?? "");
   const [showPhone2Edit, setShowPhone2Edit] = useState(false);
@@ -192,6 +199,33 @@ export function AccountClient({
   const historyOrders = orders.filter(
     (o) => o.status === "CANCELLED" || o.status === "COMPLETED"
   );
+
+  // §153: שינוי פרטי הכניסה.
+  //
+  // ⚠️ השרת שומר את הערך **בשני השדות** (loginCode + passwordHash),
+  // וזה מה שמאפשר לו לשמש גם בכניסה לאתר וגם בהקראה בטלפון.
+  async function saveCredential() {
+    setCredErr("");
+    setCredMsg("");
+    setSavingCred(true);
+    try {
+      const res = await fetch("/api/customer/credential", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current: credCurrent, next: credNext }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+      setCredMsg(data.message || "הפרטים עודכנו");
+      setShowCredEdit(false);
+      setCredCurrent("");
+      setCredNext("");
+    } catch (e: any) {
+      setCredErr(e.message);
+    } finally {
+      setSavingCred(false);
+    }
+  }
 
   async function savePhone2() {
     setPhone2Err("");
@@ -349,7 +383,7 @@ export function AccountClient({
             </div>
           )}
           {/* §124: יתרת זכות.
-              
+
               ⚠️ מוצגת גבוה בעמוד ורק כשיש יתרה. זה כסף שמגיע
               ללקוח, והוא צריך לראות אותו בלי לחפש - אחרת הוא
               יפנה לנציג לשאול, או שלא יידע בכלל. */}
@@ -492,7 +526,7 @@ export function AccountClient({
                     </div>
 
                     {/* §133: הערה לנציג ותשובתו.
-                        
+
                         ⚠️ ניתן לכתוב רק בהזמנה פעילה. הזמנה שנמסרה
                         או בוטלה - הנציג כבר לא יראה את ההערה, ואין
                         טעם לאפשר לכתוב לחלל. */}
@@ -634,6 +668,129 @@ export function AccountClient({
               />
             )}
 
+            {/* §153: שינוי פרטי הכניסה - ישירות, בלי מייל.
+
+                🐛 הפער: הדרך היחידה הייתה "שלח קישור למייל". לרוב
+                הלקוחות אין מייל, ולכן לא הייתה להם שום דרך לשנות -
+                הם היו תקועים עם מה שהמערכת נתנה, או נאלצים להתקשר
+                לנציג.
+
+                ⚠️ הערך נשמר בשני השדות (loginCode + passwordHash)
+                ולכן הוא **אחד**: משמש בכניסה לאתר, ונשמע גם במערכת
+                הטלפונית. */}
+            <div className="px-5 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-brand-slate mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                  </svg>
+                  <div>
+                    <div className="text-xs text-zinc-500">פרטי כניסה</div>
+                    <div className="text-sm text-brand-slatedark">
+                      משמשים בכניסה לאתר ונשמעים במערכת הטלפונית
+                    </div>
+                  </div>
+                </div>
+                {!showCredEdit && (
+                  <button
+                    onClick={() => {
+                      setShowCredEdit(true);
+                      setCredErr("");
+                      setCredMsg("");
+                    }}
+                    className="text-xs text-brand-rust font-bold hover:underline shrink-0"
+                  >
+                    ✏️ שינוי
+                  </button>
+                )}
+              </div>
+
+              {showCredEdit && (
+                <div className="mt-3 space-y-2">
+                  <div>
+                    <label className="text-[11px] text-zinc-500 block mb-0.5">
+                      הפרטים הנוכחיים
+                    </label>
+                    <input
+                      className="input"
+                      type="text"
+                      dir="ltr"
+                      autoComplete="current-password"
+                      value={credCurrent}
+                      onChange={(e) => setCredCurrent(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-zinc-500 block mb-0.5">
+                      פרטים חדשים
+                    </label>
+                    <input
+                      className="input"
+                      type="text"
+                      dir="ltr"
+                      autoComplete="new-password"
+                      maxLength={12}
+                      value={credNext}
+                      onChange={(e) => setCredNext(e.target.value)}
+                    />
+                    {/* ⚠️ ההגבלה מוסברת מראש: לקוח שיקליד עברית
+                        ויידחה לא יבין למה, ואם נסביר רק בשגיאה הוא
+                        כבר יתוסכל. */}
+                    <p className="text-[10px] text-zinc-500 mt-1 leading-relaxed">
+                      4 עד 12 תווים, אותיות באנגלית וספרות בלבד — כדי
+                      שנוכל להקריא אותם במערכת הטלפונית.
+                    </p>
+                  </div>
+                  {credErr && <p className="text-sm text-red-600">{credErr}</p>}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setShowCredEdit(false);
+                        setCredCurrent("");
+                        setCredNext("");
+                        setCredErr("");
+                      }}
+                      disabled={savingCred}
+                      className="btn-ghost btn-sm flex-1"
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      onClick={saveCredential}
+                      disabled={savingCred || !credCurrent || !credNext}
+                      className="btn-primary btn-sm flex-1"
+                    >
+                      {savingCred ? "שומר..." : "שמירה"}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {credMsg && !showCredEdit && (
+                <p className="text-emerald-700 text-xs mt-2 bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+                  ✓ {credMsg}
+                </p>
+              )}
+
+              {/* איפוס דרך מייל - נשאר כאפשרות נוספת למי שיש לו */}
+              {currentEmail && !showCredEdit && (
+                <div className="mt-2 pt-2 border-t border-zinc-100">
+                  <button
+                    onClick={sendPasswordReset}
+                    disabled={sendingReset}
+                    className="text-[11px] text-zinc-500 hover:text-brand-rust underline"
+                  >
+                    {sendingReset ? "שולח..." : "או: שליחת קישור איפוס למייל"}
+                  </button>
+                  {resetMsg && (
+                    <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg p-2 mt-2">
+                      {resetMsg}
+                    </p>
+                  )}
+                  {resetErr && <p className="text-xs text-red-600 mt-2">{resetErr}</p>}
+                </div>
+              )}
+            </div>
+
             {/* טלפון נוסף - ליצירת קשר בעת חלוקה */}
             <div className="px-5 py-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -733,7 +890,7 @@ export function AccountClient({
                       <div className="text-sm text-brand-slatedark" dir="ltr">
                         {currentEmail || (
                           <span className="text-amber-600 italic" dir="rtl">
-                            לא הוגדר — הוסף כדי לאפס סיסמה בעצמך
+                            לא הוגדר — הוסף כדי לקבל אישורי הזמנה ותשלום
                           </span>
                         )}
                       </div>
@@ -879,32 +1036,6 @@ export function AccountClient({
                 </div>
               )}
             </div>
-
-            {/* איפוס סיסמה עצמאי */}
-            <div className="px-5 py-3">
-              <div className="text-xs text-zinc-500 mb-1">סיסמה</div>
-              {currentEmail ? (
-                <>
-                  <button
-                    onClick={sendPasswordReset}
-                    disabled={sendingReset}
-                    className="btn-ghost btn-sm"
-                  >
-                    {sendingReset ? "שולח..." : "שליחת קישור לאיפוס סיסמה למייל שלי"}
-                  </button>
-                  {resetMsg && (
-                    <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-2 mt-2">
-                      {resetMsg}
-                    </p>
-                  )}
-                  {resetErr && <p className="text-sm text-red-600 mt-2">{resetErr}</p>}
-                </>
-              ) : (
-                <p className="text-xs text-zinc-400">
-                  כדי לאפס סיסמה בעצמך, הוסף תחילה כתובת מייל למעלה.
-                </p>
-              )}
-            </div>
           </div>
         </div>
       </div>
@@ -976,11 +1107,11 @@ function ItemRow({ it }: { it: OrderItem }) {
             "כ-" - כדי שהלקוח לא יצפה בדיוק לכמות המשוערת. */}
         {it.actualWeight != null ? (
           <div className="text-[11px] text-emerald-700 font-medium">
-            נשקל: {it.actualWeight.toFixed(2)} ק"ג
+            נשקל: {it.actualWeight.toFixed(2)} ק&quot;ג
           </div>
         ) : it.estimatedWeight != null ? (
           <div className="text-[11px] text-zinc-500">
-            משקל משוער: כ-{it.estimatedWeight.toFixed(1)} ק"ג
+            משקל משוער: כ-{it.estimatedWeight.toFixed(1)} ק&quot;ג
           </div>
         ) : null}
       </div>
@@ -1046,7 +1177,7 @@ function BreakdownTotals({ o }: { o: Order }) {
   return (
     <div className="mt-2 pt-2 border-t border-zinc-200 text-sm space-y-1">
       <div className="flex items-center justify-between text-zinc-600">
-        <span>סה"כ מוצרים</span>
+        <span>סה&quot;כ מוצרים</span>
         <span>{fmt(itemsSumC / 100)}</span>
       </div>
       {diffLabel && (

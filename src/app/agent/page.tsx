@@ -215,7 +215,7 @@ export default async function AgentIndexPage() {
                   {pendingSignups === 1 ? "בקשת הרשמה" : "בקשות הרשמה"} ממתינות
                 </div>
                 <div className="text-xs text-amber-800 mt-0.5">
-                  לקוחות שנרשמו בטלפון ובחרו את הנקודה שלך
+                  לקוחות שנרשמו בטלפון וממתינים שתזין להם כרטיס אשראי
                 </div>
               </div>
               <div className="text-amber-700 text-2xl shrink-0">←</div>
@@ -240,7 +240,9 @@ export default async function AgentIndexPage() {
                   בקשות הרשמה
                 </div>
                 <div className="text-xs text-zinc-500">
-                  {pendingSignups > 0 ? `${pendingSignups} ממתינות` : "מהטלפון"}
+                  {pendingSignups > 0
+                    ? `${pendingSignups} ממתינות לכרטיס`
+                    : "מהטלפון"}
                 </div>
               </div>
             </div>

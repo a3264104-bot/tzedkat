@@ -20,6 +20,7 @@ export function AdminCustomerCodePanel({
   codeSetAt,
   role,
   hasPassword,
+  passwordPlain,
   onChanged,
 }: {
   customerId: string;
@@ -30,10 +31,19 @@ export function AdminCustomerCodePanel({
   role?: string;
   /** §122: האם ללקוח יש סיסמה משלו (נרשם באתר) */
   hasPassword?: boolean;
+  /**
+   * §152: הסיסמה בגלוי, אם הלקוח בחר אחת.
+   *
+   * ⚠️ מוצגת באותו פאנל כמו הקוד ולא בנפרד. שני פאנלים גרמו
+   * למנהל לראות שני ערכים ולא לדעת איזה למסור.
+   */
+  passwordPlain?: string | null;
   /** נקרא אחרי יצירת קוד, כדי לרענן את הרשימה */
   onChanged?: () => void;
 }) {
   const [code, setCode] = useState<string | null>(null);
+  // §152: הצגת/הסתרת הסיסמה
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [manualMode, setManualMode] = useState(false);
@@ -242,7 +252,40 @@ export function AdminCustomerCodePanel({
           ההבחנה: סיסמה = כניסה לאתר. קוד = כניסה לאתר **וגם**
           שמיעה בטלפון. לקוח עם סיסמה בלבד אינו חסום - הוא רק
           לא יוכל לשמוע קוד בשיחה. */}
-      {!exists && !code && (
+      {/* §152: הסיסמה שהלקוח בחר - באותו פאנל.
+          
+          ⚠️ מוצגת רק כשאין קוד, או כשהיא שונה ממנו. לקוח שיש לו
+          שניהם מקבל את הקוד (הוא הופק ע"י המערכת ולכן ודאי תקין),
+          והסיסמה מוצגת מתחת כמידע נוסף. */}
+      {passwordPlain && (
+        <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 mt-2">
+          <div className="text-[11px] text-zinc-500 mb-1">
+            🔐 הסיסמה שהלקוח בחר בהרשמה
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`font-mono font-bold flex-1 select-all text-sm ${
+                showPw ? "text-brand-rust" : "text-zinc-400 tracking-widest"
+              }`}
+              dir="ltr"
+            >
+              {showPw ? passwordPlain : "••••••••"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowPw((v) => !v)}
+              className="text-[11px] px-2 py-1 rounded bg-zinc-200 hover:bg-zinc-300 font-bold"
+            >
+              {showPw ? "הסתר" : "הצג"}
+            </button>
+          </div>
+          <p className="text-[10px] text-zinc-400 mt-1">
+            עובדת בכניסה לאתר, ונשמעת גם במערכת הטלפונית.
+          </p>
+        </div>
+      )}
+
+      {!exists && !code && !passwordPlain && (
         <p
           className={`text-[11px] ${
             hasPassword ? "text-zinc-500" : "text-amber-700"

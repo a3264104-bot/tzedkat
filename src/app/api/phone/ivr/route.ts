@@ -39,6 +39,8 @@ import { sendPhoneSignupNotification } from "@/lib/email";
 import { cleanName, cleanSpokenName, isPlausibleName } from "@/lib/identity";
 // §124: יתרת זכות בטלפון
 import { creditBalanceForPhone } from "@/lib/credit-balance-lib";
+// §152: פרטי כניסה - איות אותיות בעברית להקראה בטלפון
+import { spellForPhone, isDigitsOnly, resolveCredential } from "@/lib/credential-lib";
 // §148: תצוגת יחידות - מקור אחד לכל המערכת
 import { formatItemQty } from "@/lib/order-display";
 import {
@@ -194,6 +196,9 @@ async function handle(req: Request): Promise<Response> {
       defaultPoint: { select: { id: true, name: true } },
       // §76: לשמיעת קוד הכניסה לאתר (תפריט 4)
       loginCode: true,
+      // §152: הסיסמה שהלקוח בחר - נפילה כשאין קוד. בלעדיה
+      // resolveCredential תמיד יחזיר את הקוד בלבד.
+      passwordPlain: true,
       // §124: יתרת זכות - מוקראת בתפריט הראשי
       creditBalance: true,
     },
@@ -382,8 +387,16 @@ async function handle(req: Request): Promise<Response> {
       Number((customer as any).creditBalance ?? 0)
     );
 
+    // §152: האפשרות מוצגת רק ללקוח **שיש לו** פרטי כניסה.
+    //
+    // 🐛 עד כה התנאי היה אמצעי תשלום בלבד. לקוח מזומן בלי קוד
+    // ובלי סיסמה ראה את האפשרות בתפריט, בחר בה, ושמע "לא הופק
+    // עבורך קוד" - תפריט שמבטיח משהו שאינו קיים.
+    const hasCredential =
+      !!customer.loginCode || !!(customer as any).passwordPlain;
     const canHearCode =
-      !!customer.paymentToken || customer.paymentPreference === "CASH";
+      hasCredential &&
+      (!!customer.paymentToken || customer.paymentPreference === "CASH");
 
     return yemotResponse(
       read(
@@ -1152,7 +1165,22 @@ async function handleLoginCode(customer: {
   //
   // מקור אמת אחד: הקוד נוצר בכרטיס הלקוח אצל המנהל, ומשם בלבד.
   // ה-IVR הוא צינור הקראה.
-  const code = decryptCode(customer.loginCode ?? null);
+  // §152: מקור אחד - הקוד או הסיסמה, מה שקיים.
+  //
+  // 🐛 עד כה נקרא `loginCode` בלבד. לקוח שנרשם באתר ובחר סיסמה
+  // שמע "לא הופק עבורך קוד" - למרות שיש לו פרטי כניסה תקינים
+  // ותקפים, והוא נכנס איתם לאתר מדי פעם.
+  //
+  // ⚠️ הקוד קודם: הוא הופק ע"י המערכת ולכן ודאי תקין. הסיסמה
+  // היא הנפילה.
+  const cred = resolveCredential({
+    loginCode: decryptCode(customer.loginCode ?? null),
+    passwordPlain: (customer as any).passwordPlain ?? null,
+  });
+  // ⚠️ סיסמה ארוכה מ-12 תווים אינה ניתנת להקראה מעשית - היא
+  // תיחשב כ"אין" ותשלח את הלקוח לנציג, וזה עדיף על חצי דקה
+  // של איות שהוא לא יצליח לכתוב.
+  const code = cred?.canSpeak ? cred.value : null;
 
   if (!code) {
     // אין קוד, או שהפענוח נכשל (AUTH_CODE_KEY הוחלף). בשני
@@ -1167,16 +1195,29 @@ async function handleLoginCode(customer: {
     );
   }
 
-  // ⚠️ ספרה-ספרה ופעמיים: הלקוח שומע פעם אחת וצריך לזכור.
+  // §152: הקראת פרטי הכניסה - ספרות או אותיות.
+  //
+  // 🐛 מה שהיה: sayDigits בלבד, שמקריא ספרות. לקוח שנרשם באתר
+  // ובחר סיסמה עם אותיות שמע רעש או שקט - ולא היה לו איך לגלות
+  // את הסיסמה שלו בטלפון.
+  //
+  // ⚠️ spellForPhone מאיית אות-אות בעברית ("mfkq" -> "אם, אף,
+  // קיי, קיו"). הפסיקים יוצרים הפוגה כדי שהלקוח יספיק לכתוב.
+  //
+  // ⚠️ ערך ספרתי עדיין מוקרא ב-sayDigits: הוא נשמע טבעי יותר
+  // מרצף מילים, וזה המקרה השכיח.
+  const spoken = isDigitsOnly(code) ? sayDigits(code) : say(spellForPhone(code));
+
+  // ⚠️ פעמיים: הלקוח שומע פעם אחת וצריך לזכור.
   return yemotResponse(
     playMessage(
-      prompt("login_code_pre", "קוד הכניסה שלך לאתר, יחד עם מספר הטלפון שלך, הוא"),
-      sayDigits(code),
+      prompt("login_code_pre", "פרטי הכניסה שלך לאתר, יחד עם מספר הטלפון שלך, הם"),
+      spoken,
       prompt("login_code_repeat", "שוב"),
-      sayDigits(code),
+      spoken,
       prompt(
         "login_code_post",
-        "היכנס לאתר עם מספר הטלפון שלך והקוד הזה. תודה ולהתראות"
+        "היכנס לאתר עם מספר הטלפון שלך והפרטים האלה. תודה ולהתראות"
       )
     )
   );

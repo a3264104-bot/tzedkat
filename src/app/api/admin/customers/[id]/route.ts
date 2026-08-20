@@ -201,6 +201,30 @@ export async function PATCH(
   // יוכל למסור אותו ללקוח מיד ולא יצטרך לחפש אותו אחר כך.
   let generatedCode: string | null = null;
 
+  // §151: 🐛 שינוי סיסמה לא עבד כלל.
+  //
+  // מסך הלקוחות שולח `newPassword`, ואף route לא קלט אותו. המנהל
+  // הזין סיסמה חדשה, ראה "נשמר! מסור ללקוח את הסיסמה", והלקוח
+  // ניסה להיכנס איתה ונכשל - כי היא מעולם לא נשמרה.
+  //
+  // ⚠️ נשמרת פעמיים: hash לאימות, וגלוי לתצוגה. הלקוח מתקשר
+  // ואומר "שכחתי", והמנהל צריך לענות בלי לאפס.
+  if (body.newPassword) {
+    const pw = String(body.newPassword);
+    if (pw.length < 4) {
+      return NextResponse.json(
+        { error: "הסיסמה חייבת להיות באורך 4 תווים לפחות" },
+        { status: 400 }
+      );
+    }
+    data.passwordHash = await bcrypt.hash(pw, 10);
+    data.passwordPlain = pw;
+    // ⚠️ ניקוי נעילה: מנהל שמשנה סיסמה עושה את זה כדי שהלקוח
+    // ייכנס. נעילה שנשארה הייתה חוסמת אותו מיד אחרי.
+    data.failedLoginAttempts = 0;
+    data.lockedUntil = null;
+  }
+
   // §82: נקודת חלוקה של הלקוח.
   //
   // 🐛 השדה לא היה מטופל כאן כלל - מסך הלקוחות יכול היה לשלוח

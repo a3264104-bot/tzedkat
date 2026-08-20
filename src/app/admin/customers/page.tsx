@@ -852,6 +852,7 @@ export default function AdminCustomersPage() {
                 codeSetAt={editing.loginCodeSetAt}
                 role={editing.role}
                 hasPassword={editing.hasPassword}
+                passwordPlain={editing.passwordPlain}
                 onChanged={reload}
               />
 
@@ -1074,36 +1075,15 @@ export default function AdminCustomersPage() {
                 />
               </div>
 
-              {/* סיסמה ישנה - נשארת עד שהלקוח יקבל קוד.
-                  ברגע שנקבע קוד, הסיסמה מבוטלת ב-customer-code. */}
-              {!editing.hasLoginCode && editing.passwordPlain && (
-                <div className="bg-gradient-to-br from-zinc-50 to-zinc-100 border border-zinc-300 rounded-lg p-3">
-                  <div className="text-xs font-bold text-zinc-500 mb-1.5">
-                    🔐 סיסמא ישנה (עד למעבר לקוד)
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`font-mono font-bold flex-1 select-all ${
-                        showExistingPw
-                          ? "text-brand-rust bg-yellow-100 px-2 py-1 rounded"
-                          : "text-zinc-400 tracking-widest"
-                      }`}
-                      dir="ltr"
-                    >
-                      {showExistingPw ? editing.passwordPlain : "••••••••"}
-                    </span>
-                    <button type="button" onClick={() => setShowExistingPw(v => !v)} className="text-xs px-2 py-1 rounded bg-zinc-200 hover:bg-zinc-300 font-bold">
-                      {showExistingPw ? "🙈 הסתר" : "👁️ הצג"}
-                    </button>
-                  </div>
-                </div>
-              )}
-              {!editing.hasLoginCode && !editing.passwordPlain && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800">
-                  ⚠️ הסיסמה הישנה מוצפנת ואינה ניתנת לשחזור. צור ללקוח קוד
-                  התחברות למעלה - זו הדרך החדשה, והקוד יהיה גלוי לך תמיד.
-                </div>
-              )}
+              {/* §152: פרטי הכניסה מוצגים בפאנל אחד למעלה.
+                  
+                  🐛 מה שהיה: שני פאנלים נפרדים - "קוד התחברות"
+                  ו"סיסמה". המנהל ראה שני ערכים שונים לאותו לקוח
+                  ולא ידע איזה למסור, והלקוח לא ידע איזה שלו.
+                  
+                  ⚠️ שניהם עדיין עובדים בכניסה (§125). מה שהשתנה
+                  הוא שיש **מקור אמת אחד לתצוגה** - AdminCustomerCodePanel
+                  מציג את הערך הרלוונטי ואומר מאיפה הוא. */}
             </div>
 
             {/* ═══ המרת תפקיד: לקוח ↔ נציג ↔ מנהל ═══ */}
