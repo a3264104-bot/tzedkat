@@ -26,6 +26,17 @@ type PhoneMessage = {
   phone: string;
   customerName: string | null;
   customerId: string | null;
+  /**
+   * §165: לקוח שנמצא **לפי הטלפון**, ולא רק דרך customerId.
+   *
+   * 🐛 הפער: customerId נקבע ברגע השיחה. מתקשר שלא היה רשום אז
+   * מקבל null - **ונשאר null לנצח**, גם אחרי שהוקם לו חשבון
+   * במסלול אחר (נציג, מסך הלקוחות, הרשמה עצמית).
+   *
+   * התוצאה: המנהל ראה בקשה "חדשה", לחץ "הקם לקוח", וקיבל
+   * "הלקוח כבר קיים". 6 מתוך 9 ההודעות הפתוחות היו כאלה.
+   */
+  existingCustomer: { id: string; name: string } | null;
   pointName: string | null;
   kind: string;
   status: string;
@@ -62,7 +73,7 @@ const STATUS_LABELS: Record<string, string> = {
   ASSIGNED: "שויך לנציג",
   CONTACTED: "יצרו קשר",
   COMPLETED: "הושלם",
-  FAILED: "לא הושלם",
+  FAILED: "ממתין לחזרה",
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -80,7 +91,7 @@ const FILTERS = [
   { value: "ASSIGNED", label: "שויכו" },
   { value: "CONTACTED", label: "יצרו קשר" },
   { value: "COMPLETED", label: "הושלמו" },
-  { value: "FAILED", label: "לא הושלמו" },
+  { value: "FAILED", label: "ממתינים לחזרה" },
 ];
 
 function fmtDate(iso: string | null): string {
@@ -122,6 +133,8 @@ export default function PhoneSignupsPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState("");
+  // §166: הבקשה שנבחרה לדחייה - פותח את בורר הסיבות
+  const [deferFor, setDeferFor] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -201,6 +214,8 @@ export default function PhoneSignupsPage() {
   }
 
   const openCount = (counts.NEW ?? 0) + (counts.ASSIGNED ?? 0) + (counts.CONTACTED ?? 0);
+  // §166: בקשות שנדחו וממתינות לחזרה
+  const deferredCount = counts.FAILED ?? 0;
 
   // §164: 🐛 הודעות שטופלו נשארו ברשימה לנצח.
   //
@@ -230,6 +245,34 @@ export default function PhoneSignupsPage() {
           אשראי. עד אז הם לא יכולים להזמין.
         </p>
       </div>
+
+      {/* §166: תזכורת על בקשות שנדחו.
+          
+          🐛 הפער: בקשה שסומנה "לא הושלם" נעלמה מ"פתוחות" - וזה
+          נכון, אחרת הרשימה מתמלאת. אבל היא גם **נעלמה מהתודעה**:
+          איש לא חזר אליהן, והלקוחות פשוט לא הצטרפו.
+          
+          ⚠️ הבאנר מוצג רק כשיש כאלה, ורק כשלא מסתכלים עליהן
+          כרגע - אחרת הוא רעש כפול. */}
+      {deferredCount > 0 && filter !== "FAILED" && (
+        <button
+          onClick={() => setFilter("FAILED")}
+          className="w-full text-right card p-3 border-violet-300 bg-violet-50 hover:bg-violet-100 transition-colors"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="font-bold text-violet-900 text-sm">
+                ⏳ {deferredCount} בקשות ממתינות לחזרה
+              </div>
+              <div className="text-xs text-violet-800 mt-0.5">
+                לקוחות שיצרו איתם קשר ולא השלימו. שווה לחזור אליהם לפני
+                המכירה הבאה.
+              </div>
+            </div>
+            <span className="text-violet-700 text-xl shrink-0">←</span>
+          </div>
+        </button>
+      )}
 
       {(openCount > 0 || messages.some((m) => m.status === "NEW")) && (
         <div className="card p-3 border-amber-300 bg-amber-50 text-sm text-amber-900">
@@ -338,8 +381,21 @@ export default function PhoneSignupsPage() {
                       <div className="text-xs text-zinc-600 mt-1">הערה: {r.note}</div>
                     )}
                     {r.failReason && (
-                      <div className="text-xs text-red-700 mt-1">
-                        סיבה: {r.failReason}
+                      <div className="text-xs text-violet-800 bg-violet-50 border border-violet-200 rounded px-2 py-1 mt-1.5 inline-block">
+                        ⏳ {r.failReason}
+                        {/* §166: כמה זמן עבר - זה מה שקובע אם
+                            שווה לחזור עכשיו. "לא ענה" מלפני יומיים
+                            שונה מ"לא ענה" מלפני חודש. */}
+                        {r.contactedAt && (
+                          <span className="text-violet-600">
+                            {" · "}
+                            {Math.floor(
+                              (Date.now() - new Date(r.contactedAt).getTime()) /
+                                86400000
+                            )}{" "}
+                            ימים
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -400,15 +456,22 @@ export default function PhoneSignupsPage() {
                         סמן שיצרתי קשר
                       </button>
                     )}
+                    {/* §166: דחייה לחזרה - עם סיבות מהירות.
+                        
+                        ⚠️ prompt חופשי גרם לנציג לכתוב "לא רצה" או
+                        לוותר ולא לסמן בכלל. סיבות מוכנות הופכות את
+                        זה ללחיצה אחת, וכך הבקשה באמת יוצאת
+                        מהרשימה במקום להצטבר בה.
+                        
+                        ⚠️ "ממתין לחזרה" ולא "לא הושלם": זה לא סוף
+                        הדרך - הבקשה חוזרת בבאנר, ואפשר לפתוח
+                        אותה מחדש. */}
                     <button
-                      onClick={() => {
-                        const reason = prompt("סיבה שהטיפול לא הושלם:");
-                        if (reason !== null) act(r.id, "fail", { reason });
-                      }}
+                      onClick={() => setDeferFor(r.id)}
                       disabled={busyId === r.id}
-                      className="btn-ghost btn-sm"
+                      className="btn-ghost btn-sm text-violet-700"
                     >
-                      לא הושלם
+                      ⏳ ממתין לחזרה
                     </button>
                     <button
                       onClick={() => {
@@ -433,13 +496,19 @@ export default function PhoneSignupsPage() {
                 )}
 
                 {r.status === "FAILED" && (
-                  <div className="mt-3 pt-3 border-t border-zinc-100 flex gap-2">
+                  <div className="mt-3 pt-3 border-t border-zinc-100 flex gap-2 flex-wrap">
+                    {/* §166: חיוג ישיר גם כאן. זו כל מטרת המסך
+                        הזה - לחזור אליהם, ובלי הכפתור המנהל היה
+                        צריך להעתיק את המספר ידנית. */}
+                    <a href={`tel:${r.phone}`} className="btn-ghost btn-sm">
+                      📞 חייג
+                    </a>
                     <button
                       onClick={() => act(r.id, "reopen")}
                       disabled={busyId === r.id}
-                      className="btn-ghost btn-sm"
+                      className="btn-primary btn-sm"
                     >
-                      פתח מחדש
+                      ↻ החזר לטיפול
                     </button>
                     <button
                       onClick={() => remove(r)}
@@ -453,6 +522,64 @@ export default function PhoneSignupsPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* §166: בורר סיבת הדחייה.
+          
+          ⚠️ הסיבה חשובה: היא מה שיגיד לך בעוד שבועיים למי שווה
+          לחזור ולמי לא. "לא ענה" ו"לא מעוניין" הם שני עולמות. */}
+      {deferFor && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-sm sm:rounded-2xl rounded-t-2xl p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-extrabold text-brand-slatedark">
+                ⏳ העברה ל&quot;ממתין לחזרה&quot;
+              </h3>
+              <button
+                onClick={() => setDeferFor(null)}
+                className="text-zinc-400 text-2xl leading-none px-1"
+              >
+                ×
+              </button>
+            </div>
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              הבקשה תצא מהרשימה הפתוחה ותופיע בתזכורת. אפשר לפתוח אותה
+              מחדש בכל רגע.
+            </p>
+            <div className="space-y-2">
+              {[
+                "לא ענה לטלפון",
+                "ביקש שנחזור אליו מאוחר יותר",
+                "לא רצה להזין כרטיס כרגע",
+                "לא מעוניין כרגע",
+                "מספר טלפון שגוי",
+              ].map((reason) => (
+                <button
+                  key={reason}
+                  onClick={() => {
+                    act(deferFor, "fail", { reason });
+                    setDeferFor(null);
+                  }}
+                  className="w-full text-right px-3 py-2.5 rounded-lg border-2 border-zinc-200 hover:border-violet-400 hover:bg-violet-50 text-sm font-medium text-brand-slatedark transition-colors"
+                >
+                  {reason}
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  const reason = prompt("סיבה אחרת:");
+                  if (reason !== null && reason.trim()) {
+                    act(deferFor, "fail", { reason: reason.trim() });
+                    setDeferFor(null);
+                  }
+                }}
+                className="w-full text-right px-3 py-2.5 rounded-lg border border-zinc-200 text-xs text-zinc-500"
+              >
+                סיבה אחרת…
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -515,7 +642,23 @@ export default function PhoneSignupsPage() {
                         
                         ⚠️ מוצג רק כשאין ללקוח חשבון (customerId
                         ריק). למי שכבר רשום זה היה מייצר כפילות. */}
-                    {m.status === "NEW" && !m.customerId && points.length > 0 && (
+                    {/* §165: לקוח שכבר קיים - קישור לכרטיס במקום
+                        כפתור הקמה שייכשל. */}
+                    {m.status === "NEW" && m.existingCustomer && (
+                      <a
+                        href={`/admin/customers?openCustomer=${encodeURIComponent(
+                          m.existingCustomer.id
+                        )}`}
+                        className="btn-ghost btn-sm text-emerald-700 whitespace-nowrap"
+                        title="הלקוח כבר קיים במערכת"
+                      >
+                        ✓ {m.existingCustomer.name}
+                      </a>
+                    )}
+                    {m.status === "NEW" &&
+                      !m.customerId &&
+                      !m.existingCustomer &&
+                      points.length > 0 && (
                       <AdminAddCustomerButton
                         points={points}
                         // §164: הטלפון כבר ידוע מההודעה

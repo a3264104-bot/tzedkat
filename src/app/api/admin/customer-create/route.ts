@@ -9,6 +9,8 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+// §167: סגירת פניות טלפוניות פתוחות בהקמת לקוח
+import { closeOpenRequestsForPhone } from "@/lib/close-requests-lib";
 // §121: הפקת קוד כניסה אוטומטית בכל יצירת לקוח
 import { ensureLoginCode } from "@/lib/login-code";
 import { requireAdmin } from "@/lib/guard";
@@ -204,6 +206,17 @@ export async function POST(req: Request) {
     },
     select: { id: true, name: true, phone: true, email: true, paymentPreference: true },
   });
+
+  // §167: סגירת פניות טלפוניות פתוחות של אותו מספר.
+  //
+  // 🐛 בלי זה ההודעה נשארת "חדשה" לנצח: customerId עליה נקבע
+  // ברגע השיחה, ומתקשר שלא היה רשום אז מקבל null - ואף אחד לא
+  // מחבר בין השניים אחר כך. המנהל היה רואה בקשה, לוחץ "הקם
+  // לקוח", ומקבל "כבר קיים".
+  //
+  // ⚠️ await ולא fire-and-forget: ב-Vercel הפונקציה מסתיימת עם
+  // התשובה, ועבודה ברקע נקטעת.
+  const closed = await closeOpenRequestsForPhone(prisma, phone, customer.id);
 
   // §121: קוד כניסה לכל לקוח, מרגע היצירה.
   //
