@@ -25,6 +25,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     "kashrut",
     "kashrutId",
     "isFeatured",
+    // §170: 🐛 הטופס שלח והשרת התעלם בשקט. המנהל סימן "מוצר
+    // מועדף", לחץ שמירה, וכלום לא קרה - בלי שום שגיאה.
+    //
+    // ⚠️ זהו הדפוס שנתפס כבר חמש פעמים במערכת: רשימת שדות
+    // מפורשת ששוכחים להוסיף אליה שדה חדש.
+    "isFavorite",
     "highlightNote",
     "isFrozen",
     "limitedQty",

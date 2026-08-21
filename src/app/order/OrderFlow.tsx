@@ -1160,7 +1160,14 @@ export function OrderFlow({
                               
                               ⚠️ ההפרש מ"רצפת הנציג" (המחירון פחות
                               השקל שתמיד שלו) שייך לו במלואו - §119. */}
-                          {p.isFavorite &&
+                          {/* §170: תמחור עצמי - למועדף **וגם** למוצר
+                              שאינו פעיל באתר.
+                              
+                              ⚠️ ההגדרה שהתבררה: "כל מוצר שלא פעיל
+                              באתר אוטומטית נהיה מועדף". שני השדות
+                              תיארו את אותו דבר - מוצר שהלקוח לא
+                              רואה והנציג מוכר לפי בקשה. */}
+                          {(p.isFavorite || p.isInactive) &&
                             (entry.cartonQty > 0 || entry.singlesQty > 0) && (
                               <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-2 mb-2 space-y-1">
                                 <div className="text-[11px] font-bold text-amber-900">

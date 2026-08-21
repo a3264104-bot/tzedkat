@@ -272,8 +272,16 @@ export async function POST(req: Request) {
       // ⚠️ **רק לנציג/מנהל.** לקוח לא רואה אותם ולא אמור להזמין
       // אותם ישירות, ובקשה כזו ממנו היא ניסיון עקיפה.
       if (!pp && placedByAgentId) {
+        // §170: מוצר מועדף **או** לא-פעיל, מחוץ למחירון.
+        //
+        // ⚠️ isActive לא נבדק כאן: מוצר לא-פעיל הוא בדיוק המקרה
+        // שאנחנו רוצים לאפשר. הבדיקה היא שהוא "מיוחד" - מועדף
+        // או מוסתר מהלקוחות.
         const fav = await prisma.product.findFirst({
-          where: { id: item.productId, isFavorite: true, isActive: true },
+          where: {
+            id: item.productId,
+            OR: [{ isFavorite: true }, { isActive: false }],
+          },
         });
         if (fav) {
           // מבנה תואם ל-PricelistProduct כדי שהחישוב שלמטה יעבוד
@@ -283,7 +291,9 @@ export async function POST(req: Request) {
       }
 
       if (!pp) return NextResponse.json({ error: "מוצר לא נמצא במחירון" }, { status: 400 });
-      if (!pp.product.isActive)
+      // §170: מוצר לא-פעיל **מותר לנציג**. זו כל הנקודה - הוא
+      // מוסתר מהלקוחות, והנציג מוכר אותו לפי בקשה.
+      if (!pp.product.isActive && !placedByAgentId)
         return NextResponse.json(
           { error: `המוצר "${pp.product.name}" אינו זמין להזמנה` },
           { status: 400 }
@@ -339,7 +349,13 @@ export async function POST(req: Request) {
       // העמלה. מה שנגבה בפועל יושב ב-agentSetPrice.
       let agentSetPrice: number | null = null;
       const wanted = data.favoritePrices?.[pp.product.id];
-      if (wanted != null && placedByAgentId && pp.product.isFavorite) {
+      // §170: תמחור עצמי - מועדף **או** מוצר שאינו פעיל באתר.
+      // שניהם "מוצר שהלקוח לא רואה והנציג מוכר לפי בקשה".
+      if (
+        wanted != null &&
+        placedByAgentId &&
+        (pp.product.isFavorite || !pp.product.isActive)
+      ) {
         const n = Number(wanted);
         if (Number.isFinite(n) && n >= unitPrice && n <= unitPrice * 5) {
           agentSetPrice = n;

@@ -199,7 +199,10 @@ export default async function AgentOrderPage({
   // למכירה" - הוא נמכר לפי בקשה ובמחיר שהנציג קובע.
   const favoritesOutside = await prisma.product.findMany({
     where: {
-      isFavorite: true,
+      // §170: מועדף **או** לא-פעיל. ההגדרה שהתבררה: "כל מוצר שלא
+      // פעיל באתר אוטומטית נהיה מועדף" - שני השדות תיארו את אותו
+      // דבר, מוצר שהלקוח לא רואה והנציג מוכר לפי בקשה.
+      OR: [{ isFavorite: true }, { isActive: false }],
       // ⚠️ רק מה שלא כבר במחירון - אחרת הוא היה מופיע פעמיים
       NOT: {
         pricelists: { some: { pricelistId: pricelist?.id ?? "" } },
@@ -313,7 +316,8 @@ export default async function AgentOrderPage({
   // "⭐ מוצרים מיוחדים" עם שדה תמחור - בדיוק כמו מועדף שכן
   // נמצא במחירון.
   for (const p of favoritesOutside) {
-    if (!p.isActive) continue;
+    // ⚠️ אין סינון isActive: מוצר לא-פעיל הוא בדיוק המקרה שאנחנו
+    // רוצים להציג. הוא מוסתר מהלקוחות, לא מהנציג.
     products.push({
       id: p.id,
       name: p.name,
@@ -335,8 +339,11 @@ export default async function AgentOrderPage({
       kashrutImageUrl: p.kashrutRef?.imageUrl || null,
       isFeatured: false,
       highlightNote: p.highlightNote,
-      isInactive: false,
-      isFavorite: true,
+      // §170: מסומן כלא-פעיל אם באמת כזה - כדי שהמסך יציג את
+      // התגית הנכונה. שניהם נכנסים לאותה קטגוריה ומקבלים שדה
+      // תמחור, ולכן ההבחנה היא ויזואלית בלבד.
+      isInactive: !p.isActive,
+      isFavorite: !!p.isFavorite,
       packageWeight: p.packageWeight,
       isFrozen: p.isFrozen,
       limitedQty: p.limitedQty,

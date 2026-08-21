@@ -760,26 +760,28 @@ export default function ProductsPage() {
                 />
                 ⭐ מוצר מבצע (מודגש ללקוח)
               </label>
-              {/* §119: מוצר מועדף - ראש, בננה וכדומה.
-                  שונה מ"לא פעיל": לא פעיל הוסר מהמכירה, ומועדף
-                  קיים בכוונה ומיועד לנציגים בלבד. רק בו הנציג
-                  רשאי לקבוע מחיר גבוה ולקחת את ההפרש. */}
-              <label className="flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-lg p-2.5">
-                <input
-                  type="checkbox"
-                  checked={editing.isFavorite ?? false}
-                  onChange={(e) => setEditing({ ...editing, isFavorite: e.target.checked })}
-                  className="h-4 w-4 accent-brand-rust mt-0.5 shrink-0"
-                />
-                <div>
-                  <span className="font-bold text-amber-900">⭐ מוצר מועדף (לנציגים בלבד)</span>
-                  <p className="text-xs text-amber-800 font-normal leading-relaxed">
-                    לא יוצג ללקוחות באתר ובטלפון. הנציג מוסיף אותו ללקוחות
-                    שהוא בוחר, ורשאי לקבוע מחיר גבוה מהמחירון — ההפרש
-                    נזקף לעמלתו.
+              {/* §170: הסבר במקום צ'קבוקס שני.
+                  
+                  🐛 מה שהיה: שני שדות שתיארו את אותו דבר - "לא
+                  פעיל" ו"מועדף". המנהל לא ידע איזה לסמן, ובפועל
+                  ההגדרה היא אחת: מוצר שהלקוח לא רואה, והנציג
+                  מוכר לפי בקשה ובמחיר שהוא קובע.
+                  
+                  ⚠️ הצ'קבוקס הוסר. השדה נשאר במסד לתאימות עם
+                  מוצרים שכבר סומנו, והלוגיקה מקבלת את שניהם. */}
+              {editing.isActive === false && (
+                <div className="bg-amber-50 border border-amber-300 rounded-lg p-2.5">
+                  <span className="font-bold text-amber-900 text-sm">
+                    ⭐ מוצר לנציגים
+                  </span>
+                  <p className="text-xs text-amber-800 leading-relaxed mt-0.5">
+                    מכיוון שהמוצר אינו פעיל, הוא לא יוצג ללקוחות באתר
+                    ובטלפון. הנציג יראה אותו בקטגוריה נפרדת בהזמנה, יוכל
+                    להוסיף אותו ללקוח, <b>ולקבוע מחיר גבוה מהמחירון</b> —
+                    ההפרש נזקף לעמלתו.
                   </p>
                 </div>
-              </label>
+              )}
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
