@@ -99,6 +99,9 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/products", label: "מוצרים", icon: "🥩" },
       { href: "/admin/kashrut", label: "כשרויות", icon: "🏷️" },
       { href: "/admin/customers", label: "לקוחות", icon: "🧑" },
+      // §174: השלמת פיצול שמות ללקוחות ותיקים. מסך חד-פעמי
+      // בעיקרו - אחרי שכולם הושלמו הוא יציג "אין מה להשלים".
+      { href: "/admin/name-split", label: "השלמת שמות", icon: "✍️" },
       { href: "/admin/phone-signups", label: "בקשות מהטלפון", icon: "📞" },
       { href: "/admin/excel-order", label: "הזמנה דרך אקסל", icon: "📊" },
       { href: "/admin/agents", label: "נציגים", icon: "🧑‍💼" },

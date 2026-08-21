@@ -547,7 +547,14 @@ async function handleUnregistered(
     return yemotResponse(
       read(messages(prompt("choose_city", "בחר עיר"), ...menu), {
         name: "CITY",
-        max: 2,
+          // §175: מספר הספרות לפי מספר האפשרויות בפועל.
+          //
+          // 🐛 max=2 קבוע גרם לכך שהלקוח הקיש ספרה אחת והמערכת
+          // המתינה לשנייה שלא תגיע - שתיקה שנשמעת כמו תקלה.
+          //
+          // ⚠️ במקש בודד timeout ארוך הוא **נכון**: המשמעות שם
+          // היא "כמה זמן להמתין להקשה", ולא "לספרה נוספת" (§100).
+        max: cityList.length > 9 ? 2 : 1,
         min: 1,
           // §100: המתנה קצרה בין ספרות. שדה דו-ספרתי עם timeout
           // ארוך "נתקע" אחרי ההקשה הראשונה עד סולמית או פקיעה.
@@ -594,7 +601,14 @@ async function handleUnregistered(
         ),
         {
         name: "POINT",
-        max: 2,
+          // §175: מספר הספרות לפי מספר האפשרויות בפועל.
+          //
+          // 🐛 max=2 קבוע גרם לכך שהלקוח הקיש ספרה אחת והמערכת
+          // המתינה לשנייה שלא תגיע - שתיקה שנשמעת כמו תקלה.
+          //
+          // ⚠️ במקש בודד timeout ארוך הוא **נכון**: המשמעות שם
+          // היא "כמה זמן להמתין להקשה", ולא "לספרה נוספת" (§100).
+        max: points.length > 9 ? 2 : 1,
         min: 1,
           // §100: המתנה קצרה בין ספרות. שדה דו-ספרתי עם timeout
           // ארוך "נתקע" אחרי ההקשה הראשונה עד סולמית או פקיעה.
@@ -657,7 +671,15 @@ async function handleUnregistered(
         messages(
           ptLabel ? prompt("chosen_pre", "בחרת") : "",
           ptLabel ? say(ptLabel) : "",
-          prompt("ask_name", "אנא אמור את שמך המלא לאחר הצליל")
+          // §173: שם פרטי בלבד.
+          //
+          // 🐛 מה שגרם לבעיה: "אמור את שמך המלא" - וחלק אמרו
+          // "ברכה" בלבד. בחלוקה אי אפשר היה לדעת אם זה שם פרטי
+          // או משפחה.
+          prompt(
+            "ask_first_name",
+            "אנא אמור את שמך הפרטי לאחר הצליל, ולסיום הקש סולמית"
+          )
         ),
         "NAME"
       )
@@ -678,7 +700,13 @@ async function handleUnregistered(
       // ביקש לתקן - שואלים מחדש. NAME נדרס בערך החדש.
       return yemotResponse(
         readVoice(
-          prompt("ask_name_again", "אנא אמור את שמך המלא שוב לאחר הצליל"),
+          // §173: 🐛 נשאר "שמך המלא" אחרי הפיצול. הלקוח שביקש
+          // לתקן היה אומר שוב שם מלא, וזה מחזיר בדיוק את הבעיה
+          // שהשינוי בא לפתור.
+          prompt(
+            "ask_first_name_again",
+            "אנא אמור את שמך הפרטי שוב לאחר הצליל, ולסיום הקש סולמית"
+          ),
           "NAME"
         )
       );
@@ -686,7 +714,8 @@ async function handleUnregistered(
     return yemotResponse(
       read(
         messages(
-          prompt("name_confirm_pre", "השם שנקלט"),
+          // §173: מדויק - זה השם הפרטי, לא השם המלא
+          prompt("fname_confirm_pre", "השם הפרטי שנקלט"),
           say(rawName),
           prompt("name_confirm_ask", "לאישור הקש 1, לשינוי הקש 2")
         ),
@@ -694,6 +723,59 @@ async function handleUnregistered(
       )
     );
   }
+
+  // ─── §173 שלב 3ב: שם משפחה ───
+  //
+  // ⚠️ שאלה **נפרדת** ולא "אמור שם מלא". זו כל מטרת השינוי:
+  // כשמבקשים את שני החלקים בנפרד, מקבלים אותם בנפרד.
+  //
+  // ⚠️ נשאל רק אחרי שהשם הפרטי אושר - אחרת הלקוח היה מקליט
+  // שניים ומגלה שהראשון נקלט שגוי.
+  const rawLast = String(p.LNAME ?? "").trim();
+
+  if (finalName !== "לקוח טלפוני" && !rawLast) {
+    return yemotResponse(
+      readVoice(
+        prompt(
+          "ask_last_name",
+          "אנא אמור את שם המשפחה שלך לאחר הצליל, ולסיום הקש סולמית"
+        ),
+        "LNAME"
+      )
+    );
+  }
+
+  // אישור שם המשפחה - אותו דפוס כמו השם הפרטי
+  if (rawLast && p.LNAMEOK !== "1") {
+    if (p.LNAMEOK === "2") {
+      return yemotResponse(
+        readVoice(
+          prompt(
+            "ask_last_name_again",
+            "אנא אמור את שם המשפחה שלך שוב לאחר הצליל, ולסיום הקש סולמית"
+          ),
+          "LNAME"
+        )
+      );
+    }
+    return yemotResponse(
+      read(
+        messages(
+          prompt("lname_confirm_pre", "שם המשפחה שנקלט"),
+          say(rawLast),
+          prompt("name_confirm_ask", "לאישור הקש 1, לשינוי הקש 2")
+        ),
+        { name: "LNAMEOK", max: 1, min: 1, allowed: "12" }
+      )
+    );
+  }
+
+  // §173: הרכבת השם המלא.
+  //
+  // ⚠️ שם משפחה לא סביר נזרק, והשם הפרטי לבדו נשמר. עדיף שם
+  // חלקי נכון מאשר צירוף עם רעש שנקלט.
+  const finalLast = isPlausibleName(rawLast) ? rawLast : null;
+  const fullName = finalLast ? `${finalName} ${finalLast}` : finalName;
 
   // ─── §25 שלב 4: הסכמה לתנאי השימוש ───
   // באתר הלקוח מסמן צ'קבוקס ואנחנו שומרים agreedToTerms עם חותמת זמן.
@@ -744,7 +826,8 @@ async function handleUnregistered(
   // ו-.trim() לא נוגע בהם. התוצאה: `LIKE '%בושקפן%'` החזיר אפס
   // שורות על לקוח שקיים - הנציג לא מצא אותו, יצר מחדש, וכפילות.
   // §84: finalName כבר נוקה ואושר בשלב 3 למעלה
-  const name = finalName;
+  // §173: name הוא כעת השם המלא - פרטי + משפחה.
+  const name = fullName;
 
   // הגנה מפני יצירה כפולה אם ימות שולחים את אותה בקשה פעמיים
   const already = await prisma.customer.findUnique({ where: { phone } });
@@ -759,6 +842,11 @@ async function handleUnregistered(
   const created = await prisma.customer.create({
     data: {
       name,
+      // §173: הפיצול נשמר בנפרד. finalLast עשוי להיות null אם
+      // שם המשפחה לא נקלט - ואז יש רק שם פרטי, וזה עדיין טוב
+      // בהרבה מ"ברכה" בלי שנדע מה זה.
+      firstName: finalName !== "לקוח טלפוני" ? finalName : null,
+      lastName: finalLast,
       phone,
       passwordHash,
       // לא שומרים passwordPlain - הסיסמה לא מיועדת למסירה ללקוח
@@ -1703,7 +1791,14 @@ async function handleMyPoint(
         ),
         {
           name: "NEWCITY",
-          max: 2,
+          // §175: מספר הספרות לפי מספר האפשרויות בפועל.
+          //
+          // 🐛 max=2 קבוע גרם לכך שהלקוח הקיש ספרה אחת והמערכת
+          // המתינה לשנייה שלא תגיע - שתיקה שנשמעת כמו תקלה.
+          //
+          // ⚠️ במקש בודד timeout ארוך הוא **נכון**: המשמעות שם
+          // היא "כמה זמן להמתין להקשה", ולא "לספרה נוספת" (§100).
+          max: cityList.length > 9 ? 2 : 1,
           min: 1,
           // §100: המתנה קצרה בין ספרות. שדה דו-ספרתי עם timeout
           // ארוך "נתקע" אחרי ההקשה הראשונה עד סולמית או פקיעה.
@@ -1740,7 +1835,14 @@ async function handleMyPoint(
         ),
         {
           name: "NEWPOINT",
-          max: 2,
+          // §175: מספר הספרות לפי מספר האפשרויות בפועל.
+          //
+          // 🐛 max=2 קבוע גרם לכך שהלקוח הקיש ספרה אחת והמערכת
+          // המתינה לשנייה שלא תגיע - שתיקה שנשמעת כמו תקלה.
+          //
+          // ⚠️ במקש בודד timeout ארוך הוא **נכון**: המשמעות שם
+          // היא "כמה זמן להמתין להקשה", ולא "לספרה נוספת" (§100).
+          max: pts.length > 9 ? 2 : 1,
           min: 1,
           // §100: המתנה קצרה בין ספרות. שדה דו-ספרתי עם timeout
           // ארוך "נתקע" אחרי ההקשה הראשונה עד סולמית או פקיעה.

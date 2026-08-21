@@ -5,13 +5,21 @@ import { prisma } from "@/lib/prisma";
 // §167: סגירת פניות טלפוניות פתוחות בהקמת לקוח
 import { closeOpenRequestsForPhone } from "@/lib/close-requests-lib";
 import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
+// §173: הרכבת השם המלא משם פרטי ומשפחה
+import { buildName } from "@/lib/name-lib";
 // §121: הפקת קוד כניסה אוטומטית
 import { ensureLoginCode } from "@/lib/login-code";
 
 // מודל הזיהוי: טלפון = חובה (המזהה הראשי להתחברות, לכולם יש).
 // מייל = אופציונלי אך מומלץ (מאפשר איפוס סיסמה עצמאי + אישורי הזמנה).
 const schema = z.object({
-  name: z.string().min(1, "יש להזין שם"),
+  // §173: שם פרטי ומשפחה בנפרד.
+  //
+  // ⚠️ name נשאר אופציונלי לתאימות: קליינט ישן ששולח רק name
+  // ימשיך לעבוד עד שהמסך יתעדכן. אם שניהם הגיעו - הפיצול מנצח.
+  name: z.string().optional(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
   phone: z.string().trim().min(1, "יש להזין מספר טלפון"),
   email: z.string().trim().email("כתובת מייל לא תקינה").optional().nullable().or(z.literal("")),
   password: z.string().min(6, "הסיסמה חייבת להכיל לפחות 6 תווים"),
@@ -42,6 +50,39 @@ export async function POST(req: Request) {
     if (!isValidPhone(phone)) {
       return NextResponse.json({ error: "מספר טלפון לא תקין" }, { status: 400 });
     }
+    // §173: הרכבת השם.
+    //
+    // 🐛 מה שגרם לבעיה: שדה שם אחד. לקוחות הזינו "ברכה" בלבד,
+    // ובחלוקה אי אפשר היה לדעת אם זה שם פרטי או משפחה.
+    //
+    // ⚠️ הבדיקה בשרת ולא רק בטופס: הסתרת שדה נעקפת בבקשה ישירה,
+    // וזה בדיוק המקרה שיצר את הנתונים החסרים.
+    //
+    // ⚠️ תאימות לאחור: קליינט ישן ששולח רק name ממשיך לעבוד -
+    // אחרת פריסה חלקית הייתה שוברת את ההרשמה לגמרי.
+    let firstName: string | null = null;
+    let lastName: string | null = null;
+    let fullName: string;
+
+    if (data.firstName || data.lastName) {
+      const built = buildName(data.firstName, data.lastName);
+      if (!built.ok) {
+        return NextResponse.json({ error: built.error }, { status: 400 });
+      }
+      firstName = built.firstName;
+      lastName = built.lastName;
+      fullName = built.name;
+    } else {
+      const legacy = cleanName(String(data.name ?? ""));
+      if (!legacy || legacy.length < 2) {
+        return NextResponse.json(
+          { error: "יש להזין שם פרטי ושם משפחה" },
+          { status: 400 }
+        );
+      }
+      fullName = legacy;
+    }
+
     const email = data.email?.trim().toLowerCase() || null;
 
     // §66: אישור התנאים כולל את ההסכמה למיילים (סעיף 2).
@@ -124,7 +165,9 @@ export async function POST(req: Request) {
         const updated = await prisma.customer.update({
           where: { id: existingByPhone.id },
           data: {
-            name: cleanName(data.name),
+            name: fullName,
+            firstName,
+            lastName,
             email,
             passwordHash,
             // נקודה חדשה רק אם נבחרה; אחרת נשמרת זו שנבחרה בטלפון
@@ -220,7 +263,9 @@ export async function POST(req: Request) {
 
     const customer = await prisma.customer.create({
       data: {
-        name: cleanName(data.name),
+        name: fullName,
+        firstName,
+        lastName,
         phone,
         email,
         passwordHash,
@@ -256,7 +301,10 @@ export async function POST(req: Request) {
   //
   // ⚠️ await ולא fire-and-forget: ב-Vercel הפונקציה מסתיימת עם
   // התשובה, ועבודה ברקע נקטעת.
-  const closed = await closeOpenRequestsForPhone(prisma, phone, customer.id);
+  // ⚠️ בלי השמה למשתנה: התוצאה אינה בשימוש, ו-noUnusedLocals
+  // ב-tsconfig היה מכשיל את ה-build. הסגירה עצמה חשובה, הספירה
+  // רק ללוג.
+  await closeOpenRequestsForPhone(prisma, phone, customer.id);
 
     // §121: הפקת קוד כניסה גם בהרשמה עצמית.
     //

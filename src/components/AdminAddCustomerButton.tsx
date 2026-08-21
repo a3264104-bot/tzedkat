@@ -97,6 +97,9 @@ function Modal({
   const [existing, setExisting] = useState<Existing | null>(null);
   const [searched, setSearched] = useState(false);
   const [name, setName] = useState("");
+  // §173: שם פרטי ומשפחה - אופציונלי, להשלמת הפיצול
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   // §161: טלפון נוסף - לזיהוי במערכת הטלפונית ולחלוקה
   const [phone2, setPhone2] = useState("");
@@ -173,6 +176,9 @@ function Modal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
+          // §173: הפיצול, אם מולא
+          firstName: firstName.trim() || null,
+          lastName: lastName.trim() || null,
           phone: phone.trim(),
           email: email.trim() || null,
           // §161: טלפון נוסף
@@ -351,6 +357,43 @@ function Modal({
                   ✨ לקוח חדש — הזן פרטים
                 </div>
 
+
+                {/* §173: שם פרטי ומשפחה - **אופציונלי כאן**.
+                    
+                    ⚠️ בניגוד להרשמה באתר, כאן זה לא חובה: הנציג
+                    מקים לקוח תוך כדי שיחה או בחלוקה, ודרישה לשני
+                    שדות הייתה מאטה אותו ברגע הלא נכון.
+                    
+                    ⚠️ מי שמילא רק את השם המלא - הלקוח יופיע במסך
+                    "השלמת שמות" ויטופל שם בהמשך. */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs font-bold text-zinc-500 block mb-1">
+                      שם פרטי{" "}
+                      <span className="font-normal text-zinc-400">(מומלץ)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="יוסי"
+                      className="w-full px-3 py-2.5 border-2 border-zinc-300 rounded-lg text-sm focus:outline-none focus:border-brand-rust"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-zinc-500 block mb-1">
+                      שם משפחה{" "}
+                      <span className="font-normal text-zinc-400">(מומלץ)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="כהן"
+                      className="w-full px-3 py-2.5 border-2 border-zinc-300 rounded-lg text-sm focus:outline-none focus:border-brand-rust"
+                    />
+                  </div>
+                </div>
                 <div>
                   <label className="text-xs font-bold text-zinc-500 block mb-1">שם *</label>
                   <input

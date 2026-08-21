@@ -77,10 +77,14 @@ export async function PATCH(
         order: {
           pricelistId,
           status: { notIn: ["CANCELLED"] },
-          // רק הזמנות בנקודות של הנציג הזה - לא של כל המכירה
-          ...(g.agentPointIds.length > 0
-            ? { pointId: { in: g.agentPointIds } }
-            : {}),
+          // רק הזמנות בנקודות של הנציג הזה - לא של כל המכירה.
+          //
+          // §176: ⚠️ מערך ריק חוסם. כאן זו ספירת משקלים חסרים,
+          // ובלי הסינון הנציג היה נחסם מסגירה בגלל הזמנות של
+          // נקודות אחרות שלא הוא שקל.
+          ...(g.isAdmin
+            ? {}
+            : { pointId: { in: g.agentPointIds.length ? g.agentPointIds : ["__none__"] } }),
         },
       },
     });

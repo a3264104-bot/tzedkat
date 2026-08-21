@@ -36,6 +36,9 @@ const ALLOWED_FIELDS = [
   // §145: 🐛 בלי זה השדה נשלח מהמסך ונזרק בשקט - הצ'קבוקס
   // היה מסומן, ההודעה "נשמר" הופיעה, וברענון הכל חזר לאחור.
   "wantsExcelOrder",
+  // §173: שם פרטי ומשפחה
+  "firstName",
+  "lastName",
 ] as const;
 
 // §24: נציג עם הרשאת agentCanResetPassword יכול לאפס סיסמה ללקוח -
@@ -132,6 +135,9 @@ export async function GET(
     hasLoginCode: !!c.loginCode,
     hasPassword: !!c.passwordHash,
     wantsExcelOrder: !!c.wantsExcelOrder,
+    // §173: שם פרטי ומשפחה
+    firstName: c.firstName ?? null,
+    lastName: c.lastName ?? null,
     creditBalance: Number(c.creditBalance ?? 0),
     loginCodeSetAt: c.loginCodeSetAt,
     lockedUntil: c.lockedUntil,

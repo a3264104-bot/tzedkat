@@ -38,7 +38,21 @@ export async function GET(
   // הזמנות: אם הנציג משויך לנקודות - רק ההזמנות שלהן. אם לא (מנהל) - הכל.
   // g.agentPointIds מכיל את *כל* נקודות הנציג (many-to-many), לא רק אחת.
   const whereOrders: any = { pricelistId };
-  if (g.agentPointIds.length > 0) {
+  // §176: 🚨 מערך ריק = **חסימה**, לא "בלי הגבלה".
+  //
+  // 🐛 `length > 0` דילג על הסינון כשאין נקודות, ואז נציג בלי
+  // שיוך ראה את המכירה של **כל הנקודות** - לקוחות של נציגים
+  // אחרים, עם שמות, טלפונים וסכומים.
+  //
+  // ⚠️ המנהל מזוהה ב-isAdmin ולא בהיעדר נקודות - זה בדיוק
+  // הבלבול שיצר את הפרצה.
+  if (!g.isAdmin) {
+    if (g.agentPointIds.length === 0) {
+      return NextResponse.json(
+        { error: "אין לך נקודת חלוקה משויכת. פנה למנהל." },
+        { status: 403 }
+      );
+    }
     whereOrders.pointId = { in: g.agentPointIds };
   }
 

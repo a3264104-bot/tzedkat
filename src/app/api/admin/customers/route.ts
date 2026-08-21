@@ -21,7 +21,10 @@ export async function GET(req: Request) {
           { name: { contains: q, mode: "insensitive" as const } },
           { phone: { contains: q } },
           { email: { contains: q, mode: "insensitive" as const } },
-        ],
+          // §173: חיפוש גם לפי שם פרטי או משפחה בנפרד
+        { firstName: { contains: q, mode: "insensitive" as const } },
+        { lastName: { contains: q, mode: "insensitive" as const } },
+      ],
       }
     : {};
 
@@ -97,6 +100,10 @@ export async function GET(req: Request) {
       hasPassword: !!c.passwordHash,
       // §145: מקבל קובץ אקסל להזמנה בכל מכירה
       wantsExcelOrder: !!c.wantsExcelOrder,
+      // §173: שם פרטי ומשפחה. null אצל 400 הלקוחות הוותיקים -
+      // המסך מסמן אותם כ"חסר פיצול" והמנהל משלים בהדרגה.
+      firstName: c.firstName ?? null,
+      lastName: c.lastName ?? null,
       // §126: יתרת זכות פתוחה - המנהל צריך לראות למי חייבים,
       // בלי להיכנס לכל כרטיס בנפרד.
       creditBalance: Number(c.creditBalance ?? 0),

@@ -133,6 +133,85 @@ export default async function AgentOrderDetailPage({
         })
       : [];
 
+  // §176: 🐛 מוצר מיוחד שאינו במחירון לא הופיע כאן כלל.
+  //
+  // השליפה למעלה היא על pricelistProduct - כלומר רק מה שנוסף
+  // למכירה. מוצר לא-פעיל או מועדף שלא נוסף אליה פשוט לא היה
+  // קיים במסך ההוספה, בזמן שבמסך ההזמנה החדשה הוא כן (§169).
+  //
+  // ⚠️ אותו פער בדיוק שתוקן ב-§169, במסלול השני. הנציג שהוסיף
+  // פריט להזמנה קיימת לא ראה את מה שראה בהזמנה חדשה.
+  const specialOutside =
+    salePricelist && salePricelist.status === "ACTIVE"
+      ? await prisma.product.findMany({
+          where: {
+            OR: [{ isFavorite: true }, { isActive: false }],
+            NOT: {
+              pricelists: { some: { pricelistId: salePricelist.id } },
+            },
+          },
+          select: {
+            id: true,
+            name: true,
+            unit: true,
+            cartonPrice: true,
+            priceType: true,
+            allowSingles: true,
+            singlesMode: true,
+            singleUnitPrice: true,
+            avgWeightPerUnit: true,
+            isActive: true,
+            isFavorite: true,
+            category: { select: { name: true } },
+          },
+        })
+      : [];
+
+  // §176: רשימה אחת - מהמחירון + המיוחדים שמחוצה לו.
+  //
+  // ⚠️ מורכבת כאן ולא בכל שימוש: היא מופיעה בשני מקומות במסך
+  // (הוספה רגילה ותוספת בחלוקה), ושתי גרסאות היו מתפצלות.
+  const allAddable = [
+    ...addableProducts.map((pp) => ({
+      id: pp.product.id,
+      name: pp.product.name,
+      unit: pp.product.unit,
+      cartonPrice: Number(pp.price ?? pp.product.cartonPrice),
+      priceType: pp.product.priceType,
+      allowSingles: pp.product.allowSingles,
+      singlesMode: pp.product.singlesMode,
+      singleUnitPrice:
+        pp.product.singleUnitPrice != null
+          ? Number(pp.product.singleUnitPrice)
+          : null,
+      avgWeightPerUnit:
+        pp.product.avgWeightPerUnit != null
+          ? Number(pp.product.avgWeightPerUnit)
+          : null,
+      isActive: pp.product.isActive,
+      isFavorite: pp.product.isFavorite,
+      categoryName: pp.product.category?.name ?? null,
+    })),
+    // ⚠️ מוצר מחוץ למחירון: אין לו רשומת מחיר, ולכן cartonPrice
+    // של המוצר עצמו הוא הבסיס - בדיוק כמו ב-§169.
+    ...specialOutside.map((p) => ({
+      id: p.id,
+      name: p.name,
+      unit: p.unit,
+      cartonPrice: Number(p.cartonPrice),
+      priceType: p.priceType,
+      allowSingles: p.allowSingles,
+      singlesMode: p.singlesMode,
+      singleUnitPrice:
+        p.singleUnitPrice != null ? Number(p.singleUnitPrice) : null,
+      avgWeightPerUnit:
+        p.avgWeightPerUnit != null ? Number(p.avgWeightPerUnit) : null,
+      isActive: p.isActive,
+      isFavorite: p.isFavorite,
+      categoryName: p.category?.name ?? null,
+    })),
+  ];
+
   const hasToken = !!order.customer.paymentToken;
   const finalTotal = order.finalTotal != null ? Number(order.finalTotal) : null;
   const estimatedTotal = Number(order.estimatedTotal);
@@ -289,30 +368,11 @@ export default async function AgentOrderDetailPage({
         {/* §70: הוספת מוצר להזמנה - עם בורר בודדים/קרטון וכמות,
             בדיוק כמו באתר. מוצג רק במכירה פעילה ולפני קביעת מחיר
             סופי - אותן חסימות שיש ב-API. */}
-        {addableProducts.length > 0 && (
+        {allAddable.length > 0 && (
           <AgentAddItemPanel
             orderId={order.id}
             singleSurcharge={Number(salePricelist?.singleSurcharge ?? 0)}
-            products={addableProducts.map((pp) => ({
-              id: pp.product.id,
-              name: pp.product.name,
-              unit: pp.product.unit,
-              cartonPrice: Number(pp.price ?? pp.product.cartonPrice),
-              priceType: pp.product.priceType,
-              allowSingles: pp.product.allowSingles,
-              singlesMode: pp.product.singlesMode,
-              singleUnitPrice:
-                pp.product.singleUnitPrice != null
-                  ? Number(pp.product.singleUnitPrice)
-                  : null,
-              avgWeightPerUnit:
-                pp.product.avgWeightPerUnit != null
-                  ? Number(pp.product.avgWeightPerUnit)
-                  : null,
-              isActive: pp.product.isActive,
-              isFavorite: pp.product.isFavorite,
-              categoryName: pp.product.category?.name ?? null,
-            }))}
+            products={allAddable}
           />
         )}
 
@@ -323,7 +383,7 @@ export default async function AgentOrderDetailPage({
             מקבלת את הפאנל הרגיל למעלה; זו שתומחרה מקבלת את זה. */}
         {!canAddItems &&
           salePricelist?.status === "ACTIVE" &&
-          addableProducts.length > 0 &&
+          allAddable.length > 0 &&
           order.status !== "CANCELLED" && (
             <AddSupplement
               parentOrderId={order.id}
@@ -331,26 +391,7 @@ export default async function AgentOrderDetailPage({
               customerName={order.customerName}
               hasCard={hasToken}
               singleSurcharge={Number(salePricelist.singleSurcharge ?? 0)}
-              products={addableProducts.map((pp) => ({
-                id: pp.product.id,
-                name: pp.product.name,
-                unit: pp.product.unit,
-                cartonPrice: Number(pp.price ?? pp.product.cartonPrice),
-                priceType: pp.product.priceType,
-                allowSingles: pp.product.allowSingles,
-                singlesMode: pp.product.singlesMode,
-                singleUnitPrice:
-                  pp.product.singleUnitPrice != null
-                    ? Number(pp.product.singleUnitPrice)
-                    : null,
-                avgWeightPerUnit:
-                  pp.product.avgWeightPerUnit != null
-                    ? Number(pp.product.avgWeightPerUnit)
-                    : null,
-                isActive: pp.product.isActive,
-                isFavorite: pp.product.isFavorite,
-                categoryName: pp.product.category?.name ?? null,
-              }))}
+              products={allAddable}
             />
           )}
 

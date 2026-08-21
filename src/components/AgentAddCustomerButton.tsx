@@ -55,7 +55,9 @@ export function AgentAddCustomerButton({ className = "" }: { className?: string 
             d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
           />
         </svg>
-        חיפוש / לקוח חדש
+        {/* §176: 🐛 "חיפוש / לקוח חדש" לא אמר מה קורה אחר כך.
+            הנציג שרצה להזמין ללקוח קיים לא ידע שזה המקום. */}
+        הזמנה ללקוח
       </button>
       {open && <AddCustomerModal onClose={() => setOpen(false)} />}
     </>
@@ -71,6 +73,9 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
   const [systemUser, setSystemUser] = useState<SystemUser | null>(null);
   const [searched, setSearched] = useState(false);
   const [name, setName] = useState("");
+  // §173: שם פרטי ומשפחה - אופציונלי, להשלמת הפיצול
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   // §161: טלפון נוסף - לזיהוי במערכת הטלפונית ולחלוקה
   const [phone2, setPhone2] = useState("");
@@ -155,6 +160,9 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
+          // §173: הפיצול, אם מולא
+          firstName: firstName.trim() || null,
+          lastName: lastName.trim() || null,
           phone: q.trim(),
           email: email.trim() || null,
           phone2: phone2.trim() || null,
@@ -226,7 +234,7 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-white w-full max-w-md sm:rounded-2xl rounded-t-2xl max-h-[95vh] overflow-y-auto shadow-2xl">
         <div className="sticky top-0 bg-white border-b border-zinc-200 px-5 py-3 flex items-center justify-between z-10">
-          <h3 className="font-extrabold text-brand-slatedark text-lg">חיפוש לקוח</h3>
+          <h3 className="font-extrabold text-brand-slatedark text-lg">הזמנה ללקוח</h3>
           <button
             onClick={onClose}
             className="text-zinc-400 hover:text-zinc-600 text-2xl leading-none px-2"
@@ -332,6 +340,43 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
                 ✨ לקוח חדש — הזן את הפרטים כדי ליצור אותו
               </div>
 
+
+                {/* §173: שם פרטי ומשפחה - **אופציונלי כאן**.
+                    
+                    ⚠️ בניגוד להרשמה באתר, כאן זה לא חובה: הנציג
+                    מקים לקוח תוך כדי שיחה או בחלוקה, ודרישה לשני
+                    שדות הייתה מאטה אותו ברגע הלא נכון.
+                    
+                    ⚠️ מי שמילא רק את השם המלא - הלקוח יופיע במסך
+                    "השלמת שמות" ויטופל שם בהמשך. */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs font-bold text-zinc-500 block mb-1">
+                      שם פרטי{" "}
+                      <span className="font-normal text-zinc-400">(מומלץ)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="יוסי"
+                      className="w-full px-3 py-2.5 border-2 border-zinc-300 rounded-lg text-sm focus:outline-none focus:border-brand-rust"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-zinc-500 block mb-1">
+                      שם משפחה{" "}
+                      <span className="font-normal text-zinc-400">(מומלץ)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="כהן"
+                      className="w-full px-3 py-2.5 border-2 border-zinc-300 rounded-lg text-sm focus:outline-none focus:border-brand-rust"
+                    />
+                  </div>
+                </div>
               <div>
                 <label className="text-xs font-bold text-zinc-500 block mb-1">שם *</label>
                 <input

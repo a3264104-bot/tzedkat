@@ -214,22 +214,20 @@ const TTS_ONLY = new Set<string>([
   // ברגע שמקליטים אחת: מוחקים את השורה מכאן (או מוסיפים את השם
   // ל-YEMOT_RECORDED ב-Vercel, שגובר על הרשימה בלי פריסת קוד).
   //
-  // הכי נשמעות מבין אלה, לפי סדר עדיפות להקלטה:
-  //   shekels_per_kg      - בכל מוצר שנמכר לפי משקל
-  //   mode_carton_kg_post - יחד איתה, באותה הודעה
-  //   sku_chosen          - בכל בחירת מק"ט
+  // §177: **12 הקלטות הוסרו מכאן** - הן הוקלטו והועלו:
+  //   shekels_per_kg · mode_carton_kg_post · login_code_repeat
+  //   credit_balance_pre · credit_balance_post · detail_end
+  //   ask_first_name · ask_first_name_again · fname_confirm_pre
+  //   ask_last_name · ask_last_name_again · lname_confirm_pre
+  //
+  // ⚠️ ההקלטות של השמות (§173) מעולם לא היו כאן - הן נוצרו
+  // אחרי הרשימה הזו, ולכן ניגנו כהקלטה מהרגע הראשון. אם הן
+  // נשמעות כשקט, הבעיה בשם הקובץ בימות ולא כאן.
   "sku_chosen",
   "mode_carton_kg",
-  "mode_carton_kg_post",
-  "shekels_per_kg",
-  "login_code_repeat",
   "code_missing",
   "code_not_ready",
   "order_paid_pre",
-  // §148: סיום פירוט ההזמנה בטלפון
-  "detail_end",
-  "credit_balance_pre",
-  "credit_balance_post",
   // §110: star_hint הוסר - הוקלט והועלה.
 ]);
 
@@ -324,7 +322,16 @@ const MAX_TTS_SEGMENT = 200;
  * על כל התפריטים במערכת. **אין להכניס תווים שאינם פסיק** בלי
  * לבדוק בשיחה אמיתית - תו לא בטוח מנתק את השיחה.
  */
-const TTS_PAUSE = ", , , ";
+// §175: 🐛 פסיקים רצופים נקראו כתו ולא כהפוגה.
+//
+// הערך הקודם היה ", , , " - ארבעה פסיקים בין כל פריט. מנוע
+// ההקראה של ימות פירש חלק מהם כתו לקריאה, והלקוח שמע אות
+// אקראית בין שם העיר להמשך המשפט ("לירושלים H הקש 1").
+//
+// ⚠️ פסיק אחד נותן את אותה הפוגה בלי הסיכון. אם ההפוגה תתברר
+// כקצרה מדי, הדרך הנכונה להאריך אותה היא **מקטע נפרד** ולא
+// עוד פסיקים.
+const TTS_PAUSE = ", ";
 
 /** השמעת הודעות ואז יציאה/מעבר */
 export function playMessage(...parts: string[]): string {

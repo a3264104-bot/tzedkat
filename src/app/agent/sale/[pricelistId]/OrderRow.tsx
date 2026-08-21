@@ -5,6 +5,8 @@ import { useState } from "react";
 import Link from "next/link";
 import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
 import { AddOrderItem } from "@/components/AddOrderItem";
+// §91: סימון תשלום מזומן - מונע חיוב כפול
+import { CashPaymentButton } from "@/components/CashPaymentButton";
 
 type Props = {
   order: Order;
@@ -209,6 +211,22 @@ export function OrderRow({
         </svg>
       </button>
 
+      {/* §176: כתוב במפורש מה קורה בלחיצה.
+          
+          🐛 מה שהיה: לחיצה על שם הלקוח פותחת את הפריטים ואת
+          הוספת המוצרים - אבל שום דבר במסך לא אמר את זה. הנציג
+          היה צריך לנחש שהשם הוא כפתור, ומה מסתתר מאחוריו.
+          
+          ⚠️ מוצג רק כשסגור: כשהוא פתוח זה כבר ברור מעצמו. */}
+      {!expanded && !readOnly && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full flex items-center justify-center gap-1.5 py-2 border-t border-zinc-100 text-xs font-bold text-brand-rust hover:bg-orange-50 transition-colors"
+        >
+          ⚖️ הזנת משקלים והוספת מוצרים
+        </button>
+      )}
+
       {/* Body - הפריטים */}
       {expanded && (
         <div className="border-t border-zinc-100 divide-y divide-zinc-100">
@@ -268,6 +286,23 @@ export function OrderRow({
                   if (!res.ok) throw new Error(data.error || "שגיאה בהוספה");
                   onNeedsReload();
                 }}
+              />
+            </div>
+          )}
+
+          {/* §91: שולם במזומן.
+              🐛 עד עכשיו לנציג לא הייתה שום דרך לרשום שקיבל כסף.
+              התוצאה: ההזמנה נשארה "ממתינה לחיוב", ובערב הכרטיס
+              של הלקוח חויב על סחורה ששולמה - תשלום כפול.
+              המקום כאן בכוונה: זה המסך שבו הנציג עומד בחלוקה. */}
+          {!readOnly && (
+            <div className="p-3 border-t border-zinc-100">
+              <CashPaymentButton
+                orderId={order.id}
+                finalTotal={order.finalTotal}
+                paymentStatus={order.paymentStatus}
+                customerName={order.customerName}
+                onDone={onNeedsReload}
               />
             </div>
           )}

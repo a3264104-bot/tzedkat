@@ -18,6 +18,8 @@ import bcrypt from "bcryptjs";
 import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
 // §162: חוסם טלפון נוסף שכבר משמש לזיהוי של לקוח אחר
 import { validatePhone2 } from "@/lib/phone2-lib";
+// §173: הרכבת שם מלא משם פרטי ומשפחה
+import { buildName } from "@/lib/name-lib";
 
 // סיסמה קריאה: בלי תווים שקל לבלבל (0/O, 1/l) - היא נמסרת בטלפון
 function generatePassword(): string {
@@ -107,7 +109,32 @@ export async function POST(req: Request) {
   // §162: 🐛 בלי הבדיקה, אפשר היה להזין מספר שכבר משמש לזיהוי
   // של לקוח אחר - ואז **שניהם** לא היו מזוהים בטלפון, כי ה-IVR
   // דוחה התאמה מרובה. זו תקלה שקשה מאוד לאבחן בדיעבד.
-  const p2 = await validatePhone2(prisma, b.phone2);
+    // §173: שם פרטי ומשפחה.
+  //
+  // ⚠️ **לא חובה כאן**, בניגוד להרשמה באתר. הנציג מקים לקוח
+  // תוך כדי שיחה או בחלוקה, ודרישה לשני שדות הייתה מאטה אותו
+  // בדיוק ברגע הלא נכון. מי שמילא רק שם אחד - הלקוח יופיע
+  // במסך "השלמת שמות" (§174) ויטופל שם.
+  //
+  // ⚠️ אם שניהם מולאו - הם גוברים על name, והשם המלא מורכב
+  // מהם. אחרת name נשאר כפי שהוזן.
+  // ⚠️ הקובץ הזה משתמש ב-b ולא ב-body (בניגוד למסלול הנציג)
+  const fRaw = String(b.firstName ?? "").trim();
+  const lRaw = String(b.lastName ?? "").trim();
+  let splitFirst: string | null = null;
+  let splitLast: string | null = null;
+  let composedName: string | null = null;
+  if (fRaw && lRaw) {
+    const built = buildName(fRaw, lRaw);
+    if (!built.ok) {
+      return NextResponse.json({ error: built.error }, { status: 400 });
+    }
+    splitFirst = built.firstName;
+    splitLast = built.lastName;
+    composedName = built.name;
+  }
+
+const p2 = await validatePhone2(prisma, b.phone2);
   if (!p2.ok) {
     return NextResponse.json(
       { error: p2.error, code: "PHONE2_CONFLICT", conflictWith: p2.conflictWith },
@@ -190,7 +217,10 @@ export async function POST(req: Request) {
   const password = generatePassword();
   const customer = await prisma.customer.create({
     data: {
-      name,
+      name: composedName ?? name,
+      // §173: פיצול השם, אם מולא
+      firstName: splitFirst,
+      lastName: splitLast,
       phone,
       phone2: p2.value,
       email,
@@ -216,7 +246,10 @@ export async function POST(req: Request) {
   //
   // ⚠️ await ולא fire-and-forget: ב-Vercel הפונקציה מסתיימת עם
   // התשובה, ועבודה ברקע נקטעת.
-  const closed = await closeOpenRequestsForPhone(prisma, phone, customer.id);
+  // ⚠️ בלי השמה למשתנה: התוצאה אינה בשימוש, ו-noUnusedLocals
+  // ב-tsconfig היה מכשיל את ה-build. הסגירה עצמה חשובה, הספירה
+  // רק ללוג.
+  await closeOpenRequestsForPhone(prisma, phone, customer.id);
 
   // §121: קוד כניסה לכל לקוח, מרגע היצירה.
   //

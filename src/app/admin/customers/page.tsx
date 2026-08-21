@@ -31,6 +31,9 @@ type Customer = {
   creditBalance?: number;
   /** §145: מקבל קובץ אקסל להזמנה בכל מכירה */
   wantsExcelOrder?: boolean;
+  /** §173: שם פרטי ומשפחה. null אצל לקוחות ותיקים. */
+  firstName?: string | null;
+  lastName?: string | null;
   /** §158: הזמנה פעילה במכירה הנוכחית */
   activeOrderId?: string | null;
   activeOrderNumber?: number | null;
@@ -106,6 +109,9 @@ export default function AdminCustomersPage() {
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editName, setEditName] = useState("");
+  // §173: שם פרטי ומשפחה - להשלמה הדרגתית של לקוחות ותיקים
+  const [editFirst, setEditFirst] = useState("");
+  const [editLast, setEditLast] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -319,6 +325,8 @@ export default function AdminCustomersPage() {
     setEditEmail(c.email ?? "");
     setEditPhone(c.phone ?? "");
     setEditName(c.name);
+    setEditFirst(c.firstName ?? "");
+    setEditLast(c.lastName ?? "");
     setShowExistingPw(false);
     setConvertingToAgent(false);
     setNewRole(c.role);
@@ -501,6 +509,15 @@ export default function AdminCustomersPage() {
     try {
       const payload: any = {};
       if (editName !== editing.name) payload.name = editName;
+      // §173: מילוי שני החלקים מרכיב גם את השם המלא, אלא אם
+      // המנהל ערך אותו ידנית באותו מסך.
+      const f = editFirst.trim();
+      const l = editLast.trim();
+      if (f !== (editing.firstName ?? "") || l !== (editing.lastName ?? "")) {
+        payload.firstName = f || null;
+        payload.lastName = l || null;
+        if (f && l && editName === editing.name) payload.name = `${f} ${l}`;
+      }
       if (editEmail !== (editing.email ?? "")) payload.email = editEmail || null;
       if (editPhone !== (editing.phone ?? "")) payload.phone = editPhone || null;
       if (newPassword) payload.newPassword = newPassword;
@@ -710,6 +727,17 @@ export default function AdminCustomersPage() {
                 >
                   <td className="p-3 font-medium text-brand-slatedark">
                     {c.name}
+                    {/* §173: לקוח ותיק בלי פיצול שם.
+                        
+                        ⚠️ לא מפצלים אוטומטית: "ברכה" אי אפשר,
+                        ו"בן דוד יוסי" יפוצל שגוי. התגית מאפשרת
+                        למנהל להשלים בהדרגה, ולא מייצרת נתון
+                        שנראה אמין ואינו. */}
+                    {!c.firstName && (
+                      <span className="mr-1.5 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">
+                        חסר פיצול
+                      </span>
+                    )}
                     {/* §52: תגית לקוח לא פעיל */}
                     {c.isActive === false && (
                       <span className="mr-2 text-[10px] bg-zinc-200 text-zinc-600 px-1.5 py-0.5 rounded font-bold">
@@ -936,7 +964,41 @@ export default function AdminCustomersPage() {
                 : "🛒 בצע הזמנה ללקוח"}
             </a>
 
-            <Field label="שם">
+            {/* §173: שם פרטי ומשפחה.
+                
+                ⚠️ שדה "שם" המלא נשאר: הוא מקור האמת לכל התצוגות
+                (מיילים, דף חלוקה, IVR), והשניים החדשים מתווספים
+                לצדו. מילוי שניהם מעדכן גם אותו.
+                
+                ⚠️ ללקוח ותיק הם ריקים - וזה בסדר. אין פיצול
+                אוטומטי כי "ברכה" אי אפשר לפצל, ו"בן דוד יוסי"
+                יפוצל שגוי. */}
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="שם פרטי">
+                <input
+                  className="input"
+                  value={editFirst}
+                  onChange={(e) => setEditFirst(e.target.value)}
+                  placeholder="יוסי"
+                />
+              </Field>
+              <Field label="שם משפחה">
+                <input
+                  className="input"
+                  value={editLast}
+                  onChange={(e) => setEditLast(e.target.value)}
+                  placeholder="כהן"
+                />
+              </Field>
+            </div>
+            {!editing.firstName && (
+              <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 -mt-1">
+                ⚠️ ללקוח זה אין עדיין פיצול שם. מילוי שני השדות יעדכן
+                גם את השם המלא.
+              </p>
+            )}
+
+            <Field label="שם מלא (כפי שמוצג בכל מקום)">
               <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
             </Field>
             <Field label="טלפון">

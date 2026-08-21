@@ -22,7 +22,20 @@ function RegisterPageInner() {
   const [step, setStep] = useState<RegStep>("details");
   const [points, setPoints] = useState<Point[]>([]);
 
-  const [name, setName] = useState(googleName);
+  // §173: שם פרטי ומשפחה בנפרד.
+  //
+  // 🐛 מה שגרם לבעיה: שדה "שם מלא" אחד. לקוחות הזינו "ברכה"
+  // בלבד, ובחלוקה אי אפשר היה לדעת אם זה שם פרטי או שם משפחה.
+  //
+  // ⚠️ מגוגל מגיע שם מלא אחד. הפיצול כאן הוא **מילוי מראש
+  // שהלקוח רואה ויכול לתקן** - שונה מהותית מפיצול אוטומטי במסד,
+  // שם איש לא היה בודק אותו.
+  const [firstName, setFirstName] = useState(
+    googleName ? googleName.trim().split(/\s+/)[0] : ""
+  );
+  const [lastName, setLastName] = useState(
+    googleName ? googleName.trim().split(/\s+/).slice(1).join(" ") : ""
+  );
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState(googleEmail);
   const [password, setPassword] = useState("");
@@ -88,7 +101,15 @@ function RegisterPageInner() {
 
   function validateDetails() {
     setError("");
-    if (!name.trim()) return setError("נא להזין שם");
+    // §173: שני השדות חובה, ובדיקה נפרדת לכל אחד.
+    //
+    // ⚠️ הודעה מדויקת ולא "נא להזין שם": מי שמילא רק אחד מהם
+    // לא היה יודע מה חסר, וזה בדיוק המצב שיצר את הנתונים
+    // החלקיים מלכתחילה.
+    if (!firstName.trim()) return setError("יש להזין שם פרטי");
+    if (firstName.trim().length < 2) return setError("השם הפרטי קצר מדי");
+    if (!lastName.trim()) return setError("יש להזין שם משפחה");
+    if (lastName.trim().length < 2) return setError("שם המשפחה קצר מדי");
     if (!phone.trim()) return setError("יש להזין מספר טלפון — איתו תתחבר למערכת");
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError("כתובת מייל לא תקינה");
     if (password.length < 6) return setError("הסיסמה חייבת להכיל לפחות 6 תווים");
@@ -108,7 +129,10 @@ function RegisterPageInner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
+          // §173: השרת מרכיב את השם המלא משני החלקים, ומאמת
+          // אותם שוב - הסתרת שדה נעקפת בבקשה ישירה.
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           phone: phone.trim() || null,
           email: email.trim().toLowerCase() || null,
           password,
@@ -222,9 +246,43 @@ function RegisterPageInner() {
               </>
             )}
 
-            <div>
-              <label className="label" htmlFor="reg-name">שם מלא *</label>
-              <input id="reg-name" className="input" value={name} onChange={(e) => setName(e.target.value)} aria-required="true" />
+            {/* §173: שני שדות ולא אחד.
+
+                🐛 מה שגרם לבעיה: לקוחות הזינו "ברכה" בלבד בשדה
+                "שם מלא", ובחלוקה אי אפשר היה לדעת אם זה שם פרטי
+                או שם משפחה.
+
+                ⚠️ הסדר - פרטי ואז משפחה - קובע את השם המלא
+                שנשמר, ולכן את מה שהנציג רואה בדף החלוקה ובמיילים. */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="label" htmlFor="reg-first">
+                  שם פרטי *
+                </label>
+                <input
+                  id="reg-first"
+                  className="input"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="יוסי"
+                  autoComplete="given-name"
+                  aria-required="true"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="reg-last">
+                  שם משפחה *
+                </label>
+                <input
+                  id="reg-last"
+                  className="input"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="כהן"
+                  autoComplete="family-name"
+                  aria-required="true"
+                />
+              </div>
             </div>
             <div>
               <label className="label" htmlFor="reg-phone">טלפון *</label>

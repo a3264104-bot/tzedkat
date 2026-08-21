@@ -52,8 +52,10 @@ export async function PATCH(
 
   // 🐛 תוקן: הבדיקה השתמשה ב-agentPointId היחיד (deprecated), ולכן נציג
   // המשויך לכמה נקודות נחסם מלעדכן משקלים בכל נקודה חוץ מהראשונה.
-  // g.agentPointIds מכיל את *כל* נקודות הנציג. ריק = בלי הגבלה (מנהל).
-  if (g.agentPointIds.length > 0 && !g.agentPointIds.includes(item.order.pointId)) {
+  // §176: 🐛 ההערה כאן אמרה "ריק = בלי הגבלה (מנהל)" - וזו בדיוק
+  // ההנחה השגויה. מנהל מזוהה ב-isAdmin; נציג עם מערך ריק הוא
+  // נציג **בלי נקודות**, ולא נציג עם גישה לכל המערכת.
+  if (!g.isAdmin && !g.agentPointIds.includes(item.order.pointId)) {
     return NextResponse.json(
       { error: "אין הרשאה - הפריט לא באחת מהנקודות שלך" },
       { status: 403 }
