@@ -330,13 +330,34 @@ export function WeightsTable({
                 }`}
               >
                 <td className="sticky right-0 z-10 bg-inherit px-3 py-2 border-l-2 border-zinc-300 align-middle">
+                  {/* §177: 🐛 השם היה קישור בלי שום סימן שהוא כזה.
+                      
+                      הנציג שרצה להוסיף מוצר להזמנה לא ידע שצריך
+                      ללחוץ על השם, ומה מסתתר מאחוריו. עכשיו יש
+                      חץ וטקסט מפורש.
+                      
+                      ⚠️ הכפתור בתוך התא הדביק, ולכן הוא נשאר
+                      גלוי גם כשגוללים את הטבלה הצידה - שם הנציג
+                      נמצא רוב הזמן. */}
                   <a
                     href={`/agent/orders/${r.orderId}`}
                     className="font-bold text-brand-slatedark hover:text-brand-rust block leading-tight"
                   >
                     {r.customerName}
                   </a>
-                  <span className="text-[10px] text-zinc-400">#{r.orderNumber}</span>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] text-zinc-400">
+                      #{r.orderNumber}
+                    </span>
+                    {!readOnly && (
+                      <a
+                        href={`/agent/orders/${r.orderId}`}
+                        className="text-[10px] font-bold text-brand-rust hover:underline whitespace-nowrap"
+                      >
+                        ➕ הוספת מוצר
+                      </a>
+                    )}
+                  </div>
                 </td>
 
                 {/* §141: הפריטים של הלקוח, צמודים משמאל.
@@ -350,7 +371,18 @@ export function WeightsTable({
                   return (
                     <td
                       key={i}
-                      className="px-1 py-1 border-l border-zinc-200 align-top"
+                      // §177: 🐛 תא ריק נראה כמו "מרובע לבן מוזר".
+                      //
+                      // הוא קיבל את אותו border ורקע כמו תא עם
+                      // תוכן, ולכן נראה כמו שדה שאפשר למלא - אבל
+                      // אין בו כלום ואי אפשר ללחוץ עליו.
+                      //
+                      // ⚠️ הרקע האפור הבהיר אומר "אין כאן פריט"
+                      // בלי לצעוק. הגבול נשאר כדי שהטבלה תישאר
+                      // מיושרת.
+                      className={`px-1 py-1 border-l border-zinc-200 align-top ${
+                        cell ? "" : "bg-zinc-50/60"
+                      }`}
                     >
                       {cell ? (
                         <WeightCell
