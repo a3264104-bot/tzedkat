@@ -108,9 +108,25 @@ export function WeightsTable({
       const n = o.items.filter((i) => !i.isCancelled).length;
       if (n > m) m = n;
     }
-    // ⚠️ תקרה של 8: מעבר לזה הטבלה רחבה מדי גם בדסקטופ. לקוח
-    // חריג יגלוש, וזה עדיף על טבלה שאי אפשר לקרוא.
-    return Math.min(m, 8);
+    // §177: 🐛 "ריבוע לבן גדול" - כל השורות קיבלו את מספר
+    // העמודות של **הלקוח העמוס ביותר**.
+    //
+    // עם חציון של 3 פריטים ולקוח אחד עם 8, כל שאר השורות קיבלו
+    // 5 תאים ריקים - בלוק לבן ענק שנראה כמו שדות למילוי.
+    //
+    // ⚠️ עכשיו לפי האחוזון ה-90: רוב הלקוחות ממלאים את השורה,
+    // והחריגים גולשים לשורה שנייה (מטופל למטה). זה בדיוק מה
+    // שנעשה בדף המודפס ב-§140, ומאותה סיבה.
+    const counts = orders
+      .map((o) => o.items.filter((i) => !i.isCancelled).length)
+      .filter((n) => n > 0)
+      .sort((a, b) => a - b);
+    if (counts.length === 0) return 1;
+    // ⚠️ ceil-1 ולא floor: עם 10 לקוחות, floor נותן אינדקס 9
+    // שהוא האיבר האחרון - כלומר המקסימום, ולא האחוזון.
+    const p90 = counts[Math.max(0, Math.ceil(counts.length * 0.9) - 1)];
+    // ⚠️ מינימום 2: עמודה אחת נראית כמו רשימה ולא כמו טבלה.
+    return Math.max(2, Math.min(p90, 8));
   }, [orders]);
 
   // ─── שורות: לקוח אחד לשורה ───
@@ -367,6 +383,10 @@ export function WeightsTable({
                     באמצע. לקוח שהזמין 2 פריטים רואה 2 תאים
                     מלאים ואת השאר ריקים - במקום 2 מתוך 20. */}
                 {Array.from({ length: maxItems }, (_, i) => {
+                  // §177: הפריט האחרון בעמודה האחרונה סופג את
+                  // מה שגלש - כדי שפריט לא ייעלם מהמסך.
+                  const isLast = i === maxItems - 1;
+                  const overflow = isLast ? r.cells.slice(i) : [];
                   const cell = r.cells[i];
                   return (
                     <td
@@ -377,21 +397,42 @@ export function WeightsTable({
                       // תוכן, ולכן נראה כמו שדה שאפשר למלא - אבל
                       // אין בו כלום ואי אפשר ללחוץ עליו.
                       //
-                      // ⚠️ הרקע האפור הבהיר אומר "אין כאן פריט"
-                      // בלי לצעוק. הגבול נשאר כדי שהטבלה תישאר
-                      // מיושרת.
-                      className={`px-1 py-1 border-l border-zinc-200 align-top ${
-                        cell ? "" : "bg-zinc-50/60"
+                      // ⚠️ אפור מלא ובלי גבול פנימי: רצף תאים ריקים
+                      // מתמזג לבלוק אחד במקום להיראות כמו שורת
+                      // שדות ריקים שמחכים למילוי.
+                      className={`px-1 py-1 align-top ${
+                        cell
+                          ? "border-l border-zinc-200"
+                          : "bg-zinc-100/70 border-l border-zinc-100"
                       }`}
                     >
                       {cell ? (
-                        <WeightCell
-                          cellId={`w-${cell.itemId}`}
-                          cell={cell}
-                          readOnly={readOnly}
-                          onItemUpdate={onItemUpdate}
-                          onNeedsReload={onNeedsReload}
-                        />
+                        <>
+                          <WeightCell
+                            cellId={`w-${cell.itemId}`}
+                            cell={cell}
+                            readOnly={readOnly}
+                            onItemUpdate={onItemUpdate}
+                            onNeedsReload={onNeedsReload}
+                          />
+                          {/* §177: פריטים שגלשו מעבר לעמודות.
+                              
+                              ⚠️ מוצגים ולא נעלמים: לקוח עם 9 פריטים
+                              בטבלה של 5 עמודות היה מאבד 4 מהם
+                              מהמסך, והנציג לא היה יודע שהם קיימים. */}
+                          {overflow.length > 1 &&
+                            overflow.slice(1).map((c) => (
+                              <div key={c.itemId} className="mt-1">
+                                <WeightCell
+                                  cellId={`w-${c.itemId}`}
+                                  cell={c}
+                                  readOnly={readOnly}
+                                  onItemUpdate={onItemUpdate}
+                                  onNeedsReload={onNeedsReload}
+                                />
+                              </div>
+                            ))}
+                        </>
                       ) : null}
                     </td>
                   );
