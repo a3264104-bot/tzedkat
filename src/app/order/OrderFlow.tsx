@@ -220,13 +220,18 @@ export function OrderFlow({
   //
   // מסלול הלקוח לא מושפע: /order/page.tsx מסנן אותם עוד לפני שהם
   // מגיעים לכאן, ולכן הקטגוריה הזו פשוט לא תיווצר.
-  const SPECIAL_CATEGORY = "⭐ מוצרים מיוחדים (לא במכירה הכללית)";
   const categories = useMemo(() => {
     const map = new Map<string, Product[]>();
     const special: Product[] = [];
     for (const p of products) {
-      // §160: מועדף נכנס לאותה קטגוריה מיוחדת. שניהם "לא במכירה
-      // הכללית", וקטגוריה שלישית הייתה מפצלת בלי סיבה.
+      // §172: מוצר מיוחד **יוצא מהרשימה לגמרי**.
+      //
+      // 🐛 מה שהיה: קטגוריה "⭐ מוצרים מיוחדים" בתוך הרשימה
+      // הרגילה. המנהל שרצה לראות את המכירה כפי שהלקוח רואה אותה
+      // ראה גם עשרות מוצרים לא-פעילים מעורבבים בסרגל ובגלילה.
+      //
+      // עכשיו: כפתור נפרד שפותח בורר. הרשימה הרגילה זהה בדיוק
+      // למה שהלקוח רואה, והמיוחדים נגישים בלחיצה כשצריך אותם.
       if (p.isInactive || p.isFavorite) {
         special.push(p);
         continue;
@@ -243,12 +248,19 @@ export function OrderFlow({
     //
     // ⚠️ רק במסלול הנציג (onBehalfOfCustomerId): הלקוח באתר לא
     // רואה את הקטגוריה הזו בכלל, ואצלו הסדר הרגיל נכון.
-    if (special.length > 0) {
-      if (onBehalfOfCustomerId) list.unshift([SPECIAL_CATEGORY, special]);
-      else list.push([SPECIAL_CATEGORY, special]);
-    }
+    // §172: **לא** נכנסים לרשימת הקטגוריות. הם מוצגים בבורר
+    // נפרד, ראה specialProducts למטה.
     return list;
-  }, [products, onBehalfOfCustomerId]);
+  }, [products]);
+
+  // §172: המוצרים המיוחדים - לבורר הנפרד.
+  //
+  // ⚠️ מחושב בנפרד מהקטגוריות: הם לא אמורים להופיע בסרגל ולא
+  // בגלילה, אלא רק כשהמנהל בוחר לפתוח אותם.
+  const specialProducts = useMemo(
+    () => products.filter((p) => p.isInactive || p.isFavorite),
+    [products]
+  );
   // ח4: cartLines — מפרק כל entry לשורה/שתיים (קרטונים + בודדים)
   type ComputedLine = {
     product: Product;
@@ -293,6 +305,9 @@ export function OrderFlow({
   // ומחיר מותאם הוא החלטה של הנציג ברגע הזה. ערבוב היה גורם
   // למחיר להישמר בעריכה חוזרת בלי שהוא יתכוון.
   const [favPrices, setFavPrices] = useState<Record<string, string>>({});
+  // §172: בורר המוצרים המיוחדים - נפתח בלחיצה, ולא תופס מקום
+  // ברשימה הרגילה.
+  const [specialOpen, setSpecialOpen] = useState(false);
 
   const [cartToast, setCartToast] = useState<{
     id: number;
@@ -1102,6 +1117,32 @@ export function OrderFlow({
               </p>
             </div>
             <div className="space-y-6">
+              {/* §172: מוצרים שאינם באתר - כפתור נפרד.
+                  
+                  ⚠️ רק לנציג/מנהל, ורק כשיש כאלה. הלקוח לא רואה
+                  אותם ולא אמור לדעת שהם קיימים.
+                  
+                  ⚠️ מעל סרגל הקטגוריות ולא בתוכו: זו לא קטגוריה
+                  אלא מסלול נפרד, והערבוב היה מחזיר בדיוק את
+                  הבעיה שתיקנו. */}
+              {onBehalfOfCustomerId && specialProducts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSpecialOpen(true)}
+                  className="w-full flex items-center justify-between gap-3 bg-amber-50 border-2 border-amber-300 rounded-xl px-4 py-3 hover:bg-amber-100 transition-colors"
+                >
+                  <div className="text-right">
+                    <div className="font-extrabold text-amber-900 text-sm">
+                      ⭐ מוצרים שאינם באתר ({specialProducts.length})
+                    </div>
+                    <div className="text-[11px] text-amber-800 mt-0.5">
+                      מוצרים שהלקוחות לא רואים — ניתן להוסיף ולקבוע מחיר
+                    </div>
+                  </div>
+                  <span className="text-amber-700 text-xl shrink-0">←</span>
+                </button>
+              )}
+
               {/* ניווט קטגוריות דביק - עיצוב מוקפץ */}
               <div className="sticky top-0 z-10 -mx-4 px-4 py-2.5 bg-brand-cream/95 backdrop-blur-md border-b border-zinc-200/70 overflow-x-auto no-scrollbar">
                 <div className="flex gap-2 w-max">
@@ -1634,6 +1675,136 @@ export function OrderFlow({
           </section>
         )}
       </div>
+      {/* §172: בורר המוצרים שאינם באתר.
+          
+          ⚠️ מודל ולא קטגוריה: המנהל נכנס אליו כשהוא צריך מוצר
+          מיוחד, ויוצא. הרשימה הרגילה נשארת זהה למה שהלקוח רואה.
+          
+          ⚠️ הכמות והמחיר נערכים כאן ישירות - בלי לסגור ולחפש
+          את המוצר ברשימה הראשית, שם הוא ממילא כבר לא מופיע. */}
+      {specialOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[92vh] flex flex-col">
+            <div className="sticky top-0 bg-white border-b border-zinc-200 px-4 py-3 flex items-center justify-between">
+              <div>
+                <h3 className="font-extrabold text-brand-slatedark">
+                  ⭐ מוצרים שאינם באתר
+                </h3>
+                <p className="text-[11px] text-zinc-500">
+                  הלקוחות לא רואים אותם. ניתן לקבוע מחיר גבוה מהמחירון —
+                  ההפרש נזקף לעמלה.
+                </p>
+              </div>
+              <button
+                onClick={() => setSpecialOpen(false)}
+                className="text-zinc-400 text-2xl leading-none px-2"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {specialProducts.map((p) => {
+                const entry = cart[p.id] ?? { cartonQty: 0, singlesQty: 0 };
+                const inCart = entry.cartonQty > 0 || entry.singlesQty > 0;
+                return (
+                  <div
+                    key={p.id}
+                    className={`border-2 rounded-xl p-3 ${
+                      inCart ? "border-emerald-400 bg-emerald-50/40" : "border-zinc-200"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-bold text-brand-slatedark text-sm">
+                          {p.name}
+                        </div>
+                        <div className="text-[11px] text-zinc-500">
+                          {p.category} · {fmt(p.price)}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() =>
+                            setCart((c) => {
+                              const cur = c[p.id] ?? { cartonQty: 0, singlesQty: 0 };
+                              const next = Math.max(0, cur.cartonQty - 1);
+                              return { ...c, [p.id]: { ...cur, cartonQty: next } };
+                            })
+                          }
+                          disabled={entry.cartonQty === 0}
+                          className="w-8 h-8 rounded-lg border-2 border-zinc-300 font-bold disabled:opacity-30"
+                        >
+                          −
+                        </button>
+                        <span className="w-8 text-center font-extrabold">
+                          {entry.cartonQty}
+                        </span>
+                        <button
+                          onClick={() =>
+                            setCart((c) => {
+                              const cur = c[p.id] ?? { cartonQty: 0, singlesQty: 0 };
+                              return {
+                                ...c,
+                                [p.id]: { ...cur, cartonQty: cur.cartonQty + 1 },
+                              };
+                            })
+                          }
+                          className="w-8 h-8 rounded-lg bg-brand-rust text-white font-bold"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* תמחור - רק כשהפריט בעגלה */}
+                    {inCart && (
+                      <div className="mt-2 pt-2 border-t border-zinc-200 space-y-1">
+                        <label className="text-[11px] font-bold text-amber-900 block">
+                          מחיר לקוח (ריק = מחירון)
+                        </label>
+                        <input
+                          className="input w-full text-center font-bold py-1 text-sm"
+                          type="number"
+                          step="0.01"
+                          min={p.price}
+                          dir="ltr"
+                          placeholder={`מחירון: ${p.price.toFixed(2)}`}
+                          value={favPrices[p.id] ?? ""}
+                          onChange={(e) =>
+                            setFavPrices((prev) => ({ ...prev, [p.id]: e.target.value }))
+                          }
+                        />
+                        {favPrices[p.id] && Number(favPrices[p.id]) >= p.price && (
+                          <div className="text-[11px] text-emerald-800 font-bold">
+                            העמלה שלך:{" "}
+                            {(Number(favPrices[p.id]) - (p.price - 1)).toFixed(2)} ₪
+                          </div>
+                        )}
+                        {favPrices[p.id] && Number(favPrices[p.id]) < p.price && (
+                          <div className="text-[11px] text-red-700 font-bold">
+                            לא ניתן לרדת מתחת למחירון
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="sticky bottom-0 bg-white border-t border-zinc-200 p-4">
+              <button
+                onClick={() => setSpecialOpen(false)}
+                className="w-full py-3 rounded-xl bg-brand-rust text-white font-bold"
+              >
+                סיימתי
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* מודל אימות כרטיס - לקוח חדש בהזמנה ראשונה */}
       {showVerification && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">

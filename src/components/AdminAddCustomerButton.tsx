@@ -10,6 +10,8 @@
 // מייל ונקודה -> יצירה, והסיסמה מוצגת למסירה ללקוח.
 
 import { useEffect, useRef, useState } from "react";
+// §171: הזנת כרטיס מיד אחרי היצירה - כמו אצל הנציג
+import { UpdateCardModal } from "@/components/UpdateCardButton";
 
 type Existing = {
   id: string;
@@ -99,6 +101,14 @@ function Modal({
   // §161: טלפון נוסף - לזיהוי במערכת הטלפונית ולחלוקה
   const [phone2, setPhone2] = useState("");
   const [pointId, setPointId] = useState("");
+  // §171: אופן תשלום. אשראי -> נפתח מסך הכרטיס מיד אחרי היצירה.
+  //
+  // 🐛 מה שהיה: המנהל הקים לקוח, ראה את הסיסמה, ולחץ "סיום" -
+  // ואז נאלץ לחפש אותו ברשימה ולפתוח את הכרטיס כדי להזין אשראי.
+  // אצל הנציג (§60) זה עבד מזמן; מסך המנהל פשוט לא קיבל את זה.
+  const [payMethod, setPayMethod] = useState<"" | "CASH" | "CREDIT">("");
+  // הלקוח שנוצר וממתין להזנת כרטיס
+  const [cardForCustomerId, setCardForCustomerId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState<{
@@ -108,6 +118,9 @@ function Modal({
     pointName: string;
   } | null>(null);
   const timer = useRef<any>(null);
+  // §171: מזהה הלקוח שנוצר - כדי לפתוח את מסך הכרטיס גם אחרי
+  // שהמנהל סגר אותו, בלי לחפש אותו מחדש.
+  const createdIdRef = useRef<string | null>(null);
 
   // חיפוש אוטומטי - מונע יצירת כפילויות לפני שהמנהל מקליד שם
   useEffect(() => {
@@ -146,6 +159,12 @@ function Modal({
       setError("יש לבחור נקודת חלוקה");
       return;
     }
+    // §171: בחירה מפורשת, בלי ברירת מחדל שקטה. לקוח שנוצר
+    // כאשראי בטעות ייחסם מהזמנה עד שיוזן כרטיס.
+    if (!payMethod) {
+      setError("יש לבחור איך הלקוח משלם - מזומן או אשראי");
+      return;
+    }
     setCreating(true);
     setError("");
     try {
@@ -158,6 +177,8 @@ function Modal({
           email: email.trim() || null,
           // §161: טלפון נוסף
           phone2: phone2.trim() || null,
+          // §171: אופן התשלום שנבחר
+          paymentPreference: payMethod || "CREDIT",
           defaultPointId: pointId,
         }),
       });
@@ -174,6 +195,16 @@ function Modal({
         password: j.password,
         pointName: j.pointName,
       });
+
+      createdIdRef.current = j.customer.id;
+
+      // §171: אשראי -> פותחים מיד את מסך הכרטיס.
+      //
+      // ⚠️ אחרי setDone ולא במקומו: אם המנהל יסגור את מסך הכרטיס
+      // בלי להזין, הוא עדיין יראה את פרטי ההתחברות למסירה.
+      if (payMethod === "CREDIT") {
+        setCardForCustomerId(j.customer.id);
+      }
     } catch (e: any) {
       setError("שגיאה: " + e.message);
     } finally {
@@ -234,6 +265,22 @@ function Modal({
             >
               העתק פרטי התחברות
             </button>
+            {/* §171: הזנת כרטיס גם ממסך ההצלחה.
+                
+                ⚠️ למי שבחר מזומן ובכל זאת רוצה להוסיף כרטיס, או
+                למי שסגר את מסך הכרטיס בטעות. בלי זה הוא היה
+                צריך לחפש את הלקוח מחדש. */}
+            {!cardForCustomerId && (
+              <button
+                onClick={() => {
+                  const id = createdIdRef.current;
+                  if (id) setCardForCustomerId(id);
+                }}
+                className="w-full py-2.5 rounded-lg border-2 border-emerald-500 text-emerald-800 font-bold text-sm hover:bg-emerald-50"
+              >
+                💳 הזנת כרטיס אשראי
+              </button>
+            )}
             <button
               onClick={onCreated}
               className="w-full py-3 rounded-xl bg-brand-rust text-white font-bold"
@@ -385,6 +432,59 @@ function Modal({
                     למערכת הטלפונית ולשמוע את ההזמנה.
                   </p>
                 </div>
+
+                {/* §171: אופן תשלום - חובה, בלי ברירת מחדל.
+                    
+                    ⚠️ אשראי פותח את מסך הכרטיס **מיד אחרי היצירה**.
+                    קודם המנהל היה צריך לשמור, לחפש את הלקוח ברשימה,
+                    ולפתוח את הכרטיס - שלושה מסכים במקום אחד. */}
+                <div>
+                  <label className="text-xs font-bold text-zinc-500 block mb-1">
+                    איך הלקוח משלם? *
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod("CASH")}
+                      className={`py-3 px-2 rounded-xl border-2 font-bold text-sm transition-colors ${
+                        payMethod === "CASH"
+                          ? "border-lime-600 bg-lime-50 text-lime-800"
+                          : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-400"
+                      }`}
+                    >
+                      💵 מזומן
+                      <div className="text-[10px] font-normal mt-0.5">
+                        גבייה בחלוקה, בלי כרטיס
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod("CREDIT")}
+                      className={`py-3 px-2 rounded-xl border-2 font-bold text-sm transition-colors ${
+                        payMethod === "CREDIT"
+                          ? "border-blue-600 bg-blue-50 text-blue-800"
+                          : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-400"
+                      }`}
+                    >
+                      💳 אשראי
+                      <div className="text-[10px] font-normal mt-0.5">
+                        הזנת כרטיס מיד אחרי היצירה
+                      </div>
+                    </button>
+                  </div>
+                  {payMethod === "CREDIT" && (
+                    <p className="text-[10px] text-blue-700 mt-1 leading-relaxed">
+                      אחרי היצירה ייפתח מסך הכרטיס. יחויב 1 ש&quot;ח לאימות,
+                      שיקוזז מההזמנה הראשונה.
+                    </p>
+                  )}
+                  {payMethod === "CASH" && (
+                    <p className="text-[10px] text-lime-700 mt-1 leading-relaxed">
+                      הלקוח יסומן כמשלם מזומן ויוכל להזמין בלי כרטיס. ניתן
+                      להעביר לאשראי בהמשך.
+                    </p>
+                  )}
+                </div>
               </>
             )}
 
@@ -394,6 +494,20 @@ function Modal({
               </div>
             )}
           </div>
+        )}
+
+        {/* §171: מסך הזנת הכרטיס - טופס נדרים המאובטח.
+            
+            ⚠️ onClose ו-onSuccess שניהם רק סוגרים: הלקוח כבר נוצר,
+            והמנהל נשאר במסך ההצלחה עם פרטי ההתחברות. ויתור על
+            הכרטיס אינו מבטל את היצירה. */}
+        {cardForCustomerId && (
+          <UpdateCardModal
+            customerId={cardForCustomerId}
+            hasCurrentCard={false}
+            onSuccess={() => setCardForCustomerId(null)}
+            onClose={() => setCardForCustomerId(null)}
+          />
         )}
 
         {!done && (
