@@ -110,6 +110,8 @@ function fmtDate(iso: string | null): string {
 
 export default function PhoneSignupsPage() {
   const [rows, setRows] = useState<Row[]>([]);
+  // §168: כל השורות, בלי סינון - לחישוב ההתרעות
+  const [allRows, setAllRows] = useState<Row[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   // §164: טיפוס להודעות. היה any[], ולכן m.customerId ו-m.status
   // לא נבדקו בקומפילציה - שדה שגוי היה מתגלה רק בזמן ריצה.
@@ -144,11 +146,32 @@ export default function PhoneSignupsPage() {
       const res = await api(`/api/admin/phone-signups${qs}`);
       let list: Row[] = res.rows ?? [];
       // "פתוחות" = כל מה שעדיין דורש טיפול
+      // §168: "פתוחות" = **רק מי שטרם יצרו איתו קשר**.
+      //
+      // 🐛 מה שהיה: CONTACTED נשאר בפתוחות. לקוח שהנציג דיבר
+      // איתו והוא לא רצה לעדכן כרטיס המשיך להופיע ברשימה, ואחרי
+      // כמה מכירות היא התמלאה בבקשות שכבר טופלו - וזה בדיוק מה
+      // שגורם למנהל להפסיק להסתכל בה.
+      //
+      // ⚠️ הם **לא נעלמים**: יש להם סינון משלהם, ובאנר בפתוחות
+      // מזכיר כמה ממתינים. ההבחנה היא בין "צריך לטפל עכשיו"
+      // לבין "כבר בטיפול, שווה מעקב".
       if (filter === "open") {
-        list = list.filter((r) => r.status !== "COMPLETED" && r.status !== "FAILED");
+        list = list.filter((r) => r.status === "NEW" || r.status === "ASSIGNED");
       }
       setRows(list);
-      setCounts(res.counts ?? {});
+      // §168: הרשימה המלאה - לחישוב הבאנרים.
+      //
+      // ⚠️ rows מסונן לפי הבורר, ולכן בסינון "פתוחות" הוא לא
+      // מכיל CONTACTED בכלל - והבאנר היה מציג null בדיוק במקום
+      // שבו הוא נחוץ.
+      // ⚠️ רק כשה-query ריק. בסינון ספציפי השרת מחזיר **רק**
+      // אותו סטטוס, ודריסה כאן הייתה מאפסת את שאר הבאנרים.
+      if (!qs) setAllRows(res.rows ?? []);
+      // ⚠️ counts מגיע מהשרת ומשקף את מה שנשלף. בסינון ספציפי
+      // הוא חלקי, ולכן נשמר רק כשהשליפה מלאה - אחרת המונים
+      // בבאנרים היו מתאפסים בכל מעבר בין טאבים.
+      if (!qs) setCounts(res.counts ?? {});
       setMessages(res.messages ?? []);
       setIsAgent(!!res.isAgent);
     } catch (e: any) {
@@ -213,9 +236,36 @@ export default function PhoneSignupsPage() {
     }
   }
 
-  const openCount = (counts.NEW ?? 0) + (counts.ASSIGNED ?? 0) + (counts.CONTACTED ?? 0);
+  // §168: CONTACTED יצא מהספירה - הוא כבר לא "ממתין לטיפול"
+  const openCount = (counts.NEW ?? 0) + (counts.ASSIGNED ?? 0);
   // §166: בקשות שנדחו וממתינות לחזרה
   const deferredCount = counts.FAILED ?? 0;
+  // §168: מי שיצרו איתו קשר וטרם השלים כרטיס.
+  //
+  // ⚠️ נספר מ-allRows ולא מ-counts.CONTACTED: המונה מהשרת סופר
+  // לפי status בלבד, וכולל גם מי שכבר הזין כרטיס והסטטוס לא
+  // עודכן. hasToken הוא מקור האמת - הסטטוס יכול לשקר.
+  //
+  // בלי זה הבאנר היה מציג "6 ממתינים" כשבפועל 2 מהם כבר סודרו,
+  // והמנהל היה מבזבז זמן על שיחות מיותרות.
+  const contactedCount = allRows.filter(
+    (r) => r.status === "CONTACTED" && !r.hasToken
+  ).length;
+
+  // §168: כמה ימים ממתין הוותיק ביותר.
+  //
+  // ⚠️ מחושב מכל השורות שנטענו, ולא רק מהמסוננות - אחרת בסינון
+  // "פתוחות" הוא היה תמיד null, בדיוק במקום שבו הוא נחוץ.
+  const oldestContactedDays = (() => {
+    const contacted = allRows.filter(
+      (r) => r.status === "CONTACTED" && !r.hasToken && r.contactedAt
+    );
+    if (contacted.length === 0) return null;
+    const oldest = Math.min(
+      ...contacted.map((r) => new Date(r.contactedAt!).getTime())
+    );
+    return Math.floor((Date.now() - oldest) / 86400000);
+  })();
 
   // §164: 🐛 הודעות שטופלו נשארו ברשימה לנצח.
   //
@@ -254,6 +304,36 @@ export default function PhoneSignupsPage() {
           
           ⚠️ הבאנר מוצג רק כשיש כאלה, ורק כשלא מסתכלים עליהן
           כרגע - אחרת הוא רעש כפול. */}
+      {/* §168: התרעה על מי שיצרו איתו קשר ולא השלים כרטיס.
+          
+          ⚠️ **הבאנר הזה הוא הסיבה שמותר להוציא אותם מהרשימה.**
+          בלעדיו הם היו נעלמים מהתודעה, וזה גרוע מרשימה עמוסה.
+          
+          ⚠️ מציג את הוותיק ביותר: "12 ימים" אומר למנהל אם זה
+          עניין של אתמול או של חודש, ובלי זה המספר לבדו לא
+          מספיק כדי להחליט אם לפעול. */}
+      {contactedCount > 0 && filter !== "CONTACTED" && (
+        <button
+          onClick={() => setFilter("CONTACTED")}
+          className="w-full text-right card p-3 border-amber-300 bg-amber-50 hover:bg-amber-100 transition-colors"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="font-bold text-amber-900 text-sm">
+                📞 {contactedCount} לקוחות שיצרו איתם קשר וטרם עדכנו אשראי
+              </div>
+              <div className="text-xs text-amber-800 mt-0.5">
+                {oldestContactedDays != null
+                  ? `הוותיק ביותר ממתין ${oldestContactedDays} ימים. `
+                  : ""}
+                עד שיוזן כרטיס הם אינם יכולים להזמין.
+              </div>
+            </div>
+            <span className="text-amber-700 text-xl shrink-0">←</span>
+          </div>
+        </button>
+      )}
+
       {deferredCount > 0 && filter !== "FAILED" && (
         <button
           onClick={() => setFilter("FAILED")}
