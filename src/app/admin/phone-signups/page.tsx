@@ -18,6 +18,21 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/client";
 import { UpdateCardButton } from "@/components/UpdateCardButton";
+// §164: הקמת לקוח ישירות מההודעה
+import { AdminAddCustomerButton } from "@/components/AdminAddCustomerButton";
+
+type PhoneMessage = {
+  id: string;
+  phone: string;
+  customerName: string | null;
+  customerId: string | null;
+  pointName: string | null;
+  kind: string;
+  status: string;
+  transcript: string | null;
+  adminNote: string | null;
+  createdAt: string;
+};
 
 type Row = {
   id: string;
@@ -85,8 +100,24 @@ function fmtDate(iso: string | null): string {
 export default function PhoneSignupsPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [messages, setMessages] = useState<any[]>([]);
+  // §164: טיפוס להודעות. היה any[], ולכן m.customerId ו-m.status
+  // לא נבדקו בקומפילציה - שדה שגוי היה מתגלה רק בזמן ריצה.
+  const [messages, setMessages] = useState<PhoneMessage[]>([]);
   const [isAgent, setIsAgent] = useState(false);
+  // §164: נקודות החלוקה - נדרשות לטופס הקמת הלקוח.
+  //
+  // ⚠️ נטענות פעם אחת ולא בכל רענון: הן משתנות נדיר, והמסך
+  // מתרענן אחרי כל פעולה.
+  const [points, setPoints] = useState<
+    { id: string; name: string; city: string | null }[]
+  >([]);
+
+  useEffect(() => {
+    fetch("/api/admin/points")
+      .then((r) => r.json())
+      .then((d) => setPoints(Array.isArray(d) ? d : []))
+      .catch(() => setPoints([]));
+  }, []);
   const [filter, setFilter] = useState("open");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -170,6 +201,23 @@ export default function PhoneSignupsPage() {
   }
 
   const openCount = (counts.NEW ?? 0) + (counts.ASSIGNED ?? 0) + (counts.CONTACTED ?? 0);
+
+  // §164: 🐛 הודעות שטופלו נשארו ברשימה לנצח.
+  //
+  // בקשות ההרשמה כבר נעלמו מ"פתוחות" ברגע שנוסף כרטיס, אבל
+  // ההודעות ("שיחזרו אליי") המשיכו להצטבר - גם אחרי שסומנו
+  // כטופלו. אחרי חודש הרשימה הייתה בלתי שמישה, והמנהל הפסיק
+  // להסתכל בה בכלל.
+  //
+  // ⚠️ אותו בורר סינון: "פתוחות" מציג רק NEW, ו"הכל"/"הושלמו"
+  // מציג גם טופלו. כך יש דרך לחזור ולראות היסטוריה, בלי שהיא
+  // תחסום את העבודה השוטפת.
+  const visibleMessages =
+    filter === "open"
+      ? messages.filter((m) => m.status === "NEW")
+      : filter === "all" || filter === "COMPLETED"
+        ? messages
+        : messages.filter((m) => m.status === "NEW");
 
   return (
     <div className="space-y-5">
@@ -410,7 +458,7 @@ export default function PhoneSignupsPage() {
 
       {/* §25: הודעות שלקוחות השאירו בשיחה.
           עד כה הן נכתבו ל-DB ואף אחד לא יכול היה לראות אותן. */}
-      {messages.length > 0 && (
+      {visibleMessages.length > 0 && (
         <div className="pt-4 border-t border-zinc-200">
           <h2 className="text-lg font-bold text-brand-slatedark mb-1">
             הודעות מהטלפון
@@ -419,7 +467,7 @@ export default function PhoneSignupsPage() {
             לקוחות שהשאירו הודעה או ביקשו שיחזרו אליהם
           </p>
           <div className="space-y-2">
-            {messages.map((m) => (
+            {visibleMessages.map((m) => (
               <div
                 key={m.id}
                 className={`card p-3 ${m.status === "NEW" ? "border-amber-300" : ""}`}
@@ -458,6 +506,32 @@ export default function PhoneSignupsPage() {
                     <a href={`tel:${m.phone}`} className="btn-ghost btn-sm">
                       📞
                     </a>
+                    {/* §164: הקמת לקוח **מכאן**.
+                        
+                        🐛 מה שהיה: המנהל חוזר ללקוח שביקש שיחזרו
+                        אליו, הלקוח מעוניין להירשם - ולא הייתה שום
+                        דרך להקים אותו במקום. הוא נאלץ לעבור למסך
+                        הלקוחות, ליצור, ואז לחזור לכאן לסמן כטופל.
+                        
+                        ⚠️ מוצג רק כשאין ללקוח חשבון (customerId
+                        ריק). למי שכבר רשום זה היה מייצר כפילות. */}
+                    {m.status === "NEW" && !m.customerId && points.length > 0 && (
+                      <AdminAddCustomerButton
+                        points={points}
+                        // §164: הטלפון כבר ידוע מההודעה
+                        initialPhone={m.phone}
+                        label="➕ הקם לקוח"
+                        className="!px-2.5 !py-1 !text-xs"
+                        onCreated={() => {
+                          // ⚠️ סימון אוטומטי כטופל: המנהל הקים את
+                          // הלקוח, וזו בדיוק הסיבה שהוא התקשר. השארת
+                          // ההודעה פתוחה הייתה מייצרת עבודה כפולה.
+                          act(m.id, "message_handled", {
+                            note: "הוקם לקוח מההודעה",
+                          });
+                        }}
+                      />
+                    )}
                     {m.status === "NEW" && (
                       <button
                         onClick={() => {

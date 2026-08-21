@@ -30,10 +30,21 @@ export function AdminAddCustomerButton({
   points,
   onCreated,
   className = "",
+  initialPhone,
+  label,
 }: {
   points: Point[];
   onCreated?: () => void;
   className?: string;
+  /**
+   * §164: טלפון שממלא מראש.
+   *
+   * כשפותחים את הטופס מתוך הודעה טלפונית, המספר כבר ידוע -
+   * והקלדה מחדש היא גם עבודה מיותרת וגם מקור לטעויות.
+   */
+  initialPhone?: string;
+  /** טקסט חלופי לכפתור, למשל "➕ הקם לקוח" בהקשר ההודעות */
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -49,11 +60,12 @@ export function AdminAddCustomerButton({
             d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
           />
         </svg>
-        לקוח חדש
+        {label ?? "לקוח חדש"}
       </button>
       {open && (
         <Modal
           points={points}
+          initialPhone={initialPhone}
           onClose={() => setOpen(false)}
           onCreated={() => {
             setOpen(false);
@@ -69,12 +81,16 @@ function Modal({
   points,
   onClose,
   onCreated,
+  initialPhone,
 }: {
   points: Point[];
   onClose: () => void;
   onCreated: () => void;
+  initialPhone?: string;
 }) {
-  const [phone, setPhone] = useState("");
+  // §164: מתחילים עם הטלפון שכבר ידוע. ה-useEffect של החיפוש
+  // ירוץ מיד ויבדוק אם הלקוח קיים - בדיוק כמו הקלדה ידנית.
+  const [phone, setPhone] = useState(initialPhone ?? "");
   const [searching, setSearching] = useState(false);
   const [existing, setExisting] = useState<Existing | null>(null);
   const [searched, setSearched] = useState(false);
