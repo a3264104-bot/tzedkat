@@ -261,7 +261,27 @@ export async function POST(req: Request) {
     const itemsData = [];
     let estimatedTotal = 0;
     for (const item of data.items) {
-      const pp = pricelist.products.find((x) => x.productId === item.productId);
+      let pp = pricelist.products.find((x) => x.productId === item.productId);
+
+      // §169: מוצר מועדף שאינו במחירון.
+      //
+      // 🐛 השרת דחה אותו עם "מוצר לא נמצא במחירון" - כלומר גם
+      // אחרי שהוא הופיע במסך, השליחה נכשלה. מוצר מועדף הוא מטבעו
+      // מחוץ למכירה: הוא נמכר לפי בקשה ובמחיר שהנציג קובע.
+      //
+      // ⚠️ **רק לנציג/מנהל.** לקוח לא רואה אותם ולא אמור להזמין
+      // אותם ישירות, ובקשה כזו ממנו היא ניסיון עקיפה.
+      if (!pp && placedByAgentId) {
+        const fav = await prisma.product.findFirst({
+          where: { id: item.productId, isFavorite: true, isActive: true },
+        });
+        if (fav) {
+          // מבנה תואם ל-PricelistProduct כדי שהחישוב שלמטה יעבוד
+          // בלי הסתעפות נוספת. price=null -> נופל ל-cartonPrice.
+          pp = { productId: fav.id, price: null, product: fav } as any;
+        }
+      }
+
       if (!pp) return NextResponse.json({ error: "מוצר לא נמצא במחירון" }, { status: 400 });
       if (!pp.product.isActive)
         return NextResponse.json(

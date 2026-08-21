@@ -235,9 +235,20 @@ export function OrderFlow({
       map.get(p.category)!.push(p);
     }
     const list = Array.from(map.entries());
-    if (special.length > 0) list.push([SPECIAL_CATEGORY, special]);
+    // §169: הקטגוריה המיוחדת **ראשונה** אצל נציג/מנהל.
+    //
+    // ⚠️ היא הייתה אחרונה, ובסרגל הקטגוריות הדביק בנייד צריך היה
+    // לגלול אותו הצידה כדי למצוא אותה. הנציג שפתח הזמנה **בשביל**
+    // מוצר מועדף לא ראה אותו בלי לחפש.
+    //
+    // ⚠️ רק במסלול הנציג (onBehalfOfCustomerId): הלקוח באתר לא
+    // רואה את הקטגוריה הזו בכלל, ואצלו הסדר הרגיל נכון.
+    if (special.length > 0) {
+      if (onBehalfOfCustomerId) list.unshift([SPECIAL_CATEGORY, special]);
+      else list.push([SPECIAL_CATEGORY, special]);
+    }
     return list;
-  }, [products]);
+  }, [products, onBehalfOfCustomerId]);
   // ח4: cartLines — מפרק כל entry לשורה/שתיים (קרטונים + בודדים)
   type ComputedLine = {
     product: Product;

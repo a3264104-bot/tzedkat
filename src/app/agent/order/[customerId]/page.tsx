@@ -186,6 +186,28 @@ export default async function AgentOrderPage({
     },
   });
 
+  // §169: 🐛 מוצר מועדף שאינו במחירון פשוט לא היה קיים.
+  //
+  // המוצרים נלקחים כולם מ-pricelist.products, ולכן מוצר שסומן
+  // כמועדף (ראש, בננה) אך לא נוסף למכירה - לא הופיע בשום מקום.
+  //
+  // התוצאה: הלקוח מבקש ראש, פונה לנציג, **וגם הנציג לא רואה**.
+  // התכונה שבנינו ב-§119 הייתה נגישה רק אם המנהל זכר להוסיף את
+  // המוצר לכל מחירון מחדש.
+  //
+  // ⚠️ נשלפים בנפרד ומצורפים לרשימה: מוצר מועדף הוא מטבעו "מחוץ
+  // למכירה" - הוא נמכר לפי בקשה ובמחיר שהנציג קובע.
+  const favoritesOutside = await prisma.product.findMany({
+    where: {
+      isFavorite: true,
+      // ⚠️ רק מה שלא כבר במחירון - אחרת הוא היה מופיע פעמיים
+      NOT: {
+        pricelists: { some: { pricelistId: pricelist?.id ?? "" } },
+      },
+    },
+    include: { category: true, kashrutRef: true },
+  });
+
   const now = new Date();
   const closed = pricelist?.closeDate != null && now > new Date(pricelist.closeDate);
   const notYetOpen = pricelist?.openDate != null && now < new Date(pricelist.openDate);
@@ -280,6 +302,47 @@ export default async function AgentOrderPage({
       sortOrder: pp.product.sortOrder,
     }))
     .sort((a, b) => a.categorySort - b.categorySort || a.sortOrder - b.sortOrder);
+
+  // §169: מוצרים מועדפים שאינם במחירון - מצורפים לסוף.
+  //
+  // ⚠️ המחיר הוא cartonPrice של המוצר, כי אין לו רשומת מחירון.
+  // זה גם הבסיס לחישוב העמלה (§119): הנציג קובע מחיר גבוה יותר,
+  // וההפרש מ"רצפת הנציג" שלו.
+  //
+  // ⚠️ isFavorite=true גורם ל-OrderFlow להציג אותם בקטגוריה
+  // "⭐ מוצרים מיוחדים" עם שדה תמחור - בדיוק כמו מועדף שכן
+  // נמצא במחירון.
+  for (const p of favoritesOutside) {
+    if (!p.isActive) continue;
+    products.push({
+      id: p.id,
+      name: p.name,
+      category: p.category?.name || "מיוחדים",
+      categorySort: 999,
+      price: Number(p.cartonPrice),
+      allowSingles: p.allowSingles,
+      singlesMode: p.singlesMode || "KG",
+      singleUnitPrice:
+        p.singleUnitPrice != null ? Number(p.singleUnitPrice) : null,
+      unit: p.unit,
+      saleType: p.saleType,
+      priceType: p.priceType,
+      avgWeightPerUnit:
+        p.avgWeightPerUnit != null ? Number(p.avgWeightPerUnit) : null,
+      imageUrl: p.imageUrl,
+      kashrut: p.kashrut,
+      kashrutName: p.kashrutRef?.name || null,
+      kashrutImageUrl: p.kashrutRef?.imageUrl || null,
+      isFeatured: false,
+      highlightNote: p.highlightNote,
+      isInactive: false,
+      isFavorite: true,
+      packageWeight: p.packageWeight,
+      isFrozen: p.isFrozen,
+      limitedQty: p.limitedQty,
+      sortOrder: p.sortOrder,
+    });
+  }
 
   // האם יש לו כבר כרטיס?
   // - יש token → cardVerified=true → מדלגים על אימות
