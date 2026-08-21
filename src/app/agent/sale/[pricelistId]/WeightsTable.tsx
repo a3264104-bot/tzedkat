@@ -301,7 +301,16 @@ export function WeightsTable({
 
       {/* ─── הטבלה ─── */}
       <div className="overflow-x-auto">
-        <table className="text-sm border-collapse">
+        {/* §177: 🐛 "ריבוע לבן גדול בצד שמאל".
+            
+            הטבלה הייתה בלי w-full, ולכן תפסה רק את רוחב התוכן.
+            במסך רחב עם 3-4 עמודות נשאר שטח לבן ענק מצד שמאל,
+            שנראה כמו חלק מהטבלה שלא נטען.
+            
+            ⚠️ min-w-full ולא w-full: כשיש הרבה עמודות הטבלה
+            **חייבת** לגלוש, ו-w-full היה דוחס אותן. min-w-full
+            נותן את שניהם - ממלא את הרוחב כשצר, וגולש כשצריך. */}
+        <table className="min-w-full text-sm border-collapse">
           <thead>
             <tr className="bg-zinc-100 border-b-2 border-zinc-300">
               {/* עמודת הלקוח קפואה - היא נקודת הייחוס בגלילה אופקית */}
@@ -318,7 +327,9 @@ export function WeightsTable({
                   פריט {i + 1}
                 </th>
               ))}
-              <th className="px-3 py-2 min-w-[90px] border-l border-zinc-200 text-[11px] font-bold text-zinc-600">
+              {/* §177: w-full על העמודה הזו - היא סופגת את הרוחב
+                  העודף, כך שהעמודות הקבועות לא נמתחות. */}
+              <th className="w-full px-3 py-2 min-w-[90px] border-l border-zinc-200 text-[11px] font-bold text-zinc-600">
                 סה״כ הזמנה
               </th>
               {/* §103: עמודת הסימון - קפואה בקצה, כי זו הפעולה
