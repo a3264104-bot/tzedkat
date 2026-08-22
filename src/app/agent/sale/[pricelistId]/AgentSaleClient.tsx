@@ -9,6 +9,8 @@ import { OrderRow } from "./OrderRow";
 import { WalkinList } from "./WalkinList";
 import { SummaryPanel } from "./SummaryPanel";
 import { WeightsTable } from "./WeightsTable";
+// §181: הערות לקוחות שממתינות למענה
+import { CustomerNotesPanel } from "./CustomerNotesPanel";
 import { AgentAddCustomerButton } from "@/components/AgentAddCustomerButton";
 
 type Product = {
@@ -63,6 +65,16 @@ export type Order = {
   agentClosedAt?: string | null;
   deliveredByAgentId?: string | null;
   deliveredNote?: string | null;
+  /**
+   * §181: הערת הלקוח ותשובת הנציג.
+   *
+   * 🐛 הן נשמרו ב-§133 אבל לא נשלפו למסך הזה. הנציג ראה אותן
+   * רק אם נכנס להזמנה - כלומר בפועל לא ראה אותן בכלל.
+   */
+  customerNote?: string | null;
+  customerNoteAt?: string | null;
+  agentReply?: string | null;
+  agentReplyAt?: string | null;
   paymentStatus?: string;
   finalTotal: number | null;
   point: { id: string; name: string; city: string | null } | null;
@@ -194,6 +206,21 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
     if (!data) return 0;
     return data.orders.filter(
       (o) => o.items.some((i) => !i.isCancelled) && !o.agentClosedAt
+    ).length;
+  }, [data]);
+
+  // §181: הערות שממתינות למענה - למונה בטאב.
+  //
+  // ⚠️ מחושב כאן ולא בתיבה: הנציג שנמצא בטאב "סיכום" צריך לדעת
+  // שמישהו מחכה, בלי לחזור ולבדוק. אותו עיקרון כמו missingWeights.
+  const pendingNotes = useMemo(() => {
+    if (!data) return 0;
+    return data.orders.filter(
+      (o) =>
+        o.customerNote &&
+        o.customerNote.trim() &&
+        !o.agentReply &&
+        o.status !== "CANCELLED"
     ).length;
   }, [data]);
 
@@ -564,6 +591,16 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                   {missingWeights}
                 </span>
               )}
+              {/* §181: תג ההערות - נפרד מתג המשקלים.
+                  
+                  ⚠️ צבע שונה (כתום מול אדום): אדום = "חסר נתון
+                  שחוסם סגירה", כתום = "לקוח מחכה לתשובה". שני
+                  דברים שונים, ומיזוג היה מסתיר את השני. */}
+              {pendingNotes > 0 && (
+                <span className="mr-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  💬{pendingNotes}
+                </span>
+              )}
             </TabBtn>
             <TabBtn active={tab === "walkins"} onClick={() => setTab("walkins")}>
               מזדמנים ({data.walkins.length})
@@ -614,6 +651,12 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
 
         {tab === "orders" && (
           <div className="space-y-3">
+            {/* §181: הערות מלקוחות - **ראשון בטאב**.
+                
+                ⚠️ מעל החיפוש והסינון: הנציג פותח את המסך ורואה
+                מיד אם מישהו מחכה לתשובה. אם היא הייתה למטה, הוא
+                היה מגלה אותה רק אחרי שסיים לשקול. */}
+            <CustomerNotesPanel orders={data.orders} />
             {/* חיפוש + סינון + מצב תצוגה */}
             <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-3 space-y-2">
               <div className="flex gap-2 items-stretch">

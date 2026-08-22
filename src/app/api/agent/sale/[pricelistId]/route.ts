@@ -77,7 +77,21 @@ export async function GET(
     orderBy: [{ createdAt: "asc" }],
     include: {
       point: { select: { id: true, name: true, city: true } },
-      customer: { select: { id: true, name: true, phone: true } },
+      customer: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          // §181: פרטי הלקוח לעריכה מהירה מהמסך.
+          //
+          // ⚠️ הנציג פוגש את הלקוח בחלוקה ומגלה שהטלפון שגוי או
+          // שהוא משלם מזומן. עד היום הוא היה צריך לצאת, לחפש
+          // אותו ברשימה, ולחזור - וברוב המקרים פשוט ויתר.
+          phone2: true,
+          paymentPreference: true,
+          paymentToken: true,
+        },
+      },
       items: {
         include: {
           product: {
@@ -239,6 +253,18 @@ export async function GET(
       // §103: סימון "טופל" של הנציג
       agentClosedAt: o.agentClosedAt?.toISOString() ?? null,
       deliveredNote: o.deliveredNote,
+      // §181: הערת הלקוח ותשובת הנציג.
+      //
+      // 🐛 הן נשמרו ב-§133 אבל לא נשלפו למסך המכירה. הנציג ראה
+      // אותן **רק** אם נכנס להזמנה הספציפית - כלומר בפועל לא
+      // ראה אותן בכלל, כי אין סיבה להיכנס להזמנה שנראית רגילה.
+      //
+      // ⚠️ הלקוח כתב "בלי עצם בבקשה", והנציג גילה את זה
+      // כשהלקוח כבר קיבל את הסחורה.
+      customerNote: o.customerNote,
+      customerNoteAt: o.customerNoteAt?.toISOString() ?? null,
+      agentReply: o.agentReply,
+      agentReplyAt: o.agentReplyAt?.toISOString() ?? null,
       paymentStatus: o.paymentStatus,
       finalTotal: o.finalTotal ? Number(o.finalTotal) : null,
       items: o.items.map((it) => ({

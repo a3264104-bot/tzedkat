@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+// §183: עריכת פרטי הלקוח מתוך ההזמנה
+import { QuickCustomerEdit } from "@/components/QuickCustomerEdit";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/client";
 import {
@@ -384,8 +386,49 @@ export default function OrderDetail() {
         )}
       </div>
 
+      {/* §183: עריכת פרטי הלקוח **מתוך ההזמנה**.
+          
+          🐛 מה שהיה: המנהל ראה שם שגוי בהזמנה, ולא יכול היה
+          לתקן אותו בלי לצאת, לחפש את הלקוח ברשימה, ולחזור.
+          
+          ⚠️ **מעדכן את הלקוח עצמו** ולא רק את ההזמנה. זה מה
+          שהמנהל מצפה לו: הוא מתקן שם שגוי, וזה נשאר מתוקן
+          בהזמנות הבאות ובכרטיס.
+          
+          ⚠️ Order.customerName הוא snapshot ונשאר כפי שהיה -
+          הוא מתעד מה היה השם ברגע ההזמנה, וזה נכון. */}
+      <div className="card p-5 space-y-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-[11px] text-zinc-500">לקוח</div>
+            <div className="font-bold text-brand-slatedark">
+              {order.customer?.name ?? order.customerName}
+            </div>
+            {/* ⚠️ חיווי כשהשם בהזמנה שונה מהשם הנוכחי: זה קורה
+                אחרי עריכה, וזו לא שגיאה - אבל המנהל צריך להבין
+                למה יש שני שמות. */}
+            {order.customer?.name &&
+              order.customer.name !== order.customerName && (
+                <div className="text-[10px] text-zinc-400 mt-0.5">
+                  בהזמנה נרשם: {order.customerName}
+                </div>
+              )}
+          </div>
+          {order.customer && (
+            <QuickCustomerEdit
+              customerId={order.customer.id}
+              name={order.customer.name}
+              phone={order.phone}
+              phone2={order.phone2 ?? null}
+              paymentPreference={order.customer.paymentPreference ?? "CREDIT"}
+              hasCard={!!order.customer.hasToken}
+              canSetCash
+            />
+          )}
+        </div>
+      </div>
+
       <div className="card p-5 grid md:grid-cols-2 gap-3 text-sm">
-        <Info label="לקוח" value={order.customerName} />
         <Info label="טלפון" value={order.phone} />
         {order.phone2 && <Info label="טלפון נוסף" value={order.phone2} />}
         <Info label="נקודת חלוקה" value={order.point.name} />

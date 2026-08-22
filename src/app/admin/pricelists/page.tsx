@@ -667,7 +667,57 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
         </div>
 
         <div>
-          <div className="label">נקודות חלוקה משתתפות</div>
+          {/* §180: סימון הכל בלחיצה.
+              
+              🐛 עם 15 נקודות המנהל סימן אותן אחת-אחת בכל מכירה
+              חדשה. זו עבודה שחוזרת על עצמה, ומספיק לשכוח אחת
+              כדי שלקוחות שלמים לא יוכלו להזמין.
+              
+              ⚠️ הספירה כוללת את הסמויות במפורש - הן לא מופיעות
+              ללקוח, והמנהל צריך לדעת שהן נכללו. */}
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="label mb-0">נקודות חלוקה משתתפות</div>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const all: Record<string, boolean> = {};
+                  for (const pt of allPoints) all[pt.id] = true;
+                  setSelPoints(all);
+                }}
+                className="text-[11px] font-bold text-brand-rust hover:underline"
+              >
+                ✓ סמן הכל
+              </button>
+              <span className="text-zinc-300">·</span>
+              <button
+                type="button"
+                onClick={() => setSelPoints({})}
+                className="text-[11px] text-zinc-500 hover:underline"
+              >
+                נקה
+              </button>
+            </div>
+          </div>
+
+          {/* חיווי הבחירה - כולל פירוט הסמויות */}
+          {(() => {
+            const chosen = allPoints.filter((pt) => selPoints[pt.id]);
+            const hidden = chosen.filter((pt: any) => pt.isPrivate);
+            if (chosen.length === 0) return null;
+            return (
+              <p className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded p-1.5 mb-1.5">
+                נבחרו <b>{chosen.length}</b> נקודות
+                {hidden.length > 0 && (
+                  <>
+                    {" "}
+                    · כולל <b>{hidden.length} סמויות</b> 🔒 שאינן מוצגות ללקוחות
+                  </>
+                )}
+              </p>
+            );
+          })()}
+
           <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto border rounded-xl p-2">
             {allPoints.map((pt) => (
               <label key={pt.id} className="flex items-center gap-2 text-sm">
@@ -677,7 +727,10 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
                   onChange={(e) => setSelPoints({ ...selPoints, [pt.id]: e.target.checked })}
                   className="h-4 w-4 accent-brand-rust"
                 />
-                {pt.name}
+                <span className={(pt as any).isPrivate ? "text-violet-800" : ""}>
+                  {(pt as any).isPrivate && "🔒 "}
+                  {pt.name}
+                </span>
               </label>
             ))}
           </div>

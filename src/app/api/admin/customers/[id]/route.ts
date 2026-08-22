@@ -61,21 +61,60 @@ async function resolveActor(body: any) {
 
   const agent = await prisma.customer.findUnique({
     where: { id: userId },
-    select: { agentCanResetPassword: true },
+    select: {
+      agentCanResetPassword: true,
+      // §155: הרשאת סימון מזומן
+      agentCanCreateCashCustomers: true,
+    },
   });
-  if (!agent?.agentCanResetPassword) {
-    return { ok: false as const, res: admin.res };
-  }
 
-  // הנציג רשאי *רק* לאפס סיסמה. אם הבקשה מכילה שדה אחר - נדחית.
-  const keys = Object.keys(body).filter((k) => k !== "passwordPlain");
-  if (keys.length > 0 || !body.passwordPlain) {
+  // §181: שדות שהנציג רשאי לעדכן מתוך ההזמנה.
+  //
+  // 🐛 מה שהיה: "נציג רשאי לאפס סיסמה בלבד". הנציג פגש את הלקוח
+  // בחלוקה, גילה שהטלפון שגוי - ולא יכול היה לתקן. הוא היה
+  // צריך לפנות למנהל, וברוב המקרים פשוט ויתר. הנתון נשאר שגוי.
+  //
+  // ⚠️ מה **לא** ברשימה בכוונה: נקודת חלוקה (משנה למי הלקוח
+  // שייך), הרשאות, מייל (מזהה כניסה), והשבתה. אלה החלטות של
+  // המנהל, ופתיחתן לנציג הייתה מייצרת נזק שקשה לאתר.
+  const AGENT_EDITABLE = [
+    "name",
+    "firstName",
+    "lastName",
+    "phone",
+    "phone2",
+    // ⚠️ paymentPreference נבדק בנפרד למטה - הוא דורש הרשאה
+    // ומותר רק לכיוון מזומן.
+    "paymentPreference",
+    "passwordPlain",
+    "newPassword",
+  ];
+
+  const keys = Object.keys(body);
+  const forbidden = keys.filter((k) => !AGENT_EDITABLE.includes(k));
+  if (forbidden.length > 0) {
     return {
       ok: false as const,
       res: NextResponse.json(
-        { error: "נציג רשאי לאפס סיסמה בלבד" },
+        {
+          error: `נציג אינו רשאי לעדכן: ${forbidden.join(", ")}. יש לפנות למנהל.`,
+        },
         { status: 403 }
       ),
+    };
+  }
+
+  // ⚠️ איפוס סיסמה עדיין דורש הרשאה נפרדת - היא קיימת מזמן
+  // ומשמעותה גישה לחשבון הלקוח.
+  const wantsPassword = "passwordPlain" in body || "newPassword" in body;
+  if (wantsPassword && !agent?.agentCanResetPassword) {
+    return { ok: false as const, res: admin.res };
+  }
+
+  if (keys.length === 0) {
+    return {
+      ok: false as const,
+      res: NextResponse.json({ error: "אין שדות לעדכון" }, { status: 400 }),
     };
   }
 

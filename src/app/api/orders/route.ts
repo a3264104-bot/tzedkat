@@ -16,6 +16,21 @@ const schema = z.object({
   requestedInstallments: z.number().min(1).max(2).optional(),
   // אם נציג מזמין בשם לקוח - מזהה הלקוח שעבורו מזמינים
   onBehalfOfCustomerId: z.string().optional().nullable(),
+  // §182: משלוח שנקבע כבר ביצירת ההזמנה.
+  //
+  // הנציג יודע מראש שהלקוח מקבל משלוח - הוא לא צריך לשמור,
+  // לצאת, ולהיכנס להזמנה שנוצרה רק כדי לסמן את זה.
+  //
+  // ⚠️ **רק לנציג/מנהל.** לקוח שישלח את השדה הזה ינסה לקבוע
+  // לעצמו דמי משלוח, וזה נבדק למטה.
+  delivery: z
+    .object({
+      address: z.string().min(2),
+      fee: z.number().min(0).max(500),
+      note: z.string().optional().nullable(),
+    })
+    .optional()
+    .nullable(),
   // §160: מחירים שהנציג קבע למוצרים מועדפים - { productId: price }
   favoritePrices: z.record(z.string(), z.number()).optional(),
   items: z
@@ -225,6 +240,21 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    // §182: המשלוח - נבדק כאן, לפני היצירה.
+    //
+    // ⚠️ הבדיקה **בשרת** ולא רק במסך: הסתרת הכפתור נעקפת בבקשה
+    // ישירה, ודמי משלוח הם כסף.
+    const deliveryInput =
+      placedByAgentId && data.delivery && data.delivery.fee >= 0
+        ? {
+            fee: Math.round(Number(data.delivery.fee) * 100) / 100,
+            address: String(data.delivery.address).trim().slice(0, 300),
+            note: data.delivery.note
+              ? String(data.delivery.note).trim().slice(0, 300)
+              : null,
+          }
+        : null;
 
     // נקודת החלוקה חייבת להשתתף במכירה הזו
     const plPoint = pricelist.points.find((x) => x.pointId === data.pointId);
@@ -474,6 +504,27 @@ export async function POST(req: Request) {
         notes: data.notes || null,
         requestedInstallments: data.requestedInstallments ?? 1,
         estimatedTotal,
+        // §182: משלוח שנקבע ביצירה.
+        //
+        // ⚠️ **רק לנציג/מנהל** - placedByAgentId. לקוח ששולח את
+        // השדה מנסה לקבוע לעצמו דמי משלוח, וזה מתעלם בשקט ולא
+        // נכשל: המסך שלו לא מציע את זה בכלל, ובקשה כזו היא
+        // ניסיון עקיפה ולא טעות תמימה.
+        //
+        // ⚠️ estimatedTotal **אינו** כולל את דמי המשלוח: הוא
+        // סכום הפריטים ודמי הטיפול בלבד, בדיוק כמו בכל הזמנה
+        // אחרת. המשלוח נוסף בחישוב הסופי (§134), ובתצוגה
+        // המשוערת (§180). ערבוב כאן היה מייצר ספירה כפולה.
+        ...(deliveryInput
+          ? {
+              deliveryRequested: true,
+              deliveryFee: deliveryInput.fee,
+              deliveryAddress: deliveryInput.address,
+              deliveryNote: deliveryInput.note || null,
+              deliverySetById: placedByAgentId,
+              deliverySetAt: new Date(),
+            }
+          : {}),
         status: "PENDING_REVIEW",
         items: { create: itemsData },
       },

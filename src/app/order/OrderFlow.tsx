@@ -309,6 +309,21 @@ export function OrderFlow({
   // ברשימה הרגילה.
   const [specialOpen, setSpecialOpen] = useState(false);
 
+  // §182: משלוח שנקבע כבר ביצירת ההזמנה.
+  //
+  // 🐛 מה שהיה: הנציג יודע שהלקוח מקבל משלוח, אבל יכול היה
+  // לסמן את זה **רק אחרי** שההזמנה נשמרה - כלומר לשמור, לצאת,
+  // לחפש את ההזמנה, ולהיכנס אליה.
+  //
+  // ⚠️ **לא כמוצר ברשימה** אלא ככפתור נפרד: משלוח הוא על ההזמנה
+  // כולה ולא על פריט, וערבוב שלו בבורר המוצרים היה מבלבל.
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
+  const [delivery, setDelivery] = useState<{
+    address: string;
+    fee: string;
+    note: string;
+  } | null>(null);
+
   const [cartToast, setCartToast] = useState<{
     id: number;
     productName: string;
@@ -705,6 +720,15 @@ export function OrderFlow({
                 .map(([k, v]) => [k, Number(v)])
             ),
             onBehalfOfCustomerId: onBehalfOfCustomerId || null,
+            // §182: משלוח, אם נקבע. השרת מאמת שהשולח הוא נציג.
+            delivery:
+              delivery && delivery.address.trim() && Number(delivery.fee) >= 0
+                ? {
+                    address: delivery.address.trim(),
+                    fee: Number(delivery.fee) || 0,
+                    note: delivery.note.trim() || null,
+                  }
+                : null,
             items: cartLines.map((l) => ({
               productId: l.product.id,
               isSingle: l.isSingle,
@@ -1143,6 +1167,51 @@ export function OrderFlow({
                 </button>
               )}
 
+              {/* §182: משלוח - כפתור נפרד, מתחת למוצרים המיוחדים.
+                  
+                  ⚠️ צבע וסמל שונים בכוונה: ⭐ כתום = "מה מוסיפים
+                  להזמנה", 🚚 סגול = "תוספת על ההזמנה כולה". המנהל
+                  ביקש שלא יהיה בלגן, וההבחנה החזותית היא מה שמונע
+                  אותו - לא הסבר בטקסט.
+                  
+                  ⚠️ אותו סגול של פאנל המשלוח בהזמנה קיימת, כדי
+                  שזה ייראה כמו אותו דבר בשני המקומות. */}
+              {onBehalfOfCustomerId && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeliveryOpen(true);
+                      if (!delivery) setDelivery({ address: "", fee: "", note: "" });
+                    }}
+                    className={`w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 border-2 transition-colors ${
+                      delivery && delivery.address.trim()
+                        ? "border-violet-400 bg-violet-100"
+                        : "border-violet-200 bg-violet-50 hover:bg-violet-100"
+                    }`}
+                  >
+                    <div className="text-right">
+                      <div className="font-extrabold text-violet-900 text-sm">
+                        🚚 משלוח ללקוח
+                        {delivery && delivery.address.trim() && (
+                          <span className="mr-1.5 text-violet-700">
+                            · {fmt(Number(delivery.fee) || 0)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-violet-800 mt-0.5">
+                        {delivery && delivery.address.trim()
+                          ? delivery.address
+                          : "כתובת ודמי משלוח — יתווספו לסכום ההזמנה"}
+                      </div>
+                    </div>
+                    <span className="text-violet-700 text-xl shrink-0">
+                      {delivery && delivery.address.trim() ? "✏️" : "←"}
+                    </span>
+                  </button>
+                </div>
+              )}
+
               {/* ניווט קטגוריות דביק - עיצוב מוקפץ */}
               <div className="sticky top-0 z-10 -mx-4 px-4 py-2.5 bg-brand-cream/95 backdrop-blur-md border-b border-zinc-200/70 overflow-x-auto no-scrollbar">
                 <div className="flex gap-2 w-max">
@@ -1564,9 +1633,29 @@ export function OrderFlow({
                     <span className="font-medium">+{fmt(orderFeeAmount)}</span>
                   </div>
                 )}
+                {/* §182: המשלוח בסיכום, לפני השליחה.
+                    
+                    ⚠️ הנציג רואה את הסכום המלא **לפני** ששולח.
+                    בלי זה הוא היה שולח, נכנס להזמנה, ומגלה שהסכום
+                    שונה ממה שאמר ללקוח. */}
+                {delivery && delivery.address.trim() && Number(delivery.fee) > 0 && (
+                  <div className="flex justify-between text-violet-700">
+                    <span>🚚 משלוח</span>
+                    <span className="font-medium">
+                      +{fmt(Number(delivery.fee))}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between font-extrabold text-brand-rust border-t border-zinc-200 pt-1 mt-1">
                   <span>סה"כ לחיוב משוער</span>
-                  <span>{fmt(estimatedTotal)}</span>
+                  <span>
+                    {fmt(
+                      estimatedTotal +
+                        (delivery && delivery.address.trim()
+                          ? Number(delivery.fee) || 0
+                          : 0)
+                    )}
+                  </span>
                 </div>
               </div>
               {/* §87: הרגע שבו זה הכי חשוב - הלקוח מסתכל על הסכום
@@ -1842,6 +1931,97 @@ export function OrderFlow({
                 className="w-full py-3 rounded-xl bg-brand-rust text-white font-bold"
               >
                 סיימתי
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* §182: טופס המשלוח.
+          
+          ⚠️ אותם שדות בדיוק כמו ב-DeliveryPanel של הזמנה קיימת -
+          כתובת, סכום, הערה. הנציג לומד מסך אחד ומשתמש בשניהם. */}
+      {deliveryOpen && delivery && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-sm sm:rounded-2xl rounded-t-2xl p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-extrabold text-violet-900">🚚 משלוח ללקוח</h3>
+              <button
+                onClick={() => setDeliveryOpen(false)}
+                className="text-zinc-400 text-2xl leading-none px-1"
+              >
+                ×
+              </button>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-zinc-500 block mb-1">
+                כתובת למשלוח *
+              </label>
+              <input
+                className="input w-full"
+                value={delivery.address}
+                onChange={(e) =>
+                  setDelivery({ ...delivery, address: e.target.value })
+                }
+                placeholder="רחוב, מספר, עיר, קומה"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-zinc-500 block mb-1">
+                דמי משלוח (₪)
+              </label>
+              <input
+                className="input w-full text-center font-bold"
+                type="number"
+                step="0.5"
+                min="0"
+                dir="ltr"
+                value={delivery.fee}
+                onChange={(e) => setDelivery({ ...delivery, fee: e.target.value })}
+                placeholder="0"
+              />
+              {/* ⚠️ ההסבר כאן ולא בטקסט כללי: זה הרגע שבו הנציג
+                  מחליט כמה לגבות, וההשפעה על הסכום צריכה להיות
+                  מולו. */}
+              <p className="text-[10px] text-zinc-500 mt-1">
+                משתנה לפי עיר. ריק או 0 = משלוח בלי חיוב.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-zinc-500 block mb-1">
+                הערה <span className="font-normal text-zinc-400">(אופציונלי)</span>
+              </label>
+              <input
+                className="input w-full"
+                value={delivery.note}
+                onChange={(e) => setDelivery({ ...delivery, note: e.target.value })}
+                placeholder="להתקשר לפני / להשאיר אצל השכן"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              {/* ⚠️ "הסר" ולא רק "ביטול": נציג שסימן משלוח בטעות
+                  חייב דרך לבטל אותו, ובלי הכפתור הזה הוא היה
+                  מוחק את הכתובת ומשאיר fee - מצב חצי. */}
+              {delivery.address.trim() && (
+                <button
+                  onClick={() => {
+                    setDelivery(null);
+                    setDeliveryOpen(false);
+                  }}
+                  className="px-3 py-2.5 rounded-xl border-2 border-zinc-300 text-zinc-600 text-sm font-bold"
+                >
+                  הסר
+                </button>
+              )}
+              <button
+                onClick={() => setDeliveryOpen(false)}
+                className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white font-bold"
+              >
+                {delivery.address.trim() ? "שמור" : "סגור"}
               </button>
             </div>
           </div>

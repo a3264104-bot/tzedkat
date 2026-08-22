@@ -214,7 +214,35 @@ export default async function AgentOrderDetailPage({
 
   const hasToken = !!order.customer.paymentToken;
   const finalTotal = order.finalTotal != null ? Number(order.finalTotal) : null;
-  const estimatedTotal = Number(order.estimatedTotal);
+
+  // §180: 🐛 המשלוח לא הופיע בסה"כ.
+  //
+  // estimatedTotal הוא הסכום **מרגע ההזמנה** - פריטים + דמי
+  // טיפול. משלוח, חיוב נוסף וזיכוי נוספים אחר כך, והם נכנסים
+  // ל-finalTotal **רק בשקילה**.
+  //
+  // כלומר: הנציג סימן משלוח 35 ₪, ראה את השורה בפירוט, אבל
+  // הסה"כ נשאר כפי שהיה - והוא לא ידע אם זה נשמר או לא.
+  //
+  // ⚠️ החישוב כאן לתצוגה בלבד. מקור האמת נשאר finalTotal
+  // שנקבע בשקילה, ולכן אין כאן סיכון לסתירה.
+  const rawEstimated = Number(order.estimatedTotal);
+  const dlv =
+    order.deliveryRequested && order.deliveryFee != null
+      ? Number(order.deliveryFee)
+      : 0;
+  const xtra = order.extraCharge != null ? Number(order.extraCharge) : 0;
+  const crd = order.creditAmount != null ? Number(order.creditAmount) : 0;
+  const bal =
+    order.appliedCreditBalance != null ? Number(order.appliedCreditBalance) : 0;
+
+  // ⚠️ Math.max(0) - אותה רשת ביטחון כמו בשרת. זיכוי גדול
+  // מהסכום לא אמור לקרות (הוולידציה חוסמת), אבל תצוגה של מינוס
+  // הייתה מבלבלת יותר מ-0.
+  const estimatedTotal = Math.max(
+    0,
+    Math.round((rawEstimated + dlv + xtra - crd - bal) * 100) / 100
+  );
   const canChargeThisOrder =
     canCharge &&
     hasToken &&
@@ -358,6 +386,21 @@ export default async function AgentOrderDetailPage({
           <div className="bg-brand-cream/50 border-t border-zinc-200 px-4 py-3 flex justify-between items-center">
             <span className="text-sm font-bold text-brand-slatedark">
               {finalTotal !== null ? "סה\"כ סופי" : "סה\"כ משוער"}
+              {finalTotal === null && (dlv > 0 || xtra > 0 || crd > 0) && (
+                <span className="block text-[10px] font-normal text-zinc-500">
+                  כולל משלוח, חיובים וזיכויים
+                </span>
+              )}
+              {/* §180: קיצור לאזור השינויים.
+                  
+                  ⚠️ ליד הסכום ולא בתפריט: זה הרגע שבו הנציג
+                  מסתכל על המספר ומחליט שצריך לשנות אותו. */}
+              <a
+                href="#money-actions"
+                className="block text-[10px] font-normal text-brand-rust hover:underline mt-0.5"
+              >
+                שינוי סכום ← משלוח · זיכוי · חיוב
+              </a>
             </span>
             <span className="text-lg font-extrabold text-brand-rust">
               {fmt(finalTotal ?? estimatedTotal)}
@@ -436,6 +479,27 @@ export default async function AgentOrderDetailPage({
               <div className="font-mono">{order.lastChargeError}</div>
             </div>
           )}
+
+          {/* §180: כותרת שמסבירה מה יש כאן.
+              
+              🐛 שלושת הפאנלים (משלוח, זיכוי, חיוב) ישבו בלי שום
+              הקדמה, אחרי רשימת הפריטים והתשלום. הנציג שרצה לזכות
+              לקוח היה צריך לגלול ולחפש, ולא ידע שזה בכלל שם.
+              
+              ⚠️ כותרת אחת לשלושתם ולא כפתור לכל אחד: הם קשורים
+              (כולם משנים את הסכום), והפרדה הייתה מייצרת בדיוק את
+              הבלגן שהמנהל ביקש למנוע. */}
+          <div id="money-actions" className="mt-4 mb-2 flex items-center gap-2 scroll-mt-4">
+            <div className="h-px flex-1 bg-zinc-200" />
+            <span className="text-xs font-extrabold text-brand-slatedark whitespace-nowrap">
+              💰 שינויים בסכום ההזמנה
+            </span>
+            <div className="h-px flex-1 bg-zinc-200" />
+          </div>
+          <p className="text-[11px] text-zinc-500 text-center mb-2 leading-relaxed">
+            משלוח וחיוב נוסף <b>מוסיפים</b> · זיכוי <b>מוריד</b> · הכל נכנס
+            לסכום שהלקוח ישלם
+          </p>
 
           {/* §134: משלוח - לפני הזיכוי והחיוב.
               
