@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 // §183: עריכת פרטי הלקוח מתוך ההזמנה
 import { QuickCustomerEdit } from "@/components/QuickCustomerEdit";
+// §190: משלוח, חיוב נוסף וזיכוי - גם במסך המנהל
+import { DeliveryPanel } from "@/components/DeliveryPanel";
+import { CreditPanel } from "@/components/CreditPanel";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/client";
 import {
@@ -564,6 +567,43 @@ export default function OrderDetail() {
           />
         </div>
 
+        {/* §190: קיצורים לשינויי סכום - **ליד הוספת המוצר**.
+            
+            🐛 המנהל הוסיף מוצר, ואז רצה משלוח או זיכוי - וזה
+            היה בתחתית המסך. הוא היה צריך לגלול ולחפש.
+            
+            ⚠️ קיצורים ולא פאנלים כפולים: הפאנלים עצמם למטה.
+            שני מקומות לאותה פעולה = בלגן. */}
+        {order.finalTotal == null && (
+          <div className="mt-3 grid grid-cols-3 gap-2 no-print">
+            <a
+              href="#money-actions"
+              className="flex flex-col items-center gap-0.5 py-2.5 rounded-xl border-2 border-violet-300 bg-violet-50 hover:bg-violet-100 transition-colors"
+            >
+              <span className="text-lg leading-none">🚚</span>
+              <span className="text-[11px] font-bold text-violet-900">
+                {order.deliveryRequested ? "ערוך משלוח" : "משלוח"}
+              </span>
+            </a>
+            <a
+              href="#money-actions"
+              className="flex flex-col items-center gap-0.5 py-2.5 rounded-xl border-2 border-orange-300 bg-orange-50 hover:bg-orange-100 transition-colors"
+            >
+              <span className="text-lg leading-none">➕</span>
+              <span className="text-[11px] font-bold text-orange-900">
+                חיוב נוסף
+              </span>
+            </a>
+            <a
+              href="#money-actions"
+              className="flex flex-col items-center gap-0.5 py-2.5 rounded-xl border-2 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+            >
+              <span className="text-lg leading-none">↩️</span>
+              <span className="text-[11px] font-bold text-emerald-900">זיכוי</span>
+            </a>
+          </div>
+        )}
+
         <div className="flex justify-between items-center mt-4 pt-3 border-t">
           <div className="text-sm text-zinc-500">
             סה"כ משוער: <span className="font-bold text-brand-slatedark">{fmt(order.estimatedTotal)}</span>
@@ -573,6 +613,73 @@ export default function OrderDetail() {
           </div>
         </div>
       </div>
+
+      {/* §190: 🐛 שינויי סכום היו **רק במסך הנציג**.
+          
+          המנהל שפתח הזמנה ורצה להוסיף משלוח או לזכות לקוח לא
+          יכול היה - הוא היה צריך לעבור לאזור הנציג, למצוא את
+          ההזמנה שוב, ולעשות משם.
+          
+          ⚠️ אותם רכיבים בדיוק של מסך הנציג, ולא עותק: שני
+          מימושים היו מתפצלים ביום שמישהו משנה אחד מהם, וזה
+          נוגע בכסף.
+          
+          ⚠️ מוצג רק לפני קביעת המחיר הסופי - אותה חסימה שיש
+          ב-API. שינוי אחרי החיוב לא ייגבה. */}
+      {order.finalTotal == null && (
+        <div id="money-actions" className="no-print scroll-mt-4">
+          <div className="mt-4 mb-2 flex items-center gap-2">
+            <div className="h-px flex-1 bg-zinc-200" />
+            <span className="text-xs font-extrabold text-brand-slatedark whitespace-nowrap">
+              💰 שינויים בסכום ההזמנה
+            </span>
+            <div className="h-px flex-1 bg-zinc-200" />
+          </div>
+          <p className="text-[11px] text-zinc-500 text-center mb-2 leading-relaxed">
+            משלוח וחיוב נוסף <b>מוסיפים</b> · זיכוי <b>מוריד</b> · הכל נכנס
+            לסכום שהלקוח ישלם
+          </p>
+
+          <div className="mb-3">
+            <DeliveryPanel
+              orderId={order.id}
+              requested={order.deliveryRequested}
+              fee={order.deliveryFee != null ? Number(order.deliveryFee) : null}
+              address={order.deliveryAddress}
+              note={order.deliveryNote}
+              deliveredAt={order.deliveredToCustomerAt ?? null}
+              // ⚠️ אחרי תשלום השינוי לא ייגבה - הפאנל נועל את עצמו
+              alreadyPaid={order.paymentStatus === "PAID"}
+            />
+          </div>
+
+          <div className="mb-3">
+            <CreditPanel
+              orderId={order.id}
+              kind="credit"
+              currentAmount={
+                order.creditAmount != null ? Number(order.creditAmount) : null
+              }
+              currentReason={order.creditReason}
+              orderTotal={Number(order.finalTotal ?? order.estimatedTotal)}
+              alreadyPaid={order.paymentStatus === "PAID"}
+            />
+          </div>
+
+          <div className="mb-3">
+            <CreditPanel
+              orderId={order.id}
+              kind="charge"
+              currentAmount={
+                order.extraCharge != null ? Number(order.extraCharge) : null
+              }
+              currentReason={order.extraChargeReason}
+              orderTotal={Number(order.finalTotal ?? order.estimatedTotal)}
+              alreadyPaid={order.paymentStatus === "PAID"}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="card p-5 no-print">
         <label className="label">הערות פנימיות</label>
