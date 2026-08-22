@@ -1212,7 +1212,9 @@ export function OrderFlow({
                             (entry.cartonQty > 0 || entry.singlesQty > 0) && (
                               <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-2 mb-2 space-y-1">
                                 <div className="text-[11px] font-bold text-amber-900">
-                                  ⭐ ניתן לקבוע מחיר גבוה יותר
+                                  {/* §179: מפורש - מחיר לק"ג */}
+                                  ⭐ מחיר {p.avgWeightPerUnit ? 'לק"ג' : "ליחידה"} — ניתן
+                                  להעלות
                                 </div>
                                 <input
                                   className="input w-full text-center font-bold py-1 text-sm"
@@ -1221,7 +1223,8 @@ export function OrderFlow({
                                   min={p.price}
                                   dir="ltr"
                                   placeholder={`מחירון: ${p.price.toFixed(2)}`}
-                                  value={favPrices[p.id] ?? ""}
+                                  // §178: המחיר המקורי ממולא מראש
+                                  value={favPrices[p.id] ?? p.price.toFixed(2)}
                                   onChange={(e) =>
                                     setFavPrices((prev) => ({
                                       ...prev,
@@ -1760,8 +1763,15 @@ export function OrderFlow({
                     {/* תמחור - רק כשהפריט בעגלה */}
                     {inCart && (
                       <div className="mt-2 pt-2 border-t border-zinc-200 space-y-1">
+                        {/* §179: תווית מפורשת - "לק״ג" ולא "מחיר".
+                            
+                            🐛 הטעות שקרתה: הנציג הזין את **הסכום
+                            הכולל** (2131) במקום מחיר לקילו (96.90).
+                            השרת דחה בשקט, וההזמנה נוצרה במחירון. */}
                         <label className="text-[11px] font-bold text-amber-900 block">
-                          מחיר לקוח (ריק = מחירון)
+                          {p.avgWeightPerUnit
+                            ? 'מחיר לק"ג (לא הסכום הכולל)'
+                            : "מחיר ליחידה"}
                         </label>
                         <input
                           className="input w-full text-center font-bold py-1 text-sm"
@@ -1770,15 +1780,48 @@ export function OrderFlow({
                           min={p.price}
                           dir="ltr"
                           placeholder={`מחירון: ${p.price.toFixed(2)}`}
-                          value={favPrices[p.id] ?? ""}
+                          // §178: המחיר המקורי ממולא מראש.
+                          //
+                          // 🐛 מה שהיה: placeholder בלבד. הוא נעלם
+                          // ברגע שמקלידים, ולא היה ברור שהשארת
+                          // השדה ריק פירושה "מחיר המחירון".
+                          //
+                          // ⚠️ מילוי מראש הופך את זה למפורש: הנציג
+                          // רואה את המחיר, ומשנה רק אם הוא רוצה.
+                          value={favPrices[p.id] ?? p.price.toFixed(2)}
                           onChange={(e) =>
                             setFavPrices((prev) => ({ ...prev, [p.id]: e.target.value }))
                           }
                         />
-                        {favPrices[p.id] && Number(favPrices[p.id]) >= p.price && (
-                          <div className="text-[11px] text-emerald-800 font-bold">
-                            העמלה שלך:{" "}
-                            {(Number(favPrices[p.id]) - (p.price - 1)).toFixed(2)} ₪
+                        {/* §179: תצוגה חיה של הסכום הסופי.
+                            
+                            ⚠️ זו ההגנה האמיתית: הנציג רואה את
+                            התוצאה **לפני** ששולח, ומזהה מיד אם
+                            הזין מספר לא נכון. שגיאה מהשרת מגיעה
+                            מאוחר מדי. */}
+                        {favPrices[p.id] && Number(favPrices[p.id]) > 0 && (
+                          <div className="bg-white border border-amber-300 rounded p-1.5 space-y-0.5">
+                            <div className="text-[11px] text-brand-slatedark font-bold">
+                              {Number(favPrices[p.id]).toFixed(2)}
+                              {p.avgWeightPerUnit
+                                ? ` × ${p.avgWeightPerUnit} ק"ג × ${entry.cartonQty}`
+                                : ` × ${entry.cartonQty}`}{" "}
+                              ={" "}
+                              <span className="text-brand-rust">
+                                {fmt(
+                                  Number(favPrices[p.id]) *
+                                    (p.avgWeightPerUnit ?? 1) *
+                                    entry.cartonQty
+                                )}
+                              </span>
+                            </div>
+                            {Number(favPrices[p.id]) >= p.price && (
+                              <div className="text-[11px] text-emerald-800 font-bold">
+                                העמלה שלך:{" "}
+                                {(Number(favPrices[p.id]) - (p.price - 1)).toFixed(2)} ₪
+                                לק&quot;ג
+                              </div>
+                            )}
                           </div>
                         )}
                         {favPrices[p.id] && Number(favPrices[p.id]) < p.price && (

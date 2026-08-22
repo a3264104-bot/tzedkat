@@ -357,16 +357,73 @@ export async function POST(req: Request) {
         (pp.product.isFavorite || !pp.product.isActive)
       ) {
         const n = Number(wanted);
-        if (Number.isFinite(n) && n >= unitPrice && n <= unitPrice * 5) {
-          agentSetPrice = n;
+
+        // §179: 🐛 דחייה שקטה. הבדיקה הישנה פשוט לא שמרה מחיר
+        // לא תקין, וההזמנה נוצרה במחיר המחירון - בלי שאיש ידע.
+        //
+        // הנציג הזין מחיר, שלח, וקיבל סכום אחר. הוא לא ידע אם
+        // טעה, אם המערכת התעלמה, או אם החישוב שגוי.
+        //
+        // ⚠️ הטעות השכיחה: הזנת **הסכום הכולל** במקום מחיר לק"ג.
+        // 96.90 לק"ג בקרטון של 22 ק"ג = 2131 ₪, והנציג כותב 2131
+        // בשדה. השגיאה אומרת לו בדיוק את זה.
+        if (!Number.isFinite(n) || n <= 0) {
+          return NextResponse.json(
+            { error: `מחיר לא תקין עבור "${pp.product.name}"` },
+            { status: 400 }
+          );
         }
+        if (n < unitPrice) {
+          return NextResponse.json(
+            {
+              error:
+                `המחיר שהוזן עבור "${pp.product.name}" (${n.toFixed(2)} ₪) נמוך ` +
+                `מהמחירון (${unitPrice.toFixed(2)} ₪). לא ניתן לרדת מתחת למחירון.`,
+            },
+            { status: 400 }
+          );
+        }
+        if (n > unitPrice * 5) {
+          const hint = avgWeight
+            ? ` יש להזין מחיר לקילו ולא את הסכום הכולל — הקרטון שוקל כ-${avgWeight} ק"ג והמערכת מכפילה לבד.`
+            : "";
+          return NextResponse.json(
+            {
+              error:
+                `המחיר שהוזן עבור "${pp.product.name}" (${n.toFixed(2)} ₪) גבוה פי ` +
+                `${(n / unitPrice).toFixed(1)} מהמחירון (${unitPrice.toFixed(2)} ₪).${hint}`,
+            },
+            { status: 400 }
+          );
+        }
+        agentSetPrice = n;
       }
 
       // הלקוח מחויב לפי המחיר שנקבע, לא לפי המחירון
+      // §178: 🐛 המחיר המותאם חושב **בלי המשקל**.
+      //
+      // הקוד היה `chargedPrice * quantity` - כלומר ראש בקרטון
+      // של 8 קג במחיר 110₪/קג חויב ב-110 ₪ במקום 880.
+      //
+      // ⚠️ הבאג נוצר דווקא בתמחור עצמי: בלעדיו smartLineEstimate
+      // מכפילה נכון במשקל הממוצע. כלומר קביעת מחיר הפכה חישוב
+      // תקין לשגוי, וההפרש גדל ככל שהקרטון כבד יותר.
+      //
+      // ⚠️ אותה פונקציה בדיוק - היא כבר יודעת מתי להכפיל במשקל
+      // ומתי לא. חישוב מקביל היה מתפצל ממנה שוב ביום שמישהו
+      // ישנה אחת מהן.
       const chargedPrice = agentSetPrice ?? unitPrice;
       const finalEst =
         agentSetPrice != null
-          ? Math.round(chargedPrice * item.quantity * 100) / 100
+          ? smartLineEstimate(
+              chargedPrice,
+              item.quantity,
+              pp.product.saleType,
+              pp.product.priceType,
+              pp.product.avgWeightPerUnit != null
+                ? Number(pp.product.avgWeightPerUnit)
+                : null
+            ) ?? Math.round(chargedPrice * item.quantity * 100) / 100
           : est ?? 0;
       if (agentSetPrice != null) {
         estimatedTotal += finalEst - (est ?? 0);

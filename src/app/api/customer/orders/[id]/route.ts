@@ -192,6 +192,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
       const orderPricelistId: string = orderInfo.pricelistId;
 
+      // §178: 🐛 עריכת הזמנה ע"י הלקוח מחקה את המחיר שהנציג קבע.
+      //
+      // הזרימה: deleteMany על כל הפריטים ואז createMany. הפריטים
+      // החדשים נבנים מהמחירון, ו-agentSetPrice נעלם - כלומר
+      // הלקוח שינה כמות של פריט אחד, והראש שהנציג מכר ב-110
+      // חזר למחיר המחירון.
+      //
+      // ⚠️ העמלה של הנציג נעלמת יחד איתו, והוא לא יידע למה.
+      //
+      // ⚠️ המפתח הוא productId+isSingle - אותו צירוף שמזהה שורה.
+      const prevCustom = new Map<string, number>();
+      for (const it of existingForDiff.items) {
+        const asp = (it as any).agentSetPrice;
+        if (asp != null) {
+          prevCustom.set(`${it.productId}|${it.isSingle ? 1 : 0}`, Number(asp));
+        }
+      }
+
       const productIds = body.items.map((i: any) => String(i.productId));
       const pricelistProducts = await prisma.pricelistProduct.findMany({
         where: { pricelistId: orderPricelistId, productId: { in: productIds } },
@@ -224,18 +242,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         const isSinglesKg = isSingle && pp.product.priceType === "PER_KG" && pp.product.singlesMode !== "UNITS";
         const isSinglesUnits = isSingle && pp.product.singlesMode === "UNITS";
 
+        // §178: המחיר שהנציג קבע, אם היה.
+        //
+        // ⚠️ unitPrice נשאר המחירון - הוא הבסיס לחישוב העמלה.
+        // מה שנגבה בפועל יושב ב-agentSetPrice, בדיוק כמו ביצירה.
+        const keptCustom =
+          prevCustom.get(`${pp.product.id}|${isSingle ? 1 : 0}`) ?? null;
+        const chargedPrice = keptCustom ?? unitPrice;
+
         let estPrice: number;
         let estWeight: number | null = null;
         if (isSinglesKg) {
-          estPrice = Math.round(unitPrice * qty * 100) / 100;
+          estPrice = Math.round(chargedPrice * qty * 100) / 100;
           estWeight = qty;
         } else if (isSinglesUnits) {
-          estPrice = Math.round(unitPrice * qty * 100) / 100;
+          estPrice = Math.round(chargedPrice * qty * 100) / 100;
         } else if ((pp.product.saleType === "UNIT" || pp.product.saleType === "PACKAGE") && pp.product.priceType === "PER_KG" && avgWeight) {
-          estPrice = Math.round(unitPrice * avgWeight * qty * 100) / 100;
+          estPrice = Math.round(chargedPrice * avgWeight * qty * 100) / 100;
           estWeight = Math.round(avgWeight * qty * 1000) / 1000;
         } else {
-          estPrice = Math.round(unitPrice * qty * 100) / 100;
+          estPrice = Math.round(chargedPrice * qty * 100) / 100;
         }
         estimatedTotal += estPrice;
 
@@ -248,6 +274,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           estimatedWeight: estWeight,
           estimatedPrice: estPrice,
           unitPrice,
+          // §178: המחיר המותאם נשמר מחדש
+          agentSetPrice: keptCustom,
         });
       }
 
