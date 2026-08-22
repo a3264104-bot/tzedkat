@@ -126,6 +126,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "missing orderId" }, { status: 400 });
     }
 
+    // §189: מספר תשלומים שנקבע **ברגע החיוב**.
+    //
+    // 🐛 מה שהיה: המערכת השתמשה ב-requestedInstallments מההזמנה
+    // בלבד - כלומר מה שהלקוח ביקש באתר, ורק כשהסכום עלה על 800.
+    // הנציג שעמד מול הלקוח ושמע "אפשר לפרוס?" לא יכול היה לעשות
+    // כלום, והלקוח נאלץ לוותר או לשלם במזומן.
+    //
+    // ⚠️ 1-12: זה הטווח שנדרים תומכים בו. מעבר לזה החיוב נדחה
+    // אצלם עם שגיאה גנרית שקשה לאבחן.
+    //
+    // ⚠️ אם לא נשלח - נופלים למה שההזמנה ביקשה, כדי שקריאות
+    // קיימות ימשיכו לעבוד בדיוק כמו קודם.
+    const rawInst = body?.installments;
+    let overrideInstallments: number | null = null;
+    if (rawInst != null && rawInst !== "") {
+      const n = Number(rawInst);
+      if (!Number.isInteger(n) || n < 1 || n > 12) {
+        return NextResponse.json(
+          { error: "מספר תשלומים חייב להיות בין 1 ל-12" },
+          { status: 400 }
+        );
+      }
+      overrideInstallments = n;
+    }
+
     // 3. טעינת ההזמנה לפני נעילה - לצורך validations
     const preOrder = await prisma.order.findUnique({
       where: { id: orderId },
@@ -316,8 +341,13 @@ export async function POST(req: Request) {
       clientName: preOrder.customer.name || preOrder.customerName,
       phone: preOrder.customer.phone || preOrder.phone,
       email: preOrder.customer.email || undefined,
-      // §13: מספר תשלומים שהלקוח ביקש
-      tashloumim: (preOrder as any).requestedInstallments || 1,
+      // §189: מספר התשלומים.
+      //
+      // ⚠️ סדר העדיפות: מה שהנציג בחר עכשיו > מה שהלקוח ביקש
+      // בהזמנה > תשלום אחד. הנציג עומד מול הלקוח וזה הרגע שבו
+      // ההחלטה נכונה ביותר.
+      tashloumim:
+        overrideInstallments ?? (preOrder as any).requestedInstallments ?? 1,
     });
 
     // ═══════════════════════════════════════════════════════════════

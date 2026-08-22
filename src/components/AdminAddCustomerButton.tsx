@@ -154,8 +154,18 @@ function Modal({
   }, [phone]);
 
   async function create() {
-    if (name.trim().length < 2) {
-      setError("שם קצר מדי");
+    // §184: שני שדות, שניהם חובה.
+    //
+    // 🐛 מה שהיה: שלושה שדות - פרטי (מומלץ), משפחה (מומלץ),
+    // ושם מלא (חובה). המנהל לא הבין למה הוא ממלא את השם פעמיים,
+    // ובפועל מילא רק את המלא - וזה החזיר בדיוק את הבעיה שהפיצול
+    // בא לפתור.
+    if (firstName.trim().length < 2) {
+      setError("יש להזין שם פרטי");
+      return;
+    }
+    if (lastName.trim().length < 2) {
+      setError("יש להזין שם משפחה");
       return;
     }
     if (!pointId) {
@@ -175,10 +185,10 @@ function Modal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
-          // §173: הפיצול, אם מולא
-          firstName: firstName.trim() || null,
-          lastName: lastName.trim() || null,
+          // §184: השם המלא נגזר משני החלקים - מקור אמת אחד.
+          name: `${firstName.trim()} ${lastName.trim()}`,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           phone: phone.trim(),
           email: email.trim() || null,
           // §161: טלפון נוסף
@@ -369,8 +379,7 @@ function Modal({
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-xs font-bold text-zinc-500 block mb-1">
-                      שם פרטי{" "}
-                      <span className="font-normal text-zinc-400">(מומלץ)</span>
+                      שם פרטי *
                     </label>
                     <input
                       type="text"
@@ -382,8 +391,7 @@ function Modal({
                   </div>
                   <div>
                     <label className="text-xs font-bold text-zinc-500 block mb-1">
-                      שם משפחה{" "}
-                      <span className="font-normal text-zinc-400">(מומלץ)</span>
+                      שם משפחה *
                     </label>
                     <input
                       type="text"
@@ -393,16 +401,6 @@ function Modal({
                       className="w-full px-3 py-2.5 border-2 border-zinc-300 rounded-lg text-sm focus:outline-none focus:border-brand-rust"
                     />
                   </div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-zinc-500 block mb-1">שם *</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="שם מלא"
-                    className="w-full px-3 py-3 border-2 border-zinc-300 rounded-lg text-base focus:outline-none focus:border-brand-rust"
-                  />
                 </div>
 
                 {/* §54: נקודת חלוקה חובה. לנציג היא נקבעת אוטומטית לפי
@@ -565,7 +563,7 @@ function Modal({
             {canCreate && (
               <button
                 onClick={create}
-                disabled={creating || !name.trim() || !pointId}
+                disabled={creating || !firstName.trim() || !lastName.trim() || !pointId}
                 className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50"
               >
                 {creating ? "יוצר..." : "צור לקוח"}

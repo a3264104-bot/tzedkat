@@ -139,8 +139,13 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
   }, [q]);
 
   async function createAndOpen() {
-    if (!name.trim() || name.trim().length < 2) {
-      setError("שם קצר מדי");
+    // §184: שני שדות, שניהם חובה - ראה ההסבר במסך המנהל.
+    if (firstName.trim().length < 2) {
+      setError("יש להזין שם פרטי");
+      return;
+    }
+    if (lastName.trim().length < 2) {
+      setError("יש להזין שם משפחה");
       return;
     }
     // §60: חובה לבחור אופן תשלום - אין ברירת מחדל שקטה.
@@ -159,10 +164,10 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
-          // §173: הפיצול, אם מולא
-          firstName: firstName.trim() || null,
-          lastName: lastName.trim() || null,
+          // §184: השם המלא נגזר משני החלקים - מקור אמת אחד.
+          name: `${firstName.trim()} ${lastName.trim()}`,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           phone: q.trim(),
           email: email.trim() || null,
           phone2: phone2.trim() || null,
@@ -352,8 +357,7 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-xs font-bold text-zinc-500 block mb-1">
-                      שם פרטי{" "}
-                      <span className="font-normal text-zinc-400">(מומלץ)</span>
+                      שם פרטי *
                     </label>
                     <input
                       type="text"
@@ -365,8 +369,7 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
                   </div>
                   <div>
                     <label className="text-xs font-bold text-zinc-500 block mb-1">
-                      שם משפחה{" "}
-                      <span className="font-normal text-zinc-400">(מומלץ)</span>
+                      שם משפחה *
                     </label>
                     <input
                       type="text"
@@ -377,16 +380,6 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
                     />
                   </div>
                 </div>
-              <div>
-                <label className="text-xs font-bold text-zinc-500 block mb-1">שם *</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="שם מלא של הלקוח"
-                  className="w-full px-3 py-3 border-2 border-zinc-300 rounded-lg text-base focus:outline-none focus:border-brand-rust"
-                />
-              </div>
 
               {/* §55: בורר נקודה - מוצג רק כשהשרת ביקש */}
               {pointOptions && pointOptions.length > 0 && (
@@ -532,7 +525,7 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
           {canCreate && (
             <button
               onClick={createAndOpen}
-              disabled={creating || !name.trim()}
+              disabled={creating || !firstName.trim() || !lastName.trim()}
               className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-md"
             >
               {creating

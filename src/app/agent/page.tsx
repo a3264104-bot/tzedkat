@@ -61,10 +61,24 @@ export default async function AgentIndexPage() {
         select: {
           // התנאים חייבים להיות בתוך where - זו הדרישה של Prisma
           // בספירה מסוננת (_count.select.<relation>.where).
+          // §186: 🚨 נציג בלי נקודות ראה את **כל** ההזמנות.
+          //
+          // `hasPoints ? ... : { כל ההזמנות }` - כלומר נציג שטרם
+          // שויך לנקודה קיבל את מספר ההזמנות של כל המערכת, ולחץ
+          // עליהן וראה לקוחות של נציגים אחרים.
+          //
+          // ⚠️ אותו דפוס שתוקן ב-§176 בארבעה מקומות. כאן הוא נשאר
+          // כי הוא כתוב אחרת (ternary ולא `length > 0`).
+          //
+          // ⚠️ מנהל מזוהה ב-role ולא בהיעדר נקודות.
           orders: {
-            where: hasPoints
-              ? { pointId: { in: myPointIds }, status: { notIn: ["CANCELLED"] } }
-              : { status: { notIn: ["CANCELLED"] } },
+            where:
+              role === "ADMIN"
+                ? { status: { notIn: ["CANCELLED"] } }
+                : {
+                    pointId: { in: hasPoints ? myPointIds : ["__none__"] },
+                    status: { notIn: ["CANCELLED"] },
+                  },
           },
         },
       },

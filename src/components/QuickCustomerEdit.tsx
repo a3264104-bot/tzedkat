@@ -17,6 +17,9 @@ import { useState } from "react";
 type Props = {
   customerId: string;
   name: string;
+  /** §184: הפיצול. null אצל לקוחות ותיקים שטרם הושלמו. */
+  firstName?: string | null;
+  lastName?: string | null;
   phone: string | null;
   phone2: string | null;
   paymentPreference: string;
@@ -29,6 +32,8 @@ type Props = {
 export function QuickCustomerEdit({
   customerId,
   name,
+  firstName,
+  lastName,
   phone,
   phone2,
   paymentPreference,
@@ -38,7 +43,16 @@ export function QuickCustomerEdit({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({
-    name,
+    // §184: שני שדות ולא אחד.
+    //
+    // 🐛 מה שהיה: שדה "שם" יחיד. המנהל תיקן שם, וזה דרס את
+    // הפיצול - firstName ו-lastName נשארו כפי שהיו, ומאותו רגע
+    // השם המלא לא תאם לחלקים שלו.
+    //
+    // ⚠️ ללקוח ותיק בלי פיצול - השדה הראשון מקבל את השם המלא,
+    // והמנהל משלים. אותה התנהגות כמו במסך השלמת השמות.
+    firstName: firstName ?? name,
+    lastName: lastName ?? "",
     phone: phone ?? "",
     phone2: phone2 ?? "",
     paymentPreference,
@@ -50,14 +64,26 @@ export function QuickCustomerEdit({
   async function save() {
     setErr("");
     setMsg("");
-    if (f.name.trim().length < 2) {
-      setErr("שם קצר מדי");
+    if (f.firstName.trim().length < 2) {
+      setErr("יש להזין שם פרטי");
+      return;
+    }
+    if (f.lastName.trim().length < 2) {
+      setErr("יש להזין שם משפחה");
       return;
     }
     setSaving(true);
     try {
       const payload: any = {};
-      if (f.name.trim() !== name) payload.name = f.name.trim();
+      // §184: מעדכן את שלושת השדות יחד - השם המלא נגזר מהחלקים,
+      // ולכן הם לעולם לא יוצאים מסנכרון.
+      const fn = f.firstName.trim();
+      const ln = f.lastName.trim();
+      if (fn !== (firstName ?? "") || ln !== (lastName ?? "")) {
+        payload.firstName = fn;
+        payload.lastName = ln;
+        payload.name = `${fn} ${ln}`;
+      }
       if (f.phone.trim() !== (phone ?? "")) payload.phone = f.phone.trim();
       if (f.phone2.trim() !== (phone2 ?? "")) payload.phone2 = f.phone2.trim() || null;
       if (f.paymentPreference !== paymentPreference) {
@@ -117,16 +143,37 @@ export function QuickCustomerEdit({
         </button>
       </div>
 
-      <div>
-        <label className="text-[11px] font-bold text-zinc-500 block mb-0.5">
-          שם
-        </label>
-        <input
-          className="input py-1.5 text-sm w-full"
-          value={f.name}
-          onChange={(e) => setF({ ...f, name: e.target.value })}
-        />
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[11px] font-bold text-zinc-500 block mb-0.5">
+            שם פרטי *
+          </label>
+          <input
+            className="input py-1.5 text-sm w-full"
+            value={f.firstName}
+            onChange={(e) => setF({ ...f, firstName: e.target.value })}
+            placeholder="יוסי"
+          />
+        </div>
+        <div>
+          <label className="text-[11px] font-bold text-zinc-500 block mb-0.5">
+            שם משפחה *
+          </label>
+          <input
+            className="input py-1.5 text-sm w-full"
+            value={f.lastName}
+            onChange={(e) => setF({ ...f, lastName: e.target.value })}
+            placeholder="כהן"
+          />
+        </div>
       </div>
+      {/* ⚠️ ללקוח ותיק בלי פיצול - הסבר למה השדה השני ריק */}
+      {!lastName && (
+        <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-1.5 -mt-1">
+          ללקוח זה אין עדיין פיצול שם. יש לוודא שהשם הפרטי בשדה הראשון
+          ולהשלים את שם המשפחה.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <div>

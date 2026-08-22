@@ -563,8 +563,20 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
               color="amber"
             />
             <StatMini
-              label="לקוחות"
-              value={String(liveSummary?.customersServed || 0)}
+              // §188: 🐛 התווית "לקוחות" הייתה מטעה.
+              //
+              // הערך הוא **כמה לקוחות כבר שקלת**, לא כמה יש
+              // במכירה. לפני תחילת השקילה הוא 0 - וזה נכון, אבל
+              // הנציג ראה "לקוחות: 0" ליד "42 הזמנות" והבין
+              // שמשהו שבור.
+              //
+              // ⚠️ המכנה נוסף כדי שיהיה ברור שזו התקדמות: "3/42"
+              // אומר מיד מה קורה, "3" לבדו לא.
+              label="נשקלו"
+              value={`${liveSummary?.customersServed || 0}/${
+                data.orders.filter((o) => o.items.some((i) => !i.isCancelled))
+                  .length
+              }`}
               color="slate"
             />
             <StatMini

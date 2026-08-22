@@ -28,6 +28,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           paymentToken: true, // נשלף כדי לחשב hasToken, לא נחשף כמו שהוא
           // §183: אופן התשלום - לעריכה מהירה מתוך ההזמנה
           paymentPreference: true,
+          // §184: הפיצול - לעריכה מתוך ההזמנה
+          firstName: true,
+          lastName: true,
           cardLast4: true,
           cardExpiry: true,
           cardNeedsUpdate: true,

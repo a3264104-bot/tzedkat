@@ -418,6 +418,8 @@ export default function OrderDetail() {
             <QuickCustomerEdit
               customerId={order.customer.id}
               name={order.customer.name}
+              firstName={order.customer.firstName ?? null}
+              lastName={order.customer.lastName ?? null}
               phone={order.phone}
               phone2={order.phone2 ?? null}
               paymentPreference={order.customer.paymentPreference ?? "CREDIT"}

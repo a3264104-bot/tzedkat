@@ -14,6 +14,8 @@ import { CreditPanel } from "@/components/CreditPanel";
 import { OrderNotePanel } from "@/components/OrderNotePanel";
 // §134: סימון משלוח
 import { DeliveryPanel } from "@/components/DeliveryPanel";
+// §187: עריכת פרטי הלקוח מתוך ההזמנה
+import { QuickCustomerEdit } from "@/components/QuickCustomerEdit";
 // §120: הוספת תוספת להזמנה שכבר תומחרה
 import { AddSupplement } from "@/components/AddSupplement";
 
@@ -49,6 +51,10 @@ export default async function AgentOrderDetailPage({
           cardExpiry: true,
           cardNeedsUpdate: true,
           createdByAgentId: true,
+          // §187: נדרשים לעריכת פרטי הלקוח מתוך ההזמנה
+          paymentPreference: true,
+          firstName: true,
+          lastName: true,
         },
       },
       point: { select: { id: true, name: true, city: true } },
@@ -70,11 +76,15 @@ export default async function AgentOrderDetailPage({
 
   // הרשאת צפייה + חיוב לנציג (מוגבל-נקודה)
   let canCharge = role === "ADMIN";
+  // §187: הרשאת סימון לקוח כמזומן (§155). מנהל תמיד רשאי.
+  let canSetCash = role === "ADMIN";
   if (role === "AGENT") {
     const agent = await prisma.customer.findUnique({
       where: { id: sessionUserId },
       select: {
         agentCanCharge: true,
+        // §187: הרשאת מזומן - נשלפת יחד ולא בשאילתה נוספת
+        agentCanCreateCashCustomers: true,
         agentPointId: true, // deprecated - תאימות אחורה
         agentPoints: { select: { pointId: true } },
       },
@@ -93,6 +103,7 @@ export default async function AgentOrderDetailPage({
       redirect("/agent");
     }
     canCharge = !!agent?.agentCanCharge && (isCreator || samePoint);
+    canSetCash = !!agent?.agentCanCreateCashCustomers;
   }
 
   // §70: מוצרי המכירה, להוספת פריט מהמסך הזה.
@@ -287,6 +298,31 @@ export default async function AgentOrderDetailPage({
               📍 {order.point.name}{order.point.city ? ` — ${order.point.city}` : ""}
             </div>
           )}
+
+          {/* §187: עריכת פרטי הלקוח - **מתוך ההזמנה**.
+              
+              🐛 השרת כבר אפשר את זה (§181), אבל לא היה כפתור.
+              הנציג פגש את הלקוח בחלוקה, גילה שהטלפון שגוי, ולא
+              יכול היה לתקן בלי לפנות למנהל.
+              
+              ⚠️ מעדכן את **הלקוח עצמו** ולא רק את ההזמנה - זה מה
+              שהנציג מצפה לו. Order.customerName נשאר snapshot.
+              
+              ⚠️ canSetCash לפי ההרשאה (§155): נציג בלי הרשאה
+              יראה את השדות אבל לא את בורר התשלום, עם הסבר. */}
+          <div className="mt-3 pt-3 border-t border-zinc-100">
+            <QuickCustomerEdit
+              customerId={order.customer.id}
+              name={order.customer.name}
+              firstName={(order.customer as any).firstName ?? null}
+              lastName={(order.customer as any).lastName ?? null}
+              phone={order.phone}
+              phone2={order.phone2 ?? null}
+              paymentPreference={order.customer.paymentPreference ?? "CREDIT"}
+              hasCard={hasToken}
+              canSetCash={canSetCash}
+            />
+          </div>
         </div>
 
         {/* §133: הערת הלקוח - **מעל** הפריטים.
@@ -417,6 +453,48 @@ export default async function AgentOrderDetailPage({
             singleSurcharge={Number(salePricelist?.singleSurcharge ?? 0)}
             products={allAddable}
           />
+        )}
+
+        {/* §185: קיצורים לשינויי סכום - **ליד הוספת המוצר**.
+            
+            🐛 מה שהיה: הנציג הוסיף מוצר, ואז רצה להוסיף גם משלוח
+            או חיוב - וזה היה בתחתית המסך, אחרי התשלום. הוא היה
+            צריך לגלול, לחפש, ולהבין שזה שם.
+            
+            ⚠️ קיצורים ולא פאנלים כפולים: הפאנלים עצמם נשארים
+            במקום אחד. שני מקומות לאותה פעולה היו מייצרים בדיוק
+            את הבלגן שהמנהל ביקש למנוע.
+            
+            ⚠️ אותם צבעים של הפאנלים עצמם - סגול למשלוח, אדמדם
+            לחיוב, ירוק לזיכוי - כדי שיהיה ברור שזה אותו דבר. */}
+        {order.finalTotal == null && (
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            <a
+              href="#money-actions"
+              className="flex flex-col items-center gap-0.5 py-2.5 rounded-xl border-2 border-violet-300 bg-violet-50 hover:bg-violet-100 transition-colors"
+            >
+              <span className="text-lg leading-none">🚚</span>
+              <span className="text-[11px] font-bold text-violet-900">
+                {order.deliveryRequested ? "ערוך משלוח" : "משלוח"}
+              </span>
+            </a>
+            <a
+              href="#money-actions"
+              className="flex flex-col items-center gap-0.5 py-2.5 rounded-xl border-2 border-orange-300 bg-orange-50 hover:bg-orange-100 transition-colors"
+            >
+              <span className="text-lg leading-none">➕</span>
+              <span className="text-[11px] font-bold text-orange-900">
+                חיוב נוסף
+              </span>
+            </a>
+            <a
+              href="#money-actions"
+              className="flex flex-col items-center gap-0.5 py-2.5 rounded-xl border-2 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+            >
+              <span className="text-lg leading-none">↩️</span>
+              <span className="text-[11px] font-bold text-emerald-900">זיכוי</span>
+            </a>
+          </div>
         )}
 
         {/* §120: תוספת בחלוקה - כשההזמנה כבר תומחרה.
@@ -579,6 +657,8 @@ export default async function AgentOrderDetailPage({
               orderNumber={order.orderNumber}
               customerName={order.customerName}
               amount={finalTotal ?? 0}
+              // §189: מה שהלקוח ביקש - ברירת מחדל בבורר
+              requestedInstallments={order.requestedInstallments ?? 1}
               cardLast4={order.customer.cardLast4}
               enabled={canChargeThisOrder}
               disabledReason={
