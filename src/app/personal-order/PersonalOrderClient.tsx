@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDate } from "@/lib/date-lib";
 import Link from "next/link";
 import { PersonalRequestMessages } from "@/components/PersonalRequestMessages";
 
@@ -271,7 +273,7 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
                           )}
                         </div>
                         <div className="text-xs text-zinc-500">
-                          {r.items.length} פריטים · {new Date(r.createdAt).toLocaleDateString("he-IL")}
+                          {r.items.length} פריטים · {fmtDate(r.createdAt)}
                         </div>
                       </div>
                       <span className="text-zinc-400">{isExpanded ? "▲" : "▼"}</span>

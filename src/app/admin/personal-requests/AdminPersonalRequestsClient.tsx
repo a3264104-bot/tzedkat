@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDate } from "@/lib/date-lib";
 import { PersonalRequestMessages } from "@/components/PersonalRequestMessages";
 
 // §9: עמוד ניהול בקשות אישיות למנהל
@@ -186,7 +188,7 @@ export default function AdminPersonalRequestsClient() {
                         )}
                       </div>
                       <div className="text-xs text-zinc-500">
-                        {new Date(r.createdAt).toLocaleDateString("he-IL")}
+                        {fmtDate(r.createdAt)}
                       </div>
                     </div>
 

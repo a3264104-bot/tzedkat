@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDate } from "@/lib/date-lib";
 // §133: הערה לנציג ותשובתו
 import { OrderNotePanel } from "@/components/OrderNotePanel";
 import Link from "next/link";
@@ -501,7 +503,7 @@ export function AccountClient({
                         הזמנה #{o.orderNumber}
                       </div>
                       <div className="text-xs text-zinc-400 mt-0.5">
-                        {new Date(o.createdAt).toLocaleDateString("he-IL")}
+                        {fmtDate(o.createdAt)}
                       </div>
                     </div>
                     <span
@@ -564,6 +566,8 @@ export function AccountClient({
                       editableUntil={
                         (o.pricelistEditDeadline || o.pricelistCloseDate)
                           ? new Date((o.pricelistEditDeadline || o.pricelistCloseDate)!).toLocaleDateString("he-IL", {
+                    // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
+                    timeZone: "Asia/Jerusalem",
                               day: "2-digit",
                               month: "2-digit",
                               year: "numeric",
@@ -1278,6 +1282,8 @@ function HistoryOrderCard({ o }: { o: Order }) {
           <div className="flex items-center gap-2">
             <span className="text-xs text-zinc-500">
               {new Date(o.createdAt).toLocaleDateString("he-IL", {
+                    // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
+                    timeZone: "Asia/Jerusalem",
                 day: "2-digit",
                 month: "2-digit",
                 year: "2-digit",
