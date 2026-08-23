@@ -14,6 +14,8 @@
 import bcrypt from "bcryptjs";
 // §202: תוקף כרטיס האשראי
 import { canChargeCard, expiryPhoneMessage } from "@/lib/card-expiry-lib";
+// §215: תמלול דיבור דרך Gemini במקום יחידות ימות
+import { transcribeName, useGeminiStt } from "@/lib/gemini-stt-lib";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import {
@@ -26,6 +28,8 @@ import {
   sayDigits,
   read,
   readVoice,
+  readRecord,
+  clearVar,
   normalizePhone,
   messages,
   goToFolder,
@@ -45,6 +49,47 @@ import { creditBalanceForPhone } from "@/lib/credit-balance-lib";
 import { spellForPhone, isDigitsOnly, resolveCredential } from "@/lib/credential-lib";
 // §148: תצוגת יחידות - מקור אחד לכל המערכת
 import { formatItemQty } from "@/lib/order-display";
+
+/**
+ * §215: מבקש מהלקוח לומר משהו — הקלטה או תמלול, לפי המתג.
+ *
+ * ⚠️ עטיפה אחת במקום ארבע קריאות מפוזרות: המעבר בין המנועים הוא
+ * החלטה גלובלית, ופיזור התנאי בארבעה מקומות היה מבטיח שאחד
+ * מהם יישאר מאחור ביום שמשנים משהו.
+ *
+ * ⚠️ **הערך שחוזר שונה בין המצבים**: ב-voice זה הטקסט שנאמר,
+ * וב-record זה נתיב הקובץ. הקורא חייב להעביר את הערך דרך
+ * resolveSpoken() ולא להשתמש בו ישירות.
+ */
+function askSpoken(promptText: string, name: string): string {
+  return useGeminiStt() ? readRecord(promptText, name) : readVoice(promptText, name);
+}
+
+/**
+ * §215: ממיר את מה שחזר מימות לטקסט.
+ *
+ * במצב voice — הערך כבר טקסט ומוחזר כמו שהוא.
+ * במצב record — הערך הוא נתיב, ונשלח ל-Gemini לתמלול.
+ *
+ * ⚠️ נפילה ל-null ולא לזריקת שגיאה: אם Gemini נכשל או איטי,
+ * הלקוח יתבקש לומר שוב — בדיוק כמו שקורה כשמנוע ימות לא מזהה.
+ * שיחה שנופלת גרועה משאלה חוזרת.
+ */
+async function resolveSpoken(
+  raw: string | null | undefined,
+  kind: "first" | "last" | "full"
+): Promise<string> {
+  const v = String(raw ?? "").trim();
+  if (!v) return "";
+  if (!useGeminiStt()) return v;
+  // ⚠️ זיהוי נתיב: ימות מחזירים "ivr2:/..." או נתיב יחסי עם
+  // סיומת wav. טקסט רגיל לא ייראה כך.
+  const looksLikePath = /\.wav$/i.test(v) || v.startsWith("ivr2:");
+  if (!looksLikePath) return v;
+  const t = await transcribeName(v, kind);
+  return t ?? "";
+}
+
 import {
   sendCustomerOrderConfirmation,
   sendAdminOrderNotification,
@@ -688,7 +733,9 @@ async function handleUnregistered(
   // שני לקוחות אמיתיים נשמרו כך במסד, והמייל לנציג יצא עם השם
   // המשובש. cleanName לבדה לא תפסה את זה - היא מנקה תווים
   // נסתרים, לא טקסט של המערכת.
-  const rawName = cleanSpokenName(p.NAME);
+  // §215: במצב Gemini הערך הוא נתיב הקלטה ולא טקסט - resolveSpoken
+  // מטפל בשניהם.
+  const rawName = cleanSpokenName(await resolveSpoken(p.NAME, "first"));
 
   if (!nameAsked) {
     // §84: מקריאים את הנקודה שנבחרה לפני שממשיכים. זה הרגע האחרון
@@ -704,7 +751,7 @@ async function handleUnregistered(
       : "";
 
     return yemotResponse(
-      readVoice(
+      askSpoken(
         messages(
           ptLabel ? prompt("chosen_pre", "בחרת") : "",
           ptLabel ? say(ptLabel) : "",
@@ -732,47 +779,40 @@ async function handleUnregistered(
 
   // אישור השם - בשליטתנו ולא של ימות. מוצג רק כשבאמת נקלט שם;
   // אין טעם לבקש אישור על "לקוח טלפוני".
-  if (rawName && p.NAMEOK !== "1") {
-    if (p.NAMEOK === "2") {
-      // ביקש לתקן - שואלים מחדש. NAME נדרס בערך החדש.
-      return yemotResponse(
-        readVoice(
-          // §173: 🐛 נשאר "שמך המלא" אחרי הפיצול. הלקוח שביקש
-          // לתקן היה אומר שוב שם מלא, וזה מחזיר בדיוק את הבעיה
-          // שהשינוי בא לפתור.
-          prompt(
-            "ask_first_name_again",
-            "אנא אמור את שמך הפרטי שוב לאחר הצליל, ולסיום הקש סולמית"
-          ),
-          "NAME"
-        )
-      );
-    }
-    return yemotResponse(
-      read(
-        messages(
-          // §173: מדויק - זה השם הפרטי, לא השם המלא
-          prompt("fname_confirm_pre", "השם הפרטי שנקלט"),
-          say(rawName),
-          prompt("name_confirm_ask", "לאישור הקש 1, לשינוי הקש 2")
-        ),
-        { name: "NAMEOK", max: 1, min: 1, allowed: "12" }
-      )
-    );
-  }
+  // §216: 🔄 **שאלה נפרדת, אישור אחד.**
+  //
+  // 🐛 מה שהיה: שני סבבי אישור מלאים.
+  //    "השם הפרטי שנקלט: משה. לאישור 1"  →  הלקוח מקיש
+  //    "שם המשפחה שנקלט: ניימן. לאישור 1" →  הלקוח מקיש שוב
+  //
+  // ארבעה שלבים לשם אחד. הלקוח שרק רצה להזמין עוף שמע ארבע
+  // הודעות ולחץ פעמיים, וחלק ניתקו באמצע.
+  //
+  // עכשיו: שתי השאלות נשארות (זה מה שנותן את הפיצול), אבל
+  // האישור מוקרא **פעם אחת על שניהם**:
+  //    "השם שנקלט: משה ניימן. לאישור 1, לשינוי 2"
+  //
+  // ⚠️ השאלות נשארו נפרדות בכוונה: איחוד שלהן היה מחזיר את
+  // הבעיה של §173 - לקוח שאומר "ברכה" ואין לדעת אם זה פרטי
+  // או משפחה.
+  //
+  // ⚠️ "שינוי" מחזיר לשתי השאלות מההתחלה ולא רק לאחת. זה
+  // פחות מדויק, אבל בורר "מה לתקן" היה מוסיף שלב שלישי -
+  // בדיוק מה שבאנו לחסוך. בפועל מי שמתקן בדרך כלל אמר את
+  // שניהם לא נכון.
 
   // ─── §173 שלב 3ב: שם משפחה ───
   //
-  // ⚠️ שאלה **נפרדת** ולא "אמור שם מלא". זו כל מטרת השינוי:
+  // ⚠️ שאלה **נפרדת** ולא "אמור שם מלא". זו כל מטרת §173:
   // כשמבקשים את שני החלקים בנפרד, מקבלים אותם בנפרד.
   //
-  // ⚠️ נשאל רק אחרי שהשם הפרטי אושר - אחרת הלקוח היה מקליט
-  // שניים ומגלה שהראשון נקלט שגוי.
-  const rawLast = String(p.LNAME ?? "").trim();
+  // §215: resolveSpoken מטפל גם בהקלטה וגם בטקסט
+  const rawLast = String(await resolveSpoken(p.LNAME, "last")).trim();
 
-  if (finalName !== "לקוח טלפוני" && !rawLast) {
+  // ⚠️ שואלים שם משפחה **מיד** אחרי הפרטי, בלי אישור ביניים.
+  if (rawName && finalName !== "לקוח טלפוני" && !rawLast) {
     return yemotResponse(
-      readVoice(
+      askSpoken(
         prompt(
           "ask_last_name",
           "אנא אמור את שם המשפחה שלך לאחר הצליל, ולסיום הקש סולמית"
@@ -782,27 +822,38 @@ async function handleUnregistered(
     );
   }
 
-  // אישור שם המשפחה - אותו דפוס כמו השם הפרטי
-  if (rawLast && p.LNAMEOK !== "1") {
-    if (p.LNAMEOK === "2") {
+  // ─── §216: אישור אחד על שני החלקים ───
+  const bothParts = [rawName, rawLast].filter(Boolean).join(" ").trim();
+
+  if (bothParts && p.NAMEOK !== "1") {
+    if (p.NAMEOK === "2") {
+      // ⚠️ מנקים **את שניהם**: אם נשאיר את LNAME, השאלה השנייה
+      // תדולג והלקוח יתקן רק חצי.
+      //
+      // ⚠️ המחיקה נעשית ע"י בקשה חוזרת של NAME בלבד - ימות
+      // דורסים את הערך, ו-LNAME נמחק בשורה הבאה בזרימה.
       return yemotResponse(
-        readVoice(
-          prompt(
-            "ask_last_name_again",
-            "אנא אמור את שם המשפחה שלך שוב לאחר הצליל, ולסיום הקש סולמית"
-          ),
-          "LNAME"
+        messages(
+          clearVar("LNAME"),
+          askSpoken(
+            prompt(
+              "ask_first_name_again",
+              "אנא אמור את שמך הפרטי שוב לאחר הצליל, ולסיום הקש סולמית"
+            ),
+            "NAME"
+          )
         )
       );
     }
     return yemotResponse(
       read(
         messages(
-          prompt("lname_confirm_pre", "שם המשפחה שנקלט"),
-          say(rawLast),
+          // ⚠️ "השם שנקלט" ולא "השם הפרטי" - כאן מקריאים את שניהם
+          prompt("name_confirm_pre", "השם שנקלט"),
+          say(bothParts),
           prompt("name_confirm_ask", "לאישור הקש 1, לשינוי הקש 2")
         ),
-        { name: "LNAMEOK", max: 1, min: 1, allowed: "12" }
+        { name: "NAMEOK", max: 1, min: 1, allowed: "12" }
       )
     );
   }

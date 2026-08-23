@@ -238,12 +238,14 @@ const TTS_ONLY = new Set<string>([
   "delivery_on",
   "at_point",
   // §173: הקלטות פיצול השם - גם הן טרם הוקלטו
+  //
+  // §216: fname_confirm_pre ו-lname_confirm_pre **הוסרו** -
+  // האישור אוחד לסבב אחד שמשתמש ב-name_confirm_pre. ההקלטות
+  // שהעלית לשתיהן פשוט לא ייקראו יותר.
   "ask_first_name",
   "ask_first_name_again",
-  "fname_confirm_pre",
   "ask_last_name",
   "ask_last_name_again",
-  "lname_confirm_pre",
   "sku_chosen",
   "mode_carton_kg",
   "code_missing",
@@ -476,6 +478,40 @@ export function read(prompt: string, opts: ReadOptions): string {
  */
 export function readVoice(prompt: string, name: string): string {
   return `read=${prompt}=${name},,voice`;
+}
+
+/**
+ * §215: בקשת **הקלטה בלבד** - בלי תמלול של ימות.
+ *
+ * 🐛 הבעיה שזה פותר: `voice` מפעיל את מנוע זיהוי הדיבור של
+ * ימות, שגובה יחידות בכל תמלול. §173 הכפיל את הצריכה (שם פרטי
+ * + משפחה), והיחידות נגמרו באמצע יום עבודה.
+ *
+ * ⚠️ `record` מקליט ומחזיר את **נתיב הקובץ** במקום טקסט. ההקלטה
+ * עצמה חינם לפי התיעוד של ימות - רק ההמרה לטקסט עולה. אנחנו
+ * ממירים אצלנו עם Gemini.
+ *
+ * ⚠️ הערך חוזר בפרמטר בשם `<name>` בדיוק כמו ב-voice, אבל
+ * מכיל נתיב ("ivr2:/1/xxx.wav") ולא את מה שנאמר. הקורא **חייב**
+ * להעביר אותו ל-transcribeName ולא להתייחס אליו כשם.
+ */
+export function readRecord(prompt: string, name: string): string {
+  return `read=${prompt}=${name},,record`;
+}
+
+/**
+ * §216: מוחק משתנה שנצבר בשיחה.
+ *
+ * למה זה נדרש: ימות **צוברים** את כל הערכים שהוקשו בשיחה
+ * ושולחים אותם בכל בקשה (§106). לכן "בקשה מחדש" של NAME לא
+ * מוחקת את LNAME - הוא ממשיך להישלח, והזרימה מדלגת על השאלה
+ * השנייה כאילו הלקוח כבר ענה עליה.
+ *
+ * ⚠️ הפורמט: השמה של ערך ריק. זו הדרך של ימות לאפס משתנה,
+ * ולא קיימת פקודת מחיקה ייעודית.
+ */
+export function clearVar(name: string): string {
+  return `${name}=`;
 }
 
 /** מעבר לשלוחה אחרת */
