@@ -62,8 +62,27 @@ export async function GET(
     whereOrders.pointId = { in: g.agentPointIds };
   }
 
+  // §208: שעת הסגירה - לסימון הזמנות שנוספו אחריה.
+  //
+  // 🐛 הפער: המנהל מזין הזמנות אחרי הסגירה (§206) ומדפיס דף
+  // חלוקה מחדש - אבל בדף כל השורות נראות זהה. הנציג שקיבל דף
+  // מעודכן לא יודע איזו שורה חדשה, ואם הוא כבר התחיל לעבוד עם
+  // הדף הישן הוא עלול לדלג עליה.
+  const closeDate =
+    (
+      await prisma.pricelist.findUnique({
+        where: { id: pricelistId },
+        select: { closeDate: true },
+      })
+    )?.closeDate ?? null;
+
   const orders = await prisma.order.findMany({
     where: whereOrders,
+    // §208: החדשות **ראשונות**.
+    //
+    // ⚠️ בכוונה בראש הרשימה ולא בסוף: הנציג שמקבל דף מעודכן
+    // צריך לראות מיד מה נוסף, בלי לסרוק 40 שורות. ומי שעובד
+    // לפי סדר א-ב ימצא אותן ממילא לפי השם.
     orderBy: [{ customerName: "asc" }, { createdAt: "asc" }],
     include: {
       // §192: 🐛 הדף המודפס הציג את **השם מרגע ההזמנה**.
@@ -150,7 +169,15 @@ export async function GET(
     (pricelist.deliveryDateText ? ` — חלוקה: ${pricelist.deliveryDateText}` : "");
 
   for (const [, grp] of byPoint) {
-    buildDistributionSheet(wb, grp.name, grp.orders, saleTitle, g.agent.name);
+    buildDistributionSheet(
+      wb,
+      grp.name,
+      grp.orders,
+      saleTitle,
+      g.agent.name,
+      // §208: לסימון הזמנות שנוספו אחרי הסגירה
+      closeDate
+    );
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -256,7 +283,13 @@ function buildDistributionSheet(
   pointName: string,
   orders: any[],
   saleTitle: string,
-  agentName: string
+  agentName: string,
+  // §208: שעת הסגירה - לסימון הזמנות שנוספו אחריה.
+  //
+  // ⚠️ פרמטר ולא משתנה גלובלי: הפונקציה נקראת פעם לכל נקודה,
+  // ו-closeDate נשלף פעם אחת ב-GET. העברה מפורשת מונעת תלות
+  // בסדר הקריאות.
+  closeDate: Date | null
 ) {
   // שם גיליון: אקסל אוסר : \ / ? * [ ] ומגביל ל-31 תווים
   const safeName = pointName.replace(/[:\\/?*[\]]/g, "-").slice(0, 31) || "נקודה";
@@ -300,11 +333,45 @@ function buildDistributionSheet(
 
   ws.mergeCells(2, 1, 2, lastCol);
   const sub = ws.getCell(2, 1);
+  // §208: מקרא ההזמנות המאוחרות + שעת ההדפסה המדויקת.
+  //
+  // ⚠️ **שעה ולא רק תאריך**: כשהמנהל מדפיס פעמיים באותו יום -
+  // אחרי הסגירה ואחרי עוד תוספות - התאריך לבדו לא מבדיל בין
+  // הדפים, והנציג לא יודע איזה עדכני.
+  const lateCount = closeDate
+    ? orders.filter((o: any) => new Date(o.createdAt) > closeDate).length
+    : 0;
+
   sub.value =
-    `נציג: ${agentName} · ${orders.length} לקוחות · הודפס ${new Date().toLocaleDateString("he-IL")}` +
+    `נציג: ${agentName} · ${orders.length} לקוחות · הודפס ${new Date().toLocaleString(
+      "he-IL",
+      {
+        timeZone: "Asia/Jerusalem",
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    )}` +
+    (lateCount > 0 ? ` · ⭐ ${lateCount} נוספו אחרי הסגירה` : "") +
     ` · לקוח ששילם במזומן — לסמן בעמודת "מזומן" ולעדכן במערכת`;
   sub.font = { size: 9, color: { argb: "FF666666" } };
   sub.alignment = { horizontal: "center" };
+
+  // §208: מקרא בולט - רק כשיש הזמנות מאוחרות.
+  //
+  // ⚠️ מוצג רק כשרלוונטי: בדף רגיל הוא רעש, ומי שרואה אותו
+  // תמיד מפסיק לקרוא אותו.
+  if (lateCount > 0) {
+    ws.mergeCells(3, 1, 3, lastCol);
+    const leg = ws.getCell(3, 1);
+    leg.value =
+      "⭐ שורות מסומנות בכוכבית ובאדום — נוספו אחרי סגירת המכירה. אם קיבלת דף קודם, אלה השורות החדשות.";
+    leg.font = { size: 10, bold: true, color: { argb: "FFB91C1C" } };
+    leg.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
+    leg.alignment = { horizontal: "center", vertical: "middle" };
+    ws.getRow(3).height = 18;
+  }
 
   // ─── כותרות עמודות ───
   const hdr = ws.getRow(4);
@@ -386,9 +453,22 @@ function buildDistributionSheet(
       // שם וטלפון רק בשורה הראשונה של הלקוח
       if (ci === 0) {
         const nameCell = ws.getCell(r, 1);
+        // §208: סימון הזמנה שנוספה אחרי סגירת המכירה.
+        //
+        // ⚠️ ⭐ ולא צבע בלבד: הדף מודפס, ולעיתים בשחור-לבן.
+        // סימן טקסטואלי עובד בכל מדפסת.
+        const isLate =
+          closeDate != null && new Date(o.createdAt) > closeDate;
         // §192: השם הנוכחי, לא ה-snapshot
-        nameCell.value = o.customer?.name || o.customerName;
-        nameCell.font = { bold: true, size: 10, color: { argb: "FF2C3E4F" } };
+        nameCell.value =
+          (isLate ? "⭐ " : "") + (o.customer?.name || o.customerName);
+        nameCell.font = {
+          bold: true,
+          size: 10,
+          // §208: אדום לשורה שנוספה אחרי הסגירה. נראה גם בהדפסה
+          // בגווני אפור, כי הוא כהה יותר מהכחול-אפור הרגיל.
+          color: { argb: isLate ? "FFB91C1C" : "FF2C3E4F" },
+        };
         nameCell.alignment = { vertical: "middle", wrapText: true };
 
         const phoneCell = ws.getCell(r, 2);

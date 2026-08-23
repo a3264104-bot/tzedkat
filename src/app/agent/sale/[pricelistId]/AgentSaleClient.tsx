@@ -11,6 +11,8 @@ import { SummaryPanel } from "./SummaryPanel";
 import { WeightsTable } from "./WeightsTable";
 // §181: הערות לקוחות שממתינות למענה
 import { CustomerNotesPanel } from "./CustomerNotesPanel";
+// §211: לקוחות שתקועים בלי אמצעי תשלום
+import { StuckCustomersPanel } from "./StuckCustomersPanel";
 import { AgentAddCustomerButton } from "@/components/AgentAddCustomerButton";
 
 type Product = {
@@ -154,6 +156,13 @@ export type SaleData = {
     points?: { id: string; name: string; city: string | null }[];
     commissionRateCarton: number;
     commissionRateSingles: number;
+    /**
+     * §211: הרשאת עדכון כרטיסים — לתיבת הלקוחות התקועים.
+     *
+     * ⚠️ אופציונלי: השרת מחזיר אותו תמיד, אבל קליינט שנטען
+     * לפני פריסת ה-API לא ייפול על undefined.
+     */
+    canUpdateCards?: boolean;
   };
   orders: Order[];
   walkins: Walkin[];
@@ -668,6 +677,15 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                 ⚠️ מעל החיפוש והסינון: הנציג פותח את המסך ורואה
                 מיד אם מישהו מחכה לתשובה. אם היא הייתה למטה, הוא
                 היה מגלה אותה רק אחרי שסיים לשקול. */}
+            {/* §211: לקוחות תקועים - **לפני** ההערות.
+                
+                ⚠️ הסדר: מה שחוסם גבייה קודם. הערה של לקוח היא
+                בקשה; לקוח בלי כרטיס הוא כסף שלא ייגבה. */}
+            <StuckCustomersPanel
+              orders={data.orders}
+              canUpdateCards={data.agent.canUpdateCards ?? false}
+              onFixed={load}
+            />
             <CustomerNotesPanel orders={data.orders} />
             {/* חיפוש + סינון + מצב תצוגה */}
             <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-3 space-y-2">

@@ -22,11 +22,23 @@ export function AgentPaymentGate({
   customerId,
   customerName,
   canUpdateCards,
+  canSetCash = false,
 }: {
   customerId: string;
   customerName: string;
   /** אין הרשאה = הנציג לא יכול להכריע, ומופנה למנהל */
   canUpdateCards: boolean;
+  /**
+   * §212: הרשאה נפרדת לסימון מזומן (§155).
+   *
+   * 🐛 מה שהיה: canUpdateCards שלט על **שני** הכפתורים. נציג
+   * עם הרשאת כרטיסים בלבד ראה גם את כפתור המזומן, לחץ, והשרת
+   * דחה ב-403. ונציג עם הרשאת מזומן בלבד לא ראה שום כפתור.
+   *
+   * ⚠️ ברירת מחדל false: אם ה-prop לא הועבר, עדיף להסתיר כפתור
+   * שייכשל מאשר להציג אותו.
+   */
+  canSetCash?: boolean;
 }) {
   const router = useRouter();
   const [showCard, setShowCard] = useState(false);
@@ -66,13 +78,19 @@ export function AgentPaymentGate({
           לפני פתיחת ההזמנה — אחרת ההזמנה תיתקע בלי אפשרות לחייב.
         </p>
 
-        {!canUpdateCards ? (
+        {/* §212: כל כפתור לפי ההרשאה שלו.
+            
+            ⚠️ ההודעה מוצגת רק כשאין **אף** הרשאה. נציג עם אחת
+            מהן רואה את הכפתור שלו, ולא הודעה שאומרת לו לפנות
+            למנהל בזמן שהוא כן יכול לפעול. */}
+        {!canUpdateCards && !canSetCash ? (
           <div className="mt-5 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
             אין לך הרשאה לקבוע אמצעי תשלום ללקוחות. יש לפנות למנהל כדי
             שיגדיר את הלקוח כמשלם מזומן, או שיעדכן עבורו כרטיס אשראי.
           </div>
         ) : (
           <div className="mt-5 space-y-2">
+            {canUpdateCards && (
             <button
               onClick={() => setShowCard(true)}
               disabled={saving}
@@ -84,6 +102,8 @@ export function AgentPaymentGate({
                 מההזמנה הראשונה
               </div>
             </button>
+            )}
+            {canSetCash && (
             <button
               onClick={markCash}
               disabled={saving}
@@ -94,6 +114,21 @@ export function AgentPaymentGate({
                 הגבייה תתבצע במזומן בעת החלוקה, גם בהזמנות הבאות
               </div>
             </button>
+            )}
+            {/* §212: הסבר כשיש רק הרשאה אחת.
+                
+                ⚠️ בלעדיו הנציג רואה כפתור בודד ולא מבין למה אין
+                את השני - והוא עלול לחשוב שהמערכת תקועה. */}
+            {canUpdateCards && !canSetCash && (
+              <p className="text-[11px] text-zinc-500 text-center leading-relaxed pt-1">
+                לסימון הלקוח כמשלם מזומן — יש לפנות למנהל.
+              </p>
+            )}
+            {!canUpdateCards && canSetCash && (
+              <p className="text-[11px] text-zinc-500 text-center leading-relaxed pt-1">
+                להזנת כרטיס אשראי — יש לפנות למנהל.
+              </p>
+            )}
           </div>
         )}
 

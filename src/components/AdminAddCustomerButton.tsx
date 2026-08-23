@@ -354,9 +354,46 @@ function Modal({
                   {existing.pointName && <div>📍 {existing.pointName}</div>}
                   <div>{existing.orderCount} הזמנות במערכת</div>
                 </div>
-                <p className="text-xs text-blue-800 mt-2">
-                  הלקוח כבר קיים — אין צורך ליצור אותו שוב.
+                {/* §209: 🐛 הזרימה נעצרה כאן.
+                    
+                    המנהל הקליד טלפון, המערכת מצאה את הלקוח, ואמרה
+                    "אין צורך ליצור אותו שוב" - **בלי שום דרך
+                    להמשיך**. הוא נאלץ לסגור, לחפש אותו ברשימה,
+                    ולהתחיל מחדש.
+                    
+                    ⚠️ שני כפתורים ולא אחד: לפעמים הוא רוצה להזמין,
+                    ולפעמים רק לתקן פרטים. שילוח לכרטיס בלבד היה
+                    מוסיף קליק למקרה הנפוץ. */}
+                <p className="text-xs text-blue-800 mt-2 mb-2">
+                  הלקוח כבר קיים במערכת.
                 </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <a
+                    href={`/admin/customers?openCustomer=${encodeURIComponent(
+                      existing.id
+                    )}`}
+                    className="py-2.5 rounded-lg bg-white border-2 border-blue-400 text-blue-700 text-sm font-bold text-center"
+                  >
+                    👤 כרטיס הלקוח
+                  </a>
+                  {/* ⚠️ מוצג רק ללקוח פעיל: לקוח מושבת נחסם ממילא
+                      בשרת, וכפתור שמוביל לשגיאה גרוע מכפתור שאינו
+                      קיים. */}
+                  {existing.isActive !== false && (
+                    <a
+                      href={`/agent/customer/${existing.id}`}
+                      className="py-2.5 rounded-lg bg-blue-600 text-white text-sm font-bold text-center"
+                    >
+                      🛒 פתח הזמנה
+                    </a>
+                  )}
+                </div>
+                {existing.isActive === false && (
+                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 mt-2">
+                    ⚠️ הלקוח מסומן כלא פעיל. יש להפעיל אותו מחדש בכרטיס
+                    לפני פתיחת הזמנה.
+                  </p>
+                )}
               </div>
             )}
 

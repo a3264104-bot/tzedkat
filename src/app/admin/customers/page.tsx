@@ -586,6 +586,21 @@ export default function AdminCustomersPage() {
 
   const inactiveCount = customers.filter((c) => c.isActive === false).length;
 
+  // §213: לקוחות שתקועים בלי אמצעי תשלום.
+  //
+  // 🐛 המקור: הרשמה עצמית באתר יוצרת לקוח עם CREDIT (ברירת
+  // המחדל בסכמה), והוא אמור להמשיך למסך הכרטיס. מי שנוטש שם
+  // נשאר CREDIT **בלי טוקן** - ואז הוא חסום בכל ערוץ.
+  //
+  // זו לא תקלה אלא נטישה טבעית. הבעיה היחידה הייתה שאף אחד לא
+  // ידע שהם שם, והם גילו את זה רק כשניסו להזמין.
+  const stuckCount = customers.filter(
+    (c) =>
+      c.isActive !== false &&
+      c.paymentPreference !== "CASH" &&
+      !c.hasPaymentToken
+  ).length;
+
   // §139: רשימת הנקודות לסינון
   const pointNames = Array.from(
     new Set(customers.map((c) => c.pointName || "(ללא נקודה)"))
@@ -616,6 +631,17 @@ export default function AdminCustomersPage() {
             {customers.length} לקוחות{pointFilter ? ` · ${pointFilter}` : ""}
             {inactiveCount > 0 && ` · ${inactiveCount} לא פעילים`}
           </p>
+          {/* §213: התראה על לקוחות תקועים.
+              
+              ⚠️ מתחת לכותרת ולא בתוך הרשימה: הם לא "עוד שורה"
+              אלא מצב שדורש טיפול, ומי שרואה אותם רק כשגולל
+              לשורה שלהם לא יטפל בהם אף פעם. */}
+          {stuckCount > 0 && (
+            <p className="text-[11px] text-red-800 bg-red-50 border border-red-300 rounded px-2 py-1 mt-1 inline-block">
+              💳 <b>{stuckCount} לקוחות ללא אמצעי תשלום</b> — מוגדרים כאשראי
+              בלי כרטיס שמור, ולא יוכלו להזמין. חפש 💳 ברשימה.
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           {/* §54: המנהל יוצר לקוחות בעצמו, כמו נציג.
@@ -744,6 +770,20 @@ export default function AdminCustomersPage() {
                         חסר פיצול
                       </span>
                     )}
+                    {/* §213: סימון לקוח תקוע.
+                        
+                        ⚠️ אדום ולא כתום: "חסר פיצול" הוא נוחות,
+                        "בלי אמצעי תשלום" הוא חסימה. */}
+                    {c.isActive !== false &&
+                      c.paymentPreference !== "CASH" &&
+                      !c.hasPaymentToken && (
+                        <span
+                          className="mr-1.5 text-[10px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-bold"
+                          title="מוגדר כאשראי אך אין כרטיס שמור — לא יוכל להזמין"
+                        >
+                          💳 ללא אמצעי תשלום
+                        </span>
+                      )}
                     {/* §52: תגית לקוח לא פעיל */}
                     {c.isActive === false && (
                       <span className="mr-2 text-[10px] bg-zinc-200 text-zinc-600 px-1.5 py-0.5 rounded font-bold">

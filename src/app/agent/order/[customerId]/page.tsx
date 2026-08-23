@@ -453,18 +453,29 @@ export default async function AgentOrderPage({
 
   if (!hasPaymentToken && !isCashCustomer) {
     let canUpdateCards = role === "ADMIN";
+    // §212: הרשאת מזומן **נפרדת** מהרשאת כרטיסים.
+    //
+    // 🐛 מה שהיה: canUpdateCards שלט על שני הכפתורים. נציג עם
+    // הרשאת כרטיסים בלבד ראה גם את כפתור המזומן, לחץ, והשרת
+    // דחה ב-403. ונציג עם הרשאת מזומן בלבד לא ראה כלום.
+    let canSetCash = role === "ADMIN";
     if (role === "AGENT") {
       const me = await prisma.customer.findUnique({
         where: { id: sessionUserId },
-        select: { agentCanUpdateCards: true },
+        select: {
+          agentCanUpdateCards: true,
+          agentCanCreateCashCustomers: true,
+        },
       });
       canUpdateCards = me?.agentCanUpdateCards ?? false;
+      canSetCash = me?.agentCanCreateCashCustomers ?? false;
     }
     return (
       <AgentPaymentGate
         customerId={targetCustomer.id}
         customerName={targetCustomer.name}
         canUpdateCards={canUpdateCards}
+        canSetCash={canSetCash}
       />
     );
   }

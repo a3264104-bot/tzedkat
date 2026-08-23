@@ -223,6 +223,20 @@ export async function GET(
     },
   });
 
+  // §211: הרשאת עדכון כרטיסים.
+  //
+  // ⚠️ שליפה מפורשת ולא הסתמכות על ה-guard: הוא עשוי לא לכלול
+  // את השדה, ואז הכפתור היה נעלם לנציג שכן מורשה - בלי שאיש
+  // יבין למה.
+  const agentCanUpdateCards = g.isAdmin
+    ? true
+    : !!(
+        await prisma.customer.findUnique({
+          where: { id: g.agent.id },
+          select: { agentCanUpdateCards: true },
+        })
+      )?.agentCanUpdateCards;
+
   return NextResponse.json({
     pricelist: {
       ...pricelist,
@@ -238,6 +252,11 @@ export async function GET(
       points: myPoints,
       commissionRateCarton: Number(g.agent.commissionRateCarton),
       commissionRateSingles: Number(g.agent.commissionRateSingles),
+      // §211: הרשאת עדכון כרטיסים - לתיבת הלקוחות התקועים.
+      //
+      // ⚠️ מנהל תמיד רשאי: הוא לא עובר דרך מנגנון ההרשאות של
+      // הנציגים, ובלי החריג הזה הוא היה רואה כפתור מושבת.
+      canUpdateCards: agentCanUpdateCards,
     },
     orders: orders.map((o) => ({
       id: o.id,

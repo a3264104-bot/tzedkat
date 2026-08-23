@@ -2243,13 +2243,28 @@ function QtyControl({
       >
         −
       </button>
+      {/* §210: 🐛 אי אפשר היה להקליד 15.
+          
+          המינימום נאכף **בכל הקשה**: הקלדת "1" הפכה מיד ל-2
+          (המינימום), ואז "5" הוסיף לזה - כלומר "25" במקום 15.
+          הלקוח שרצה 15 ק"ג לא הצליח להזין את זה בכלל.
+          
+          ⚠️ האכיפה עברה ל-onBlur: בזמן ההקלדה הערך חופשי,
+          והמינימום נאכף רק כשעוזבים את השדה. זו נקודת הזמן
+          היחידה שבה באמת יודעים מה המשתמש התכוון להזין. */}
       <input
         type="number"
         inputMode="decimal"
         value={value || ""}
         onChange={(e) => {
+          // ⚠️ בלי אכיפת min כאן - ראה ההסבר למעלה
+          onChange(round(parseFloat(e.target.value) || 0));
+        }}
+        onBlur={(e) => {
           const v = round(parseFloat(e.target.value) || 0);
-          onChange(min > 0 && v > 0 && v < min ? min : v);
+          // ⚠️ 0 נשאר 0: זו הדרך של המשתמש להסיר פריט, ואכיפת
+          // מינימום עליו הייתה מחזירה אותו לעגלה.
+          if (v > 0 && min > 0 && v < min) onChange(min);
         }}
         className="w-12 text-center rounded-lg border border-zinc-200 py-1.5 font-semibold"
         placeholder="0"
