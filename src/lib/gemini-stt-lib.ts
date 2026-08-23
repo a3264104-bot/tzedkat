@@ -65,7 +65,10 @@ async function downloadRecording(path: string): Promise<string | null> {
     // ⚠️ timeout של 6 שניות: הלקוח על הקו, ושיחה שתקועה 20 שניות
     // גרועה מהודעת שגיאה. אם ימות איטיים - נופלים לזרימה החלופית.
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 6000);
+    // §217: 3 שניות ולא 6. הקובץ הוא שניות בודדות של אודיו,
+    // וימות מהירים. 6 שניות היו תקציב שאין לו הצדקה כשהלקוח
+    // ממתין על הקו.
+    const timer = setTimeout(() => ctrl.abort(), 3000);
     const res = await fetch(url, { signal: ctrl.signal });
     clearTimeout(timer);
 
@@ -98,14 +101,30 @@ export async function transcribeName(
   recordingPath: string,
   kind: "first" | "last" | "full" = "full"
 ): Promise<string | null> {
+  // §217: 🚨 **תקציב זמן כולל** ולא לכל שלב בנפרד.
+  //
+  // 🐛 החישוב הקודם: 3 להורדה + 5 לניסיון + 3 לניסיון שני = 11
+  // שניות במקרה הגרוע. Vercel Hobby חותך ב-10, וימות מנתקים
+  // עוד לפני זה.
+  //
+  // ⚠️ deadline אחד לכל הפונקציה: אם ההורדה לקחה 3, לניסיונות
+  // נשארות 4 - ולא 8. זו הדרך היחידה להבטיח תקרה אמיתית.
+  const deadline = Date.now() + 7500;
+  const left = () => Math.max(0, deadline - Date.now());
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
     console.error("[stt] GEMINI_API_KEY חסר ב-ENV");
     return null;
   }
 
+  // ⚠️ ההורדה מוגבלת גם היא ל-3 שניות **וגם** לתקציב הכולל
   const audio = await downloadRecording(recordingPath);
   if (!audio) return null;
+  if (left() < 1500) {
+    // ⚠️ פחות משנייה וחצי - אין טעם להתחיל קריאה שתיחתך באמצע.
+    console.log("[stt] נגמר התקציב אחרי ההורדה");
+    return null;
+  }
 
   const what =
     kind === "first" ? "שם פרטי" : kind === "last" ? "שם משפחה" : "שם מלא";
@@ -142,21 +161,88 @@ export async function transcribeName(
       generationConfig: {
         // ⚠️ 0.1 כמו בתעודות: אנחנו רוצים תמלול יציב, לא יצירתיות
         temperature: 0.1,
-        maxOutputTokens: 128,
+        // §217: 🐛 128 היה נמוך מדי - התשובה נחתכה על "{" בלבד.
+        //
+        // gemini-flash-latest הוא מודל חושב, ו"מחשבות" נספרות
+        // בתקציב הפלט. עם 128 הן בלעו הכל ולא נשאר מקום ל-JSON.
+        //
+        // ⚠️ 1024 ולא 4096 (כמו בתעודות): התשובה כאן היא שתי
+        // מילים, והתקרה רק צריכה לתת מקום למחשבות.
+        maxOutputTokens: 1024,
         responseMimeType: "application/json",
       },
     });
 
-    const result = await model.generateContent([
+    // §217: 🐛 503 "high demand" הפיל את התמלול.
+    //
+    // gemini-flash-latest עמוס בשעות מסוימות, וכישלון אחד הפיל
+    // את כל הזרימה - הלקוח נתקע בלולאה של "אמור שוב".
+    //
+    // ⚠️ ניסיון אחד חוזר בלבד: הלקוח על הקו, וכל ניסיון עולה
+    // שנייה-שתיים. שניים זה הגבול לפני שהשיחה נתקעת.
+    // §217: 🚨 **מגבלת זמן על Gemini.**
+    //
+    // 🐛 מה שקרה בשטח: השיחה לקחה 11.19 שניות. ה-SDK אינו מקבל
+    // AbortSignal, ולכן הקריאה יכלה להימשך ללא הגבלה - וימות
+    // מנתקים או שולחים שוב.
+    //
+    // ⚠️ Promise.race ולא timeout של ה-SDK: אין כזה. הקריאה
+    // ממשיכה ברקע אבל אנחנו מפסיקים לחכות לה, וזה מספיק - היא
+    // תיפול לבד כשהפונקציה נגמרת.
+    //
+    // ⚠️ 5 שניות: יחד עם 3 של ההורדה זה 8, וזה הגבול שאחריו
+    // הלקוח חושב שהשיחה נתקעה.
+    const withTimeout = <T,>(pr: Promise<T>, ms: number): Promise<T> =>
+      Promise.race([
+        pr,
+        new Promise<T>((_, rej) =>
+          setTimeout(() => rej(new Error(`gemini timeout ${ms}ms`)), ms)
+        ),
+      ]);
+
+    let result: any = null;
+    let lastErr: any = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        result = await withTimeout(
+          model.generateContent([
       prompt,
-      {
-        inlineData: {
-          data: audio,
-          // ⚠️ audio/wav: זה מה שימות מקליטים (8kHz טלפוני).
-          mimeType: "audio/wav",
-        },
-      },
-    ]);
+          {
+            inlineData: {
+              data: audio,
+              // ⚠️ audio/wav: זה מה שימות מקליטים (8kHz טלפוני).
+              mimeType: "audio/wav",
+            },
+            },
+          ]),
+          // ⚠️ ניסיון שני קצר יותר: אם הראשון נתקע, השני כנראה
+          // גם ייתקע, ואין טעם לבזבז עוד 5 שניות מהשיחה.
+          // ⚠️ מה שנשאר מהתקציב, עד 5 שניות. ניסיון שני מקבל
+          // רק את השארית - ואם אין, הלולאה נעצרת למטה.
+          Math.min(5000, left())
+        );
+        break;
+      } catch (e: any) {
+        lastErr = e;
+        // ⚠️ רק 503 שווה ניסיון חוזר. שגיאת מפתח או פורמט
+        // תיכשל שוב בדיוק אותו דבר, והמתנה נוספת רק מאריכה
+        // את השיחה.
+        // ⚠️ 503 **או** timeout: שניהם זמניים ושווים ניסיון שני.
+        // שגיאת מפתח או פורמט תיכשל שוב בדיוק אותו דבר.
+        const retryable =
+          e?.status === 503 || String(e?.message ?? "").includes("timeout");
+        if (!retryable) throw e;
+        // ⚠️ עצירה כשאין תקציב: ניסיון שני שייחתך אחרי חצי
+        // שנייה הוא בזבוז שמאריך את השיחה בלי סיכוי להצליח.
+        if (left() < 1500) {
+          console.log("[stt] נגמר התקציב - בלי ניסיון נוסף");
+          break;
+        }
+        console.log(`[stt] ${e?.status === 503 ? "503" : "timeout"} - ניסיון ${attempt + 2}/2`);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    if (!result) throw lastErr;
 
     const raw = result.response.text();
     let parsed: any;

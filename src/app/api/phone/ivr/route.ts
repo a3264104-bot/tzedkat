@@ -86,8 +86,38 @@ async function resolveSpoken(
   // סיומת wav. טקסט רגיל לא ייראה כך.
   const looksLikePath = /\.wav$/i.test(v) || v.startsWith("ivr2:");
   if (!looksLikePath) return v;
+
   const t = await transcribeName(v, kind);
-  return t ?? "";
+  if (t) return t;
+
+  // §217: 🚨 **הלולאה.**
+  //
+  // 🐛 מה שקרה בשטח: Gemini נכשל (503 או JSON חתוך), הפונקציה
+  // החזירה "", והזרימה חשבה שהלקוח לא ענה - ושאלה שוב. ושוב.
+  // הלקוח הקליט שם משפחה חמש פעמים והמערכת המשיכה לבקש.
+  //
+  // ⚠️ סימון מיוחד ולא "": הזרימה **חייבת** להבדיל בין "לא
+  // ענה" (לשאול שוב, נכון) לבין "ענה אבל התמלול נכשל" (להמשיך,
+  // כי הלקוח כבר עשה את שלו).
+  //
+  // ⚠️ ההקלטה עצמה נשמרה בימות. המנהל יראה "לקוח טלפוני"
+  // במסך הבקשות, יתקשר, וישלים - בדיוק כמו שקורה היום כשמנוע
+  // הזיהוי של ימות לא מצליח.
+  console.log(`[stt] תמלול נכשל (${kind}) - ממשיך בלי לחסום`);
+  return STT_FAILED;
+}
+
+/**
+ * §217: סימון "הלקוח ענה אך התמלול נכשל".
+ *
+ * ⚠️ מחרוזת ולא null: היא עוברת דרך cleanSpokenName ובדיקות
+ * אחרות, וערך null היה נופל בהן. הסימון מסונן בסוף.
+ */
+const STT_FAILED = "\u0000STT_FAILED";
+
+/** האם הערך הוא סימון כישלון תמלול */
+function isSttFailed(v: string): boolean {
+  return v === STT_FAILED;
 }
 
 import {
@@ -735,7 +765,13 @@ async function handleUnregistered(
   // נסתרים, לא טקסט של המערכת.
   // §215: במצב Gemini הערך הוא נתיב הקלטה ולא טקסט - resolveSpoken
   // מטפל בשניהם.
-  const rawName = cleanSpokenName(await resolveSpoken(p.NAME, "first"));
+  // §217: התמלול עשוי להיכשל - הסימון עובר הלאה ומסונן בהמשך.
+  const rawNameRes = await resolveSpoken(p.NAME, "first");
+  const nameFailed = isSttFailed(rawNameRes);
+  const rawName = nameFailed ? "" : cleanSpokenName(rawNameRes);
+  // ⚠️ "ענה" = יש ערך **או** שהתמלול נכשל. שניהם אומרים שהלקוח
+  // כבר הקליט, ואין לשאול אותו שוב.
+  const nameAnswered = !!rawName || nameFailed;
 
   if (!nameAsked) {
     // §84: מקריאים את הנקודה שנבחרה לפני שממשיכים. זה הרגע האחרון
@@ -807,10 +843,15 @@ async function handleUnregistered(
   // כשמבקשים את שני החלקים בנפרד, מקבלים אותם בנפרד.
   //
   // §215: resolveSpoken מטפל גם בהקלטה וגם בטקסט
-  const rawLast = String(await resolveSpoken(p.LNAME, "last")).trim();
+  const rawLastRes = await resolveSpoken(p.LNAME, "last");
+  const lastFailed = isSttFailed(rawLastRes);
+  const rawLast = lastFailed ? "" : String(rawLastRes).trim();
+  const lastAnswered = !!rawLast || lastFailed;
 
   // ⚠️ שואלים שם משפחה **מיד** אחרי הפרטי, בלי אישור ביניים.
-  if (rawName && finalName !== "לקוח טלפוני" && !rawLast) {
+  // §217: 🐛 היה `!rawLast` - וכשהתמלול נכשל rawLast היה ריק,
+  // אז השאלה חזרה שוב ושוב. עכשיו lastAnswered סוגר את הלולאה.
+  if (nameAnswered && finalName !== "לקוח טלפוני" && !lastAnswered) {
     return yemotResponse(
       askSpoken(
         prompt(
@@ -825,7 +866,21 @@ async function handleUnregistered(
   // ─── §216: אישור אחד על שני החלקים ───
   const bothParts = [rawName, rawLast].filter(Boolean).join(" ").trim();
 
-  if (bothParts && p.NAMEOK !== "1") {
+  // §217: 🐛 **אישור כפול.**
+  //
+  // מה שקרה בשטח: ימות במצב `record` **כבר משמיעים** ללקוח את
+  // ההקלטה שלו ושואלים "לאישור הקש 1". הלקוח שמע את עצמו, אישר,
+  // ואז המערכת שאלה אותו שוב - הפעם על התמלול.
+  //
+  // ⚠️ במצב Gemini מדלגים על האישור שלנו: ימות כבר עשו אותו,
+  // והלקוח אישר את מה **שהוא אמר** - וזה מה שחשוב. תמלול שגוי
+  // ייתפס אצל המנהל במסך הבקשות, בדיוק כמו היום.
+  //
+  // ⚠️ במצב ימות (voice) האישור שלנו **נשאר**: שם אין השמעה
+  // חוזרת, והלקוח לא שמע כלום.
+  const needsOwnConfirm = !useGeminiStt();
+
+  if (needsOwnConfirm && bothParts && p.NAMEOK !== "1") {
     if (p.NAMEOK === "2") {
       // ⚠️ מנקים **את שניהם**: אם נשאיר את LNAME, השאלה השנייה
       // תדולג והלקוח יתקן רק חצי.
