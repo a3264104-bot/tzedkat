@@ -10,6 +10,8 @@
 // שמר בפורמט אחר), ויצירה אוטומטית הייתה קוברת את זה.
 
 import { NextResponse } from "next/server";
+// §202: תוקף כרטיס האשראי
+import { canChargeCard, expiryMessage } from "@/lib/card-expiry-lib";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { buildOrderExcel, parseOrderExcel, type ExcelRowSpec } from "@/lib/excel-order-lib";
@@ -251,6 +253,19 @@ export async function POST(req: Request) {
   if (!customer.paymentToken && customer.paymentPreference !== "CASH") {
     blockers.push("ללקוח אין אמצעי תשלום — יש להזין כרטיס או לסמן כלקוח מזומן");
   }
+  // §202: כרטיס שפג תוקפו - גם כאן.
+  //
+  // ⚠️ הערוץ הזה שקט: הלקוח שולח אקסל ומקבל אישור במייל. אם
+  // הכרטיס פג, החיוב ייכשל אחרי החלוקה ואיש לא ידע בזמן.
+  else if (
+    customer.paymentPreference !== "CASH" &&
+    !canChargeCard((customer as any).cardExpiry)
+  ) {
+    blockers.push(
+      expiryMessage((customer as any).cardExpiry) ??
+        "תוקף כרטיס האשראי של הלקוח פג"
+    );
+  }
   if (pricelist.status !== "ACTIVE") blockers.push("המכירה אינה פעילה");
   if (pricelist.closeDate && new Date() > pricelist.closeDate) {
     blockers.push("מועד ההרשמה למכירה חלף");
@@ -433,6 +448,21 @@ export async function PUT(req: Request) {
   if (!customer.paymentToken && customer.paymentPreference !== "CASH") {
     return NextResponse.json(
       { error: "ללקוח אין אמצעי תשלום. יש להזין כרטיס או לסמן כלקוח מזומן." },
+      { status: 400 }
+    );
+  }
+  // §202: כרטיס שפג - חסימה גם באישור ההזמנה, ולא רק בתצוגה
+  // המקדימה. שתי נקודות בדיקה, כי אפשר להגיע לכאן ישירות.
+  if (
+    customer.paymentPreference !== "CASH" &&
+    !canChargeCard((customer as any).cardExpiry)
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          expiryMessage((customer as any).cardExpiry) ??
+          "תוקף כרטיס האשראי של הלקוח פג",
+      },
       { status: 400 }
     );
   }

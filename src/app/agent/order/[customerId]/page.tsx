@@ -1,4 +1,6 @@
 import Link from "next/link";
+// §202: תוקף כרטיס האשראי
+import { canChargeCard, expiryMessage } from "@/lib/card-expiry-lib";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -354,7 +356,16 @@ export default async function AgentOrderPage({
   // האם יש לו כבר כרטיס?
   // - יש token → cardVerified=true → מדלגים על אימות
   // - אין token → cardVerified=false → הflow יבקש להזין כרטיס (הנציג יעביר את המכשיר ללקוח)
-  const hasPaymentToken = !!targetCustomer.paymentToken;
+  // §202: כרטיס שפג תוקפו אינו אמצעי תשלום.
+  //
+  // ⚠️ הנציג עומד מול הלקוח - זה **הרגע הכי טוב** לגלות את זה,
+  // כי אפשר להזין כרטיס חדש במקום. גילוי אחרי החלוקה משמעו
+  // רדיפה אחרי הלקוח.
+  const cardExpired =
+    !!targetCustomer.paymentToken &&
+    !canChargeCard((targetCustomer as any).cardExpiry);
+  const hasPaymentToken =
+    !!targetCustomer.paymentToken && !cardExpired;
 
   // §60: לקוח מזומן. לא נדרש כרטיס בהזמנה דרך נציג - הגבייה במזומן
   // בחלוקה. לכן cardVerified מקבל true גם בלי טוקן, וה-flow לא יעצור
@@ -493,6 +504,12 @@ export default async function AgentOrderPage({
         // ופריסה במזומן היא חסרת משמעות. במסלול הלקוח (order/page)
         // זה הועבר נכון, וכאן פשוט נשכח.
         isCashCustomer={isCashCustomer}
+        // §202: אזהרת תוקף - גם כשעדיין אפשר לחייב
+        cardExpiryWarning={
+          isCashCustomer
+            ? null
+            : expiryMessage((targetCustomer as any).cardExpiry)
+        }
         // §60: לקוח מזומן לא נדרש לכרטיס בהזמנת נציג
         cardVerified={hasPaymentToken || isCashCustomer}
         hasSeenOrderIntro={true}

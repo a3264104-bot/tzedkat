@@ -94,6 +94,8 @@ export function OrderFlow({
   cardVerified = true,
   // §157: האם הלקוח מוגדר כמשלם במזומן
   isCashCustomer = false,
+  // §202: הודעת תוקף הכרטיס
+  cardExpiryWarning = null,
   customerId = "",
   hasSeenOrderIntro = false,
   existingOrder = null,
@@ -113,6 +115,14 @@ export function OrderFlow({
    * ובלבלו: אחד נראה כמו שאלה מיותרת, והשני כמו חסימה.
    */
   isCashCustomer?: boolean;
+  /**
+   * §202: הודעה על תוקף הכרטיס. null = הכל תקין.
+   *
+   * ⚠️ נפרד מ-cardVerified: כרטיס שפג **בקרוב** עדיין מאפשר
+   * הזמנה, אבל הלקוח צריך לדעת. חסימה מלאה כאן הייתה מונעת
+   * הזמנה מלקוח שהכרטיס שלו עוד תקף חודשיים.
+   */
+  cardExpiryWarning?: string | null;
   customerId?: string;
   hasSeenOrderIntro?: boolean;
   existingOrder?: { id: string; orderNumber: number } | null;
@@ -1165,6 +1175,32 @@ export function OrderFlow({
                   </div>
                   <span className="text-amber-700 text-xl shrink-0">←</span>
                 </button>
+              )}
+
+              {/* §202: אזהרת תוקף כרטיס.
+                  
+                  ⚠️ בראש המסך ולא בסוף: הלקוח צריך לדעת **לפני**
+                  שהוא בונה עגלה, לא אחרי שהוא לחץ "שלח". אחרת
+                  הוא מגלה את זה ברגע הכי מתסכל.
+                  
+                  ⚠️ צהוב ולא אדום: הכרטיס עדיין עובד (אחרת
+                  cardVerified היה false והמסך היה חוסם). זו
+                  תזכורת, לא שגיאה. */}
+              {cardExpiryWarning && !isCashCustomer && (
+                <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-3 flex items-start gap-2.5">
+                  <span className="text-xl shrink-0">💳</span>
+                  <div className="min-w-0">
+                    <div className="font-bold text-amber-900 text-sm">
+                      {cardExpiryWarning}
+                    </div>
+                    <a
+                      href="/account"
+                      className="text-[11px] font-bold text-amber-800 underline mt-0.5 inline-block"
+                    >
+                      לעדכון הכרטיס ←
+                    </a>
+                  </div>
+                </div>
               )}
 
               {/* §182: משלוח - כפתור נפרד, מתחת למוצרים המיוחדים.

@@ -339,9 +339,41 @@ function buildDistributionSheet(
     const items = o.items.filter((it: any) => !it.isCancelled);
     // ⚠️ לקוח בלי פריטים עדיין מקבל שורה: ייתכן שהוא יגיע ויקנה
     // כמזדמן, והנציג צריך לראות שהוא ברשימה.
+    // §203: 🐛 4 קרטונים = תא אחד עם משבצת משקל אחת.
+    //
+    // הנציג שוקל כל קרטון בנפרד - אין דרך למלא משקל אחד ל-4
+    // קרטונים. הוא נאלץ לרשום בצד או לחבר בראש, וזה בדיוק
+    // המקום שבו נופלות טעויות.
+    //
+    // ⚠️ **רק קרטונים**. בודדים לפי ק"ג הם שקילה אחת: "3 ק"ג
+    // פרגית" זה משקל אחד, ופיצול שלו לשלוש משבצות היה מבלבל.
+    //
+    // ⚠️ תקרה של 12: לקוח שמזמין 20 קרטונים יקבל 12 משבצות
+    // והשאר בהערה. דף עם 20 משבצות לפריט אחד אינו קריא, וזה
+    // מקרה נדיר שממילא דורש התייחסות ידנית.
+    const expanded: any[] = [];
+    for (const it of items) {
+      const qty = Number(it.quantity) || 0;
+      const isCarton = !it.isSingle && Number.isInteger(qty) && qty > 1;
+      if (isCarton) {
+        const n = Math.min(qty, 12);
+        for (let k = 0; k < n; k++) {
+          // ⚠️ partIndex/partTotal - כדי שהתא יציג "1 מתוך 4"
+          // והנציג ידע כמה נשארו לו.
+          expanded.push({ ...it, quantity: 1, partIndex: k + 1, partTotal: qty });
+        }
+        // ⚠️ העודף מעבר לתקרה נרשם כתא אחד עם הערה, ולא נעלם.
+        if (qty > 12) {
+          expanded.push({ ...it, quantity: qty - 12, partOverflow: true });
+        }
+      } else {
+        expanded.push(it);
+      }
+    }
+
     const chunks: any[][] = [];
-    for (let i = 0; i < Math.max(1, items.length); i += ITEMS_PER_ROW) {
-      chunks.push(items.slice(i, i + ITEMS_PER_ROW));
+    for (let i = 0; i < Math.max(1, expanded.length); i += ITEMS_PER_ROW) {
+      chunks.push(expanded.slice(i, i + ITEMS_PER_ROW));
     }
 
     const startRow = r;
@@ -390,7 +422,17 @@ function buildDistributionSheet(
             unit: it.unit,
           });
           const name = it.product?.name || it.productName;
-          cell.value = `${name}\n${qty}   ______`;
+          // §203: סימון "1 מתוך 4" בקרטון שפוצל.
+          //
+          // ⚠️ בלי הסימון הנציג רואה 4 תאים זהים ולא יודע אם
+          // הוא כבר שקל את השני או דילג עליו. עם הסימון הוא
+          // מסמן ומתקדם.
+          const partTag = it.partTotal
+            ? `  (${it.partIndex}/${it.partTotal})`
+            : it.partOverflow
+              ? "  (יתרה)"
+              : "";
+          cell.value = `${name}${partTag}\n${qty}   ______`;
           cell.font = { size: 9 };
           cell.alignment = { vertical: "top", wrapText: true, horizontal: "right" };
           // §161: צבע לפי המוצר - כדי שהנציג יזהה בסריקה מהירה

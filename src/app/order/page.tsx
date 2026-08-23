@@ -1,4 +1,6 @@
 import Link from "next/link";
+// §202: בדיקת תוקף כרטיס
+import { canChargeCard, expiryMessage } from "@/lib/card-expiry-lib";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -264,10 +266,21 @@ export default async function OrderPage({
       //
       // ⚠️ הגבייה שלו פיזית בחלוקה, והנציג מסמן אותה בטבלת
       // המשקלים (§130).
+      // §202: 🐛 כרטיס שפג תוקפו נחשב "מאומת".
+      //
+      // הלקוח הזמין כרגיל, והתקלה התגלתה רק ברגע החיוב - אחרי
+      // החלוקה, כשהסחורה כבר אצלו. הרגע הנכון להגיד לו הוא
+      // עכשיו, כשהוא מזמין ויכול לעדכן בשתי דקות.
+      //
+      // ⚠️ canChargeCard מחזיר true גם כשאין תוקף שמור: כרטיסים
+      // ותיקים נשמרו בלי, וחסימה שלהם הייתה מנתקת לקוחות קיימים.
       cardVerified={
-        !!customerRecord.paymentToken ||
+        (!!customerRecord.paymentToken &&
+          canChargeCard(customerRecord.cardExpiry)) ||
         customerRecord.paymentPreference === "CASH"
       }
+      // §202: הודעת התוקף - מוצגת גם כשעדיין אפשר לחייב
+      cardExpiryWarning={expiryMessage(customerRecord.cardExpiry)}
       // §157: לקוח מזומן רואה מסך מותאם - בלי פריסה לתשלומים,
       // ועם "מזומן בחלוקה" במקום "כרטיס אשראי".
       isCashCustomer={customerRecord.paymentPreference === "CASH"}

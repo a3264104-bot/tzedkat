@@ -12,6 +12,8 @@
 // הם בדיוק אותם של האתר.
 
 import bcrypt from "bcryptjs";
+// §202: תוקף כרטיס האשראי
+import { canChargeCard, expiryPhoneMessage } from "@/lib/card-expiry-lib";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import {
@@ -201,6 +203,8 @@ async function handle(req: Request): Promise<Response> {
       // בכל הרשומות, וה-@@index([phone]) עליו לא שירת דבר.
       phone: true,
       paymentToken: true,
+      // §202: תוקף הכרטיס - לבדיקה לפני שמאפשרים הזמנה
+      cardExpiry: true,
       // §60: לקוח מזומן מזמין בלי כרטיס
       paymentPreference: true,
       // §52: לקוח מושבת
@@ -262,7 +266,22 @@ async function handle(req: Request): Promise<Response> {
   // §60: לקוח מזומן **כן** רשאי להזמין בלי כרטיס - הנציג הגדיר אותו
   // ככזה, והגבייה מתבצעת פיזית בחלוקה. בלי החריג הזה כל לקוח המזומן
   // שנבנה ב-§60 היה נחסם מהטלפון בלי סיבה.
-  const canOrder = !!customer.paymentToken || customer.paymentPreference === "CASH";
+  // §202: 🐛 כרטיס שפג תוקפו אפשר הזמנה.
+  //
+  // הלקוח הזמין בטלפון, קיבל אישור, והחיוב נכשל אחרי החלוקה.
+  // עכשיו הוא שומע את זה בשיחה ויכול לעדכן לפני שהוא מזמין.
+  const cardUsable =
+    !!customer.paymentToken && canChargeCard((customer as any).cardExpiry);
+  const canOrder = cardUsable || customer.paymentPreference === "CASH";
+
+  // §202: אזהרה על כרטיס שפג בקרוב. null כשהכל תקין.
+  //
+  // ⚠️ רק ללקוח אשראי: למזומן אין כרטיס, והודעה כזו הייתה
+  // מבלבלת אותו לגמרי.
+  const cardWarning =
+    customer.paymentPreference === "CASH"
+      ? null
+      : expiryPhoneMessage((customer as any).cardExpiry);
   if (!canOrder) {
     const pending = await prisma.phoneSignupRequest.findFirst({
       where: { customerId: customer.id, status: { notIn: ["COMPLETED", "FAILED"] } },
@@ -274,7 +293,14 @@ async function handle(req: Request): Promise<Response> {
         say(
           pending
             ? "בקשתך לפתיחת חשבון נקלטה ונציג יחזור אליך בהקדם לאימות פרטי האשראי"
-            : "כדי לבצע הזמנות יש צורך באימות פרטי אשראי. נציג יחזור אליך בהקדם"
+            // §202: הודעה **מדויקת** ללקוח שהכרטיס שלו פג.
+            //
+            // 🐛 הוא שמע "יש צורך באימות פרטי אשראי" - כאילו
+            // מעולם לא הזין כרטיס. בפועל יש לו כרטיס, הוא פשוט
+            // פג, והוא לא הבין למה נחסם אחרי שנתיים של הזמנות.
+            : !!customer.paymentToken
+              ? "תוקף כרטיס האשראי שלך פג ולכן לא ניתן לבצע הזמנה. יש לעדכן כרטיס באתר או אצל הנציג"
+              : "כדי לבצע הזמנות יש צורך באימות פרטי אשראי. נציג יחזור אליך בהקדם"
         )
       )
     );
@@ -423,7 +449,9 @@ async function handle(req: Request): Promise<Response> {
       !!customer.loginCode || !!(customer as any).passwordPlain;
     const canHearCode =
       hasCredential &&
-      (!!customer.paymentToken || customer.paymentPreference === "CASH");
+      ((!!customer.paymentToken &&
+        canChargeCard((customer as any).cardExpiry)) ||
+        customer.paymentPreference === "CASH");
 
     return yemotResponse(
       read(
@@ -451,6 +479,15 @@ async function handle(req: Request): Promise<Response> {
           //
           // ⚠️ רק כשיש יתרה. "יתרת הזכות שלך: אפס" מבלבל, ומאריך
           // את השיחה של כל מי שאין לו.
+          // §202: אזהרת תוקף כרטיס - **לפני** יתרת הזכות.
+          //
+          // ⚠️ הסדר: מה שחוסם אותו קודם, ומה שמשמח אותו אחר כך.
+          // לקוח ששומע "יש לך 50 שקל זכות" ואז "הכרטיס פג" זוכר
+          // רק את הראשון.
+          //
+          // ⚠️ מוצג רק כשהכרטיס **עדיין עובד** אבל פג בקרוב.
+          // מי שכבר פג נחסם למעלה ולא מגיע לכאן.
+          cardWarning ? say(cardWarning) : "",
           creditForPhone != null ? prompt("credit_balance_pre", "יש לך יתרת זכות של") : "",
           creditForPhone != null ? sayNumber(creditForPhone) : "",
           creditForPhone != null
@@ -1509,6 +1546,15 @@ async function handleMyOrders(
       deliveredAt: true,
       pointNameSnapshot: true,
       deliveryDateSnapshot: true,
+      // §201: פרטי החיוב ושם המכירה.
+      //
+      // הלקוח מתקשר לשאול "כמה ירד לי ועל מה" - וזו השאלה שהכי
+      // מגיעה לנציג. עד היום הוא שמע פריטים וסכום, אבל לא **אם**
+      // חויב, מתי, ובכמה תשלומים.
+      paidAt: true,
+      requestedInstallments: true,
+      paymentMethod: true,
+      pricelist: { select: { name: true, deliveryDateText: true } },
       // §148: רכיבים שמשנים את הסכום. בלעדיהם הלקוח שומע סכום
       // שאינו מסתדר עם הפריטים ואין לו הסבר - וזו שיחה לנציג.
       creditAmount: true,
@@ -1555,7 +1601,15 @@ async function handleMyOrders(
         estimatedPrice: true,
       },
     });
+    // §201: שם המכירה בפתיחת הפירוט.
+    //
+    // ⚠️ ללקוח יש כמה הזמנות בשנה, והוא לא זוכר מספרי הזמנה.
+    // "מכירת ראש השנה" אומר לו מיד על מה מדובר, ומונע שיחה
+    // שמתחילה ב"על איזו הזמנה אתה מדבר".
     const parts: string[] = [say("פירוט הזמנה מספר"), sayNumber(latest.orderNumber)];
+    if ((latest as any).pricelist?.name) {
+      parts.push(say(`ממכירת ${(latest as any).pricelist.name}`));
+    }
     for (const it of its) {
       const qty = Number(it.quantity);
       // §148: 🐛 "קרטונים" היה מקודד - אותו באג של §128 שלא תוקן
@@ -1594,6 +1648,73 @@ async function handleMyOrders(
     );
     parts.push(sayNumber(Math.round(grand)));
     parts.push(prompt("shekels", "שקלים"));
+
+    // §201: מצב החיוב.
+    //
+    // 🐛 הלקוח שמע פריטים וסכום, ולא ידע **אם הכסף כבר ירד**.
+    // זו השאלה שהכי מגיעה לנציג: "חייבתם אותי? מתי? כמה?"
+    //
+    // ⚠️ הסכום שנגבה בפועל ולא הסכום המשוער: אחרי שקילה הם
+    // שונים, ומה שמעניין את הלקוח זה מה שירד בכרטיס.
+    const paid = latest.paymentStatus === "PAID";
+    const paidAmount =
+      latest.amountPaid != null ? Number(latest.amountPaid) : grand;
+    const inst = Number((latest as any).requestedInstallments) || 1;
+
+    if (paid) {
+      parts.push(prompt("charged_pre", "ההזמנה חויבה"));
+      // ⚠️ תאריך בשעון ישראל. השרת רץ ב-UTC, ובלי אזור זמן
+      // מפורש הלקוח היה שומע תאריך שגוי סביב חצות.
+      if ((latest as any).paidAt) {
+        const d = new Date((latest as any).paidAt);
+        parts.push(
+          say(
+            `בתאריך ${d.toLocaleDateString("he-IL", {
+              timeZone: "Asia/Jerusalem",
+              day: "numeric",
+              month: "numeric",
+            })}`
+          )
+        );
+      }
+      parts.push(prompt("charged_amount_pre", "בסכום"));
+      parts.push(sayNumber(Math.round(paidAmount)));
+      parts.push(prompt("shekels", "שקלים"));
+      // ⚠️ תשלומים - רק כשיש יותר מאחד. "בתשלום אחד" הוא רעש.
+      if (inst > 1) {
+        parts.push(say(`ב-${inst} תשלומים`));
+      }
+      if (latest.paymentMethod === "CASH") {
+        parts.push(prompt("paid_cash", "שולם במזומן"));
+      }
+    } else if (latest.finalTotal != null) {
+      // ⚠️ מחיר סופי נקבע אך טרם חויב - זה הרגע שבו הלקוח הכי
+      // רוצה לדעת מה יקרה, ומתי.
+      parts.push(
+        prompt("not_charged_yet", "ההזמנה טרם חויבה. החיוב יתבצע לפני החלוקה")
+      );
+    } else {
+      parts.push(
+        prompt(
+          "pending_weighing",
+          "ההזמנה טרם נשקלה. הסכום הסופי ייקבע לפי המשקל בפועל"
+        )
+      );
+    }
+
+    // §201: תאריך החלוקה - השאלה השנייה בתדירותה.
+    const delivText =
+      latest.deliveryDateSnapshot ||
+      (latest as any).pricelist?.deliveryDateText ||
+      null;
+    if (delivText) {
+      parts.push(prompt("delivery_on", "החלוקה"));
+      parts.push(say(String(delivText)));
+    }
+    if (latest.pointNameSnapshot) {
+      parts.push(prompt("at_point", "בנקודה"));
+      parts.push(say(String(latest.pointNameSnapshot)));
+    }
 
     // §148: 🐛 playMessage **מנתק** את השיחה (api_end_goto=hangup).
     // הלקוח שמע את הפירוט והשיחה נפלה, בלי דרך לחזור לתפריט או

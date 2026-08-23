@@ -163,6 +163,30 @@ export default function AdminSaleControlClient({
             </svg>
             הורד דוח Excel מלא
           </a>
+
+          {/* §204: 🐛 למנהל לא הייתה גישה לדף החלוקה.
+              
+              "דוח Excel מלא" הוא דוח **ניהולי** - 6 גיליונות עם
+              סיכומים, פערים ותשלומים. דף החלוקה להדפסה, עם
+              משבצות המשקל והצבעים, היה קיים **רק אצל הנציג**.
+              
+              המנהל שרצה להדפיס לפני שהוא מעביר לנציגים היה צריך
+              להיכנס כנציג, או לוותר.
+              
+              ⚠️ **אותו endpoint בדיוק** ולא עותק: הוא כבר מטפל
+              במנהל (`!g.isAdmin` מדלג על סינון הנקודות), ולכן
+              המנהל מקבל את **כל** הנקודות בגיליונות נפרדים.
+              שני מימושים היו מתפצלים - וזה בדיוק מה שקרה עם
+              הדוח הזה. */}
+          <a
+            href={`/api/agent/export-sale/${pricelistId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-slatedark text-white rounded-xl font-bold text-sm shadow-sm hover:opacity-90"
+          >
+            <span className="text-base">📥</span>
+            דף חלוקה להדפסה
+          </a>
           <Link
             href={`/admin/weight-review/${pricelistId}`}
             className="inline-flex items-center gap-2 px-4 py-2 bg-brand-rust text-white rounded-xl font-bold text-sm shadow-sm hover:bg-[#a83a15]"

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+// §202: תוקף כרטיס האשראי
+import { canChargeCard } from "@/lib/card-expiry-lib";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -204,6 +206,31 @@ export async function POST(req: Request) {
         {
           error: "נדרש אימות כרטיס אשראי לפני שמירת ההזמנה",
           code: "CARD_VERIFICATION_REQUIRED",
+        },
+        { status: 403 }
+      );
+    }
+
+    // §202: כרטיס שפג תוקפו - **חסימה בשרת**.
+    //
+    // ⚠️ המסכים כבר חוסמים, אבל בקשה ישירה עוקפת אותם. וזו
+    // הנקודה האחרונה לפני שההזמנה נשמרת, ולכן היא חייבת לתפוס
+    // גם את מה שהמסכים פספסו.
+    //
+    // ⚠️ **לא חל על נציג/מנהל**: הם רואים את האזהרה ויכולים
+    // להחליט להזמין בכל זאת ולעדכן כרטיס בחלוקה. חסימה כאן
+    // הייתה מונעת מהם לעבוד מול לקוח שעומד מולם.
+    if (
+      !placedByAgentId &&
+      role === "CUSTOMER" &&
+      customer.paymentPreference !== "CASH" &&
+      !canChargeCard((customer as any).cardExpiry)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "תוקף כרטיס האשראי שלך פג. יש להזין כרטיס חדש לפני ביצוע ההזמנה.",
+          code: "CARD_EXPIRED",
         },
         { status: 403 }
       );

@@ -223,6 +223,27 @@ const TTS_ONLY = new Set<string>([
   // ⚠️ ההקלטות של השמות (§173) מעולם לא היו כאן - הן נוצרו
   // אחרי הרשימה הזו, ולכן ניגנו כהקלטה מהרגע הראשון. אם הן
   // נשמעות כשקט, הבעיה בשם הקובץ בימות ולא כאן.
+  // §201: הודעות פירוט החיוב בטלפון - טרם הוקלטו.
+  //
+  // ⚠️ **חובה שיהיו כאן.** בלי זה הקוד מבקש מימות קובץ שאינו
+  // קיים, וימות משמיעים **שקט** ולא שגיאה - כלומר הלקוח שומע
+  // חלק מהמשפט ואז דממה, בלי שאיש יידע למה.
+  //
+  // ⚠️ להסיר מכאן ברגע שמקליטים (או להוסיף ל-YEMOT_RECORDED
+  // ב-Vercel, שגובר בלי פריסת קוד).
+  "charged_pre",
+  "charged_amount_pre",
+  "not_charged_yet",
+  "pending_weighing",
+  "delivery_on",
+  "at_point",
+  // §173: הקלטות פיצול השם - גם הן טרם הוקלטו
+  "ask_first_name",
+  "ask_first_name_again",
+  "fname_confirm_pre",
+  "ask_last_name",
+  "ask_last_name_again",
+  "lname_confirm_pre",
   "sku_chosen",
   "mode_carton_kg",
   "code_missing",
