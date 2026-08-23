@@ -32,6 +32,8 @@ type Customer = {
   /** §145: מקבל קובץ אקסל להזמנה בכל מכירה */
   wantsExcelOrder?: boolean;
   /** §173: שם פרטי ומשפחה. null אצל לקוחות ותיקים. */
+  /** §199: טלפון נוסף לזיהוי ב-IVR (§161) */
+  phone2?: string | null;
   firstName?: string | null;
   lastName?: string | null;
   /** §158: הזמנה פעילה במכירה הנוכחית */
@@ -110,6 +112,7 @@ export default function AdminCustomersPage() {
   const [editPhone, setEditPhone] = useState("");
   const [editName, setEditName] = useState("");
   // §173: שם פרטי ומשפחה - להשלמה הדרגתית של לקוחות ותיקים
+  const [editPhone2, setEditPhone2] = useState("");
   const [editFirst, setEditFirst] = useState("");
   const [editLast, setEditLast] = useState("");
   const [saving, setSaving] = useState(false);
@@ -325,6 +328,7 @@ export default function AdminCustomersPage() {
     setEditEmail(c.email ?? "");
     setEditPhone(c.phone ?? "");
     setEditName(c.name);
+    setEditPhone2(c.phone2 ?? "");
     setEditFirst(c.firstName ?? "");
     setEditLast(c.lastName ?? "");
     setShowExistingPw(false);
@@ -520,6 +524,8 @@ export default function AdminCustomersPage() {
       }
       if (editEmail !== (editing.email ?? "")) payload.email = editEmail || null;
       if (editPhone !== (editing.phone ?? "")) payload.phone = editPhone || null;
+      // §199: הטלפון הנוסף. השרת מאמת ייחודיות (§162).
+      if (editPhone2 !== (editing.phone2 ?? "")) payload.phone2 = editPhone2 || null;
       if (newPassword) payload.newPassword = newPassword;
       // §82: נקודת חלוקה. ההשוואה מול הרשומה שברשימה ולא מול
       // editing - האחרון כבר מכיל את הערך החדש (setEditing ב-onChange),
@@ -1001,9 +1007,26 @@ export default function AdminCustomersPage() {
             <Field label="שם מלא (כפי שמוצג בכל מקום)">
               <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
             </Field>
-            <Field label="טלפון">
-              <input className="input" dir="ltr" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
-            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="טלפון">
+                <input className="input" dir="ltr" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+              </Field>
+              {/* §199: 🐛 טלפון נוסף (§161) לא היה במסך הזה.
+                  
+                  המנהל הקים לקוח עם מספר שני, וזה נשמר במסד -
+                  אבל הוא לא ראה אותו כאן ולא יכול היה לתקן.
+                  הלקוח התקשר מהמספר השני, לא זוהה, והמנהל לא
+                  ידע שהמספר בכלל קיים. */}
+              <Field label="טלפון נוסף">
+                <input
+                  className="input"
+                  dir="ltr"
+                  value={editPhone2}
+                  onChange={(e) => setEditPhone2(e.target.value)}
+                  placeholder="של בן/בת הזוג"
+                />
+              </Field>
+            </div>
             <Field label="מייל">
               <input
                 className="input"

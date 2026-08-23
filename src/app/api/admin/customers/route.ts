@@ -20,6 +20,9 @@ export async function GET(req: Request) {
         OR: [
           { name: { contains: q, mode: "insensitive" as const } },
           { phone: { contains: q } },
+          // §199: חיפוש גם לפי הטלפון הנוסף - זה בדיוק המספר
+          // שממנו הלקוח מתקשר, והמנהל מחפש לפיו.
+          { phone2: { contains: q } },
           { email: { contains: q, mode: "insensitive" as const } },
           // §173: חיפוש גם לפי שם פרטי או משפחה בנפרד
         { firstName: { contains: q, mode: "insensitive" as const } },
@@ -89,6 +92,10 @@ export async function GET(req: Request) {
       id: c.id,
       name: c.name,
       phone: c.phone,
+      // §199: 🐛 טלפון נוסף (§161) לא הוחזר ברשימה - כלומר המנהל
+      // הקים לקוח עם מספר שני, ואז לא ראה ולא יכול היה לערוך אותו
+      // במסך הלקוחות. הוא היה קיים במסד ובלתי נגיש.
+      phone2: c.phone2 ?? null,
       email: c.email,
       // §82: המזהה עצמו, לא רק השם - הבורר במסך העריכה צריך לדעת
       // מה נבחר, ובלעדיו הוא נפתח ריק תמיד.
