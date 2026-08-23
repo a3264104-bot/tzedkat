@@ -10,6 +10,8 @@
 // והמספר היה מתיישן בשקט.
 
 import { useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDateTime } from "@/lib/date-lib";
 import { useRouter } from "next/navigation";
 import { fmt } from "@/lib/pricing";
 
@@ -129,7 +131,7 @@ export function DeliveryPanel({
                 ✓ נמסר ללקוח
                 <span className="font-normal text-emerald-600">
                   {" "}
-                  · {new Date(deliveredAt).toLocaleString("he-IL")}
+                  · {fmtDateTime(deliveredAt)}
                 </span>
               </div>
               <button

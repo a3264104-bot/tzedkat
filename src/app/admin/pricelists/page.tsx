@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDateTime } from "@/lib/date-lib";
 import { api, download } from "@/lib/client";
 import { PRICELIST_STATUS, fmt } from "@/lib/pricing";
 import { Modal, Field } from "@/components/AdminModal";
@@ -245,7 +247,7 @@ export default function PricelistsPage() {
                       disabled={busy}
                       title={
                         l.excelSentAt
-                          ? `נשלח ב-${new Date(l.excelSentAt).toLocaleString("he-IL")} · ${l.excelSentCount} נמענים`
+                          ? `נשלח ב-${fmtDateTime(l.excelSentAt)} · ${l.excelSentCount} נמענים`
                           : "שליחת קבצי אקסל ללקוחות שביקשו"
                       }
                       className="btn-sm bg-emerald-600 text-white rounded-lg px-3 font-bold hover:opacity-90 disabled:opacity-50"

@@ -465,6 +465,8 @@ export default async function AgentOrderPage({
           deliveryDateText: pricelist.deliveryDateText,
           closeDateText: pricelist.closeDate
             ? new Date(pricelist.closeDate).toLocaleDateString("he-IL", {
+                    // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
+                    timeZone: "Asia/Jerusalem",
                 day: "numeric",
                 month: "long",
                 hour: "2-digit",

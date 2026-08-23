@@ -25,6 +25,8 @@
 //     מ"שכחתי למלא", ורק ההבחנה הזו מאפשרת לחסום את השני.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDateTime } from "@/lib/date-lib";
 import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
 import { fmt } from "@/lib/pricing";
 // §128: תצוגת יחידות - מקור אחד לכל המערכת
@@ -738,7 +740,7 @@ function CloseOrderCheck({
       disabled={saving || readOnly}
       title={
         closed
-          ? `טופל ב-${new Date(closedAt!).toLocaleString("he-IL")}`
+          ? `טופל ב-${fmtDateTime(closedAt!)}`
           : missing > 0
             ? `חסרים ${missing} משקלים`
             : "סמן כטופל"

@@ -12,6 +12,8 @@
 // לקוחות לדפדפן - ומספיק screenshot אחד כדי לחשוף את כולם.
 
 import { useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDate } from "@/lib/date-lib";
 
 export function AdminCustomerCodePanel({
   customerId,
@@ -109,7 +111,7 @@ export function AdminCustomerCodePanel({
         <div className="text-xs font-bold text-zinc-600">🔑 קוד התחברות</div>
         {exists && codeSetAt && !code && (
           <div className="text-[10px] text-zinc-400">
-            נקבע {new Date(codeSetAt).toLocaleDateString("he-IL")}
+            נקבע {fmtDate(codeSetAt)}
           </div>
         )}
       </div>

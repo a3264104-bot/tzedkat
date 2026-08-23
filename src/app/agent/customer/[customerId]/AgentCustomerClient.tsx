@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDate } from "@/lib/date-lib";
 import Link from "next/link";
 import { STATUS_LABELS, fmt } from "@/lib/pricing";
 import { formatItemQty } from "@/lib/order-display";
@@ -339,7 +341,7 @@ export function AgentCustomerClient({
                 <div>
                   <div className="font-bold text-brand-slatedark">הזמנה #{o.orderNumber}</div>
                   <div className="text-xs text-zinc-400">
-                    {new Date(o.createdAt).toLocaleDateString("he-IL")} · {o.pointName}
+                    {fmtDate(o.createdAt)} · {o.pointName}
                   </div>
                 </div>
                 <div className="text-left">

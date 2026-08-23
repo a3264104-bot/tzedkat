@@ -12,6 +12,8 @@
 // מי, כמה ולמה. ולא הייתה שום דרך לדעת לאיזה לקוח יש יתרה פתוחה.
 
 import { useEffect, useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDate } from "@/lib/date-lib";
 import { api } from "@/lib/client";
 import { fmt } from "@/lib/pricing";
 
@@ -316,7 +318,7 @@ export default function CreditsPage() {
                       {c.byName}
                     </td>
                     <td className="p-2.5 text-center text-[11px] text-zinc-400">
-                      {c.at ? new Date(c.at).toLocaleDateString("he-IL") : "—"}
+                      {c.at ? fmtDate(c.at) : "—"}
                     </td>
                   </tr>
                 ))}
@@ -350,7 +352,7 @@ export default function CreditsPage() {
                   </td>
                   <td className="p-2.5 text-xs text-zinc-600">{b.note || "—"}</td>
                   <td className="p-2.5 text-center text-[11px] text-zinc-400">
-                    {b.at ? new Date(b.at).toLocaleDateString("he-IL") : "—"}
+                    {b.at ? fmtDate(b.at) : "—"}
                   </td>
                 </tr>
               ))}

@@ -9,6 +9,8 @@
 // - יתרת חוב + היסטוריית תשלומים
 
 import { useCallback, useEffect, useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDate } from "@/lib/date-lib";
 import Link from "next/link";
 
 type Data = {
@@ -268,7 +270,7 @@ export default function AgentProfileClient({ agentId }: { agentId: string }) {
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-zinc-500">📅</span>
                   <span className="text-brand-slate">
-                    נרשם: {new Date(agent.createdAt).toLocaleDateString("he-IL")}
+                    נרשם: {fmtDate(agent.createdAt)}
                   </span>
                 </div>
               </div>
@@ -442,7 +444,7 @@ export default function AgentProfileClient({ agentId }: { agentId: string }) {
                       <div className="text-xs text-zinc-500 mt-0.5 flex gap-3 flex-wrap">
                         {s.deliveryDate && (
                           <span>
-                            📅 {new Date(s.deliveryDate).toLocaleDateString("he-IL")}
+                            📅 {fmtDate(s.deliveryDate)}
                           </span>
                         )}
                         <span>
@@ -508,7 +510,7 @@ export default function AgentProfileClient({ agentId }: { agentId: string }) {
                           )}
                         </div>
                         <div className="text-xs text-zinc-500 mt-1">
-                          {new Date(p.createdAt).toLocaleDateString("he-IL")}
+                          {fmtDate(p.createdAt)}
                         </div>
                         {p.note && (
                           <div className="text-xs text-zinc-600 mt-1 bg-white/70 rounded px-2 py-1">

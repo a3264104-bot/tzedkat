@@ -329,6 +329,8 @@ export function OrderRow({
                 <p className="text-[11px] text-zinc-500 text-center mt-1.5">
                   נמסר ב-
                   {new Date(order.deliveredAt).toLocaleString("he-IL", {
+                    // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
+                    timeZone: "Asia/Jerusalem",
                     day: "2-digit",
                     month: "2-digit",
                     hour: "2-digit",

@@ -6,6 +6,8 @@
 // שלי" גם כשהיו לו הזמנות בנקודה השנייה.
 
 import Link from "next/link";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDate } from "@/lib/date-lib";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -325,7 +327,7 @@ export default async function AgentIndexPage() {
                       </div>
                       <div className="text-[10px] text-amber-700 mt-0.5">
                         {s.pricelist.deliveryDate &&
-                          new Date(s.pricelist.deliveryDate).toLocaleDateString("he-IL")}
+                          fmtDate(s.pricelist.deliveryDate)}
                         · {s.totalCustomers} לקוחות · ₪{Number(s.totalCommission).toFixed(0)} עמלה
                       </div>
                     </div>
@@ -375,6 +377,8 @@ export default async function AgentIndexPage() {
                         {pl.deliveryDate && (
                           <div className="text-xs text-zinc-500 mt-1">
                             📅 חלוקה: {new Date(pl.deliveryDate).toLocaleDateString("he-IL", {
+                    // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
+                    timeZone: "Asia/Jerusalem",
                               weekday: "long",
                               day: "2-digit",
                               month: "2-digit",

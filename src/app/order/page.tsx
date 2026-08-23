@@ -213,6 +213,8 @@ export default async function OrderPage({
         deliveryDateText: pricelist.deliveryDateText,
         closeDateText: pricelist.closeDate
           ? new Date(pricelist.closeDate).toLocaleDateString("he-IL", {
+                    // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
+                    timeZone: "Asia/Jerusalem",
               day: "numeric",
               month: "long",
               hour: "2-digit",
@@ -221,6 +223,8 @@ export default async function OrderPage({
           : null,
         editDeadlineText: pricelist.editDeadline
           ? new Date(pricelist.editDeadline).toLocaleDateString("he-IL", {
+                    // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
+                    timeZone: "Asia/Jerusalem",
               day: "2-digit",
               month: "2-digit",
               year: "numeric",
@@ -229,6 +233,8 @@ export default async function OrderPage({
             })
           : (pricelist.closeDate
               ? new Date(pricelist.closeDate).toLocaleDateString("he-IL", {
+                    // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
+                    timeZone: "Asia/Jerusalem",
                   day: "2-digit",
                   month: "2-digit",
                   year: "numeric",

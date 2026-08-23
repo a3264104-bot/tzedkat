@@ -10,6 +10,8 @@
 // הופכת את הנציג למוקד שירות בזמן שהוא מחלק סחורה.
 
 import { useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDateTime } from "@/lib/date-lib";
 import { useRouter } from "next/navigation";
 
 export function OrderNotePanel({
@@ -81,7 +83,7 @@ export function OrderNotePanel({
           </div>
           {noteAt && (
             <div className="text-[10px] text-blue-600 mt-0.5">
-              {new Date(noteAt).toLocaleString("he-IL")}
+              {fmtDateTime(noteAt)}
             </div>
           )}
         </div>
@@ -210,7 +212,7 @@ export function OrderNotePanel({
           <div className="text-sm text-emerald-900 mt-1">{reply}</div>
           {replyAt && (
             <div className="text-[10px] text-emerald-600 mt-1">
-              {new Date(replyAt).toLocaleString("he-IL")}
+              {fmtDateTime(replyAt)}
             </div>
           )}
         </div>

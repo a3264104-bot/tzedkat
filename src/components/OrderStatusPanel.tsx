@@ -14,6 +14,8 @@
 // הצעד הבא בלבד. שאר האפשרויות זמינות אך לא צועקות.
 
 import { useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDateTime } from "@/lib/date-lib";
 
 type Props = {
   order: any;
@@ -160,7 +162,7 @@ export function OrderStatusPanel({
           <div>
             <p className="font-bold text-emerald-800 text-sm">ההזמנה נמסרה ללקוח ✓</p>
             <p className="text-xs text-emerald-700 mt-0.5">
-              {new Date(order.deliveredAt).toLocaleString("he-IL")}
+              {fmtDateTime(order.deliveredAt)}
               {order.deliveredNote && ` · ${order.deliveredNote}`}
             </p>
           </div>

@@ -4,6 +4,8 @@
 // מציג: סה"כ ק"ג + עמלה + פירוט לפי נקודה + השוואה לתעודות משלוח + סגירה
 
 import { useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDateTime } from "@/lib/date-lib";
 import type { Order, Walkin } from "./AgentSaleClient";
 
 type LiveSummary = {
@@ -434,7 +436,7 @@ export function SummaryPanel({
       {summary.status === "CONFIRMED" && summary.confirmedAt && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
           <div className="text-emerald-700 font-bold text-sm">
-            ✓ נסגר ב-{new Date(summary.confirmedAt).toLocaleString("he-IL")}
+            ✓ נסגר ב-{fmtDateTime(summary.confirmedAt)}
           </div>
         </div>
       )}

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
+import { fmtDateTime } from "@/lib/date-lib";
 // §183: עריכת פרטי הלקוח מתוך ההזמנה
 import { QuickCustomerEdit } from "@/components/QuickCustomerEdit";
 // §190: משלוח, חיוב נוסף וזיכוי - גם במסך המנהל
@@ -300,7 +302,7 @@ export default function OrderDetail() {
             {order.amountPaid != null && (
               <div className="text-sm text-zinc-500 mt-1">
                 שולם בפועל: {fmt(order.amountPaid)}
-                {order.paidAt && ` · ${new Date(order.paidAt).toLocaleString("he-IL")}`}
+                {order.paidAt && ` · ${fmtDateTime(order.paidAt)}`}
               </div>
             )}
           </div>
@@ -477,7 +479,7 @@ export default function OrderDetail() {
         {order.phone2 && <Info label="טלפון נוסף" value={order.phone2} />}
         <Info label="נקודת חלוקה" value={order.point.name} />
         <Info label="תאריך חלוקה" value={order.pricelist?.deliveryDateText ?? "—"} />
-        <Info label="תאריך הזמנה" value={new Date(order.createdAt).toLocaleString("he-IL")} />
+        <Info label="תאריך הזמנה" value={fmtDateTime(order.createdAt)} />
         {/* §24: מקור ההזמנה - חשוב לתחקור, במיוחד בהזמנות טלפוניות
             שבהן אין למנהל שום דרך אחרת לדעת איך ההזמנה נוצרה. */}
         {/* §126: זיכוי ויתרת זכות.

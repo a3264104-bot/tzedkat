@@ -1266,6 +1266,8 @@ export default function AdminCustomersPage() {
                   <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 text-xs text-red-800">
                     🔒 החשבון נעול עד{" "}
                     {new Date(editing.lockedUntil).toLocaleTimeString("he-IL", {
+                    // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
+                    timeZone: "Asia/Jerusalem",
                       hour: "2-digit",
                       minute: "2-digit",
                     })}{" "}

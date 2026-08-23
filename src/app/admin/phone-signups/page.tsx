@@ -98,6 +98,8 @@ function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   try {
     return new Date(iso).toLocaleString("he-IL", {
+                    // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
+                    timeZone: "Asia/Jerusalem",
       day: "2-digit",
       month: "2-digit",
       hour: "2-digit",
