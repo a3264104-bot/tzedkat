@@ -29,10 +29,16 @@ export default function OrderDetail() {
   const [internalNotes, setInternalNotes] = useState("");
   const [showCashForm, setShowCashForm] = useState(false);
   const [charging, setCharging] = useState(false);
-  // §191: מספר תשלומים לחיוב. ברירת המחדל היא מה שהלקוח ביקש.
-  const [chargeInstallments, setChargeInstallments] = useState(
-    Math.min(Math.max(Number((order as any).requestedInstallments) || 1, 1), 12)
-  );
+  // §191: מספר תשלומים לחיוב.
+  //
+  // 🐛 קודם הערך ההתחלתי היה `Number(order.requestedInstallments)` -
+  // אבל order הוא null ברינדור הראשון (הוא נטען ב-useEffect),
+  // וה-useState רץ **לפני** הבדיקה `if (!order)`. התוצאה: המסך
+  // קרס עם "client-side exception" לפני שהספיק להציג משהו.
+  //
+  // ⚠️ מתחילים ב-1 ומסתנכרנים ב-useEffect כשההזמנה מגיעה. זהו
+  // הדפוס הנכון: ערך התחלתי שאינו תלוי בנתונים שטרם נטענו.
+  const [chargeInstallments, setChargeInstallments] = useState(1);
 
   async function load() {
     const [o, p] = await Promise.all([api(`/api/admin/orders/${id}`), api("/api/admin/products")]);
@@ -44,6 +50,15 @@ export default function OrderDetail() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // §191: מסנכרן את בורר התשלומים כשההזמנה נטענת.
+  //
+  // ⚠️ תלוי ב-order?.id ולא ב-order: אובייקט חדש בכל רינדור היה
+  // מאפס את הבחירה של המנהל בכל רענון.
+  useEffect(() => {
+    const n = Number((order as any)?.requestedInstallments);
+    if (Number.isInteger(n) && n >= 1 && n <= 12) setChargeInstallments(n);
+  }, [order?.id]);
 
   if (!order) return <p className="text-zinc-500">טוען...</p>;
 
