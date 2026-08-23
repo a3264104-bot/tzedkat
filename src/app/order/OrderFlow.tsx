@@ -156,8 +156,17 @@ export function OrderFlow({
   // §16: במצב עריכה — מדלגים תמיד ישירות למוצרים
   const hasValidDefault =
     !!customer.defaultPointId && points.some((p) => p.id === customer.defaultPointId);
+  // §223: 🐛 המחירון דרש לבחור נקודת חלוקה.
+  //
+  // OrderFlow בנוי לזרימת הזמנה, ובה בחירת הנקודה היא שלב
+  // ראשון. אבל במצב מחירון אין הזמנה - ואין לאן לשלוח אותה.
+  //
+  // ⚠️ הלקוח שרק רצה לראות מה נמכר נתקל בשאלה שאין לו סיבה
+  // לענות עליה, וחלק היו נוטשים שם.
+  //
+  // ⚠️ מדלגים ישר למוצרים: זה כל מה שהמחירון נועד להראות.
   const [step, setStep] = useState<Step>(
-    editMode || hasValidDefault ? "products" : "point"
+    catalogOnly || editMode || hasValidDefault ? "products" : "point"
   );
   const [pointId, setPointId] = useState<string>(
     hasValidDefault ? customer.defaultPointId! : ""
@@ -1559,7 +1568,9 @@ export function OrderFlow({
               ))}
             </div>
             <BottomBar>
-              {hasValidDefault || editMode ? (
+              {/* §223: במחירון אין נקודת חלוקה - החזרה היא לדף
+                  הבית, ולא לשלב שלא היה. */}
+              {catalogOnly || hasValidDefault || editMode ? (
                 <Link
                   href={editMode ? "/account" : "/"}
                   className="btn-ghost flex-1 text-center"
@@ -1575,15 +1586,21 @@ export function OrderFlow({
                 </button>
               )}
               <button
-                disabled={itemCount === 0}
+                disabled={itemCount === 0 || catalogOnly}
                 onClick={() => setStep("summary")}
                 className={`flex-1 py-3 rounded-xl font-bold transition-all ${
-                  itemCount === 0
+                  itemCount === 0 || catalogOnly
                     ? "bg-zinc-100 text-zinc-400 cursor-not-allowed"
                     : "bg-brand-rust text-white shadow-md hover:shadow-lg hover:-translate-y-0.5"
                 }`}
               >
-                {itemCount === 0 ? (
+                {/* §223: במחירון הכפתור מסביר למה הוא מושבת.
+                    
+                    ⚠️ "בחר מוצרים להמשך" היה מטעה - הלקוח היה
+                    בוחר, והכפתור היה נשאר אפור בלי הסבר. */}
+                {catalogOnly ? (
+                  "🔒 מחירון בלבד — לא ניתן להזמין"
+                ) : itemCount === 0 ? (
                   "בחר מוצרים להמשך"
                 ) : (
                   <span className="inline-flex items-center gap-2">
