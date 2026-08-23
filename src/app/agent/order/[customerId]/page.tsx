@@ -241,6 +241,24 @@ export default async function AgentOrderPage({
     );
   }
 
+  // §205: 🚨 הנקודה של הלקוח **חייבת** להיות ברשימה.
+  //
+  // 🐛 מה שקרה: בעל חנות משויך לנקודה סמויה שלא נוספה למכירה.
+  // הבורר שולף מ-pricelist.points, הנקודה שלו לא הייתה שם,
+  // והמנהל נאלץ לבחור נקודה אחרת.
+  //
+  // התוצאה: בכרטיס הלקוח מופיעה הנקודה הסמויה, בהזמנה מופיעה
+  // נקודה קבועה, ובדף החלוקה הוא מופיע במקום הלא נכון - כלומר
+  // הסחורה מגיעה לכתובת שגויה.
+  //
+  // ⚠️ הפתרון כאן הוא **חסימה ולא השלמה שקטה**: אם נוסיף את
+  // הנקודה לבד, המנהל לא יידע שהמכירה מוגדרת חלקית, וזה יחזור
+  // בכל מכירה חדשה.
+  const customerPoint = targetCustomer.defaultPoint;
+  const customerPointInSale =
+    !customerPoint ||
+    pricelist.points.some((pp) => pp.pointId === customerPoint.id);
+
   const points = pricelist.points
     .map((pp) => pp.point)
     .filter((p) => p.isActive)
@@ -379,6 +397,48 @@ export default async function AgentOrderPage({
   // הנציג פתח לו הזמנה, ו-/api/orders פוטר הזמנות נציג מדרישת כרטיס -
   // כך נוצרה הזמנה בלי שום מסלול גבייה, שנתקעת בזמן החיוב על
   // "אין כרטיס שמור". עכשיו הנציג מכריע פעם אחת: כרטיס או מזומן.
+  // §205: חסימה כשהנקודה של הלקוח אינה במכירה.
+  //
+  // ⚠️ **לפני** בדיקת הכרטיס: זו תקלת הגדרה שהמנהל חייב לתקן,
+  // ואין טעם לשלוח אותו להזין כרטיס אם ההזמנה ממילא תגיע
+  // לנקודה הלא נכונה.
+  if (!customerPointInSale && customerPoint) {
+    return (
+      <main dir="rtl" className="min-h-screen bg-brand-yellow flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl shadow-lg p-6 max-w-md space-y-3">
+          <div className="text-3xl text-center">📍</div>
+          <h1 className="text-lg font-extrabold text-brand-slatedark text-center">
+            נקודת החלוקה של הלקוח אינה משתתפת במכירה
+          </h1>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 leading-relaxed">
+            <b>{targetCustomer.name}</b> משויך לנקודה{" "}
+            <b>{customerPoint.name}</b>
+            {(customerPoint as any).isPrivate && " (סמויה)"}, והיא לא נוספה
+            למכירה <b>{pricelist.name}</b>.
+          </div>
+          {/* ⚠️ ההסבר קונקרטי ולא "פנה למנהל": ברוב המקרים
+              **המנהל עצמו** הוא זה שרואה את המסך הזה. */}
+          <p className="text-xs text-zinc-600 leading-relaxed">
+            אם תפתח הזמנה עכשיו, תיאלץ לבחור נקודה אחרת — והסחורה תגיע
+            למקום הלא נכון. הפתרון: להוסיף את הנקודה למכירה.
+          </p>
+          <a
+            href="/admin/pricelists"
+            className="block w-full py-3 rounded-xl bg-brand-rust text-white font-bold text-center"
+          >
+            למסך המכירות → ערוך → ✓ סמן הכל
+          </a>
+          <a
+            href={`/agent/customer/${targetCustomer.id}`}
+            className="block text-center text-xs text-zinc-500 underline"
+          >
+            חזרה לכרטיס הלקוח
+          </a>
+        </div>
+      </main>
+    );
+  }
+
   if (!hasPaymentToken && !isCashCustomer) {
     let canUpdateCards = role === "ADMIN";
     if (role === "AGENT") {

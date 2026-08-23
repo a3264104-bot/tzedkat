@@ -729,17 +729,44 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
           {(() => {
             const chosen = allPoints.filter((pt) => selPoints[pt.id]);
             const hidden = chosen.filter((pt: any) => pt.isPrivate);
-            if (chosen.length === 0) return null;
+            // §205: נקודות סמויות שלא נבחרו.
+            //
+            // 🐛 מה שקרה: נקודה סמויה של חנות לא נוספה למכירה,
+            // ובעל החנות קיבל הזמנה לנקודה קבועה - כלומר הסחורה
+            // הגיעה למקום הלא נכון.
+            //
+            // ⚠️ אזהרה **אדומה** ולא הערה: נקודה קבועה שנשכחה
+            // בולטת מיד (הלקוחות מתלוננים), אבל סמויה שקטה - יש
+            // בה לקוח אחד, והוא מגלה רק בחלוקה.
+            const missingHidden = allPoints.filter(
+              (pt: any) => pt.isPrivate && !selPoints[pt.id]
+            );
+            if (chosen.length === 0 && missingHidden.length === 0) return null;
             return (
-              <p className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded p-1.5 mb-1.5">
-                נבחרו <b>{chosen.length}</b> נקודות
-                {hidden.length > 0 && (
-                  <>
-                    {" "}
-                    · כולל <b>{hidden.length} סמויות</b> 🔒 שאינן מוצגות ללקוחות
-                  </>
+              <>
+                {chosen.length > 0 && (
+                  <p className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded p-1.5 mb-1.5">
+                    נבחרו <b>{chosen.length}</b> נקודות
+                    {hidden.length > 0 && (
+                      <>
+                        {" "}
+                        · כולל <b>{hidden.length} סמויות</b> 🔒 שאינן מוצגות
+                        ללקוחות
+                      </>
+                    )}
+                  </p>
                 )}
-              </p>
+                {missingHidden.length > 0 && (
+                  <p className="text-[11px] text-red-800 bg-red-50 border-2 border-red-300 rounded p-2 mb-1.5 leading-relaxed">
+                    🚨 <b>{missingHidden.length} נקודות סמויות לא נבחרו:</b>{" "}
+                    {missingHidden.map((p) => p.name).join(", ")}
+                    <span className="block mt-1">
+                      הלקוחות שמשויכים אליהן לא יוכלו להזמין למכירה זו, ואם
+                      תפתח להם הזמנה היא תגיע לנקודה אחרת.
+                    </span>
+                  </p>
+                )}
+              </>
             );
           })()}
 
