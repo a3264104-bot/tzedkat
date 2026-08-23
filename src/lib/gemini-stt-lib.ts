@@ -97,6 +97,48 @@ async function downloadRecording(path: string): Promise<string | null> {
  * "תמלל את זה" מחזיר משפט שלם עם סימני פיסוק, ואנחנו צריכים
  * שתי-שלוש מילים נקיות. ההבדל הזה הוא מה שהופך את התוצאה לשמישה.
  */
+/**
+ * §218: מטמון תמלולים לפי נתיב ההקלטה.
+ *
+ * 🐛 הבאג שזה פותר (23/08 21:43): ימות שולחים את **כל** הערכים
+ * שנצברו בשיחה, בכל בקשה (§106). כלומר NAME (נתיב ההקלטה) נשלח
+ * שוב ושוב, ואנחנו תמללנו אותו מחדש בכל פעם.
+ *
+ * התוצאה בשטח: השם הפרטי תומלל בהצלחה בבקשה אחת, ונכשל בבקשה
+ * הבאה - ונשמר "לקוח טלפוני ברנשטיין".
+ *
+ * ⚠️ שלוש בעיות בבת אחת: עלות כפולה ב-Gemini, זמן תגובה כפול,
+ * ותוצאה לא עקבית באותה שיחה.
+ *
+ * ⚠️ מטמון בזיכרון ולא במסד: השיחה נמשכת דקה-שתיים, ו-Vercel
+ * מחזיקים את אותו instance חם לאורך הזמן הזה ברוב המקרים.
+ * instance קר יתמלל מחדש - נכון, אבל זה עדיין טוב פי כמה
+ * מתמלול בכל בקשה. כתיבה למסד על כל הקלטה הייתה יקרה יותר
+ * מהבעיה שהיא פותרת.
+ */
+const cache = new Map<string, { value: string | null; at: number }>();
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
+function cacheGet(key: string): { hit: boolean; value: string | null } {
+  const e = cache.get(key);
+  if (!e) return { hit: false, value: null };
+  if (Date.now() - e.at > CACHE_TTL_MS) {
+    cache.delete(key);
+    return { hit: false, value: null };
+  }
+  return { hit: true, value: e.value };
+}
+
+function cacheSet(key: string, value: string | null) {
+  // ⚠️ ניקוי כשהמפה גדלה: instance חם ששרת מאות שיחות היה
+  // צובר זיכרון בלי הגבלה.
+  if (cache.size > 200) {
+    const cutoff = Date.now() - CACHE_TTL_MS;
+    for (const [k, v] of cache) if (v.at < cutoff) cache.delete(k);
+  }
+  cache.set(key, { value, at: Date.now() });
+}
+
 export async function transcribeName(
   recordingPath: string,
   kind: "first" | "last" | "full" = "full"
@@ -109,7 +151,25 @@ export async function transcribeName(
   //
   // ⚠️ deadline אחד לכל הפונקציה: אם ההורדה לקחה 3, לניסיונות
   // נשארות 4 - ולא 8. זו הדרך היחידה להבטיח תקרה אמיתית.
-  const deadline = Date.now() + 7500;
+  // §218: אותה הקלטה מתומללת **פעם אחת** בשיחה.
+  //
+  // ⚠️ גם כישלון נשמר: אם Gemini לא הצליח, ניסיון חוזר באותה
+  // שיחה כנראה ייכשל גם הוא - והוא רק מאריך את השיחה. עדיף
+  // תוצאה עקבית מאשר "אולי הפעם יצליח".
+  const cached = cacheGet(recordingPath);
+  if (cached.hit) {
+    console.log(`[stt] מהמטמון: ${cached.value ?? "(כישלון)"}`);
+    return cached.value;
+  }
+
+  // §219: 14 שניות ולא 7.5.
+  //
+  // 🐛 מה שקרה: התקציב הצר נתן לניסיון השני 3.5 שניות בלבד,
+  // והוא נחתך באמצע. שני ניסיונות קצרים גרועים מאחד ארוך.
+  //
+  // ⚠️ דורש maxDuration=25 ב-route (ברירת המחדל ב-Vercel היא
+  // 10 שניות, וה-timeout היה נחתך מבחוץ בלי שנדע למה).
+  const deadline = Date.now() + 14000;
   const left = () => Math.max(0, deadline - Date.now());
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
@@ -155,9 +215,19 @@ export async function transcribeName(
     // ⚠️ אותו SDK ואותו דגם של §20 - מה שכבר עובד בייצור.
     // gemini-flash-latest ולא גרסה ממוספרת: גוגל מוציאים דגמים
     // חדשים ומשביתים ישנים, ו-latest חוסך פריסה בכל פעם.
+    // §219: 🐛 gemini-flash-latest החזיר 503 "high demand" שוב ושוב.
+    //
+    // ה-alias מפנה למודל הפופולרי ביותר, ולכן הוא גם העמוס
+    // ביותר. גרסה ממוספרת יושבת על מאגר קיבולת אחר.
+    //
+    // ⚠️ הניסיון השני עובר ל**מודל אחר** ולא חוזר על אותו אחד:
+    // אם 2.5 עמוס, ניסיון נוסף עליו ייכשל בדיוק אותו דבר.
+    // 2.0 הוא דור קודם, פחות מבוקש, ומספיק טוב לתמלול שם.
+    const MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
     const genAI = new GoogleGenerativeAI(key);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-flash-latest",
+    const mkModel = (name: string) =>
+      genAI.getGenerativeModel({
+        model: name,
       generationConfig: {
         // ⚠️ 0.1 כמו בתעודות: אנחנו רוצים תמלול יציב, לא יצירתיות
         temperature: 0.1,
@@ -169,9 +239,9 @@ export async function transcribeName(
         // ⚠️ 1024 ולא 4096 (כמו בתעודות): התשובה כאן היא שתי
         // מילים, והתקרה רק צריכה לתת מקום למחשבות.
         maxOutputTokens: 1024,
-        responseMimeType: "application/json",
-      },
-    });
+          responseMimeType: "application/json",
+        },
+      });
 
     // §217: 🐛 503 "high demand" הפיל את התמלול.
     //
@@ -202,10 +272,10 @@ export async function transcribeName(
 
     let result: any = null;
     let lastErr: any = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < MODELS.length; attempt++) {
       try {
         result = await withTimeout(
-          model.generateContent([
+          mkModel(MODELS[attempt]).generateContent([
       prompt,
           {
             inlineData: {
@@ -217,9 +287,8 @@ export async function transcribeName(
           ]),
           // ⚠️ ניסיון שני קצר יותר: אם הראשון נתקע, השני כנראה
           // גם ייתקע, ואין טעם לבזבז עוד 5 שניות מהשיחה.
-          // ⚠️ מה שנשאר מהתקציב, עד 5 שניות. ניסיון שני מקבל
-          // רק את השארית - ואם אין, הלולאה נעצרת למטה.
-          Math.min(5000, left())
+          // ⚠️ מה שנשאר מהתקציב, עד 6 שניות.
+          Math.min(6000, left())
         );
         break;
       } catch (e: any) {
@@ -234,11 +303,15 @@ export async function transcribeName(
         if (!retryable) throw e;
         // ⚠️ עצירה כשאין תקציב: ניסיון שני שייחתך אחרי חצי
         // שנייה הוא בזבוז שמאריך את השיחה בלי סיכוי להצליח.
-        if (left() < 1500) {
-          console.log("[stt] נגמר התקציב - בלי ניסיון נוסף");
+        // ⚠️ 3 שניות מינימום: ניסיון עם פחות מזה ייחתך באמצע
+        // ורק יאריך את השיחה בלי סיכוי אמיתי.
+        if (left() < 3000 || attempt + 1 >= MODELS.length) {
+          console.log("[stt] נגמר התקציב או המודלים");
           break;
         }
-        console.log(`[stt] ${e?.status === 503 ? "503" : "timeout"} - ניסיון ${attempt + 2}/2`);
+        console.log(
+          `[stt] ${e?.status === 503 ? "503" : "timeout"} ב-${MODELS[attempt]} → מנסה ${MODELS[attempt + 1] ?? "אין"}`
+        );
         await new Promise((r) => setTimeout(r, 300));
       }
     }
@@ -265,23 +338,30 @@ export async function transcribeName(
 
     if (!cleaned) {
       console.log("[stt] Gemini לא זיהה שם");
+      cacheSet(recordingPath, null);
       return null;
     }
     // ⚠️ סף ביטחון: תמלול שגוי גרוע מבקשה לומר שוב. 0.4 נבחר
     // כדי לתפוס הקלטות מטושטשות בלי לדחות שמות נדירים.
     if (conf > 0 && conf < 0.4) {
       console.log(`[stt] ביטחון נמוך (${conf}) - נדחה:`, cleaned);
+      cacheSet(recordingPath, null);
       return null;
     }
     // ⚠️ תקרת אורך: תשובה ארוכה היא סימן שהמודל הסביר במקום
     // לתמלל, ושמירה שלה הייתה מכניסה משפט לשדה השם.
     if (cleaned.length > 40) {
       console.log("[stt] תשובה ארוכה מדי, נדחתה:", cleaned.slice(0, 60));
+      cacheSet(recordingPath, null);
       return null;
     }
+    cacheSet(recordingPath, cleaned);
     return cleaned;
   } catch (e) {
     console.error("[stt] שגיאה ב-Gemini:", e);
+    // ⚠️ כישלון **לא** נשמר במטמון כאן: 503 או timeout הם זמניים,
+    // ובניגוד ל"לא זיהה" יש סיכוי אמיתי שניסיון בבקשה הבאה
+    // יצליח. זו הפעם היחידה ששווה לנסות שוב.
     return null;
   }
 }
