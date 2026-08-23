@@ -82,21 +82,58 @@ export default async function OrderPage({
   const notYetOpen =
     pricelist?.openDate != null && new Date() < new Date(pricelist.openDate);
 
-  if (!pricelist || closed || notYetOpen) {
-    const msg = closed
-      ? "מועד ההרשמה למכירה הסתיים"
-      : notYetOpen
-        ? "ההרשמה למכירה טרם נפתחה"
-        : "כרגע אין מכירה פעילה";
+  // §221: 📖 **מצב מחירון** — צפייה בלי הזמנה.
+  //
+  // 🐛 מה שהיה: מסך חסימה עם "כרגע אין מכירה פעילה" וכפתור
+  // חזרה. לקוח חדש שהגיע לאתר בין מכירות לא ראה **כלום** - לא
+  // מה נמכר, לא באילו מחירים, ולא למה כדאי לו לחזור.
+  //
+  // ⚠️ אותו מסך בדיוק ולא רשימה מקוצרת: הלקוח צריך לראות
+  // קרטונים, בודדים, מחירים ותמונות - כלומר להבין מה יקבל.
+  // "רשימת מוצרים" פשוטה לא עונה על השאלה "כמה זה יעלה לי".
+  //
+  // ⚠️ הפריסה משתמשת במכירה הפעילה אם יש (גם אם סגורה להזמנות),
+  // ואחרת באחרונה שהייתה. כך המחירים הם האחרונים שהיו בתוקף
+  // ולא המצאה.
+  const catalogOnly = !pricelist || closed || notYetOpen;
+
+  const catalogSource = pricelist
+    ? pricelist
+    : await prisma.pricelist.findFirst({
+        // ⚠️ agentOnly: false - מחירון נציגים אינו לעיני לקוחות,
+        // בדיוק כמו במכירה פעילה.
+        where: { agentOnly: false, status: { in: ["CLOSED", "DONE"] } },
+        orderBy: { createdAt: "desc" },
+        include: {
+          points: { include: { point: true } },
+          products: {
+            include: {
+              product: { include: { category: true, kashrutRef: true } },
+            },
+          },
+        },
+      });
+
+  // ⚠️ אין אפילו מחירון היסטורי - אז באמת אין מה להציג.
+  if (!catalogSource) {
     return (
       <main className="min-h-screen bg-brand-yellow flex items-center justify-center p-6">
         <div className="card p-8 text-center max-w-sm">
-          <p className="text-lg font-bold text-brand-slatedark">{msg}</p>
+          <p className="text-lg font-bold text-brand-slatedark">
+            כרגע אין מכירה פעילה
+          </p>
           <Link href="/" className="btn-ghost mt-4">חזרה</Link>
         </div>
       </main>
     );
   }
+
+  // §221: ההודעה שתוצג בראש המחירון
+  const catalogNotice = closed
+    ? "מועד ההרשמה למכירה זו הסתיים"
+    : notYetOpen
+      ? "ההרשמה למכירה טרם נפתחה"
+      : "כרגע אין מכירה פעילה";
 
   // §16 פאזה 2: אם יש editOrderId — טוענים את ההזמנה הקיימת ופריטיה
   let editOrder = null;
@@ -106,7 +143,7 @@ export default async function OrderPage({
       where: {
         id: editOrderId,
         customerId,
-        pricelistId: pricelist.id,
+        pricelistId: catalogSource.id,
       },
       include: { items: true },
     });
@@ -134,7 +171,7 @@ export default async function OrderPage({
     const existingOrder = await prisma.order.findFirst({
       where: {
         customerId,
-        pricelistId: pricelist.id,
+        pricelistId: catalogSource.id,
         status: { notIn: ["CANCELLED"] },
       },
       select: { id: true, orderNumber: true },
@@ -145,7 +182,7 @@ export default async function OrderPage({
     }
   }
 
-  const points = pricelist.points
+  const points = catalogSource.points
     .map((pp) => pp.point)
     // §163: נקודה סמויה אינה מוצגת ללקוח.
     //
@@ -179,7 +216,7 @@ export default async function OrderPage({
       customDeliveryDateText: p.customDeliveryDateText,
     }));
 
-  const products = pricelist.products
+  const products = catalogSource.products
     .filter((pp) => pp.product.isActive)
     .map((pp) => ({
       id: pp.product.id,
@@ -209,12 +246,14 @@ export default async function OrderPage({
 
   return (
     <OrderFlow
+      // §221: 🐛 שם ה-prop הוא pricelist - הוא לא השתנה.
+      // רק המקור שממנו הוא נבנה (catalogSource) הוא חדש.
       pricelist={{
-        id: pricelist.id,
-        name: pricelist.name,
-        deliveryDateText: pricelist.deliveryDateText,
-        closeDateText: pricelist.closeDate
-          ? new Date(pricelist.closeDate).toLocaleDateString("he-IL", {
+        id: catalogSource.id,
+        name: catalogSource.name,
+        deliveryDateText: catalogSource.deliveryDateText,
+        closeDateText: catalogSource.closeDate
+          ? new Date(catalogSource.closeDate).toLocaleDateString("he-IL", {
                     // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
                     timeZone: "Asia/Jerusalem",
               day: "numeric",
@@ -223,8 +262,8 @@ export default async function OrderPage({
               minute: "2-digit",
             })
           : null,
-        editDeadlineText: pricelist.editDeadline
-          ? new Date(pricelist.editDeadline).toLocaleDateString("he-IL", {
+        editDeadlineText: catalogSource.editDeadline
+          ? new Date(catalogSource.editDeadline).toLocaleDateString("he-IL", {
                     // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
                     timeZone: "Asia/Jerusalem",
               day: "2-digit",
@@ -233,8 +272,8 @@ export default async function OrderPage({
               hour: "2-digit",
               minute: "2-digit",
             })
-          : (pricelist.closeDate
-              ? new Date(pricelist.closeDate).toLocaleDateString("he-IL", {
+          : (catalogSource.closeDate
+              ? new Date(catalogSource.closeDate).toLocaleDateString("he-IL", {
                     // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה
                     timeZone: "Asia/Jerusalem",
                   day: "2-digit",
@@ -244,9 +283,9 @@ export default async function OrderPage({
                   minute: "2-digit",
                 })
               : null),
-        notes: pricelist.notes,
-        singleSurcharge: Number(pricelist.singleSurcharge),
-        orderFee: Number(pricelist.orderFee),
+        notes: catalogSource.notes,
+        singleSurcharge: Number(catalogSource.singleSurcharge),
+        orderFee: Number(catalogSource.orderFee),
       }}
       points={points}
       products={products}
@@ -281,6 +320,9 @@ export default async function OrderPage({
       }
       // §202: הודעת התוקף - מוצגת גם כשעדיין אפשר לחייב
       cardExpiryWarning={expiryMessage(customerRecord.cardExpiry)}
+      // §221: מצב מחירון - צפייה בלבד, בלי אפשרות להזמין
+      catalogOnly={catalogOnly}
+      catalogNotice={catalogNotice}
       // §157: לקוח מזומן רואה מסך מותאם - בלי פריסה לתשלומים,
       // ועם "מזומן בחלוקה" במקום "כרטיס אשראי".
       isCashCustomer={customerRecord.paymentPreference === "CASH"}

@@ -97,6 +97,8 @@ export function OrderFlow({
   // §202: הודעת תוקף הכרטיס
   cardExpiryWarning = null,
   afterCloseNotice = false,
+  catalogOnly = false,
+  catalogNotice = null,
   customerId = "",
   hasSeenOrderIntro = false,
   existingOrder = null,
@@ -131,6 +133,16 @@ export function OrderFlow({
    * לספק, וצריך להוסיף אותה ידנית ולהדפיס דף חלוקה מחדש.
    */
   afterCloseNotice?: boolean;
+  /**
+   * §221: מצב מחירון — הלקוח רואה הכל אך אינו יכול להזמין.
+   *
+   * ⚠️ אותו מסך בדיוק: קרטונים, בודדים, מחירים, תמונות. ההבדל
+   * היחיד הוא שכפתורי ההוספה והשליחה חסומים, ובראש המסך מוצג
+   * הסבר. רשימה מקוצרת לא הייתה עונה על "כמה זה יעלה לי".
+   */
+  catalogOnly?: boolean;
+  /** ההסבר שיוצג — "אין מכירה פעילה" / "המועד הסתיים" */
+  catalogNotice?: string | null;
   customerId?: string;
   hasSeenOrderIntro?: boolean;
   existingOrder?: { id: string; orderNumber: number } | null;
@@ -684,6 +696,15 @@ export function OrderFlow({
     }
   }
   async function submit() {
+    // §221: 🛑 חסימה במצב מחירון.
+    //
+    // ⚠️ גם אם הכפתור מוסתר: לחיצה יכולה להגיע ממקלדת או
+    // מקוד ישן שנשאר בדפדפן. השרת ממילא ידחה (המכירה סגורה),
+    // אבל עדיף הודעה ברורה מאשר שגיאה גנרית.
+    if (catalogOnly) {
+      alert("זהו מחירון לצפייה בלבד — לא ניתן להזמין כרגע.");
+      return;
+    }
     setError("");
     if (needsPhoneInput && !phone.trim()) {
       setError("נא להזין מספר טלפון");
@@ -1200,6 +1221,36 @@ export function OrderFlow({
                     יש להוסיף את הכמויות ידנית, ולהדפיס דף חלוקה מחדש לפני
                     החלוקה.
                   </p>
+                </div>
+              )}
+
+              {/* §221: באנר מצב מחירון.
+                  
+                  ⚠️ **ראשון ובולט**: הלקוח חייב להבין תוך שנייה
+                  שהוא לא מזמין עכשיו. אם הוא יבנה עגלה שלמה
+                  ורק בסוף יגלה - זו חוויה גרועה בהרבה מהודעה
+                  מראש.
+                  
+                  ⚠️ טון חיובי ולא שגיאה: "הנה מה שאנחנו מוכרים"
+                  ולא "אתה לא יכול". זו הזדמנות שיווקית, לא
+                  חסימה. */}
+              {catalogOnly && (
+                <div className="rounded-2xl border-2 border-brand-rust bg-orange-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl shrink-0">📖</span>
+                    <div className="min-w-0">
+                      <div className="font-extrabold text-brand-rust">
+                        מחירון לצפייה בלבד
+                      </div>
+                      <p className="text-sm text-brand-slatedark mt-1 leading-relaxed">
+                        {catalogNotice}. זהו המחירון האחרון — כאן אפשר לראות
+                        את המוצרים והמחירים, אבל <b>לא ניתן להזמין כרגע</b>.
+                      </p>
+                      <p className="text-[11px] text-zinc-600 mt-1.5">
+                        כשתיפתח מכירה חדשה נשלח הודעה, ואפשר יהיה להזמין מכאן.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1752,11 +1803,21 @@ export function OrderFlow({
                 חזרה לבחירת מוצרים
               </button>
               <button
-                disabled={submitting || cartLines.length === 0}
+                disabled={submitting || cartLines.length === 0 || catalogOnly}
                 onClick={submit}
                 className="btn-primary flex-1"
               >
-                {submitting ? "שולח..." : editMode ? "עדכן הזמנה" : "שליחת הזמנה"}
+                {/* §221: הכפתור מסביר למה הוא מושבת.
+                    
+                    ⚠️ כפתור אפור בלי הסבר נראה כמו תקלה. הטקסט
+                    הוא מה שהופך אותו מ"שבור" ל"לא רלוונטי עכשיו". */}
+                {catalogOnly
+                  ? "🔒 לא ניתן להזמין — מחירון בלבד"
+                  : submitting
+                    ? "שולח..."
+                    : editMode
+                      ? "עדכן הזמנה"
+                      : "שליחת הזמנה"}
               </button>
             </BottomBar>
           </section>
