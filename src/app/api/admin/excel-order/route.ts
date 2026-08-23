@@ -247,6 +247,8 @@ export async function POST(req: Request) {
 
   // ─── חסימות. אותן חסימות בדיוק כמו בכל ערוץ אחר. ───
   const blockers: string[] = [];
+  // §207: אזהרות שאינן חוסמות - המנהל רואה אותן ומחליט.
+  const warnings: string[] = [];
   if (customer.isActive === false) blockers.push("הלקוח מושבת");
   if (!customer.defaultPoint) blockers.push("ללקוח לא הוגדרה נקודת חלוקה");
   // §61: אין הזמנה בלי אמצעי תשלום - גם כאן. ערוץ חדש אינו פרצה.
@@ -267,8 +269,20 @@ export async function POST(req: Request) {
     );
   }
   if (pricelist.status !== "ACTIVE") blockers.push("המכירה אינה פעילה");
-  if (pricelist.closeDate && new Date() > pricelist.closeDate) {
-    blockers.push("מועד ההרשמה למכירה חלף");
+  // §207: 🐛 המנהל נחסם במסלול שרק הוא משתמש בו.
+  //
+  // הערוץ הזה נגיש **רק דרך /admin/excel-order** (requireAdmin
+  // בראש הקובץ), ולכן חסימת שעת הסגירה כאן חסמה בדיוק את מי
+  // שאמור לעבור אותה - בניגוד ל-§206 שפתח את זה במסלול הרגיל.
+  //
+  // ⚠️ אזהרה ולא חסימה: המנהל צריך **לדעת** שההזמנה מחוץ לספירה,
+  // בדיוק כמו הבאנר האדום במסך ההזמנה.
+  const afterClose =
+    pricelist.closeDate != null && new Date() > pricelist.closeDate;
+  if (afterClose) {
+    warnings.push(
+      "⚠️ המכירה כבר נסגרה — הזמנה זו לא נכללת בהזמנה ששודרה לספק"
+    );
   }
 
   // ─── תמחור בשרת ───
@@ -355,6 +369,8 @@ export async function POST(req: Request) {
       deliveryDateText: pricelist.deliveryDateText,
     },
     blockers,
+    // §207: אזהרות שאינן חוסמות (למשל: אחרי שעת הסגירה)
+    warnings,
     signatureChecked: parsed.signatureChecked,
     items,
     issues,
@@ -469,9 +485,11 @@ export async function PUT(req: Request) {
   if (pricelist.status !== "ACTIVE") {
     return NextResponse.json({ error: "המכירה אינה פעילה" }, { status: 400 });
   }
-  if (pricelist.closeDate && new Date() > pricelist.closeDate) {
-    return NextResponse.json({ error: "מועד ההרשמה למכירה חלף" }, { status: 400 });
-  }
+  // §207: החסימה הוסרה - זהו מסלול מנהל בלבד (requireAdmin), והוא
+  // רשאי להזין אחרי הסגירה בדיוק כמו במסך ההזמנה (§206).
+  //
+  // ⚠️ המכירה עדיין חייבת להיות ACTIVE - הבדיקה שמעל נשארת.
+  // מה שהוסר הוא **רק** מגבלת השעה.
 
   const byId = new Map(pricelist.products.map((pp) => [pp.product.id, pp]));
   const surcharge = Number(pricelist.singleSurcharge ?? 0);

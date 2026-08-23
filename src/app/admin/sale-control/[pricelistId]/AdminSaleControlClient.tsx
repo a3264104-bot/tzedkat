@@ -14,6 +14,14 @@ type Data = {
     deliveryDateText: string | null;
     closeDate: string | null;
   };
+  /**
+   * §207: כמה הזמנות נוספו **אחרי** שעת הסגירה.
+   *
+   * ⚠️ מגיע מהשרת ולא מחושב כאן: המסך לא מקבל את רשימת ההזמנות
+   * המלאה, ושליפה נוספת רק לספירה הזו הייתה סיבוב מיותר למסד
+   * שיושב באירלנד.
+   */
+  afterCloseCount?: number;
   financialSummary: {
     totalRevenue: number;
     orderRevenue: number;
@@ -113,7 +121,10 @@ export default function AdminSaleControlClient({
     load();
   }, [load]);
 
-  if (loading) {
+    // §207: הכפתור מוצג רק כשיש תוספות אחרי סגירה
+  const afterCloseCount = data?.afterCloseCount ?? 0;
+
+if (loading) {
     return (
       <div dir="rtl" className="min-h-screen bg-brand-cream flex items-center justify-center">
         <div className="text-brand-slatedark">טוען...</div>
@@ -187,6 +198,26 @@ export default function AdminSaleControlClient({
             <span className="text-base">📥</span>
             דף חלוקה להדפסה
           </a>
+
+          {/* §207: תוספות אחרי סגירה.
+              
+              🐛 מה שהיה: שאילתת SQL ידנית. עובד פעם אחת, אבל לא
+              בכל מכירה - והמנהל היה מוותר ומחשב בראש, וזה בדיוק
+              מה שגורם לחוסר או לעודף מול הספק.
+              
+              ⚠️ הכפתור מוצג **רק כשיש כאלה**. במכירה רגילה הוא
+              רעש, ומי שרואה אותו תמיד מפסיק לשים לב אליו. */}
+          {afterCloseCount > 0 && (
+            <a
+              href={`/api/admin/after-close?pricelistId=${pricelistId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl font-bold text-sm shadow-sm hover:bg-red-700"
+            >
+              <span className="text-base">⚠️</span>
+              תוספות אחרי סגירה ({afterCloseCount})
+            </a>
+          )}
           <Link
             href={`/admin/weight-review/${pricelistId}`}
             className="inline-flex items-center gap-2 px-4 py-2 bg-brand-rust text-white rounded-xl font-bold text-sm shadow-sm hover:bg-[#a83a15]"

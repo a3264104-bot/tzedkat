@@ -410,6 +410,24 @@ export async function GET(
     .filter((p) => p.costPerKg == null || p.costPartial)
     .map((p) => p.productName);
 
+  // §207: כמה הזמנות נוספו אחרי שעת הסגירה.
+  //
+  // ⚠️ count ולא findMany: המסך צריך רק מספר, כדי להחליט אם
+  // להציג את כפתור התוספות. שליפת השורות עצמן היא סיבוב מיותר
+  // למסד באירלנד.
+  //
+  // ⚠️ **אחרי** בדיקת ה-null: pricelist מובטח כאן, וזה מה
+  // שהכשיל את ה-build כשהקוד ישב בתוך ה-guard.
+  const afterCloseCount = pricelist.closeDate
+    ? await prisma.order.count({
+        where: {
+          pricelistId,
+          status: { notIn: ["CANCELLED"] },
+          createdAt: { gt: pricelist.closeDate },
+        },
+      })
+    : 0;
+
   return NextResponse.json({
     pricelist: {
       id: pricelist.id,
@@ -419,6 +437,8 @@ export async function GET(
       deliveryDateText: pricelist.deliveryDateText,
       closeDate: pricelist.closeDate?.toISOString() || null,
     },
+    // §207: לכפתור התוספות אחרי סגירה
+    afterCloseCount,
     financialSummary: {
       totalRevenue,
       orderRevenue: totalOrderRevenue,

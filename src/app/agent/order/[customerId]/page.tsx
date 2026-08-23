@@ -214,7 +214,19 @@ export default async function AgentOrderPage({
   });
 
   const now = new Date();
-  const closed = pricelist?.closeDate != null && now > new Date(pricelist.closeDate);
+  // §206: המנהל עובר את שעת הסגירה.
+  //
+  // 🐛 בלי זה הוא היה חסום כמו לקוח, ונאלץ לפתוח את המכירה
+  // מחדש כדי להוסיף הזמנה אחת - ואז כל הלקוחות נכנסים איתו,
+  // והספירה מול הספק נשברת.
+  //
+  // ⚠️ **רק ADMIN**, לא נציג: הנציג לא רואה את התמונה מול
+  // הספק, והזמנה שלו אחרי הסגירה לא תיספר בהזמנה לחברה.
+  const isAdminOverride = role === "ADMIN";
+  const closed =
+    !isAdminOverride &&
+    pricelist?.closeDate != null &&
+    now > new Date(pricelist.closeDate);
   const notYetOpen = pricelist?.openDate != null && now < new Date(pricelist.openDate);
 
   if (!pricelist || closed || notYetOpen) {
@@ -558,6 +570,14 @@ export default async function AgentOrderPage({
         }}
         customerId={targetCustomer.id}
         onBehalfOfCustomerId={targetCustomer.id}
+        // §206: חיווי שהמכירה כבר נסגרה.
+        //
+        // ⚠️ הכרחי: המנהל שמזין 5 הזמנות אחרי הסגירה חייב לזכור
+        // שהן **לא** בהזמנה ששידר לספק, ושצריך להוסיף אותן ידנית
+        // ולהדפיס דף חלוקה מחדש. בלי החיווי הוא ישכח.
+        afterCloseNotice={
+          pricelist.closeDate != null && now > new Date(pricelist.closeDate)
+        }
         // §195: 🐛 ה-prop לא הועבר במסלול הנציג.
         //
         // לקוח מזומן ראה בורר תשלומים בהזמנה שנציג פתח עבורו -

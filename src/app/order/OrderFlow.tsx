@@ -96,6 +96,7 @@ export function OrderFlow({
   isCashCustomer = false,
   // §202: הודעת תוקף הכרטיס
   cardExpiryWarning = null,
+  afterCloseNotice = false,
   customerId = "",
   hasSeenOrderIntro = false,
   existingOrder = null,
@@ -123,6 +124,13 @@ export function OrderFlow({
    * הזמנה מלקוח שהכרטיס שלו עוד תקף חודשיים.
    */
   cardExpiryWarning?: string | null;
+  /**
+   * §206: המכירה כבר נסגרה, והמנהל מזין בכל זאת.
+   *
+   * ⚠️ לא חוסם - רק מזכיר. ההזמנה הזו **אינה** בספירה ששודרה
+   * לספק, וצריך להוסיף אותה ידנית ולהדפיס דף חלוקה מחדש.
+   */
+  afterCloseNotice?: boolean;
   customerId?: string;
   hasSeenOrderIntro?: boolean;
   existingOrder?: { id: string; orderNumber: number } | null;
@@ -1175,6 +1183,24 @@ export function OrderFlow({
                   </div>
                   <span className="text-amber-700 text-xl shrink-0">←</span>
                 </button>
+              )}
+
+              {/* §206: חיווי הזמנה אחרי סגירה.
+                  
+                  ⚠️ אדום ובולט: זה לא מצב רגיל, וההשלכות שלו
+                  מעשיות - הזמנה שלא תיכנס לספירה מול הספק היא
+                  סחורה שלא הוזמנה. */}
+              {afterCloseNotice && (
+                <div className="rounded-xl border-2 border-red-400 bg-red-50 p-3">
+                  <div className="font-extrabold text-red-900 text-sm">
+                    ⚠️ המכירה כבר נסגרה — הזמנה זו מחוץ לספירה
+                  </div>
+                  <p className="text-[11px] text-red-800 mt-1 leading-relaxed">
+                    ההזמנה תישמר, אבל היא <b>לא נכללה</b> בהזמנה ששודרה לספק.
+                    יש להוסיף את הכמויות ידנית, ולהדפיס דף חלוקה מחדש לפני
+                    החלוקה.
+                  </p>
+                </div>
               )}
 
               {/* §202: אזהרת תוקף כרטיס.
