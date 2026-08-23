@@ -223,7 +223,17 @@ export async function transcribeName(
     // ⚠️ הניסיון השני עובר ל**מודל אחר** ולא חוזר על אותו אחד:
     // אם 2.5 עמוס, ניסיון נוסף עליו ייכשל בדיוק אותו דבר.
     // 2.0 הוא דור קודם, פחות מבוקש, ומספיק טוב לתמלול שם.
-    const MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
+    // §220: 🐛 gemini-2.5-flash הוחזר 404 - "no longer available
+    // to new users". גוגל עצמם הפנו ל-gemini-3.6-flash.
+    //
+    // ⚠️ הטעות שלי: החלפתי מודל **שעבד** (flash-latest, שתמלל
+    // בהצלחה את "גרשון" ואת "טרבלו") במודל שניחשתי שהוא פחות
+    // עמוס - בלי לבדוק שהוא בכלל קיים. 503 מדי פעם עדיף על
+    // 404 תמיד.
+    //
+    // ⚠️ הסדר: החדש של גוגל ראשון, והמוכח כגיבוי. אם 3.6 עמוס
+    // או יוסר בעתיד, latest ימשיך לעבוד.
+    const MODELS = ["gemini-3.6-flash", "gemini-flash-latest"];
     const genAI = new GoogleGenerativeAI(key);
     const mkModel = (name: string) =>
       genAI.getGenerativeModel({
@@ -298,8 +308,18 @@ export async function transcribeName(
         // את השיחה.
         // ⚠️ 503 **או** timeout: שניהם זמניים ושווים ניסיון שני.
         // שגיאת מפתח או פורמט תיכשל שוב בדיוק אותו דבר.
+        // §220: 404 **גם** עובר למודל הבא.
+        //
+        // 🐛 קודם 404 נזרק מיד, ולכן הגיבוי לא נוסה כלל - מודל
+        // שהוסר הפיל את התמלול לגמרי במקום ליפול לחלופה.
+        //
+        // ⚠️ שגיאת מפתח (401/403) עדיין נזרקת: היא תיכשל בכל
+        // מודל, וניסיון נוסף רק מאריך את השיחה.
         const retryable =
-          e?.status === 503 || String(e?.message ?? "").includes("timeout");
+          e?.status === 503 ||
+          e?.status === 404 ||
+          e?.status === 429 ||
+          String(e?.message ?? "").includes("timeout");
         if (!retryable) throw e;
         // ⚠️ עצירה כשאין תקציב: ניסיון שני שייחתך אחרי חצי
         // שנייה הוא בזבוז שמאריך את השיחה בלי סיכוי להצליח.
