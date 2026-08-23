@@ -36,6 +36,12 @@ export async function GET(
       agentCanCharge: true,
       agentCanUpdateCards: true,
       agentCanResetPassword: true,
+      // §197: הרשאת סימון לקוח כמזומן.
+      //
+      // 🐛 השדה נוצר ב-§155 ונאכף ב-/api/admin/customers/[id],
+      // אבל לא נשלף כאן ולא נקלט ב-PATCH - כלומר לא הייתה שום
+      // דרך לתת אותו לנציג.
+      agentCanCreateCashCustomers: true,
       commissionRateCarton: true,
       commissionRateSingles: true,
       createdAt: true,
@@ -117,6 +123,8 @@ export async function GET(
       canCharge: agent.agentCanCharge,
       canUpdateCards: agent.agentCanUpdateCards,
       canResetPassword: agent.agentCanResetPassword,
+      // §197: הרשאת מזומן
+      canCreateCashCustomers: agent.agentCanCreateCashCustomers,
       commissionRateCarton: Number(agent.commissionRateCarton),
       commissionRateSingles: Number(agent.commissionRateSingles),
       createdAt: agent.createdAt.toISOString(),
@@ -252,6 +260,17 @@ export async function PATCH(
   }
   if ("agentCanResetPassword" in body) {
     data.agentCanResetPassword = !!body.agentCanResetPassword;
+  }
+  // §197: הרשאת סימון לקוח כמזומן (§155).
+  //
+  // ⚠️ לא ברשימת ה"רגישות": היא אינה נוגעת בכסף של הלקוח ולא
+  // בחשבון שלו, אלא רק באופן הגבייה - אשראי או מזומן בחלוקה.
+  //
+  // ⚠️ ההרשאה מאפשרת **רק מעבר למזומן**. חזרה לאשראי נאכפת
+  // בשרת ונשארת אצל המנהל, כי היא יכולה לנעול לקוח בלי כרטיס
+  // מחוץ למערכת.
+  if ("agentCanCreateCashCustomers" in body) {
+    data.agentCanCreateCashCustomers = !!body.agentCanCreateCashCustomers;
   }
 
   if (Object.keys(data).length === 0 && newPointIds === null) {

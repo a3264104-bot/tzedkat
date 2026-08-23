@@ -1815,37 +1815,39 @@ export function OrderFlow({
                           {p.category} · {fmt(p.price)}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() =>
+                      {/* §194: 🐛 הבורר תמך **רק בקרטון**.
+                          
+                          מוצר מועדף שמותר בבודדים (ראש, כבד) לא
+                          היה ניתן להזמנה בק"ג - הנציג היה חייב
+                          לקחת קרטון שלם או לוותר.
+                          
+                          ⚠️ שתי שורות ולא בורר: הנציג יכול להזמין
+                          קרטון **וגם** בודדים באותו פריט, בדיוק
+                          כמו בכרטיס המוצר הרגיל. */}
+                      <div className="shrink-0 space-y-1">
+                        <QtyRow
+                          label={p.unit || "קרטון"}
+                          value={entry.cartonQty}
+                          onChange={(next) =>
                             setCart((c) => {
                               const cur = c[p.id] ?? { cartonQty: 0, singlesQty: 0 };
-                              const next = Math.max(0, cur.cartonQty - 1);
                               return { ...c, [p.id]: { ...cur, cartonQty: next } };
                             })
                           }
-                          disabled={entry.cartonQty === 0}
-                          className="w-8 h-8 rounded-lg border-2 border-zinc-300 font-bold disabled:opacity-30"
-                        >
-                          −
-                        </button>
-                        <span className="w-8 text-center font-extrabold">
-                          {entry.cartonQty}
-                        </span>
-                        <button
-                          onClick={() =>
-                            setCart((c) => {
-                              const cur = c[p.id] ?? { cartonQty: 0, singlesQty: 0 };
-                              return {
-                                ...c,
-                                [p.id]: { ...cur, cartonQty: cur.cartonQty + 1 },
-                              };
-                            })
-                          }
-                          className="w-8 h-8 rounded-lg bg-brand-rust text-white font-bold"
-                        >
-                          +
-                        </button>
+                        />
+                        {p.allowSingles && (
+                          <QtyRow
+                            label={p.singlesMode === "UNITS" ? "יח׳" : 'ק"ג'}
+                            value={entry.singlesQty}
+                            step={p.singlesMode === "UNITS" ? 1 : 0.5}
+                            onChange={(next) =>
+                              setCart((c) => {
+                                const cur = c[p.id] ?? { cartonQty: 0, singlesQty: 0 };
+                                return { ...c, [p.id]: { ...cur, singlesQty: next } };
+                              })
+                            }
+                          />
+                        )}
                       </div>
                     </div>
 
@@ -2209,6 +2211,48 @@ function BottomBar({ children }: { children: React.ReactNode }) {
   return (
     <div className="fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-zinc-200 no-print">
       <div className="mx-auto max-w-md md:max-w-4xl px-4 py-3 flex gap-2">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * §194: שורת כמות קומפקטית - קרטון או בודדים.
+ *
+ * ⚠️ רכיב אחד לשניהם: ההבדל היחיד הוא ה-step (1 לקרטון, 0.5
+ * לק"ג) והתווית. שני מימושים היו מתפצלים.
+ */
+function QtyRow({
+  label,
+  value,
+  step = 1,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  step?: number;
+  onChange: (next: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-[10px] text-zinc-500 w-9 text-left">{label}</span>
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(0, Math.round((value - step) * 100) / 100))}
+        disabled={value === 0}
+        className="w-7 h-7 rounded-lg border-2 border-zinc-300 font-bold text-sm disabled:opacity-30"
+      >
+        −
+      </button>
+      <span className="w-9 text-center font-extrabold text-sm">
+        {value % 1 === 0 ? value : value.toFixed(1)}
+      </span>
+      <button
+        type="button"
+        onClick={() => onChange(Math.round((value + step) * 100) / 100)}
+        className="w-7 h-7 rounded-lg bg-brand-rust text-white font-bold text-sm"
+      >
+        +
+      </button>
     </div>
   );
 }

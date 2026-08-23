@@ -21,6 +21,29 @@ type Pricelist = {
   _count: { orders: number; products: number; points: number };
 };
 
+/**
+ * §193: 🐛 השעון "פיגר" ב-3 שעות.
+ *
+ * הבאג: `pl.closeDate.slice(0, 16)` חתך את מחרוזת ה-ISO **כמו
+ * שהיא** - כלומר את שעת ה-UTC. המנהל קבע 21:00, המערכת שמרה
+ * נכון (18:00 UTC), ובטעינה מחדש הציגה 18:00.
+ *
+ * הוא היה מתקן ל-21:00, נשמר 15:00 UTC, ובפעם הבאה רואה 15:00 -
+ * וכך בכל עריכה השעה זזה עוד 3 שעות אחורה.
+ *
+ * ⚠️ getTimezoneOffset ולא אזור קבוע: הוא נכון גם בשעון קיץ,
+ * שבישראל זז פעמיים בשנה. ערך קשיח היה שובר באוקטובר.
+ */
+function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  // מזיזים לפי ההיסט המקומי, ואז חותכים - כך שהמחרוזת מייצגת
+  // שעה מקומית, בדיוק כמו ש-datetime-local מצפה.
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
 export default function PricelistsPage() {
   const [lists, setLists] = useState<Pricelist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -509,11 +532,11 @@ function EditModal({ id, onClose, onDone }: { id: string; onClose: () => void; o
         surcharge: String(pl.singleSurcharge),
         dateText: pl.deliveryDateText ?? "",
         notes: pl.notes ?? "",
-        openDate: pl.openDate ? pl.openDate.slice(0, 16) : "",
-        closeDate: pl.closeDate ? pl.closeDate.slice(0, 16) : "",
-        editDeadline: pl.editDeadline ? pl.editDeadline.slice(0, 16) : "",
-        deliveryDate: pl.deliveryDate ? pl.deliveryDate.slice(0, 16) : "",
-        deliveryDateEnd: pl.deliveryDateEnd ? pl.deliveryDateEnd.slice(0, 16) : "",
+        openDate: toLocalInput(pl.openDate),
+        closeDate: toLocalInput(pl.closeDate),
+        editDeadline: toLocalInput(pl.editDeadline),
+        deliveryDate: toLocalInput(pl.deliveryDate),
+        deliveryDateEnd: toLocalInput(pl.deliveryDateEnd),
       });
       const sp: Record<string, { on: boolean; price: string }> = {};
       for (const p of products) {

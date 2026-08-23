@@ -27,6 +27,13 @@ type Data = {
     canCharge: boolean;
     canUpdateCards: boolean;
     canResetPassword: boolean;
+    /**
+     * §197: הרשאה לסמן לקוח כמשלם מזומן.
+     *
+     * 🐛 השדה נוצר ב-§155 ונאכף בשרת, אבל **לא היה לו צ'קבוקס
+     * בשום מסך** - כלומר אף נציג לא יכול היה לקבל אותו.
+     */
+    canCreateCashCustomers?: boolean;
     commissionRateCarton: number;
     commissionRateSingles: number;
     createdAt: string;
@@ -580,6 +587,10 @@ function EditModal({
   const [canCharge, setCanCharge] = useState(!!agent.canCharge);
   const [canUpdateCards, setCanUpdateCards] = useState(!!agent.canUpdateCards);
   const [canResetPassword, setCanResetPassword] = useState(!!agent.canResetPassword);
+  // §197: הרשאת מזומן
+  const [canCreateCashCustomers, setCanCreateCashCustomers] = useState(
+    !!agent.canCreateCashCustomers
+  );
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -604,6 +615,8 @@ function EditModal({
           agentCanCharge: canCharge,
           agentCanUpdateCards: canUpdateCards,
           agentCanResetPassword: canResetPassword,
+          // §197: הרשאת סימון לקוח כמזומן
+          agentCanCreateCashCustomers: canCreateCashCustomers,
         }),
       });
       const json = await res.json();
@@ -782,6 +795,23 @@ function EditModal({
                 label="לאפס סיסמה ללקוח"
                 hint="נדרש ללקוחות טלפוניים שאין להם מייל ולא יכולים לאפס בעצמם"
                 sensitive
+              />
+              {/* §197: 🐛 ההרשאה נוצרה ב-§155 ונאכפה בשרת, אבל
+                  **לא היה לה צ'קבוקס בשום מסך** - כלומר אף נציג
+                  לא יכול היה לקבל אותה בפועל.
+                  
+                  ⚠️ לא sensitive: היא אינה נוגעת בכסף של הלקוח
+                  ולא בחשבון שלו. היא רק אומרת "הנציג גובה ממנו
+                  בחלוקה במקום באשראי", וזו החלטה תפעולית.
+                  
+                  ⚠️ **רק לכיוון מזומן.** מעבר חזרה לאשראי דורש
+                  כרטיס ונשאר אצל המנהל - הוא יכול לנעול לקוח
+                  מחוץ למערכת. */}
+              <PermToggle
+                checked={canCreateCashCustomers}
+                onChange={setCanCreateCashCustomers}
+                label="💵 לסמן לקוחות כמשלמים במזומן"
+                hint="להקים לקוח מזומן, ולהעביר לקוח קיים למזומן. מעבר חזרה לאשראי נשאר אצל המנהל."
               />
             </div>
           </div>

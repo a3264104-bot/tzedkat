@@ -485,6 +485,12 @@ export default async function AgentOrderPage({
         }}
         customerId={targetCustomer.id}
         onBehalfOfCustomerId={targetCustomer.id}
+        // §195: 🐛 ה-prop לא הועבר במסלול הנציג.
+        //
+        // לקוח מזומן ראה בורר תשלומים בהזמנה שנציג פתח עבורו -
+        // ופריסה במזומן היא חסרת משמעות. במסלול הלקוח (order/page)
+        // זה הועבר נכון, וכאן פשוט נשכח.
+        isCashCustomer={isCashCustomer}
         // §60: לקוח מזומן לא נדרש לכרטיס בהזמנת נציג
         cardVerified={hasPaymentToken || isCashCustomer}
         hasSeenOrderIntro={true}

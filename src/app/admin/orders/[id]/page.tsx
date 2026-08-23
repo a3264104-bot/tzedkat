@@ -6,6 +6,8 @@ import { QuickCustomerEdit } from "@/components/QuickCustomerEdit";
 // §190: משלוח, חיוב נוסף וזיכוי - גם במסך המנהל
 import { DeliveryPanel } from "@/components/DeliveryPanel";
 import { CreditPanel } from "@/components/CreditPanel";
+// §191: הערת הלקוח - הייתה רק במסך הנציג
+import { OrderNotePanel } from "@/components/OrderNotePanel";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/client";
 import {
@@ -25,6 +27,10 @@ export default function OrderDetail() {
   const [internalNotes, setInternalNotes] = useState("");
   const [showCashForm, setShowCashForm] = useState(false);
   const [charging, setCharging] = useState(false);
+  // §191: מספר תשלומים לחיוב. ברירת המחדל היא מה שהלקוח ביקש.
+  const [chargeInstallments, setChargeInstallments] = useState(
+    Math.min(Math.max(Number((order as any).requestedInstallments) || 1, 1), 12)
+  );
 
   async function load() {
     const [o, p] = await Promise.all([api(`/api/admin/orders/${id}`), api("/api/admin/products")]);
@@ -73,12 +79,21 @@ export default function OrderDetail() {
 
   // יצירת ושליחת לינק תשלום להזמנה שכבר יש לה מחיר סופי
   // (נדרש כשנציג ללא הרשאת לינק קבע את המחיר)
-  async function chargeNow() {
+  // §191: 🐛 החיוב של המנהל היה confirm() בלי בורר תשלומים.
+  //
+  // §189 הוסיף פריסה לתשלומים - **אבל רק לנציג**. המנהל, שהוא
+  // זה שמחייב ברוב המקרים, נשאר עם תשלום אחד בלבד.
+  //
+  // ⚠️ הפרמטר נשלח לאותו endpoint שכבר מאמת 1-12.
+  async function chargeNow(installments = 1) {
     const amount = Number(order.finalTotal || 0);
     const confirmMsg =
       `לחייב את הזמנה #${order.orderNumber}?\n\n` +
       `לקוח: ${order.customerName}\n` +
       `סכום: ${fmt(amount)}\n` +
+      (installments > 1
+        ? `תשלומים: ${installments} × ${fmt(amount / installments)}\n`
+        : "") +
       `כרטיס: ${order.customer?.cardLast4 ? "****" + order.customer.cardLast4 : "לא ידוע"}`;
     if (!confirm(confirmMsg)) return;
 
@@ -87,7 +102,7 @@ export default function OrderDetail() {
       const res = await fetch("/api/admin/charge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: order.id }),
+        body: JSON.stringify({ orderId: order.id, installments }),
       });
       const data = await res.json();
       if (res.ok && data.ok) {
@@ -293,13 +308,37 @@ export default function OrderDetail() {
             <div className="flex gap-2 flex-wrap">
               {/* חיוב אוטומטי - אם יש כרטיס שמור */}
               {hasFinalTotal && order.customer?.hasToken && !order.customer?.cardNeedsUpdate && (
-                <button
-                  onClick={chargeNow}
-                  disabled={saving || charging}
-                  className="btn-primary btn-sm bg-emerald-600 hover:bg-emerald-700"
-                >
-                  {charging ? "מחייב..." : "💳 חייב עכשיו"}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => chargeNow(chargeInstallments)}
+                    disabled={saving || charging}
+                    className="btn-primary btn-sm bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    {charging
+                      ? "מחייב..."
+                      : chargeInstallments > 1
+                        ? `💳 חייב ב-${chargeInstallments} תשלומים`
+                        : "💳 חייב עכשיו"}
+                  </button>
+                  {/* §191: בורר תשלומים ליד הכפתור.
+                      
+                      ⚠️ select ולא מודל: המנהל כבר רואה את הסכום
+                      ואת הכרטיס בפאנל התשלום שמעל, ומודל נוסף
+                      היה חוזר על מה שכבר מולו. */}
+                  <select
+                    value={chargeInstallments}
+                    onChange={(e) => setChargeInstallments(Number(e.target.value))}
+                    disabled={saving || charging}
+                    className="rounded-lg border-2 border-emerald-300 bg-white px-2 py-1 text-xs font-bold text-emerald-800"
+                    title="מספר תשלומים"
+                  >
+                    {[1, 2, 3, 4, 6, 10, 12].map((n) => (
+                      <option key={n} value={n}>
+                        {n === 1 ? "תשלום 1" : `${n} תשלומים`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
               {/* שליחת לינק תשלום - למשל כשנציג קבע מחיר בלי הרשאת לינק */}
               {hasFinalTotal && !order.paymentLink && (
@@ -495,6 +534,27 @@ export default function OrderDetail() {
           <Info label="מזהה שיחה" value={order.phoneCallId} />
         )}
         {order.notes && <Info label="הערות לקוח" value={order.notes} />}
+      </div>
+
+      {/* §191: 🐛 הערת הלקוח הייתה **רק במסך הנציג**.
+          
+          הלקוח כתב "בלי עצם בבקשה", והמנהל שפתח את ההזמנה לא
+          ראה את זה בכלל - גם לא כשהוא זה שטיפל בה.
+          
+          ⚠️ **מעל** המוצרים ולא מתחת: אם הלקוח ביקש משהו, צריך
+          לראות את זה לפני שנוגעים בהזמנה. אותו נימוק כמו §133.
+          
+          ⚠️ mode="agent" כי הפעולה זהה - לענות ללקוח. מצב נפרד
+          למנהל היה מפצל את הרכיב בלי סיבה. */}
+      <div className="no-print mb-4">
+        <OrderNotePanel
+          orderId={order.id}
+          note={order.customerNote}
+          noteAt={order.customerNoteAt ?? null}
+          reply={order.agentReply}
+          replyAt={order.agentReplyAt ?? null}
+          mode="agent"
+        />
       </div>
 
       {/* items */}

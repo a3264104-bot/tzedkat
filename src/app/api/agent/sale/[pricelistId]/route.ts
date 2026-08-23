@@ -242,7 +242,9 @@ export async function GET(
     orders: orders.map((o) => ({
       id: o.id,
       orderNumber: o.orderNumber,
-      customerName: o.customerName,
+      // §192: השם הנוכחי ולא ה-snapshot. המנהל תיקן שמות, והנציג
+      // המשיך לראות את הישנים במסך המכירה ובטבלת המשקלים.
+      customerName: o.customer?.name || o.customerName,
       phone: o.phone,
       customer: o.customer,
       point: o.point,

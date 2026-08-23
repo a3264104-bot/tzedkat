@@ -23,6 +23,21 @@ async function getSettings() {
 // סינון HTML לפני הזרקה לתבנית. שמות לקוחות והערות הם טקסט חופשי
 // שהמשתמש מזין, ובלי סינון תו כמו < שובר את מבנה המייל.
 // זהה למימוש ב-nedarim-emails.ts.
+/**
+ * §198: השם הנוכחי של הלקוח, לא ה-snapshot.
+ *
+ * 🐛 displayName(order) נשמר ברגע ההזמנה. אחרי שהמנהל תיקן שמות
+ * (מסך השלמת השמות), מייל המחיר הסופי ותזכורת החלוקה המשיכו
+ * לפנות ללקוח בשם הישן - "שלום ברכה" במקום "שלום ברכה כהן".
+ *
+ * ⚠️ נפילה ל-customerName אם הלקוח לא נשלף: כך קוראים שלא
+ * עושים include על customer ממשיכים לעבוד בדיוק כמו קודם, בלי
+ * להישבר. זו הסיבה שהתיקון כאן ולא בכל אחד מ-25 המקומות.
+ */
+function displayName(order: any): string {
+  return order?.customer?.name || order?.customerName || "";
+}
+
 function escapeHtml(s: unknown): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -148,13 +163,13 @@ export async function sendAdminOrderNotification(
       ? settings.adminWhatsappPhone.replace(/\D/g, "").replace(/^0/, "972")
       : null;
     const waText = encodeURIComponent(
-      `הזמנה חדשה #${order.orderNumber}\n${order.customerName} — ${order.phone}\n${order.pointNameSnapshot ?? ""}\nסה"כ משוער: ${fmt(Number(order.estimatedTotal))}`
+      `הזמנה חדשה #${order.orderNumber}\n${displayName(order)} — ${order.phone}\n${order.pointNameSnapshot ?? ""}\nסה"כ משוער: ${fmt(Number(order.estimatedTotal))}`
     );
 
     const body = `
       <p style="font-size:16px;"><strong>הזמנה חדשה #${order.orderNumber}</strong></p>
       <table style="width:100%;font-size:14px;margin-bottom:16px;">
-        <tr><td style="padding:4px 0;color:#666;">לקוח:</td><td><strong>${escapeHtml(order.customerName)}</strong></td></tr>
+        <tr><td style="padding:4px 0;color:#666;">לקוח:</td><td><strong>${escapeHtml(displayName(order))}</strong></td></tr>
         <tr><td style="padding:4px 0;color:#666;">טלפון:</td><td dir="ltr" align="right">${order.phone}</td></tr>
         ${order.phone2 ? `<tr><td style="padding:4px 0;color:#666;">טלפון נוסף:</td><td dir="ltr" align="right">${order.phone2}</td></tr>` : ""}
         ${customerEmail ? `<tr><td style="padding:4px 0;color:#666;">מייל:</td><td dir="ltr" align="right">${customerEmail}</td></tr>` : ""}
@@ -182,7 +197,7 @@ export async function sendAdminOrderNotification(
     await getResend().emails.send({
       from: FROM_ADDRESS,
       to: settings.adminEmail,
-      subject: `הזמנה חדשה #${order.orderNumber} - ${order.customerName}`,
+      subject: `הזמנה חדשה #${order.orderNumber} - ${displayName(order)}`,
       html: baseTemplate(`הזמנה חדשה #${order.orderNumber}`, body),
     });
     return { ok: true };
@@ -201,7 +216,7 @@ export async function sendCustomerOrderConfirmation(
     if (!settings.sendEmailToCustomer) return { ok: true };
 
     const body = `
-      <p>שלום ${escapeHtml(order.customerName)},</p>
+      <p>שלום ${escapeHtml(displayName(order))},</p>
       <p>הזמנתך התקבלה בהצלחה! מספר הזמנה: <strong>#${order.orderNumber}</strong></p>
       <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;">
         <thead><tr style="background:#FFE000;">
@@ -277,7 +292,7 @@ export async function sendFinalPriceEmail(
     const hasStoredCard = !!(order as any)?.customer?.paymentToken;
 
     const body = `
-      <p>שלום ${escapeHtml(order.customerName)},</p>
+      <p>שלום ${escapeHtml(displayName(order))},</p>
       <p>המחיר הסופי להזמנה <strong>#${order.orderNumber}</strong> נקבע לאחר שקילה.</p>
       <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;">
         <thead><tr style="background:#FFE000;">
@@ -368,7 +383,7 @@ export async function sendPaymentConfirmedEmail(
     if (!settings.sendEmailToCustomer) return { ok: true };
 
     const body = `
-      <p>שלום ${escapeHtml(order.customerName)},</p>
+      <p>שלום ${escapeHtml(displayName(order))},</p>
       <p>התשלום עבור הזמנה <strong>#${order.orderNumber}</strong> התקבל בהצלחה. תודה!</p>
       <div style="background:#dcfce7;border-radius:10px;padding:16px;margin:16px 0;text-align:center;">
         <p style="color:#15803d;font-size:16px;margin:0;"><strong>✓ שולם (${paymentMethodLabel})</strong></p>
@@ -1170,7 +1185,7 @@ export async function sendAdminCancellationAlert(
 
     const body = `
       <p style="font-size:16px;">
-        <strong>${escapeHtml(order.customerName || "")}</strong> ביטל את הזמנה
+        <strong>${escapeHtml(displayName(order) || "")}</strong> ביטל את הזמנה
         <strong>#${order.orderNumber}</strong>.
       </p>
 
@@ -1230,8 +1245,8 @@ export async function sendAdminCancellationAlert(
       from: FROM_ADDRESS,
       to: recipients,
       subject: wasPaid
-        ? `⚠️ בוטלה הזמנה ששולמה #${order.orderNumber} — ${order.customerName}`
-        : `בוטלה הזמנה #${order.orderNumber} — ${order.customerName}`,
+        ? `⚠️ בוטלה הזמנה ששולמה #${order.orderNumber} — ${displayName(order)}`
+        : `בוטלה הזמנה #${order.orderNumber} — ${displayName(order)}`,
       html: baseTemplate("הזמנה בוטלה", body),
     });
     return { ok: true };

@@ -23,7 +23,7 @@ export async function GET(req: Request) {
 
   // ⚠️ מקבילות: השאילתות עצמאיות, ועם המסד באירלנד כל אחת היא
   // נסיעה חוצת-אוקיינוס. הרצה בטור מוסיפה שניות לטעינת המסך.
-  const [credits, balances, agents] = await Promise.all([
+  const [credits, balances, agents, deliveries] = await Promise.all([
     // זיכויים שניתנו
     prisma.order.findMany({
       where: {
@@ -66,6 +66,32 @@ export async function GET(req: Request) {
       where: { role: { in: ["AGENT", "ADMIN"] } },
       select: { id: true, name: true },
     }),
+
+    // §134: מי מבקש משלוח.
+    //
+    // ⚠️ בלי הרשימה הזו הנציג מסמן משלוחים והמנהל לא יודע כמה
+    // יש, לאן, וכמה כסף זה. זו רשימת עבודה ליום החלוקה.
+    prisma.order.findMany({
+      where: {
+        deliveryRequested: true,
+        status: { not: "CANCELLED" },
+        ...(pricelistId ? { pricelistId } : {}),
+      },
+      orderBy: { deliverySetAt: "desc" },
+      select: {
+        id: true,
+        orderNumber: true,
+        customerName: true,
+        phone: true,
+        deliveryFee: true,
+        deliveryAddress: true,
+        deliveryNote: true,
+        deliverySetById: true,
+        pointNameSnapshot: true,
+        finalTotal: true,
+        paymentStatus: true,
+      },
+    }),
   ]);
 
   const agentName = new Map(agents.map((a) => [a.id, a.name]));
@@ -103,7 +129,29 @@ export async function GET(req: Request) {
     byAgent.set(r.byName, cur);
   }
 
+  const deliveryRows = deliveries.map((d) => ({
+    orderId: d.id,
+    orderNumber: d.orderNumber,
+    customerName: d.customerName,
+    phone: d.phone,
+    fee: d.deliveryFee != null ? Number(d.deliveryFee) : 0,
+    address: d.deliveryAddress,
+    note: d.deliveryNote,
+    byName: d.deliverySetById
+      ? agentName.get(d.deliverySetById) ?? d.deliverySetById
+      : "—",
+    pointName: d.pointNameSnapshot,
+    paid: d.paymentStatus === "PAID" || d.paymentStatus === "PARTIALLY_PAID",
+  }));
+  const totalDeliveryFees =
+    Math.round(deliveryRows.reduce((s, d) => s + d.fee, 0) * 100) / 100;
+
   return NextResponse.json({
+    deliveries: deliveryRows,
+    deliveryTotals: {
+      count: deliveryRows.length,
+      totalFees: totalDeliveryFees,
+    },
     credits: rows,
     balances: balances.map((b) => ({
       customerId: b.id,

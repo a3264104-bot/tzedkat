@@ -53,8 +53,22 @@ export default async function AccountPage() {
   //
   // ⚠️ זה היה הפער היחיד שנשאר: מסך ההזמנה וה-IVR כבר סוננו,
   // והאזור האישי נשכח - למרות שהוא בדיוק אותה בחירה.
+  // §198: 🐛 הנקודה של הלקוח עצמו נעלמה מהבורר.
+  //
+  // בעל חנות שמשויך לנקודה סמויה ראה באזור האישי רשימה שאין בה
+  // את הנקודה שלו - כלומר הבורר הציג "בחר תחנה" כשהוא כבר
+  // מוגדר, ושמירה הייתה מעבירה אותו לנקודה אחרת.
+  //
+  // ⚠️ אותו תיקון בדיוק כמו במסך ההזמנה: סמויה מוסתרת מכולם,
+  // חוץ מהלקוח שמשויך אליה.
   const points = await prisma.deliveryPoint.findMany({
-    where: { isActive: true, isPrivate: false },
+    where: {
+      isActive: true,
+      OR: [
+        { isPrivate: false },
+        ...(customer?.defaultPointId ? [{ id: customer.defaultPointId }] : []),
+      ],
+    },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true, name: true, city: true },
   });

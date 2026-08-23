@@ -66,6 +66,15 @@ export async function GET(
     where: whereOrders,
     orderBy: [{ customerName: "asc" }, { createdAt: "asc" }],
     include: {
+      // §192: 🐛 הדף המודפס הציג את **השם מרגע ההזמנה**.
+      //
+      // customerName הוא snapshot - הוא נכון להיסטוריה, אבל בדף
+      // החלוקה הוא פשוט שגוי: המנהל תיקן שמות במסך השלמת השמות,
+      // והדף המשיך להדפיס את הישנים.
+      //
+      // ⚠️ השם הנוכחי גובר. אם הלקוח נמחק (customer=null) נופלים
+      // ל-snapshot, כי עדיף שם ישן מאשר שורה בלי שם בכלל.
+      customer: { select: { name: true, phone: true } },
       items: {
         include: {
           product: {
@@ -345,7 +354,8 @@ function buildDistributionSheet(
       // שם וטלפון רק בשורה הראשונה של הלקוח
       if (ci === 0) {
         const nameCell = ws.getCell(r, 1);
-        nameCell.value = o.customerName;
+        // §192: השם הנוכחי, לא ה-snapshot
+        nameCell.value = o.customer?.name || o.customerName;
         nameCell.font = { bold: true, size: 10, color: { argb: "FF2C3E4F" } };
         nameCell.alignment = { vertical: "middle", wrapText: true };
 
