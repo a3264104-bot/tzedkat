@@ -14,17 +14,46 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const pricelistIdParam = searchParams.get("pricelistId");
 
-  // ברירת מחדל: המכירה הפעילה. אפשר לבקש מכירה אחרת עם ?pricelistId=
+  // §214: 🐛 המסך ננעל ברגע שהמכירה נסגרה.
+  //
+  // ברירת המחדל הייתה `status: "ACTIVE"` בלבד, ולכן דווקא ברגע
+  // שסוגרים חשבונות - כשצריך את הסיכום הכספי ואת תכנון ההזמנה
+  // לספק - המסך הציג "אין מכירה פעילה".
+  //
+  // ⚠️ הסדר: פעילה קודם, ואם אין - האחרונה שנסגרה. כך המנהל
+  // שנכנס באמצע מכירה רואה אותה, ומי שנכנס אחריה רואה את מה
+  // שהוא בא לסכם, בלי לבחור ידנית.
+  //
+  // ⚠️ DONE נכללת: מכירה שהסתיימה לגמרי עדיין צריכה להיות
+  // נגישה לדוחות ולבירורים חודשים אחרי.
   const pricelist = pricelistIdParam
     ? await prisma.pricelist.findUnique({ where: { id: pricelistIdParam } })
-    : await prisma.pricelist.findFirst({
+    : ((await prisma.pricelist.findFirst({
         where: { status: "ACTIVE" },
         orderBy: { createdAt: "desc" },
-      });
+      })) ??
+      (await prisma.pricelist.findFirst({
+        where: { status: { in: ["CLOSED", "DONE"] } },
+        orderBy: { createdAt: "desc" },
+      })));
 
   if (!pricelist) {
-    return NextResponse.json({ error: "אין מכירה פעילה" }, { status: 404 });
+    return NextResponse.json(
+      { error: "לא נמצאה מכירה במערכת" },
+      { status: 404 }
+    );
   }
+
+  // §214: רשימת המכירות לבורר במסך.
+  //
+  // ⚠️ נשלחת יחד עם הנתונים ולא בקריאה נפרדת: המסך צריך אותה
+  // בכל טעינה, וקריאה שנייה למסד באירלנד היא 2-3 שניות מיותרות.
+  const allSales = await prisma.pricelist.findMany({
+    where: { status: { in: ["ACTIVE", "CLOSED", "DONE"] } },
+    orderBy: { createdAt: "desc" },
+    take: 12,
+    select: { id: true, name: true, status: true },
+  });
 
   // כל ההזמנות של המכירה (לא מבוטלות), עם פריטים ונקודה
   const orders = await prisma.order.findMany({
@@ -221,6 +250,9 @@ export async function GET(req: Request) {
   paymentSummary.paidSum = Math.round(paymentSummary.paidSum * 100) / 100;
 
   return NextResponse.json({
+    // §214: לבורר המכירות במסך
+    allSales,
+    pricelistStatus: pricelist.status,
     pricelist: {
       id: pricelist.id,
       name: pricelist.name,

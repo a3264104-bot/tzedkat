@@ -112,6 +112,9 @@ export default function SaleSummaryPage() {
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // §214: המכירה שנבחרה. ריק = ברירת המחדל של השרת (פעילה,
+  // ואם אין - האחרונה שנסגרה).
+  const [saleId, setSaleId] = useState("");
   // אילו נקודות פתוחות כרגע (Set מאפשר לפתוח כמה במקביל, לא כמו accordion)
   const [openPoints, setOpenPoints] = useState<Set<string>>(new Set());
   // אילו נקודות המנהל בחר להציג. null = הצג את כולן (ברירת מחדל).
@@ -158,17 +161,24 @@ export default function SaleSummaryPage() {
     setLoading(true);
     setError("");
     try {
-      const d = await api("/api/admin/sale-summary");
+      const d = await api(
+        `/api/admin/sale-summary${saleId ? `?pricelistId=${saleId}` : ""}`
+      );
       setData(d);
     } catch (e: any) {
-      setError(e.message || "אין מכירה פעילה");
+      setError(e.message || "לא נמצאה מכירה");
     } finally {
       setLoading(false);
     }
   }
+  // §214: טוען מחדש כשמחליפים מכירה בבורר.
+  //
+  // ⚠️ eslint-disable כי load אינו עטוף ב-useCallback - הוספתו
+  // לתלויות הייתה יוצרת לולאת רינדור.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     load();
-  }, []);
+  }, [saleId]);
 
   function exportProductsCsv() {
     if (!data) return;
@@ -271,7 +281,7 @@ export default function SaleSummaryPage() {
   if (error || !data)
     return (
       <div className="card p-6 text-center text-zinc-500">
-        {error || "אין מכירה פעילה כרגע"}
+        {error || "לא נמצאה מכירה במערכת"}
       </div>
     );
 
@@ -282,9 +292,44 @@ export default function SaleSummaryPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold text-brand-slatedark">סיכום מכירה</h1>
+          {/* §214: בורר מכירה.
+              
+              🐛 המסך ננעל ברגע שהמכירה נסגרה - דווקא כשצריך אותו
+              לסגירת חשבונות ולתכנון ההזמנה לספק.
+              
+              ⚠️ הבורר מוצג רק כשיש יותר ממכירה אחת. במערכת עם
+              מכירה יחידה הוא רעש. */}
+          {Array.isArray((data as any).allSales) &&
+          (data as any).allSales.length > 1 ? (
+            <select
+              value={saleId || data.pricelist.id}
+              onChange={(e) => setSaleId(e.target.value)}
+              className="mt-1 rounded-lg border-2 border-zinc-300 px-2 py-1 text-sm font-bold text-brand-slatedark"
+            >
+              {(data as any).allSales.map((sl: any) => (
+                <option key={sl.id} value={sl.id}>
+                  {sl.name}
+                  {sl.status === "ACTIVE"
+                    ? " · פעילה"
+                    : sl.status === "CLOSED"
+                      ? " · סגורה"
+                      : " · הסתיימה"}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-sm text-zinc-500">{data.pricelist.name}</p>
+          )}
           <p className="text-sm text-zinc-500">
-            {data.pricelist.name}
-            {data.pricelist.deliveryDateText && ` · חלוקה: ${data.pricelist.deliveryDateText}`}
+            {data.pricelist.deliveryDateText && `חלוקה: ${data.pricelist.deliveryDateText}`}
+            {(data as any).pricelistStatus &&
+              (data as any).pricelistStatus !== "ACTIVE" && (
+                <span className="mr-1.5 text-[11px] bg-zinc-200 text-zinc-700 px-1.5 py-0.5 rounded font-bold">
+                  {(data as any).pricelistStatus === "CLOSED"
+                    ? "מכירה סגורה"
+                    : "מכירה שהסתיימה"}
+                </span>
+              )}
           </p>
         </div>
         <button
