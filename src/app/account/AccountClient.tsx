@@ -487,9 +487,23 @@ export function AccountClient({
                   </a>
                 </>
               ) : (
-                <p className="text-sm text-zinc-500 mt-1">
-                  ההרשמה למכירה הבאה תיפתח בקרוב
-                </p>
+                <>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    ההרשמה למכירה הבאה תיפתח בקרוב
+                  </p>
+                  {/* §222: קישור למחירון גם מכאן.
+                      
+                      ⚠️ הלקוח הקיים נכנס לאזור האישי ולא לדף
+                      הבית - אם הקישור רק שם, הוא לא יראה אותו
+                      לעולם. אותה טעות שגרמה למחירון להיבנות
+                      בלי דרך להגיע אליו. */}
+                  <Link
+                    href="/order"
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-brand-rust text-brand-rust text-sm font-bold hover:bg-orange-50 transition-colors"
+                  >
+                    📖 צפייה במחירון ובמוצרים ←
+                  </Link>
+                </>
               )}
             </div>
           ) : (

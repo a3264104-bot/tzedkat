@@ -288,6 +288,30 @@ export default async function Home() {
               <p className="text-zinc-500 text-sm mt-2">
                 ההרשמה למכירה הבאה תיפתח בקרוב, בע&quot;ה
               </p>
+
+              {/* §222: 🐛 המחירון נבנה (§221) ואף אחד לא הגיע אליו.
+                  
+                  הלקוח נכנס לדף הבית, ראה "אין מכירה פתוחה", ועזב.
+                  הוא לא מקליד /order ידנית - ולכן המסך שבניתי היה
+                  קיים ובלתי נגיש.
+                  
+                  ⚠️ הכפתור **בתוך** הכרטיס של "אין מכירה" ולא
+                  מתחתיו: זו התשובה לשאלה שהלקוח שואל את עצמו
+                  באותו רגע - "אז מה יש לכם בכלל?".
+                  
+                  ⚠️ מוצג רק כשאין מכירה: כשיש, הלקוח מזמין
+                  ורואה את המוצרים ממילא. */}
+              <Link
+                href="/order"
+                className="mt-5 inline-flex items-center gap-2 px-5 py-3 rounded-xl border-2 border-brand-rust text-brand-rust font-bold hover:bg-orange-50 transition-colors"
+              >
+                <span className="text-lg">📖</span>
+                <span>צפייה במחירון ובמוצרים</span>
+                <span>←</span>
+              </Link>
+              <p className="text-[11px] text-zinc-400 mt-2">
+                לראות מה נמכר ובאילו מחירים — בלי אפשרות להזמין כרגע
+              </p>
             </section>
           )}
 
