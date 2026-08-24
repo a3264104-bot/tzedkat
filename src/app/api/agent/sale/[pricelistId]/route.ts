@@ -5,6 +5,27 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
 
+/**
+ * §235: מיון לפי שם משפחה — זהה לדף החלוקה (§233).
+ *
+ * ⚠️ **ברמת המודול** ולא בתוך GET: זו הפעם השנייה שאותה טעות
+ * הכשילה build. פונקציית עזר שנקראת ביותר ממקום אחד יושבת כאן.
+ */
+function lastNameOf(o: any): string {
+  const c = o.customer;
+  if (c?.lastName?.trim()) return c.lastName.trim();
+  const full = (c?.name || o.customerName || "").trim();
+  if (!full) return "";
+  const parts = full.split(/\s+/);
+  return parts.length > 1 ? parts[parts.length - 1] : full;
+}
+
+function sortByLastName(a: any, b: any): number {
+  const r = lastNameOf(a).localeCompare(lastNameOf(b), "he");
+  if (r !== 0) return r;
+  return (a.customerName || "").localeCompare(b.customerName || "", "he");
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ pricelistId: string }> }
@@ -32,7 +53,16 @@ export async function GET(
     },
   });
   if (!pricelist) {
-    return NextResponse.json({ error: "מחירון לא נמצא" }, { status: 404 });
+    // §235: 🐛 המסך והדף המודפס ממוינים אחרת.
+  //
+  // הדף המודפס (§233) ממוין לפי **שם משפחה**, והמסך היה ממוין
+  // לפי createdAt - סדר ההזמנה. הנציג שעובד עם הדף בשטח ומזין
+  // במסך היה מחפש כל לקוח מחדש, כי שני הסדרים לא קשורים.
+  //
+  // ⚠️ **אותה פונקציה בדיוק** של דף החלוקה. אילו העתקתי אותה
+  // הן היו מתפצלות ביום שמישהו משנה אחת מהן - וזה בדיוק סוג
+  // הבאג שאי אפשר לאתר.
+  return NextResponse.json({ error: "מחירון לא נמצא" }, { status: 404 });
   }
 
   // הזמנות: אם הנציג משויך לנקודות - רק ההזמנות שלהן. אם לא (מנהל) - הכל.
@@ -88,6 +118,8 @@ export async function GET(
           // שהוא משלם מזומן. עד היום הוא היה צריך לצאת, לחפש
           // אותו ברשימה, ולחזור - וברוב המקרים פשוט ויתר.
           phone2: true,
+          // §235: למיון לפי שם משפחה — זהה לדף החלוקה
+          lastName: true,
           paymentPreference: true,
           paymentToken: true,
         },
@@ -258,7 +290,12 @@ export async function GET(
       // הנציגים, ובלי החריג הזה הוא היה רואה כפתור מושבת.
       canUpdateCards: agentCanUpdateCards,
     },
-    orders: orders.map((o) => ({
+    // §235: ⚠️ המיון כאן, **אחרי** שהשליפה הסתיימה.
+    //
+    // 🐛 קודם הוא ישב בראש הפונקציה - לפני ש-orders בכלל הוגדר.
+    // המיון על המקור ולא על התוצאה: המיפוי בונה אובייקטים בלי
+    // customer.lastName, ומיון אחריו היה מאבד את הנתון.
+    orders: [...orders].sort(sortByLastName).map((o) => ({
       id: o.id,
       orderNumber: o.orderNumber,
       // §192: השם הנוכחי ולא ה-snapshot. המנהל תיקן שמות, והנציג

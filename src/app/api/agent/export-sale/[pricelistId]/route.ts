@@ -83,6 +83,11 @@ export async function GET(
     // ⚠️ בכוונה בראש הרשימה ולא בסוף: הנציג שמקבל דף מעודכן
     // צריך לראות מיד מה נוסף, בלי לסרוק 40 שורות. ומי שעובד
     // לפי סדר א-ב ימצא אותן ממילא לפי השם.
+    // §233: המיון נעשה בקוד ולא כאן - ראה sortByLastName למטה.
+    //
+    // ⚠️ Prisma לא יכול למיין לפי "שם משפחה, ואם אין אז המילה
+    // האחרונה בשם המלא". orderBy כאן נשאר רק כדי שהסדר יהיה
+    // יציב בין קריאות.
     orderBy: [{ customerName: "asc" }, { createdAt: "asc" }],
     include: {
       // §192: 🐛 הדף המודפס הציג את **השם מרגע ההזמנה**.
@@ -93,7 +98,10 @@ export async function GET(
       //
       // ⚠️ השם הנוכחי גובר. אם הלקוח נמחק (customer=null) נופלים
       // ל-snapshot, כי עדיף שם ישן מאשר שורה בלי שם בכלל.
-      customer: { select: { name: true, phone: true } },
+      // §233: firstName/lastName למיון לפי שם משפחה.
+      customer: {
+        select: { name: true, phone: true, firstName: true, lastName: true },
+      },
       items: {
         include: {
           product: {
@@ -101,6 +109,9 @@ export async function GET(
               id: true,
               name: true,
               unit: true,
+              // §233: קובע אם המוצר מפוצל למשבצות. PACKAGE = קרטון
+              // שנשקל, UNIT = יחידות עם משקל מודפס.
+              saleType: true,
               // §161: הקטגוריה - קובעת אילו מוצרים מקבלים צבע.
               // בלעדיה isColoredCategory תמיד false, והתכונה
               // לא הייתה עושה כלום.
@@ -172,7 +183,8 @@ export async function GET(
     buildDistributionSheet(
       wb,
       grp.name,
-      grp.orders,
+      // §233: ממוין לפי שם משפחה, לא לפי שם פרטי
+      [...grp.orders].sort(sortByLastName),
       saleTitle,
       g.agent.name,
       // §208: לסימון הזמנות שנוספו אחרי הסגירה
@@ -278,6 +290,44 @@ function buildColorMap(orders: any[]): Map<string, string> {
   return map;
 }
 
+/**
+ * §233: מיון לפי **שם משפחה**.
+ *
+ * 🐛 מה שהיה: מיון לפי השם המלא, כלומר לפי השם הפרטי. הנציג
+ * שמחפש את "ניימן" בדף עבר על כל האלף-בית של השמות הפרטיים.
+ *
+ * ⚠️ **ברמת המודול** ולא בתוך GET: הפונקציה נדרשת בשני מקומות,
+ * ובתוך פונקציה אחת היא הייתה מחוץ להיקף של השנייה - וזה בדיוק
+ * מה שהכשיל את ה-build.
+ *
+ * ⚠️ שלוש רמות נפילה:
+ *   1. lastName אם קיים (§173)
+ *   2. המילה האחרונה בשם המלא - ניחוש סביר לרוב השמות
+ *   3. השם המלא, אם אין כלום
+ *
+ * ⚠️ localeCompare עם "he": בלעדיו האותיות ממוינות לפי קוד
+ * Unicode, ו-"ץ" יוצא לפני "א".
+ */
+function lastNameOf(o: any): string {
+  const c = o.customer;
+  if (c?.lastName?.trim()) return c.lastName.trim();
+  const full = (c?.name || o.customerName || "").trim();
+  if (!full) return "";
+  const parts = full.split(/\s+/);
+  return parts.length > 1 ? parts[parts.length - 1] : full;
+}
+
+function sortByLastName(a: any, b: any): number {
+  const r = lastNameOf(a).localeCompare(lastNameOf(b), "he");
+  if (r !== 0) return r;
+  // ⚠️ שם משפחה זהה - ממיינים לפי השם המלא, כדי ששני "כהן"
+  // יופיעו בסדר קבוע ולא ישתנו בין הדפסות.
+  return (a.customer?.name || a.customerName || "").localeCompare(
+    b.customer?.name || b.customerName || "",
+    "he"
+  );
+}
+
 function buildDistributionSheet(
   wb: ExcelJS.Workbook,
   pointName: string,
@@ -354,6 +404,11 @@ function buildDistributionSheet(
       }
     )}` +
     (lateCount > 0 ? ` · ⭐ ${lateCount} נוספו אחרי הסגירה` : "") +
+    // §236: מקרא הקרטון **תמיד** בשורת המשנה.
+    //
+    // ⚠️ המקרא הגדול (שורה 3) מוצג רק כשיש הזמנות מאוחרות, ולכן
+    // אי אפשר לסמוך עליו. השורה הזו נמצאת בכל דף.
+    " · ⬛ = קרטון שלם" +
     ` · לקוח ששילם במזומן — לסמן בעמודת "מזומן" ולעדכן במערכת`;
   sub.font = { size: 9, color: { argb: "FF666666" } };
   sub.alignment = { horizontal: "center" };
@@ -366,7 +421,7 @@ function buildDistributionSheet(
     ws.mergeCells(3, 1, 3, lastCol);
     const leg = ws.getCell(3, 1);
     leg.value =
-      "⭐ שורות מסומנות בכוכבית ובאדום — נוספו אחרי סגירת המכירה. אם קיבלת דף קודם, אלה השורות החדשות.";
+      "⭐ שורות מסומנות בכוכבית ובאדום — נוספו אחרי סגירת המכירה. אם קיבלת דף קודם, אלה השורות החדשות.   ·   ⬛ = קרטון שלם";
     leg.font = { size: 10, bold: true, color: { argb: "FFB91C1C" } };
     leg.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
     leg.alignment = { horizontal: "center", vertical: "middle" };
@@ -421,7 +476,25 @@ function buildDistributionSheet(
     const expanded: any[] = [];
     for (const it of items) {
       const qty = Number(it.quantity) || 0;
-      const isCarton = !it.isSingle && Number.isInteger(qty) && qty > 1;
+      // §233: 🐛 10 נקניקים פוצלו ל-10 משבצות.
+      //
+      // התנאי היה `!isSingle` בלבד - אבל זה תופס **כל** מה שאינו
+      // בודדים, כולל מוצרים שנמכרים ביחידות. נקניק, כבד ארוז,
+      // עוף טחון: כולם UNIT, כולם קיבלו משבצת לכל יחידה.
+      //
+      // ⚠️ ההבחנה הנכונה: **מה נשקל בנפרד**.
+      //   קרטון בשר  → כל אחד נשקל  → משבצת לכל אחד ✓
+      //   10 נקניקים → משקל מודפס   → משבצת אחת ✓
+      //   3 ק"ג פרגית → שקילה אחת   → משבצת אחת ✓
+      //
+      // ⚠️ saleType === "PACKAGE" הוא הקרטון (§178). UNIT ו-WEIGHT
+      // אינם מפוצלים.
+      const saleType = it.product?.saleType ?? it.saleType;
+      const isCarton =
+        !it.isSingle &&
+        saleType === "PACKAGE" &&
+        Number.isInteger(qty) &&
+        qty > 1;
       if (isCarton) {
         const n = Math.min(qty, 12);
         for (let k = 0; k < n; k++) {
@@ -496,6 +569,9 @@ function buildDistributionSheet(
         if (it) {
           // §140: המוצר והכמות בשורה אחת, ומתחתיהם קו למשקל.
           // חוסך גובה ומאפשר יותר שורות בדף.
+          // §236: קרטון = PACKAGE. אותה הבחנה של §233.
+          const cartonType =
+            (it.product?.saleType ?? it.saleType) === "PACKAGE";
           const qty = formatItemQty({
             isSingle: it.isSingle,
             quantity: Number(it.quantity),
@@ -512,8 +588,26 @@ function buildDistributionSheet(
             : it.partOverflow
               ? "  (יתרה)"
               : "";
-          cell.value = `${name}${partTag}\n${qty}   ______`;
-          cell.font = { size: 9 };
+          // §236: 🔲 סימון קרטון שלם.
+          //
+          // 🐛 המצב מהשטח: הנציג צריך לשלוף קרטון שלם מבין עשרות
+          // חלקים בודדים על אותו דף. שם המוצר לבדו לא מבדיל -
+          // "שריר" מופיע גם כקרטון וגם כ-3 ק"ג בודדים.
+          //
+          // ⚠️ ריבוע מלא ⬛ ולא כוכבית: ⭐ כבר תפוסה לסימון הזמנות
+          // שנוספו אחרי הסגירה (§208), ושני סימנים זהים בדף אחד
+          // מבטלים זה את זה.
+          //
+          // ⚠️ הסימן **בתחילת השורה השנייה**, ליד הכמות: שם המוצר
+          // ארוך ונחתך, והסימן היה נעלם. הכמות תמיד נראית.
+          const isWholeCarton = !it.isSingle && cartonType;
+          const cartonMark = isWholeCarton ? "⬛ " : "";
+          cell.value = `${name}${partTag}\n${cartonMark}${qty}   ______`;
+          cell.font = {
+            size: 9,
+            // ⚠️ קרטון מודגש: גם בהדפסה בשחור-לבן ההבדל נראה.
+            bold: isWholeCarton,
+          };
           cell.alignment = { vertical: "top", wrapText: true, horizontal: "right" };
           // §161: צבע לפי המוצר - כדי שהנציג יזהה בסריקה מהירה
           // ולא יצטרך לקרוא כל שם.

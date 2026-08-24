@@ -291,17 +291,60 @@ if (loading) {
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-5">
           <div className="font-bold text-brand-slatedark mb-3">סיכום כספי</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <FinancialCard
-              label="הכנסה כוללת"
-              amount={fin.totalRevenue}
-              color="emerald"
-              big
-            />
-            <FinancialCard
-              label="עמלות לנציגים"
-              amount={-fin.totalCommissions}
-              color="red"
-            />
+            {/* §234: 🐛 "הכנסה כוללת" ירוק ובולט — לפני שנשקל דבר.
+                
+                המסך הציג ₪358,057 בירוק, בזמן שההתקדמות 0% ואף
+                פריט לא נשקל. ירוק אומר "הושלם", והמספר הוא
+                אומדן שישתנה בכל שקילה.
+                
+                ⚠️ אותו דפוס של הרווח (§231): כשהנתון חלקי —
+                תווית אחרת, צבע אחר, והסבר. לא מספר שנראה סופי.
+                
+                ⚠️ הסף הוא שקילה **מלאה**: 99% זה עדיין אומדן,
+                כי הפריט האחרון יכול לשנות את הסכום. */}
+            {progress.completionPercent >= 100 ? (
+              <FinancialCard
+                label="הכנסה כוללת"
+                amount={fin.totalRevenue}
+                color="emerald"
+                big
+              />
+            ) : (
+              <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+                <div className="text-[11px] font-bold text-amber-900">
+                  הכנסה משוערת
+                </div>
+                <div className="text-2xl font-extrabold text-amber-700 mt-0.5">
+                  ~₪{fin.totalRevenue.toFixed(2)}
+                </div>
+                <div className="text-[10px] text-amber-800 mt-0.5 leading-tight">
+                  לפי משקלים משוערים · {progress.completionPercent}% נשקלו
+                </div>
+              </div>
+            )}
+            {/* §234: העמלה גדלה עם כל שקילה — גם היא אומדן.
+                
+                ⚠️ ₪19.97 על 244 הזמנות נראה כמו תקלה. ההסבר הופך
+                את זה ל"עוד לא התחילו" במקום "משהו שבור". */}
+            {progress.completionPercent >= 100 ? (
+              <FinancialCard
+                label="עמלות לנציגים"
+                amount={-fin.totalCommissions}
+                color="red"
+              />
+            ) : (
+              <div className="rounded-xl border-2 border-amber-200 bg-amber-50/60 p-3">
+                <div className="text-[11px] font-bold text-amber-900">
+                  עמלות לנציגים
+                </div>
+                <div className="text-lg font-extrabold text-amber-700 mt-0.5">
+                  ~₪{(-fin.totalCommissions).toFixed(2)}
+                </div>
+                <div className="text-[10px] text-amber-800 mt-0.5 leading-tight">
+                  תגדל עם השקילה
+                </div>
+              </div>
+            )}
             {/* §116: 🐛 "הכנסה נטו" הוצג כרווח, אבל הוא רק הכנסות
                 פחות עמלות - **בלי מה ששולם לספק**, שהוא הרכיב
                 הגדול ביותר. המספר נראה גבוה פי כמה מהאמת.
