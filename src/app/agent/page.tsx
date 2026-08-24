@@ -137,18 +137,83 @@ export default async function AgentIndexPage() {
   // המכירה הפעילה - שממילא מופיעה ברשימה למטה. התוצאה הייתה שאותה
   // מכירה הופיעה פעמיים במסך. עכשיו מוצגות כאן רק מכירות שכבר אינן
   // פעילות ועדיין ממתינות לסגירת הנציג.
-  const openSummaries = (
-    await prisma.agentSaleSummary.findMany({
-      where: { agentId, status: { not: "CONFIRMED" } },
-      include: {
-        pricelist: {
-          select: { id: true, name: true, status: true, deliveryDate: true },
-        },
+  // §224: 🐛 **נציג שלא פתח את המסך לא ראה כלום.**
+  //
+  // מה שקרה בשטח: הנציג בירושלים (26 הזמנות בנקודה שלו) ראה
+  // "אין כרגע מכירות פעילות" - בזמן שנציג אחר עם 4 הזמנות ראה
+  // את המכירה תחת "ממתינות לסגירה".
+  //
+  // הסיבה: הרשימה נשענה על agentSaleSummary, שנוצר **רק כשהנציג
+  // פותח את מסך המכירה**. מי שלא פתח - אין לו רשומה, ולכן אין
+  // לו מכירה. כלומר: כדי לראות שיש לך עבודה, היית צריך כבר
+  // לדעת שיש לך עבודה.
+  //
+  // ⚠️ עכשיו הרשימה נבנית מ**הזמנות בנקודות שלו** - מקור האמת
+  // האמיתי. הסיכום מצורף אם קיים, ואם לא - המכירה עדיין מוצגת.
+  const summaries = await prisma.agentSaleSummary.findMany({
+    where: { agentId, status: { not: "CONFIRMED" } },
+    include: {
+      pricelist: {
+        select: { id: true, name: true, status: true, deliveryDate: true },
       },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    })
-  ).filter((s) => !activeIds.has(s.pricelistId));
+    },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+  });
+  const summaryByPricelist = new Map(summaries.map((s) => [s.pricelistId, s]));
+
+  // ⚠️ מכירות שאינן פעילות אך יש בהן הזמנות בנקודות של הנציג.
+  //
+  // ⚠️ נציג בלי נקודות מקבל רשימה ריקה ולא את הכל - אותו כלל
+  // אבטחה של §176/§186.
+  const salesWithMyOrders = hasPoints
+    ? await prisma.pricelist.findMany({
+        where: {
+          id: { notIn: Array.from(activeIds) },
+          status: { in: ["CLOSED", "DONE"] },
+          orders: {
+            some: {
+              pointId: { in: myPointIds },
+              status: { notIn: ["CANCELLED"] },
+            },
+          },
+        },
+        select: { id: true, name: true, status: true, deliveryDate: true },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      })
+    : [];
+
+  // ⚠️ איחוד: מכירות עם הזמנות + מכירות שכבר יש להן סיכום פתוח.
+  // השנייה תופסת מקרה קצה - נציג שסגר נקודה אחרי שהזמינו בה.
+  const openSummaries = [
+    ...salesWithMyOrders.map((pl) => ({
+      id: summaryByPricelist.get(pl.id)?.id ?? `pending-${pl.id}`,
+      pricelistId: pl.id,
+      pricelist: pl,
+      status: summaryByPricelist.get(pl.id)?.status ?? "PENDING",
+      // ⚠️ מכירה בלי סיכום עדיין מוצגת - עם אפסים. זה בדיוק
+      // המסר: "יש כאן עבודה שלא התחלת".
+      totalCustomers: summaryByPricelist.get(pl.id)?.totalCustomers ?? 0,
+      totalCommission: Number(
+        summaryByPricelist.get(pl.id)?.totalCommission ?? 0
+      ),
+    })),
+    ...summaries
+      .filter(
+        (s) =>
+          !activeIds.has(s.pricelistId) &&
+          !salesWithMyOrders.some((pl) => pl.id === s.pricelistId)
+      )
+      .map((s) => ({
+        id: s.id,
+        pricelistId: s.pricelistId,
+        pricelist: s.pricelist,
+        status: s.status,
+        totalCustomers: s.totalCustomers,
+        totalCommission: Number(s.totalCommission),
+      })),
+  ].slice(0, 5);
 
   return (
     <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
@@ -328,7 +393,12 @@ export default async function AgentIndexPage() {
                       <div className="text-[10px] text-amber-700 mt-0.5">
                         {s.pricelist.deliveryDate &&
                           fmtDate(s.pricelist.deliveryDate)}
-                        · {s.totalCustomers} לקוחות · ₪{Number(s.totalCommission).toFixed(0)} עמלה
+                        {/* §224: מכירה שטרם נפתחה מציגה "טרם נסגרה"
+                            במקום "0 לקוחות · ₪0" - שנראה כאילו אין
+                            שם כלום, בזמן שיש 26 הזמנות שממתינות. */}
+                        {s.totalCustomers > 0
+                          ? ` · ${s.totalCustomers} לקוחות · ₪${s.totalCommission.toFixed(0)} עמלה`
+                          : " · טרם נפתחה — יש הזמנות ממתינות"}
                       </div>
                     </div>
                     <span className="text-xs text-amber-800 font-bold">←</span>

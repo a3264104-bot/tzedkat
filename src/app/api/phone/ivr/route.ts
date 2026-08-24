@@ -1012,7 +1012,10 @@ async function handleUnregistered(
     );
   }
 
-  const passwordHash = await bcrypt.hash(generateStrongPassword(), 10);
+  // §225: הסיסמה נשמרת במשתנה כדי שנוכל לשמור גם את הגרסה
+  // הגלויה. קודם היא נוצרה inline ונעלמה מיד.
+  const tempPassword = generateStrongPassword();
+  const passwordHash = await bcrypt.hash(tempPassword, 10);
 
   const created = await prisma.customer.create({
     data: {
@@ -1024,8 +1027,12 @@ async function handleUnregistered(
       lastName: finalLast,
       phone,
       passwordHash,
-      // לא שומרים passwordPlain - הסיסמה לא מיועדת למסירה ללקוח
-      passwordPlain: null,
+      // §225: 🐛 הסיסמה **חייבת** להישמר גלויה.
+      //
+      // ⚠️ קריטי דווקא כאן: לקוח שנרשם בטלפון לא בחר סיסמה ולא
+      // יודע אחת. בלי השמירה אין לו שום דרך להיכנס לאתר, והמנהל
+      // לא יכול לעזור - בדיוק מה שקרה עם נציג ירושלים.
+      passwordPlain: tempPassword,
       role: "CUSTOMER",
       isActivated: false,
       defaultPointId: pointId,

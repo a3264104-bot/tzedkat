@@ -774,6 +774,20 @@ export default function AdminCustomersPage() {
                         
                         ⚠️ אדום ולא כתום: "חסר פיצול" הוא נוחות,
                         "בלי אמצעי תשלום" הוא חסימה. */}
+                    {/* §225: אין סיסמה גלויה = המנהל לא יכול לעזור
+                        ללקוח שלא מצליח להיכנס.
+                        
+                        ⚠️ hasPassword=true אבל passwordPlain ריק:
+                        יש לו סיסמה, אבל אף אחד לא יודע מה היא.
+                        זה בדיוק המצב של נציג ירושלים. */}
+                    {c.hasPassword && !c.passwordPlain && !c.hasLoginCode && (
+                      <span
+                        className="mr-1.5 text-[10px] bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded font-bold"
+                        title="יש סיסמה אך היא אינה גלויה — יש לאפס כדי למסור ללקוח"
+                      >
+                        🔑 סיסמה לא גלויה
+                      </span>
+                    )}
                     {c.isActive !== false &&
                       c.paymentPreference !== "CASH" &&
                       !c.hasPaymentToken && (
