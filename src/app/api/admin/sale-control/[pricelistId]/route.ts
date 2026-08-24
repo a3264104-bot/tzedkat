@@ -21,6 +21,8 @@ export async function GET(
       id: true, name: true, status: true,
       deliveryDate: true, deliveryDateText: true,
       closeDate: true,
+      // §241: דמי טיפול - נכללים בסכום ההזמנה כשטרם נשקלה
+      orderFee: true,
     },
   });
   if (!pricelist) {
@@ -102,6 +104,8 @@ export async function GET(
     itemsTotal += items.length;
     let allEntered = true;
     let hasData = false;
+    // §241: סכום הפריטים בהזמנה זו - להחלפה ב-finalTotal
+    let orderItemsSum = 0;
 
     for (const it of items) {
       if (!productWeightsUsed[it.productId]) {
@@ -128,11 +132,51 @@ export async function GET(
       itemsEntered += distributed > 0 ? 1 : 0;
 
       // מחיר סופי (או משוער)
+      //
+      // §241: נצבר גם ב-orderItemsSum, כדי שנוכל להחליף אותו
+      // בסכום המלא של ההזמנה כשיש finalTotal.
       if (it.finalPrice) {
         totalOrderRevenue += Number(it.finalPrice);
+        orderItemsSum += Number(it.finalPrice);
       } else if (it.estimatedPrice) {
         totalOrderRevenue += Number(it.estimatedPrice);
+        orderItemsSum += Number(it.estimatedPrice);
       }
+    }
+
+    // §241: 🐛 סכום הפריטים בלבד — בלי דמי טיפול, משלוח וחיובים.
+    //
+    // הדשבורד הציג ₪358,684 ובקרת המכירה ₪358,057 — הפרש של
+    // ₪627. המנהל רואה שני מספרים לאותה מכירה ולא יודע במי
+    // לבטוח.
+    //
+    // הסיבה: כאן נספרו רק המחירים של הפריטים, בזמן שהדשבורד
+    // סוכם את finalTotal/estimatedTotal — שכוללים גם דמי טיפול,
+    // משלוח וחיוב נוסף, פחות זיכויים.
+    //
+    // ⚠️ finalTotal קודם: אחרי שקילה הוא הסכום האמיתי, וכל
+    // הרכיבים כבר בתוכו (§134). רק כשאין - מוסיפים ידנית.
+    // ⚠️ המשתנה בלולאה הזו נקרא `order`, לא `o` - יש שתי לולאות
+    // על orders בקובץ, כל אחת עם שם אחר.
+    if (order.finalTotal != null) {
+      // ⚠️ המרה: הסכום למעלה נבנה מהפריטים, ועכשיו מחליפים אותו
+      // בסכום המלא של ההזמנה. מחסירים את מה שכבר נספר.
+      totalOrderRevenue += Number(order.finalTotal) - orderItemsSum;
+    } else {
+      // ⚠️ טרם נשקל: מוסיפים את הרכיבים שאינם פריטים.
+      const fee = Number(pricelist.orderFee ?? 0);
+      const dlv =
+        order.deliveryRequested && order.deliveryFee != null
+          ? Number(order.deliveryFee)
+          : 0;
+      const extra = order.extraCharge != null ? Number(order.extraCharge) : 0;
+      const credit =
+        order.creditAmount != null ? Number(order.creditAmount) : 0;
+      const bal =
+        order.appliedCreditBalance != null
+          ? Number(order.appliedCreditBalance)
+          : 0;
+      totalOrderRevenue += fee + dlv + extra - credit - bal;
     }
 
     if (hasData) totalOrdersWithData++;

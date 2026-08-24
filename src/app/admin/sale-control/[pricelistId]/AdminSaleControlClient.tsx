@@ -324,7 +324,20 @@ if (loading) {
                 <div className="text-[11px] font-bold text-amber-900">
                   הכנסה משוערת
                 </div>
-                <div className="text-2xl font-extrabold text-amber-700 mt-0.5">
+                {/* §242: 🐛 המספר יצא מהמסגרת בנייד.
+                    
+                    "~₪358,057" ב-text-2xl רחב מהכרטיס במסך צר,
+                    והוא נחתך או דחף את הגבול.
+                    
+                    ⚠️ text-xl בנייד ו-2xl בדסקטופ: אותו מספר,
+                    גודל שמתאים לרוחב הזמין.
+                    
+                    ⚠️ tabular-nums: הספרות ברוחב אחיד, כך שהמספר
+                    לא "קופץ" כשהוא מתעדכן.
+                    
+                    ⚠️ break-all כרשת ביטחון: אם בכל זאת ארוך מדי
+                    (מיליונים), הוא יישבר לשתי שורות במקום לגלוש. */}
+                <div className="text-xl md:text-2xl font-extrabold text-amber-700 mt-0.5 tabular-nums break-all leading-tight">
                   ~{money(fin.totalRevenue)}
                 </div>
                 <div className="text-[10px] text-amber-800 mt-0.5 leading-tight">
@@ -347,7 +360,7 @@ if (loading) {
                 <div className="text-[11px] font-bold text-amber-900">
                   עמלות לנציגים
                 </div>
-                <div className="text-lg font-extrabold text-amber-700 mt-0.5">
+                <div className="text-base md:text-lg font-extrabold text-amber-700 mt-0.5 tabular-nums break-all leading-tight">
                   ~{money(-fin.totalCommissions)}
                 </div>
                 <div className="text-[10px] text-amber-800 mt-0.5 leading-tight">
@@ -399,7 +412,7 @@ if (loading) {
                 <div className="text-[11px] font-bold text-amber-900">
                   רווח נקי
                 </div>
-                <div className="text-2xl font-extrabold text-amber-700 mt-0.5">
+                <div className="text-xl md:text-2xl font-extrabold text-amber-700 mt-0.5">
                   —
                 </div>
                 <div className="text-[10px] text-amber-800 mt-0.5 leading-tight">
@@ -714,7 +727,17 @@ function FinancialCard({
   return (
     <div className={`rounded-xl border p-3 ${c}`}>
       <div className="text-[10px] font-bold opacity-80">{label}</div>
-      <div className={`font-extrabold mt-1 ${big ? "text-2xl" : "text-xl"}`}>
+      {/* §242: גודל מותאם לרוחב + מניעת גלישה.
+          
+          🐛 "₪358,057" ב-text-2xl יצא מהמסגרת בנייד.
+          
+          ⚠️ tabular-nums: ספרות ברוחב אחיד, כדי שהמספר לא
+          "יקפוץ" בכל עדכון. */}
+      <div
+        className={`font-extrabold mt-1 tabular-nums break-all leading-tight ${
+          big ? "text-xl md:text-2xl" : "text-lg md:text-xl"
+        }`}
+      >
         {money(amount)}
       </div>
     </div>
@@ -739,7 +762,10 @@ function SubStat({
   return (
     <div>
       <div className="text-[10px] text-zinc-500">{label}</div>
-      <div className={`font-bold text-sm ${c}`}>{value}</div>
+      {/* §242: tabular-nums גם כאן — עקביות בין כל המספרים */}
+      <div className={`font-bold text-sm tabular-nums break-all ${c}`}>
+        {value}
+      </div>
     </div>
   );
 }
