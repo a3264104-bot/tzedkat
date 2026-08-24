@@ -30,6 +30,15 @@ type Customer = {
   name: string;
   phone: string | null;
   email: string | null;
+  /**
+   * §248: האם ניתן לגבות מהלקוח.
+   *
+   * כרטיס **בתוקף**, או לקוח מזומן. נקבע בשרת (§202) כדי שהמסך
+   * לא יצטרך להכיר את כללי התוקף.
+   */
+  canPay?: boolean;
+  /** יש כרטיס אך פג תוקפו — משנה את נוסח ההודעה */
+  cardExpired?: boolean;
 };
 
 type ExistingRequest = {
@@ -57,6 +66,12 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export function PersonalOrderClient({ products, customer, existingRequests }: Props) {
+  // §248: 🚫 בקשה אישית דורשת אמצעי תשלום.
+  //
+  // ⚠️ הבדיקה **לפני** שהלקוח בונה עגלה: בקשה אישית היא תהליך
+  // ארוך (בחירת מוצרים, כמויות, הערות), ולגלות בסוף שאי אפשר
+  // לשלוח זו חוויה גרועה בהרבה מהודעה מראש.
+  const blocked = customer != null && customer.canPay === false;
   // §73: עותק מקומי - ביטול בקשה מעדכן את הסטטוס במסך בלי טעינה מחדש
   const [requests, setRequests] = useState<ExistingRequest[]>(existingRequests);
   const [cancelling, setCancelling] = useState<string | null>(null);
@@ -215,6 +230,48 @@ export function PersonalOrderClient({ products, customer, existingRequests }: Pr
               </button>
             </div>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // §248: מסך חסימה במקום העגלה.
+  //
+  // ⚠️ מסך מלא ולא באנר: אין טעם להציג רשימת מוצרים שאי אפשר
+  // להזמין. הלקוח יבחר, ימלא, וייתקל בקיר.
+  if (blocked) {
+    return (
+      <div className="min-h-screen bg-brand-cream flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl shadow-lg p-6 max-w-sm w-full text-center">
+          <div className="text-4xl mb-3">💳</div>
+          <h1 className="text-lg font-extrabold text-brand-slatedark">
+            {customer?.cardExpired
+              ? "תוקף כרטיס האשראי שלך פג"
+              : "נדרש אמצעי תשלום"}
+          </h1>
+          <p className="text-sm text-zinc-600 mt-2 leading-relaxed">
+            {customer?.cardExpired
+              ? "כדי לשלוח בקשה אישית יש לעדכן כרטיס אשראי בתוקף."
+              : "כדי לשלוח בקשה אישית יש להזין כרטיס אשראי באזור האישי."}
+          </p>
+          {/* ⚠️ ההסבר חשוב: הלקוח לא מבין למה דווקא כאן צריך
+              כרטיס, אם בהזמנה רגילה הוא כבר עבר את השלב הזה. */}
+          <p className="text-[11px] text-zinc-500 mt-2 leading-relaxed">
+            בקשה אישית היא מוצר שמוזמן במיוחד עבורך, ולכן נדרש אמצעי
+            תשלום מראש.
+          </p>
+          <Link
+            href="/account"
+            className="mt-5 block w-full py-3 rounded-xl bg-brand-rust text-white font-bold"
+          >
+            לעדכון כרטיס אשראי ←
+          </Link>
+          <Link
+            href="/"
+            className="mt-2 block text-xs text-zinc-500 underline"
+          >
+            חזרה לדף הבית
+          </Link>
         </div>
       </div>
     );

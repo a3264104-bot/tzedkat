@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { Resend } from "resend";
+// §248: בדיקת תוקף כרטיס (§202)
+import { canChargeCard } from "@/lib/card-expiry-lib";
 
 // §9: יצירת בקשה אישית - עם עגלה (מספר פריטים)
 // POST /api/personal-request
@@ -36,6 +38,56 @@ export async function POST(req: Request) {
     }
     if (items.length === 0) {
       return NextResponse.json({ error: "יש לבחור לפחות מוצר אחד" }, { status: 400 });
+    }
+
+    // §248: 🚫 **בקשה אישית דורשת אמצעי תשלום.**
+    //
+    // 🐛 הפער: הזמנה רגילה חוסמת לקוח בלי כרטיס (§61/§202), ובקשה
+    // אישית לא בדקה כלום. לקוח בלי אמצעי גבייה היה מבקש, המנהל
+    // היה מברר מול הספק ומזמין - ואז מגלה שאין ממי לגבות.
+    //
+    // ⚠️ בקשה אישית **יקרה יותר** מהזמנה רגילה: היא מוצר שהוזמן
+    // במיוחד, ואי אפשר למכור אותו למישהו אחר. בדיוק המקום שבו
+    // חשוב לוודא גבייה מראש.
+    //
+    // ⚠️ אותה לוגיקה של §202: כרטיס **בתוקף**, או לקוח מזומן.
+    // כרטיס שפג לא מספיק - הוא ייכשל בחיוב בדיוק כמו שאין.
+    const customerRecord = await prisma.customer.findUnique({
+      where: { id: customerId },
+      select: {
+        paymentToken: true,
+        paymentPreference: true,
+        cardExpiry: true,
+        isActive: true,
+      },
+    });
+
+    if (!customerRecord || customerRecord.isActive === false) {
+      return NextResponse.json(
+        { error: "החשבון אינו פעיל. יש לפנות למנהל." },
+        { status: 403 }
+      );
+    }
+
+    const canPay =
+      customerRecord.paymentPreference === "CASH" ||
+      (!!customerRecord.paymentToken &&
+        canChargeCard(customerRecord.cardExpiry));
+
+    if (!canPay) {
+      // ⚠️ שתי הודעות שונות: "אין כרטיס" ו"הכרטיס פג" דורשים אותה
+      // פעולה, אבל לקוח שיש לו כרטיס ומקבל "אין לך כרטיס" חושב
+      // שהמערכת טועה ולא מנסה לעדכן.
+      const hasCard = !!customerRecord.paymentToken;
+      return NextResponse.json(
+        {
+          error: hasCard
+            ? "תוקף כרטיס האשראי שלך פג. יש לעדכן כרטיס לפני שליחת בקשה אישית."
+            : "כדי לשלוח בקשה אישית יש להזין כרטיס אשראי באזור האישי.",
+          needsCard: true,
+        },
+        { status: 403 }
+      );
     }
 
     // וידוא שכל המוצרים קיימים ופעילים + זמינים להזמנה אישית
