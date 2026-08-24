@@ -168,6 +168,14 @@ export async function POST(req: Request) {
       );
     }
 
+    // §247: ההערה הקיימת - כדי לא לדרוס הסבר על זיכוי אחר.
+    const existingNote = (
+      await prisma.customer.findUnique({
+        where: { id: targetCustomerId },
+        select: { creditBalanceNote: true },
+      })
+    )?.creditBalanceNote;
+
     // שמירת הטוקן + סימון הלקוח כמאומת
     await prisma.customer.update({
       where: { id: targetCustomerId },
@@ -177,6 +185,29 @@ export async function POST(req: Request) {
         ...(tokef ? { cardExpiry: tokef } : {}),
         cardVerifiedAt: new Date(),
         cardNeedsUpdate: false,
+        // §247: 🐛 **השקל נגבה ולא הוחזר.**
+        //
+        // המסך מבטיח ללקוח: "יחויב 1 ש״ח לאימות, שיקוזז מההזמנה
+        // הראשונה" - ובפועל creditBalance מעולם לא עודכן. הכסף
+        // נגבה, והלקוח שילם ₪1 מיותר.
+        //
+        // ⚠️ increment ולא set: ללקוח עשויה להיות יתרה קיימת
+        // (זיכוי מחלוקה קודמת), ודריסה שלה הייתה מוחקת אותה.
+        //
+        // ⚠️ רק כשהחיוב **הצליח**: אם נדרים דחו, אין מה להחזיר.
+        // הקוד כאן רץ רק אחרי ש-charge.ok היה true.
+        ...(verificationTxnId
+          ? {
+              creditBalance: { increment: 1 },
+              // ⚠️ ההערה נכתבת **רק כשאין אחת**. ללקוח עשויה
+              // להיות הערה על זיכוי מחלוקה ("פריט חסר"), ודריסה
+              // שלה הייתה מוחקת את ההסבר היחיד שיש לו ליתרה
+              // הגדולה יותר.
+              ...(existingNote
+                ? {}
+                : { creditBalanceNote: "החזר על אימות כרטיס האשראי" }),
+            }
+          : {}),
         // §60: לקוח ששמר כרטיס מאומת הוא משלם באשראי. זו גם הדרך
         // היחידה לעבור ממזומן לאשראי - ההחלפה מתרחשת כאן ולא ב-route
         // נפרד, כדי שלא יתקיים מצב ביניים "אשראי בלי טוקן".
