@@ -358,10 +358,32 @@ export default function OrdersPage() {
           </button>
         )}
 
+        {/* §231: 🐛 "252 הזמנות" מול "244" בבקרת מכירה.
+            
+            ההפרש הוא המבוטלות - אבל אף מסך לא אמר את זה, והמנהל
+            שרואה שני מספרים שונים לאותה מכירה לא יודע במי לבטוח.
+            
+            ⚠️ הפירוט מוצג רק כשיש מבוטלות: במכירה בלי ביטולים
+            "252 · 252 פעילות · 0 בוטלו" הוא רעש. */}
         {!loading && (
           <span className="text-sm text-brand-slate/60 mr-auto">
             <bdi>{shown.length}</bdi> הזמנות
             {shown.length !== orders.length && ` מתוך ${orders.length}`}
+            {(() => {
+              // ⚠️ נספר מתוך **כל** ההזמנות ולא מהמסוננות: המנהל
+              // רוצה לדעת כמה בוטלו במכירה, לא כמה בוטלו בסינון
+              // הנוכחי.
+              const cancelled = orders.filter(
+                (o: any) => o.status === "CANCELLED"
+              ).length;
+              if (cancelled === 0) return null;
+              return (
+                <span className="text-zinc-400">
+                  {" · "}
+                  {orders.length - cancelled} פעילות · {cancelled} בוטלו
+                </span>
+              );
+            })()}
           </span>
         )}
       </div>

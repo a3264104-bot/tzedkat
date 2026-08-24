@@ -270,7 +270,20 @@ export default function CreditsPage() {
         )
       ) : tab === "credits" ? (
         data.credits.length === 0 ? (
-          <p className="text-zinc-500 text-sm p-4">אין זיכויים במכירה שנבחרה.</p>
+          // §231: 🐛 "אין זיכויים" נראה כמו תקלה.
+          //
+          // המנהל פותח מסך, רואה אפסים ו"אין נתונים", ולא יודע אם
+          // המסך שבור או שפשוט מוקדם מדי בתהליך.
+          //
+          // ⚠️ ההסבר הופך "ריק" ל"עדיין לא" - וזה ההבדל בין
+          // דיווח באג לבין להמשיך לעבוד.
+          <div className="p-6 text-center">
+            <p className="text-zinc-500 text-sm">אין זיכויים במכירה שנבחרה.</p>
+            <p className="text-[11px] text-zinc-400 mt-1.5 leading-relaxed">
+              זיכויים נוצרים כשנציג מזכה לקוח בחלוקה — למשל על פריט חסר או
+              איכות. המסך יתמלא במהלך יום החלוקה.
+            </p>
+          </div>
         ) : (
           <div className="card p-0 overflow-x-auto">
             <table className="w-full text-sm">

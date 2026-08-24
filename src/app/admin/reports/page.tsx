@@ -9,6 +9,8 @@
 //    (הנכון הוא COMPLETED), ולכן "הזמנות שנמסרו" תמיד הציג 0.
 
 import { useEffect, useState } from "react";
+// §231: קישור לסיכום המכירה במקום הכפילות
+import Link from "next/link";
 import { api, download } from "@/lib/client";
 import { STATUS_LABELS, fmt } from "@/lib/pricing";
 
@@ -237,22 +239,31 @@ function SummaryReport({ data }: { data: any }) {
           </div>
         </div>
 
+        {/* §231: 🐛 כפילות מלאה מול "סיכום מכירה".
+            
+            שני המסכים הציגו את אותו נתון באותו ניסוח:
+            "13 קרטונים + 220 ק"ג בודדים".
+            
+            ההבדל: הסיכום נותן טבלה מלאה עם **ייצוא לאקסל**, וכאן
+            היו חמש שורות בלי ייצוא. מי שצריך את הנתון הלך לסיכום
+            ממילא, ומי שנתקל כאן קיבל חצי תשובה.
+            
+            ⚠️ קישור ולא מחיקה שקטה: המנהל שרגיל לראות כאן משהו
+            צריך לדעת לאן זה עבר, אחרת הוא יחשוב שמשהו נשבר. */}
         <div className="card p-4">
-          <h3 className="font-bold text-brand-slatedark mb-3">מוצרים מובילים</h3>
-          <div className="space-y-2">
-            {data.topProducts.map((p: any) => (
-              <div
-                key={p.name}
-                className="flex justify-between gap-3 text-sm border-b border-zinc-100 pb-1.5"
-              >
-                <span className="min-w-0 truncate">{p.name}</span>
-                <span className="font-semibold shrink-0"><bdi>{productQtyLabel(p)}</bdi></span>
-              </div>
-            ))}
-            {data.topProducts.length === 0 && (
-              <div className="text-zinc-400 text-sm">אין נתונים</div>
-            )}
-          </div>
+          <h3 className="font-bold text-brand-slatedark mb-2">
+            סיכום לפי מוצר
+          </h3>
+          <p className="text-sm text-zinc-500 leading-relaxed">
+            הפירוט המלא — קרטונים, בודדים ומשקל כולל לכל מוצר — נמצא במסך
+            סיכום המכירה, יחד עם ייצוא לאקסל להזמנה מהספק.
+          </p>
+          <Link
+            href="/admin/sale-summary"
+            className="inline-flex items-center gap-1.5 mt-3 text-sm font-bold text-brand-rust hover:underline"
+          >
+            למסך סיכום מכירה ←
+          </Link>
         </div>
       </div>
     </div>

@@ -403,12 +403,41 @@ export async function GET(
 
   // ⚠️ אמין רק אם הוזנה עלות לכל מוצר שהגיע. אחרת הרווח מנופח,
   // והמנהל עלול להסיק מסקנה עסקית שגויה על סמך מספר חלקי.
+  // §232: 🐛 costComplete היה true גם כשרוב המוצרים בלי תעודה.
+  //
+  // הבדיקה הישנה סיננה למוצרים ש**יש להם תעודה** ואז בדקה שלכולם
+  // יש עלות. כלומר: 10 מוצרים הוזמנו, 3 קיבלו תעודה, לשלושתם יש
+  // עלות → costComplete=true, והרווח הוצג כשלם.
+  //
+  // בפועל 7 מוצרים ללא עלות ספק כלל, והרווח מנופח בדיוק כמו
+  // שהיה לפני שהתחלנו לקלוט תעודות.
+  //
+  // ⚠️ עכשיו שני תנאים: לכל מוצר שהוזמן יש תעודה, **וגם** לכל
+  // אחד מהם יש עלות. אחד בלי השני לא מספיק.
   const withNotes = productComparison.filter((p) => p.receivedWeight > 0);
+
+  // ⚠️ "רלוונטי" = חולק בפועל. מוצר במחירון שאיש לא הזמין אינו
+  // עולה כסף, וספירה שלו הייתה חוסמת את הרווח לנצח.
+  //
+  // ⚠️ distributedWeight ולא orderedWeight: מה שחולק הוא מה
+  // שבאמת יצא מהמלאי, וזה מה שהספק חייב לספק. הזמנה שבוטלה
+  // אינה עלות.
+  const missingNotes = productComparison.filter(
+    (p) => p.distributedWeight > 0 && !(p.receivedWeight > 0)
+  );
+
   const costComplete =
-    withNotes.length > 0 && withNotes.every((p) => p.costPerKg != null && !p.costPartial);
+    withNotes.length > 0 &&
+    missingNotes.length === 0 &&
+    withNotes.every((p) => p.costPerKg != null && !p.costPartial);
+
+  // ⚠️ שתי סיבות שונות לחוסר, ולכן שתי רשימות: "אין תעודה" דורש
+  // לצלם תעודה, "אין עלות" דורש להזין מספר. הודעה אחת שמערבבת
+  // אותן שולחת את המנהל לפעולה הלא נכונה.
   const missingCostProducts = withNotes
     .filter((p) => p.costPerKg == null || p.costPartial)
     .map((p) => p.productName);
+  const missingNoteProducts = missingNotes.map((p) => p.productName);
 
   // §207: כמה הזמנות נוספו אחרי שעת הסגירה.
   //
@@ -459,6 +488,8 @@ export async function GET(
       netProfit,
       costComplete,
       missingCostProducts,
+      // §232: מוצרים שהוזמנו ואין להם תעודת משלוח כלל
+      missingNoteProducts,
     },
     progress: {
       totalOrders: orders.length,

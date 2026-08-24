@@ -39,6 +39,8 @@ type Data = {
     netProfit: number;
     costComplete: boolean;
     missingCostProducts: string[];
+    /** §232: מוצרים שחולקו ואין להם תעודת משלוח כלל */
+    missingNoteProducts?: string[];
     // §124: זיכויים ויתרות זכות שקוזזו - כסף שלא נכנס לקופה
     totalCredits?: number;
     totalBalanceApplied?: number;
@@ -227,18 +229,18 @@ if (loading) {
             </svg>
             עבור על משקלים
           </Link>
-          <Link
-            href={`/admin/delivery-notes?pricelistId=${pricelistId}`}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-zinc-300 text-brand-slatedark rounded-xl font-bold text-sm hover:bg-zinc-50"
-          >
-            📄 תעודות משלוח
-          </Link>
-          <Link
-            href="/admin/agent-debts"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-zinc-300 text-brand-slatedark rounded-xl font-bold text-sm hover:bg-zinc-50"
-          >
-            🧾 חובות נציגים
-          </Link>
+          {/* §231: "תעודות משלוח" ו"חובות נציגים" הוסרו מכאן.
+              
+              🐛 שישה כפתורים בשורה אחת, ושלושה מהם קיימים גם
+              בתפריט הצדדי (③ ו-④). המנהל סרק שורה ארוכה כדי
+              למצוא את מה שרק כאן.
+              
+              ⚠️ נשארו שלושה — אלה שאין להם מקום אחר:
+              דוח מלא · דף חלוקה · תוספות אחרי סגירה.
+              
+              ⚠️ "עבור על משקלים" נשאר: הוא מקושר למכירה
+              הספציפית (weight-review/[id]), בעוד שבתפריט יש
+              מסך כללי אחר (pending-weights). */}
         </div>
 
         {/* Alerts */}
@@ -322,12 +324,36 @@ if (loading) {
               amount={-fin.totalSupplierCost}
               color="red"
             />
-            <FinancialCard
-              label="רווח נקי"
-              amount={fin.netProfit}
-              color={fin.netProfit >= 0 ? "emerald" : "red"}
-              big
-            />
+            {/* §231: 🐛 רווח מנופח כשעלות הספק חסרה.
+                
+                המסך הציג ₪358,037 ירוק ובולט, ומתחתיו אזהרה
+                בצהוב חיוור. העין הולכת למספר.
+                
+                ⚠️ מספר שגוי גרוע ממספר חסר: מנהל שרואה "רווח
+                358 אלף" מקבל החלטות על בסיס נתון שאינו קיים.
+                
+                ⚠️ costComplete=false → מציגים "—" ומסבירים.
+                לא מסתירים את הכרטיס, כי אז המנהל יחפש אותו. */}
+            {fin.costComplete ? (
+              <FinancialCard
+                label="רווח נקי"
+                amount={fin.netProfit}
+                color={fin.netProfit >= 0 ? "emerald" : "red"}
+                big
+              />
+            ) : (
+              <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+                <div className="text-[11px] font-bold text-amber-900">
+                  רווח נקי
+                </div>
+                <div className="text-2xl font-extrabold text-amber-700 mt-0.5">
+                  —
+                </div>
+                <div className="text-[10px] text-amber-800 mt-0.5 leading-tight">
+                  יחושב אחרי קליטת תעודות משלוח
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ⚠️ בלי הסימון הזה המנהל רואה רווח מנופח ואין לו דרך
@@ -338,7 +364,20 @@ if (loading) {
                 ⚠️ הרווח המוצג חלקי — חסרה עלות ספק
               </div>
               <div className="text-xs text-amber-800 mt-1 leading-relaxed">
-                {fin.missingCostProducts.length > 0 ? (
+                {/* §232: שתי סיבות שונות, שתי פעולות שונות.
+                    
+                    ⚠️ "אין תעודה" → לצלם תעודה
+                    ⚠️ "אין עלות"  → להזין מספר בטבלה
+                    
+                    הודעה אחת שמערבבת אותן שולחת את המנהל לפעולה
+                    הלא נכונה. */}
+                {(fin.missingNoteProducts?.length ?? 0) > 0 ? (
+                  <>
+                    לא הועלו תעודות משלוח עבור:{" "}
+                    <b>{fin.missingNoteProducts!.join(", ")}</b>. יש לצלם את
+                    התעודות במסך תעודות משלוח.
+                  </>
+                ) : fin.missingCostProducts.length > 0 ? (
                   <>
                     לא הוזנה עלות לק&quot;ג עבור:{" "}
                     <b>{fin.missingCostProducts.join(", ")}</b>. ניתן להזין
