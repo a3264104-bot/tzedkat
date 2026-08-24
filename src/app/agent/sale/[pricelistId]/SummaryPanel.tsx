@@ -90,10 +90,14 @@ export function SummaryPanel({
   const diff = totalNoteWeight - totalDistributed;
 
   // חישוב לפי מוצר - כמה ק"ג לפי התעודה, כמה חולק, פער
+  // §246: הגנה מפני orders/walkins שאינם מערך.
+  //
+  // ⚠️ טעינה חלקית מפילה את הרכיב, וכל מסך המכירה נופל איתו -
+  // הנציג נשאר בלי טבלת משקלים באמצע חלוקה.
   const productSummary = calculateProductSummary(
     productWeightsFromNotes,
-    orders,
-    walkins
+    orders ?? [],
+    walkins ?? []
   );
 
   async function saveNote() {

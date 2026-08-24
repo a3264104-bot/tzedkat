@@ -105,6 +105,16 @@ export function WeightsTable({
   // כל לקוח צמודים משמאל בלי רווחים. לקוח שהזמין 2 פריטים תופס
   // 2 תאים, ולא 2 מתוך 20.
   const maxItems = useMemo(() => {
+    // §246: הגנה מפני orders שאינו מערך.
+    //
+    // ⚠️ טעינה חלקית או session שפג מחזירים undefined, ורכיב
+    // שקורס מפיל את **כל** מסך המכירה - הנציג נשאר בלי טבלת
+    // משקלים באמצע חלוקה.
+    //
+    // ⚠️ מחזיר 1 ולא []: ה-useMemo הזה מחשב את **מספר** העמודות
+    // המקסימלי, ומערך ריק כאן שבר את Array.from למטה.
+    if (!Array.isArray(orders)) return 1;
+
     let m = 1;
     for (const o of orders) {
       const n = o.items.filter((i) => !i.isCancelled).length;

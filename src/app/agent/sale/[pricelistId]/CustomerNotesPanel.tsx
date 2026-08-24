@@ -24,7 +24,7 @@ export function CustomerNotesPanel({ orders }: { orders: Order[] }) {
   // לומד להתעלם ממנו.
   const pending = useMemo(
     () =>
-      orders.filter(
+      (orders ?? []).filter(
         (o) =>
           o.customerNote &&
           o.customerNote.trim() &&
@@ -37,7 +37,7 @@ export function CustomerNotesPanel({ orders }: { orders: Order[] }) {
   // ⚠️ הערות שנענו - מוצגות רק כשפותחים, לא במונה.
   const answered = useMemo(
     () =>
-      orders.filter(
+      (orders ?? []).filter(
         (o) => o.customerNote && o.customerNote.trim() && o.agentReply
       ),
     [orders]

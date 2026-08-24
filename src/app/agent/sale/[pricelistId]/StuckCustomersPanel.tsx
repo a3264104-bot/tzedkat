@@ -43,6 +43,17 @@ export function StuckCustomersPanel({
   const stuck: StuckCustomer[] = useMemo(() => {
     const seen = new Set<string>();
     const out: StuckCustomer[] = [];
+    // §246: 🐛 קריסה כש-orders אינו מערך.
+    //
+    // הרכיב נוסף היום (§211) לראש מסך המכירה. אם data.orders
+    // מגיע undefined - טעינה חלקית, שגיאת רשת, session שפג -
+    // `for...of` זורק, **וכל המסך נופל**: הנציג לא רואה טבלה,
+    // לא יכול להזין משקלים, ולא מבין למה.
+    //
+    // ⚠️ רכיב שיושב בראש מסך קריטי חייב להיות עמיד: עדיף
+    // שהתיבה לא תופיע מאשר שתפיל את מה שמתחתיה.
+    if (!Array.isArray(orders)) return [];
+
     for (const o of orders) {
       const c = o.customer;
       if (!c) continue;
