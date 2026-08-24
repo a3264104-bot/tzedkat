@@ -15,6 +15,14 @@ type Pricelist = {
   singleSurcharge: string;
   deliveryDateText: string | null;
   notes: string | null;
+  /**
+   * §227: שעת סגירת ההזמנות — לחיווי "סגורה ללקוחות".
+   *
+   * ⚠️ השדה תמיד הגיע מה-API; רק הטיפוס לא הכיר אותו. זו
+   * הפעם השלישית בשיחה שאותו דפוס נתפס (canUpdateCards,
+   * afterCloseCount) — שדה שמוחזר ונקרא, בלי הצהרה.
+   */
+  closeDate?: string | null;
   // §111: מכירה לנציגים בלבד
   agentOnly?: boolean;
   // §145: מתי נשלחו קבצי האקסל
@@ -165,6 +173,8 @@ export default function PricelistsPage() {
     DRAFT: "bg-zinc-200 text-zinc-600",
     ACTIVE: "bg-green-100 text-green-700",
     CLOSED: "bg-amber-100 text-amber-700",
+    // §227: מצב ביניים - סגור ללקוחות, פתוח לצוות
+    ACTIVE_CLOSED: "bg-orange-100 text-orange-800",
     DONE: "bg-blue-100 text-blue-700",
   };
 
@@ -207,7 +217,16 @@ export default function PricelistsPage() {
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-brand-slatedark text-lg">{l.name}</span>
                     <span className={`badge ${statusColor[l.status]}`}>
-                      {PRICELIST_STATUS[l.status]}
+                      {/* §227: הסטטוס מסביר **למי** המכירה סגורה.
+                          
+                          ⚠️ "פעיל" לבדו מטעה: מכירה פעילה שעברה
+                          את שעת הסגירה כבר חסומה ללקוחות, והמנהל
+                          לא ידע את זה מהמסך. */}
+                      {l.status === "ACTIVE" &&
+                      l.closeDate &&
+                      new Date() > new Date(l.closeDate)
+                        ? "סגורה ללקוחות · פתוחה לנציגים"
+                        : PRICELIST_STATUS[l.status]}
                     </span>
                     {/* §111: סימון בולט - מכירה שהלקוחות לא רואים */}
                     {l.agentOnly && (
@@ -230,9 +249,37 @@ export default function PricelistsPage() {
                       הפוך לפעיל
                     </button>
                   )}
+                  {/* §227: 🐛 "סגור הזמנות" לא אמר למי.
+                      
+                      במערכת יש **שני שלבי סגירה**, והכפתור היחיד
+                      הזה קפץ ישר לשני:
+                      
+                      שלב 1 — עברה שעת הסגירה (אוטומטי):
+                        לקוחות חסומים · נציגים ומנהל ממשיכים.
+                        זה הזמן שבו מגיעות בקשות בטלפון ובחלוקה.
+                      
+                      שלב 2 — סטטוס CLOSED (הכפתור הזה):
+                        **כולם** חסומים. סופי.
+                      
+                      ⚠️ המנהל לחץ "סגור הזמנות" בשעת הסגירה,
+                      וחסם בטעות גם את עצמו ואת הנציגים - בדיוק
+                      כשהם צריכים להזין את מה שהגיע בטלפון. */}
                   {l.status === "ACTIVE" && (
-                    <button onClick={() => setStatus(l, "CLOSED")} className="btn-ghost btn-sm">
-                      סגור הזמנות
+                    <button
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `לסגור סופית את "${l.name}"?\n\n` +
+                              "אחרי הסגירה הסופית **גם אתה וגם הנציגים** לא תוכלו להזין הזמנות.\n\n" +
+                              "⚠️ אם רק רצית לחסום לקוחות — אין צורך בזה. שעת הסגירה כבר עושה את זה, ואתם ממשיכים לעבוד."
+                          )
+                        )
+                          return;
+                        setStatus(l, "CLOSED");
+                      }}
+                      className="btn-ghost btn-sm"
+                    >
+                      🔒 סגירה סופית
                     </button>
                   )}
                   {/* §116: הקישור למסך "מצב המכירה" הוסר.

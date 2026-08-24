@@ -116,6 +116,13 @@ export async function GET(req: Request) {
       creditBalance: Number(c.creditBalance ?? 0),
       defaultPointId: c.defaultPointId,
       pointName: c.defaultPoint?.name ?? null,
+      // §228: 🐛 העיר נשלפה ולא הוחזרה.
+      //
+      // המסך עושה `c.city || c.pointCity` - נפילה לעיר של
+      // נקודת החלוקה כשללקוח אין עיר משלו. אבל pointCity מעולם
+      // לא הגיע, ולכן הנפילה הייתה קוד מת ולקוחות בלי עיר
+      // הוצגו בלי עיר - למרות שהנקודה שלהם יודעת אותה.
+      pointCity: c.defaultPoint?.city ?? null,
       city: c.defaultPoint?.city ?? null,
       orderCount: c._count.orders,
       // §158: הזמנה פעילה - כדי שהמנהל ידע אם ללחוץ "הזמנה חדשה"

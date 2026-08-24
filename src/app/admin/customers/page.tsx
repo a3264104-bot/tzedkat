@@ -594,6 +594,19 @@ export default function AdminCustomersPage() {
   //
   // זו לא תקלה אלא נטישה טבעית. הבעיה היחידה הייתה שאף אחד לא
   // ידע שהם שם, והם גילו את זה רק כשניסו להזמין.
+  // §226: לקוחות בלי סיסמה גלויה ובלי קוד.
+  //
+  // ⚠️ מי שיש לו מייל יכול "שכחתי סיסמה" בעצמו - הוא לא נספר
+  // כאן, ואיפוס שלו רק ינתק אותו מסיסמה שהוא אולי כן זוכר.
+  const noPassCount = customers.filter(
+    (c) =>
+      c.isActive !== false &&
+      c.hasPassword &&
+      !c.passwordPlain &&
+      !c.hasLoginCode &&
+      !c.email
+  ).length;
+
   const stuckCount = customers.filter(
     (c) =>
       c.isActive !== false &&
@@ -636,6 +649,24 @@ export default function AdminCustomersPage() {
               ⚠️ מתחת לכותרת ולא בתוך הרשימה: הם לא "עוד שורה"
               אלא מצב שדורש טיפול, ומי שרואה אותם רק כשגולל
               לשורה שלהם לא יטפל בהם אף פעם. */}
+          {/* §226: כפתור איפוס קבוצתי.
+              
+              ⚠️ מוצג רק כשיש תקועים, ורק אחרי אישור בשתי שלבים -
+              הפעולה מנתקת לקוחות מהסיסמה הנוכחית שלהם. */}
+          {noPassCount > 0 && (
+            <p className="text-[11px] text-violet-900 bg-violet-50 border border-violet-300 rounded px-2 py-1 mt-1 inline-block">
+              🔑 <b>{noPassCount} לקוחות ללא סיסמה גלויה</b> — לא ניתן למסור
+              להם סיסמה.{" "}
+              <a
+                href="/api/admin/reset-passwords"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-bold"
+              >
+                הצג רשימה
+              </a>
+            </p>
+          )}
           {stuckCount > 0 && (
             <p className="text-[11px] text-red-800 bg-red-50 border border-red-300 rounded px-2 py-1 mt-1 inline-block">
               💳 <b>{stuckCount} לקוחות ללא אמצעי תשלום</b> — מוגדרים כאשראי

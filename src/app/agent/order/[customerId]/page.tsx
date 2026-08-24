@@ -222,7 +222,11 @@ export default async function AgentOrderPage({
   //
   // ⚠️ **רק ADMIN**, לא נציג: הנציג לא רואה את התמונה מול
   // הספק, והזמנה שלו אחרי הסגירה לא תיספר בהזמנה לחברה.
-  const isAdminOverride = role === "ADMIN";
+  // §227: גם הנציג עובר את שעת הסגירה - ראה ההסבר ב-orders-route.
+  //
+  // ⚠️ שלב 2 (status=CLOSED) עדיין חוסם את שניהם: הבדיקה על
+  // הסטטוס נמצאת במקום אחר ולא נגעתי בה.
+  const isAdminOverride = role === "ADMIN" || role === "AGENT";
   const closed =
     !isAdminOverride &&
     pricelist?.closeDate != null &&

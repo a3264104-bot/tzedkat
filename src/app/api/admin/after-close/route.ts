@@ -62,6 +62,7 @@ export async function GET(req: Request) {
     include: {
       customer: { select: { name: true, phone: true } },
       point: { select: { id: true, name: true, city: true } },
+
       items: {
         where: { isCancelled: false },
         include: {
@@ -79,6 +80,29 @@ export async function GET(req: Request) {
       },
     },
   });
+
+  // §227: מפת מזהה → שם נציג.
+  //
+  // ⚠️ שליפה אחת במקום N: יש עשרות הזמנות ומעט נציגים, ושאילתה
+  // לכל שורה הייתה עשרות סיבובים למסד באירלנד.
+  const agentIds = Array.from(
+    new Set(orders.map((o) => o.placedByAgentId).filter(Boolean) as string[])
+  );
+  const agentMap = new Map<string, string>();
+  if (agentIds.length > 0) {
+    const found = await prisma.customer.findMany({
+      // ⚠️ id **או** email: השדה מכיל את שניהם לפי המסלול שיצר
+      // את ההזמנה, וחיפוש לפי אחד בלבד היה מפספס חצי.
+      where: { OR: [{ id: { in: agentIds } }, { email: { in: agentIds } }] },
+      select: { id: true, email: true, name: true },
+    });
+    for (const a of found) {
+      agentMap.set(a.id, a.name);
+      if (a.email) agentMap.set(a.email, a.name);
+    }
+  }
+  const agentName = (v: string | null) =>
+    !v ? "המנהל" : (agentMap.get(v) ?? v);
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "צדקת רבותינו";
@@ -207,21 +231,27 @@ export async function GET(req: Request) {
   });
   banner(
     ws2,
-    3,
+    4,
     "אילו דפי חלוקה להדפיס מחדש",
     `${orders.length} הזמנות נוספו אחרי הסגירה`,
     "רק הנקודות ברשימה השתנו. אין צורך להדפיס את השאר."
   );
-  headerRow(ws2, ["נקודת חלוקה", "הזמנות חדשות", "לקוחות"], 4);
+  headerRow(ws2, ["נקודת חלוקה", "הזמנות חדשות", "לקוחות", "הוזן ע\"י"], 4);
 
-  const byPoint = new Map<string, { name: string; count: number; names: string[] }>();
+  const byPoint = new Map<
+    string,
+    { name: string; count: number; names: string[]; by: Set<string> }
+  >();
   for (const o of orders) {
     const key = o.point?.id ?? "none";
     const name = o.point?.name ?? "ללא נקודה";
-    if (!byPoint.has(key)) byPoint.set(key, { name, count: 0, names: [] });
+    if (!byPoint.has(key))
+      byPoint.set(key, { name, count: 0, names: [], by: new Set() });
     const b = byPoint.get(key)!;
     b.count++;
     b.names.push(o.customer?.name ?? o.customerName);
+    // §227: מי הזין - כדי שהמנהל ידע למי לפנות בשאלה
+    b.by.add(agentName(o.placedByAgentId));
   }
 
   let r2 = 5;
@@ -231,6 +261,7 @@ export async function GET(req: Request) {
     // ⚠️ שמות הלקוחות ולא רק מספר: כך אפשר לוודא בדף המודפס
     // שהם באמת שם, במקום לספור שורות.
     ws2.getCell(r2, 3).value = b.names.join(", ");
+    ws2.getCell(r2, 4).value = Array.from(b.by).join(", ");
     ws2.getCell(r2, 1).font = { size: 11, bold: true };
     ws2.getCell(r2, 2).alignment = { horizontal: "center" };
     ws2.getCell(r2, 2).font = { size: 12, bold: true, color: { argb: "FFC0461E" } };
@@ -241,6 +272,7 @@ export async function GET(req: Request) {
   ws2.getColumn(1).width = 34;
   ws2.getColumn(2).width = 14;
   ws2.getColumn(3).width = 46;
+  ws2.getColumn(4).width = 20;
 
   // ═══════════════════════════════════════════════════════════
   // גיליון 3: פירוט ההזמנות
@@ -252,12 +284,12 @@ export async function GET(req: Request) {
   });
   banner(
     ws3,
-    5,
+    6,
     "ההזמנות שנוספו אחרי הסגירה",
     `נסגרה ב-${closeTxt}`,
     "לתחקור ולבדיקה. אלה ההזמנות שאינן בספירה המקורית."
   );
-  headerRow(ws3, ["#", "לקוח", "טלפון", "נקודה", "נוצרה"], 4);
+  headerRow(ws3, ["#", "לקוח", "טלפון", "נקודה", "נוצרה", "הוזן ע\"י"], 4);
 
   let r3 = 5;
   for (const o of orders) {
@@ -272,7 +304,14 @@ export async function GET(req: Request) {
       hour: "2-digit",
       minute: "2-digit",
     });
-    for (let c = 1; c <= 5; c++) {
+    // §227: מי הזין. "המנהל" כשאין נציג משויך.
+    // §227: מי הזין.
+    //
+    // ⚠️ placedByAgentId הוא **מזהה או מייל**, לא יחס - לכן
+    // ההמרה לשם נעשית ממפה שנבנית מראש. בלי זה היה מוצג
+    // "cmrb2aphx000dl504" במקום "יוסי כהן".
+    ws3.getCell(r3, 6).value = agentName(o.placedByAgentId);
+    for (let c = 1; c <= 6; c++) {
       ws3.getCell(r3, c).font = { size: 10 };
       ws3.getCell(r3, c).alignment = { horizontal: c === 2 ? "right" : "center" };
     }
@@ -283,6 +322,7 @@ export async function GET(req: Request) {
   ws3.getColumn(3).width = 15;
   ws3.getColumn(4).width = 30;
   ws3.getColumn(5).width = 14;
+  ws3.getColumn(6).width = 20;
 
   const buf = await wb.xlsx.writeBuffer();
   const fname = `תוספות-אחרי-סגירה-${pricelist.name}.xlsx`.replace(
