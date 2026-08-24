@@ -41,6 +41,16 @@ type Data = {
     missingCostProducts: string[];
     /** §232: מוצרים שחולקו ואין להם תעודת משלוח כלל */
     missingNoteProducts?: string[];
+    /** §239: מה שנגבה בפועל, לפי אמצעי תשלום */
+    collectedCard?: number;
+    collectedCash?: number;
+    totalCollected?: number;
+    /** §240: מזומן שעדיין אצל הנציגים (אסף פחות העביר) */
+    cashWithAgents?: number;
+    /** §240: מזומן שהנציגים כבר העבירו למנהל */
+    cashReceivedFromAgents?: number;
+    pendingCollection?: number;
+    paidOrdersCount?: number;
     // §124: זיכויים ויתרות זכות שקוזזו - כסף שלא נכנס לקופה
     totalCredits?: number;
     totalBalanceApplied?: number;
@@ -315,7 +325,7 @@ if (loading) {
                   הכנסה משוערת
                 </div>
                 <div className="text-2xl font-extrabold text-amber-700 mt-0.5">
-                  ~₪{fin.totalRevenue.toFixed(2)}
+                  ~{money(fin.totalRevenue)}
                 </div>
                 <div className="text-[10px] text-amber-800 mt-0.5 leading-tight">
                   לפי משקלים משוערים · {progress.completionPercent}% נשקלו
@@ -338,7 +348,7 @@ if (loading) {
                   עמלות לנציגים
                 </div>
                 <div className="text-lg font-extrabold text-amber-700 mt-0.5">
-                  ~₪{(-fin.totalCommissions).toFixed(2)}
+                  ~{money(-fin.totalCommissions)}
                 </div>
                 <div className="text-[10px] text-amber-800 mt-0.5 leading-tight">
                   תגדל עם השקילה
@@ -399,12 +409,91 @@ if (loading) {
             )}
           </div>
 
-          {/* ⚠️ בלי הסימון הזה המנהל רואה רווח מנופח ואין לו דרך
-              לדעת שהוא חלקי. */}
+          {/* §239: 💰 מה שנגבה בפועל.
+              
+              🐛 הפער: המסך הציג "הכנסה ₪358,057" בזמן ש-0 הזמנות
+              שולמו. זה מה ש**הוזמן** - ואין שום מקום שאומר כמה
+              כסף באמת נכנס.
+              
+              ⚠️ הפרדה בין אשראי למזומן כי הם מצבים שונים:
+              אשראי כבר אצל נדרים; מזומן אצל הנציג וצריך להעביר.
+              "נגבה 50 אלף" בלי הפירוט לא אומר איפה הכסף.
+              
+              ⚠️ מוצג רק כשיש מה להציג - במכירה שטרם נגבתה
+              בכלל הוא ארבעה אפסים. */}
+          {(fin.totalCollected ?? 0) > 0 && (
+            <div className="mt-4 pt-4 border-t border-zinc-100">
+              <div className="text-xs font-bold text-zinc-500 mb-2">
+                💰 נגבה בפועל
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3">
+                  <div className="text-[10px] font-bold text-emerald-800">
+                    סה״כ נגבה
+                  </div>
+                  <div className="text-xl font-extrabold text-emerald-700 mt-0.5">
+                    {money(fin.totalCollected ?? 0)}
+                  </div>
+                  <div className="text-[10px] text-emerald-700 mt-0.5">
+                    {fin.paidOrdersCount ?? 0} הזמנות שולמו
+                  </div>
+                </div>
+                <SubStat
+                  label="💳 אשראי"
+                  value={money(fin.collectedCard ?? 0)}
+                />
+                {/* §240: 🐛 "מזומן אצל נציגים" כלל גם מה שכבר הועבר.
+                    
+                    ⚠️ כתום למה שעדיין אצלם - זה דורש פעולה.
+                    מה שכבר הועבר מוצג בשורה נפרדת, בלי צבע, כי
+                    הוא כבר סגור. */}
+                <SubStat
+                  label="💵 מזומן אצל נציגים"
+                  value={money(fin.cashWithAgents ?? fin.collectedCash ?? 0)}
+                  color="amber"
+                />
+                <SubStat
+                  label="⏳ ממתין לגבייה"
+                  value={money(fin.pendingCollection ?? 0)}
+                  color="amber"
+                />
+              </div>
+              {/* §240: מה שכבר הועבר - רק כשקרה.
+                  
+                  ⚠️ שורה נפרדת ולא כרטיס: זה מידע משלים ("כמה כבר
+                  סגרנו"), לא משימה. כרטיס חמישי היה מושך תשומת
+                  לב למה שכבר טופל. */}
+              {(fin.cashReceivedFromAgents ?? 0) > 0 && (
+                <p className="text-[11px] text-zinc-500 mt-2">
+                  ✓ מתוך המזומן, <b>{money(fin.cashReceivedFromAgents!)}</b>{" "}
+                  כבר הועברו אליך ע״י הנציגים.{" "}
+                  <a
+                    href="/admin/agent-debts"
+                    className="text-brand-rust underline font-bold"
+                  >
+                    לרישום העברה ←
+                  </a>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* §237: 🐛 האזהרה חזרה על מה שהכרטיס כבר אומר.
+              
+              היא נכתבה כשהרווח הוצג כמספר מנופח, ואז היא הייתה
+              הדבר היחיד שהתריע. עכשיו הכרטיס עצמו מציג "—" עם
+              "יחושב אחרי קליטת תעודות משלוח" - והאזהרה חזרה על
+              אותו מסר בפעם השנייה, בגדול.
+              
+              ⚠️ מה שכן נשאר: **הרשימה** של מה חסר בדיוק. זה מידע
+              שהכרטיס לא נותן, והוא מה שאומר למנהל מה לעשות.
+              
+              ⚠️ הכותרת שונתה מ"אזהרה" ל"פעולה נדרשת": ברגע
+              שהמספר כבר לא מטעה, זו רשימת מטלות ולא התרעה. */}
           {!fin.costComplete && (
-            <div className="mt-3 bg-amber-50 border-2 border-amber-300 rounded-xl p-3">
+            <div className="mt-3 bg-white border border-amber-200 rounded-xl p-3">
               <div className="text-sm font-bold text-amber-900">
-                ⚠️ הרווח המוצג חלקי — חסרה עלות ספק
+                📋 מה נדרש כדי לחשב רווח
               </div>
               <div className="text-xs text-amber-800 mt-1 leading-relaxed">
                 {/* §232: שתי סיבות שונות, שתי פעולות שונות.
@@ -433,41 +522,51 @@ if (loading) {
             </div>
           )}
 
+          {/* §237: 🐛 "הזמנות מהאתר 358,057" = בדיוק ההכנסה למעלה.
+              
+              כשאין מזדמנים, "פירוט ההכנסות" מציג את אותו מספר
+              בפעם השנייה ועוד שני אפסים. זה נראה כמו טבלה עם
+              נתונים, ובפועל הוא חוזר על הכרטיס.
+              
+              ⚠️ מוצג רק כשיש **באמת מה לפרט** - כלומר כשיש
+              מזדמנים. אחרת ההכנסה כולה מהזמנות, וזה כבר כתוב. */}
+          {fin.walkinRevenue > 0 && (
           <div className="mt-4 pt-4 border-t border-zinc-100">
             <div className="text-xs font-bold text-zinc-500 mb-2">פירוט הכנסות</div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <SubStat label="הזמנות מהאתר" value={`₪${fin.orderRevenue.toFixed(2)}`} />
-              <SubStat label="מזדמנים - סה״כ" value={`₪${fin.walkinRevenue.toFixed(2)}`} />
+              <SubStat label="הזמנות מהאתר" value={`${money(fin.orderRevenue)}`} />
+              <SubStat label="מזדמנים - סה״כ" value={`${money(fin.walkinRevenue)}`} />
               <SubStat
                 label="מזומן שנאסף"
-                value={`₪${fin.walkinCash.toFixed(2)}`}
+                value={`${money(fin.walkinCash)}`}
                 color="amber"
               />
               {fin.walkinCardTerminal > 0 && (
                 <SubStat
                   label="אשראי במסוף פיזי"
-                  value={`₪${fin.walkinCardTerminal.toFixed(2)}`}
+                  value={`${money(fin.walkinCardTerminal)}`}
                 />
               )}
               {fin.walkinOnline > 0 && (
-                <SubStat label="אשראי אונליין" value={`₪${fin.walkinOnline.toFixed(2)}`} />
+                <SubStat label="אשראי אונליין" value={`${money(fin.walkinOnline)}`} />
               )}
               {fin.walkinTransferReceived > 0 && (
                 <SubStat
                   label="העברות שהתקבלו"
-                  value={`₪${fin.walkinTransferReceived.toFixed(2)}`}
+                  value={`${money(fin.walkinTransferReceived)}`}
                   color="emerald"
                 />
               )}
               {fin.walkinTransferPending > 0 && (
                 <SubStat
                   label="העברות ממתינות"
-                  value={`₪${fin.walkinTransferPending.toFixed(2)}`}
+                  value={`${money(fin.walkinTransferPending)}`}
                   color="amber"
                 />
               )}
             </div>
           </div>
+          )}
         </div>
 
         {/* השוואת מוצרים - תעודה מול חלוקה בפועל */}
@@ -575,6 +674,31 @@ function MiniStat({
   );
 }
 
+/**
+ * §238: פורמט סכומים עם מפריד אלפים.
+ *
+ * 🐛 מה שהיה: `₪358057.30` - שבע ספרות רצופות. אי אפשר להעריך
+ * במבט אם זה 35 אלף או 358 אלף, וצריך לספור ספרות.
+ *
+ * ⚠️ בלי אגורות בסכומים גדולים: "₪358,057" קריא, ו-".30" הוא
+ * רעש כשמדובר במאות אלפים. מתחת ל-1000 האגורות כן חשובות -
+ * שם ההפרש בין 19.97 ל-20 הוא משמעותי.
+ *
+ * ⚠️ he-IL ולא ברירת מחדל: הוא נותן פסיק כמפריד אלפים, שזה מה
+ * שמצופה בעברית.
+ */
+function money(n: number): string {
+  const abs = Math.abs(n);
+  // ⚠️ he-IL מוסיף תו RTL נסתר (U+200E) לפני מספר שלילי, והוא
+  // מופיע בדפדפן כתו זבל. מפרמטים את הערך המוחלט ומוסיפים את
+  // המינוס בעצמנו.
+  const num = abs.toLocaleString("he-IL", {
+    minimumFractionDigits: abs >= 1000 ? 0 : 2,
+    maximumFractionDigits: abs >= 1000 ? 0 : 2,
+  });
+  return (n < 0 ? "-" : "") + "₪" + num;
+}
+
 function FinancialCard({
   label,
   amount,
@@ -591,7 +715,7 @@ function FinancialCard({
     <div className={`rounded-xl border p-3 ${c}`}>
       <div className="text-[10px] font-bold opacity-80">{label}</div>
       <div className={`font-extrabold mt-1 ${big ? "text-2xl" : "text-xl"}`}>
-        ₪{amount.toFixed(2)}
+        {money(amount)}
       </div>
     </div>
   );
@@ -758,9 +882,9 @@ function AgentSummaryRow({
 }) {
   const balanceLabel =
     a.balance > 0.01
-      ? `יש לשלם ₪${a.balance.toFixed(2)}`
+      ? `יש לשלם ${money(a.balance)}`
       : a.balance < -0.01
-      ? `חייב ₪${Math.abs(a.balance).toFixed(2)}`
+      ? `חייב ${money(Math.abs(a.balance))}`
       : "סגור";
   const balanceColor =
     a.balance > 0.01
@@ -799,8 +923,8 @@ function AgentSummaryRow({
           {a.totalWalkins > 0 && <span>מזדמנים: <b>{a.totalWalkins}</b></span>}
           {a.cashCollected > 0 && (
             <span className="text-amber-700">
-              מזומן שאסף: <b>₪{a.cashCollected.toFixed(2)}</b>
-              {a.cashHandedIn > 0 && ` (העביר ${a.cashHandedIn.toFixed(2)})`}
+              מזומן שאסף: <b>{money(a.cashCollected)}</b>
+              {a.cashHandedIn > 0 && ` (העביר ${money(a.cashHandedIn)})`}
             </span>
           )}
         </div>
@@ -812,7 +936,7 @@ function AgentSummaryRow({
       </div>
       <div className="flex flex-col items-end gap-1.5 shrink-0">
         <div className="text-lg font-extrabold text-brand-rust">
-          ₪{a.totalCommission.toFixed(2)}
+          {money(a.totalCommission)}
         </div>
         <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${balanceColor}`}>
           {balanceLabel}

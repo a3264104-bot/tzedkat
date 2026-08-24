@@ -385,6 +385,80 @@ export async function GET(
   totalBalanceApplied = Math.round(totalBalanceApplied * 100) / 100;
 
   const totalRevenue = totalOrderRevenue + walkinRevenue;
+
+  // §239: 💰 **מה שנגבה בפועל** — לא מה שהוזמן.
+  //
+  // 🐛 המסך הציג "הכנסה ₪358,057" בזמן ש-0 הזמנות שולמו. זה
+  // מה ש**הוזמן**, ואין שום מקום שאומר כמה כסף באמת נכנס.
+  //
+  // ⚠️ שלוש קטגוריות, כי הן מתנהגות שונה:
+  //   אשראי  — הכסף כבר אצל נדרים, לא צריך לעשות כלום
+  //   מזומן  — הנציג מחזיק אותו, וצריך להעביר
+  //   ממתין  — עוד לא נגבה כלל
+  //
+  // ⚠️ amountPaid ולא finalTotal: תשלום חלקי הוא מצב אמיתי
+  // (§7), ושימוש ב-finalTotal היה סופר אותו כמלא.
+  let collectedCard = 0;
+  let collectedCash = 0;
+  let pendingCollection = 0;
+  let paidOrdersCount = 0;
+
+  for (const o of orders) {
+    const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
+    const paid = Number(o.amountPaid ?? 0);
+
+    if (o.paymentStatus === "PAID" || paid > 0) {
+      // ⚠️ הסכום שבאמת נכנס. אם amountPaid ריק אבל הסטטוס PAID
+      // (סימון ידני ישן) - נופלים לסכום שהיה אמור להיגבות.
+      const actual = paid > 0 ? paid : due;
+      // ⚠️ CASH **או** MANUAL: "סימון תשלום מזומן" של הנציג
+      // (§130) שומר MANUAL, וספירה שלו כאשראי הייתה מנפחת את
+      // מה שכביכול כבר אצלנו.
+      if (o.paymentMethod === "CASH" || o.paymentMethod === "MANUAL") {
+        collectedCash += actual;
+      } else {
+        collectedCard += actual;
+      }
+      if (o.paymentStatus === "PAID") paidOrdersCount++;
+      // ⚠️ יתרה בתשלום חלקי עדיין ממתינה
+      if (actual < due) pendingCollection += due - actual;
+    } else {
+      pendingCollection += due;
+    }
+  }
+
+  // ⚠️ מזדמנים: אצלם התשלום כבר נגבה בהגדרה (§44), ולכן הם
+  // נספרים ישירות לפי אמצעי התשלום.
+  collectedCash += walkinCash;
+  collectedCard += walkinCardTerminal + walkinOnline;
+  // ⚠️ העברה בנקאית שטרם התקבלה היא ממתינה, לא נגבתה.
+  pendingCollection += walkinTransferPending;
+
+  // §240: 🐛 "מזומן אצל נציגים" כלל גם את מה שכבר העבירו.
+  //
+  // הכרטיס אמר "₪4,250 אצל נציגים" - אבל אם נציג כבר העביר
+  // ₪3,000, בפועל אצלם רק ₪1,250. המנהל שרואה את המספר הגבוה
+  // חושב שיש לו עוד מה לאסוף.
+  //
+  // ⚠️ הסכום מגיע מ-AgentPayment עם type=COLLECTED, שנרשם
+  // במסך חובות נציגים כשהנציג מעביר.
+  //
+  // ⚠️ החישוב **אחרי** לולאת ההזמנות: agentPayments נשלף
+  // למעלה, וזו הנקודה הראשונה שבה שניהם זמינים.
+  const cashHandedToAdmin = Object.values(agentCollectedMap).reduce(
+    (a, b) => a + b,
+    0
+  );
+
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  collectedCard = r2(collectedCard);
+  collectedCash = r2(collectedCash);
+  pendingCollection = r2(pendingCollection);
+  const totalCollected = r2(collectedCard + collectedCash);
+  // ⚠️ Math.max(0): אם נציג העביר יותר ממה שנרשם שאסף (טעות
+  // הזנה), המספר לא הופך שלילי - זה היה נראה כמו באג.
+  const cashWithAgents = r2(Math.max(0, collectedCash - cashHandedToAdmin));
+  const cashReceivedFromAgents = r2(cashHandedToAdmin);
   const totalCommissions = agentsReport.reduce((s, a) => s + a.totalCommission, 0);
   const netRevenue = totalRevenue - totalCommissions;
 
@@ -481,6 +555,15 @@ export async function GET(
       netRevenue,
       // §124: זיכויים - כסף שלא נכנס
       totalCredits,
+      // §239: מה שנגבה בפועל, לפי אמצעי תשלום
+      collectedCard,
+      collectedCash,
+      totalCollected,
+      // §240: פירוט המזומן - אצל הנציגים מול מה שכבר הועבר
+      cashWithAgents,
+      cashReceivedFromAgents,
+      pendingCollection,
+      paidOrdersCount,
       totalBalanceApplied,
       // §116: עלות הספק והרווח בפועל
       totalSupplierCost,
