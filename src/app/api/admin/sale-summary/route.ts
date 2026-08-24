@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+// §243: מקור אמת יחיד לסכום הזמנה
+import { orderGrandTotal } from "@/lib/pricing";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 
@@ -115,7 +117,11 @@ export async function GET(req: Request) {
   };
 
   for (const o of orders) {
-    paymentSummary.estimatedSum += Number(o.estimatedTotal);
+    // §243: 🐛 estimatedTotal בלבד — בלי משלוח וחיובים.
+    //
+    // הוא נשמר ברגע ההזמנה, ומשלוח/חיוב/זיכוי נוספים אחר כך.
+    // התוצאה: הסיכום הראה ₪358,684 ובקרת המכירה ₪358,929.
+    paymentSummary.estimatedSum += orderGrandTotal(o);
     if (o.finalTotal != null) paymentSummary.finalSum += Number(o.finalTotal);
     if (o.paymentStatus === "PAID") {
       paymentSummary.paid++;

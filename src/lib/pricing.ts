@@ -126,3 +126,46 @@ export function fmt(n: number | string | null | undefined): string {
   if (Number.isNaN(v)) return "—";
   return "₪" + v.toLocaleString("he-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+/**
+ * §243: הסכום המלא של הזמנה — מקור אמת יחיד.
+ *
+ * 🐛 estimatedTotal נשמר ברגע ההזמנה = פריטים + דמי טיפול בלבד.
+ * משלוח (§134/§182), חיוב נוסף וזיכוי נוספים אחר כך, ונכנסים
+ * ל-finalTotal רק בשקילה. מי שמסתמך על estimatedTotal בין שני
+ * הרגעים מציג סכום חסר — וזה יצר הפרש של ₪244 בין המסכים.
+ */
+export function orderGrandTotal(
+  o: {
+    finalTotal?: unknown;
+    estimatedTotal?: unknown;
+    deliveryRequested?: boolean | null;
+    deliveryFee?: unknown;
+    extraCharge?: unknown;
+    creditAmount?: unknown;
+    appliedCreditBalance?: unknown;
+  },
+  opts?: { addOrderFee?: number }
+): number {
+  const num = (v: unknown) => (v == null ? 0 : Number(v) || 0);
+
+  // finalTotal גובר: אחרי שקילה כל הרכיבים כבר בתוכו (134),
+  // והוספה שלהם שוב הייתה ספירה כפולה.
+  if (o.finalTotal != null) return Math.round(num(o.finalTotal) * 100) / 100;
+
+  const base = num(o.estimatedTotal) + (opts?.addOrderFee ?? 0);
+  const delivery = o.deliveryRequested ? num(o.deliveryFee) : 0;
+
+  // Math.max(0): זיכוי גדול מהסכום לא אמור לקרות, אבל סכום
+  // שלילי בדוח מבלבל יותר מאפס.
+  return Math.max(
+    0,
+    Math.round(
+      (base +
+        delivery +
+        num(o.extraCharge) -
+        num(o.creditAmount) -
+        num(o.appliedCreditBalance)) *
+        100
+    ) / 100
+  );
+}

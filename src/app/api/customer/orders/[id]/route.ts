@@ -181,7 +181,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         where: { id },
         select: {
           pricelistId: true,
-          pricelist: { select: { singleSurcharge: true } },
+          // §245: orderFee - כדי שעריכה לא תמחק את דמי הטיפול
+          pricelist: { select: { singleSurcharge: true, orderFee: true } },
         },
       });
       if (!orderInfo) {
@@ -278,6 +279,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           agentSetPrice: keptCustom,
         });
       }
+
+      // §245: 🐛 **עריכת הזמנה מחקה את דמי הטיפול.**
+      //
+      // מה שקרה בשטח: 35 מתוך 244 הזמנות נשמרו בלי ₪3 דמי טיפול.
+      // התאריכים שלהן משתלבים עם השאר, כלומר זו לא הגדרה שהשתנתה
+      // באמצע - אלה הזמנות ש**נערכו**.
+      //
+      // הסיבה: /api/orders מוסיף orderFee ביצירה, וכאן החישוב
+      // נבנה מחדש מהפריטים בלבד. כל עריכה מחקה אותו בשקט.
+      //
+      // ⚠️ 35 × ₪3 = ₪105 שלא נגבו. סכום קטן, אבל הוא מסביר את
+      // כל ההפרשים שרדפנו אחריהם היום בין המסכים.
+      const orderFee = Number(
+        (orderInfo.pricelist as any)?.orderFee ?? 0
+      );
+      estimatedTotal = Math.round((estimatedTotal + orderFee) * 100) / 100;
 
       // עדכון בטרנזקציה: מחיקת פריטים ישנים + יצירת חדשים + עדכון סה"כ + שדות בסיס
       data.estimatedTotal = estimatedTotal;

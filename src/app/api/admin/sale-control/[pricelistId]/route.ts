@@ -21,8 +21,6 @@ export async function GET(
       id: true, name: true, status: true,
       deliveryDate: true, deliveryDateText: true,
       closeDate: true,
-      // §241: דמי טיפול - נכללים בסכום ההזמנה כשטרם נשקלה
-      orderFee: true,
     },
   });
   if (!pricelist) {
@@ -163,8 +161,17 @@ export async function GET(
       // בסכום המלא של ההזמנה. מחסירים את מה שכבר נספר.
       totalOrderRevenue += Number(order.finalTotal) - orderItemsSum;
     } else {
-      // ⚠️ טרם נשקל: מוסיפים את הרכיבים שאינם פריטים.
-      const fee = Number(pricelist.orderFee ?? 0);
+      // §244: 🐛 **ספירה כפולה של דמי הטיפול.**
+      //
+      // הוספתי כאן `orderFee` בהנחה שהוא חסר - אבל estimatedTotal
+      // כבר כולל אותו מרגע יצירת ההזמנה. התוצאה: ₪3 × ~35 הזמנות
+      // = ₪104.70 עודף, ובקרת המכירה הציגה יותר מהמסד.
+      //
+      // ⚠️ הראיה: שאילתה ישירה למסד החזירה 358,824.30, והמסך
+      // הציג 358,929. ההפרש היה בדיוק דמי הטיפול הכפולים.
+      //
+      // ⚠️ עכשיו: מחליפים את סכום הפריטים ב-estimatedTotal (שכולל
+      // את הטיפול), ומוסיפים רק את מה שנוסף **אחרי** ההזמנה.
       const dlv =
         order.deliveryRequested && order.deliveryFee != null
           ? Number(order.deliveryFee)
@@ -176,7 +183,15 @@ export async function GET(
         order.appliedCreditBalance != null
           ? Number(order.appliedCreditBalance)
           : 0;
-      totalOrderRevenue += fee + dlv + extra - credit - bal;
+      // §245: estimatedTotal הוא מקור האמת - הוא כולל את דמי
+      // הטיפול כפי שהיו **ברגע ההזמנה**.
+      //
+      // ⚠️ לא מוסיפים orderFee ידנית: 35 הזמנות נשמרו בלי אחרי
+      // עריכה (§245), והוספה כאן הייתה "מתקנת" אותן בדוח בזמן
+      // שבמסד הן עדיין חסרות - כלומר הדוח היה מציג יותר ממה
+      // שייגבה בפועל.
+      totalOrderRevenue +=
+        Number(order.estimatedTotal ?? 0) - orderItemsSum + dlv + extra - credit - bal;
     }
 
     if (hasData) totalOrdersWithData++;

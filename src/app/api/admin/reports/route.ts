@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+import { orderGrandTotal } from "@/lib/pricing";
 
 export async function GET(req: Request) {
   const g = await requireAdmin();
@@ -19,7 +20,11 @@ export async function GET(req: Request) {
 
   // dashboard numbers
   const totalOrders = active.length;
-  const estimatedSales = active.reduce((s, o) => s + Number(o.estimatedTotal), 0);
+  // §243: 🐛 estimatedTotal בלבד — בלי משלוח, חיוב נוסף וזיכויים.
+//
+// הוא נשמר ברגע ההזמנה, והרכיבים האלה נוספים אחר כך. התוצאה:
+// הדשבורד הראה ₪358,684 ובקרת המכירה ₪358,929 — הפרש של ₪244.
+const estimatedSales = active.reduce((s, o) => s + orderGrandTotal(o), 0);
   const finalSales = active.reduce((s, o) => s + Number(o.finalTotal ?? 0), 0);
 
   // by point
