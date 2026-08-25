@@ -590,6 +590,25 @@ export async function GET(
       })
     : 0;
 
+  // §282: רשימת הנקודות שיש בהן הזמנות — לבורר ההדפסה.
+  //
+  // ⚠️ נבנית מההזמנות ולא מטבלת הנקודות: המנהל צריך להדפיס רק
+  // איפה שיש מה לחלק, ונקודה ריקה בבורר היא לחיצה מבוזבזת.
+  const pointsWithOrders = Array.from(
+    orders.reduce((map, o) => {
+      if (o.pointId && !map.has(o.pointId)) {
+        map.set(o.pointId, {
+          id: o.pointId,
+          name: o.point?.name || o.pointNameSnapshot || "נקודה",
+          count: 0,
+        });
+      }
+      if (o.pointId) map.get(o.pointId)!.count++;
+      return map;
+    }, new Map<string, { id: string; name: string; count: number }>())
+      .values()
+  ).sort((a, b) => a.name.localeCompare(b.name, "he"));
+
   return NextResponse.json({
     pricelist: {
       id: pricelist.id,
@@ -601,6 +620,8 @@ export async function GET(
     },
     // §207: לכפתור התוספות אחרי סגירה
     afterCloseCount,
+    // §282: לבורר ההדפסה לפי נקודה
+    pointsWithOrders,
     financialSummary: {
       totalRevenue,
       orderRevenue: totalOrderRevenue,

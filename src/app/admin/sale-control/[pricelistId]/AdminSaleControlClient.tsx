@@ -78,6 +78,8 @@ type Data = {
     differencePercent: number;
     status: "OK" | "OVER" | "UNDER" | "SIGNIFICANT_UNDER" | "NO_NOTE";
   }>;
+  /** §282: נקודות שיש בהן הזמנות — לבורר ההדפסה */
+  pointsWithOrders?: Array<{ id: string; name: string; count: number }>;
   agents: Array<{
     agentId: string;
     agentName: string;
@@ -153,6 +155,16 @@ if (loading) {
 
   const { financialSummary: fin, progress, productComparison, agents, alerts } = data;
 
+  // §282: 🎯 בורר נקודה להדפסה.
+  //
+  // התרחיש: המנהל מדפיס לנציג מסוים ולא צריך את 14 הנקודות.
+  // קובץ עם 14 לשוניות אומר לחפש את הנכונה ואז להדפיס רק
+  // אותה - שני שלבים שאפשר לחסוך.
+  //
+  // ⚠️ "" = כל הנקודות. ברירת המחדל שומרת על ההתנהגות הקיימת.
+  const [printPointId, setPrintPointId] = useState("");
+  const pointQS = printPointId ? `?pointId=${printPointId}` : "";
+
   return (
     <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
       <header className="bg-brand-yellow border-b-4 border-brand-rust/20">
@@ -201,14 +213,69 @@ if (loading) {
               המנהל מקבל את **כל** הנקודות בגיליונות נפרדים.
               שני מימושים היו מתפצלים - וזה בדיוק מה שקרה עם
               הדוח הזה. */}
+          {/* §282: בורר הנקודה — **לפני** כפתורי ההדפסה.
+
+              
+
+              ⚠️ הסדר חשוב: המנהל בוחר קודם למי הוא מדפיס, ואז
+
+              לוחץ. בורר אחרי הכפתורים היה נראה כמו סינון של
+
+              התצוגה, לא של ההורדה. */}
+
+          {(data.pointsWithOrders?.length ?? 0) > 1 && (
+
+            <select
+
+              value={printPointId}
+
+              onChange={(e) => setPrintPointId(e.target.value)}
+
+              className="px-3 py-2 rounded-xl border-2 border-zinc-300 text-sm font-bold"
+
+              title="לאיזו נקודה להדפיס"
+
+            >
+
+              <option value="">📍 כל הנקודות</option>
+
+              {data.pointsWithOrders!.map((p) => (
+
+                <option key={p.id} value={p.id}>
+
+                  {p.name} ({p.count})
+
+                </option>
+
+              ))}
+
+            </select>
+
+          )}
+
           <a
-            href={`/api/agent/export-sale/${pricelistId}`}
+            href={`/api/agent/export-sale/${pricelistId}${pointQS}`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-4 py-2 bg-brand-slatedark text-white rounded-xl font-bold text-sm shadow-sm hover:opacity-90"
           >
             <span className="text-base">📥</span>
             דף חלוקה להדפסה
+          </a>
+
+          {/* §279: 📦 דף מיון — לפי מוצר.
+              
+              המנהל מדפיס לנציגים, ולכן הוא צריך את שני הדפים.
+              כפתור אחד בלבד היה אומר שהנציג מקבל חצי כלי. */}
+          <a
+            href={`/api/agent/sorting-sheet/${pricelistId}${pointQS}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-700 text-white rounded-xl font-bold text-sm shadow-sm hover:opacity-90"
+            title="למי שייך כל מוצר — עם סה״כ וסימון מסירה"
+          >
+            <span className="text-base">📦</span>
+            דף מיון (לפי מוצר)
           </a>
 
           {/* §207: תוספות אחרי סגירה.

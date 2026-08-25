@@ -7,6 +7,8 @@
 // - קטע 2: 8-10 שורות ריקות למזדמנים - עם עמודת אמצעי תשלום
 
 import { NextResponse } from "next/server";
+// §280: סימני קטגוריה — מקור אמת יחיד
+import { categoryMark, CATEGORY_LEGEND } from "@/lib/category-mark-lib";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
 import ExcelJS from "exceljs";
@@ -14,7 +16,7 @@ import ExcelJS from "exceljs";
 import { formatItemQty } from "@/lib/order-display";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ pricelistId: string }> }
 ) {
   const g = await requireAgent();
@@ -37,9 +39,20 @@ export async function GET(
   }
 
   // הזמנות של הנקודה
+  // §282: 🎯 סינון לנקודה אחת.
+  //
+  // התרחיש: המנהל מדפיס לנציג מסוים ולא צריך את 14 הנקודות.
+  // קובץ עם 14 לשוניות אומר לחפש את הנכונה, ואז להדפיס רק
+  // אותה - שני שלבים שאפשר לחסוך.
+  //
+  // ⚠️ ריק = כל הנקודות. ההתנהגות הקיימת נשמרת בדיוק.
+  const { searchParams } = new URL(req.url);
+  const onlyPointId = (searchParams.get("pointId") || "").trim();
+
   const whereOrders: any = {
     pricelistId,
     status: { notIn: ["CANCELLED"] },
+    ...(onlyPointId ? { pointId: onlyPointId } : {}),
   };
   // §117: 🐛 דפוס ג' - השליפה השתמשה ב-agentPointId היחיד, ולכן
   // נציג המשויך לכמה נקודות קיבל דוח של אחת בלבד. השאר פשוט לא
@@ -278,6 +291,8 @@ function isColoredCategory(categoryName: string | null | undefined): boolean {
   if (!c) return false;
   return COLORED_CATEGORIES.some((k) => c.includes(k));
 }
+
+
 const PRODUCT_COLORS = [
   "FFFFF3CD", // חרדל בהיר
   "FFD4EDDA", // ירוק
@@ -439,7 +454,11 @@ function buildDistributionSheet(
     //
     // ⚠️ המקרא הגדול (שורה 3) מוצג רק כשיש הזמנות מאוחרות, ולכן
     // אי אפשר לסמוך עליו. השורה הזו נמצאת בכל דף.
-    " · ⬛ = קרטון שלם" +
+    // §278: מקרא הצורות — הוא מה שהופך אותן לשימושיות.
+    //
+    // ⚠️ נציג שרואה ⬤ בלי מקרא לא יודע שזה עוף. הסימן עוזר רק
+    // אם ברור מה הוא אומר.
+    " · ⬛ קרטון שלם · ${CATEGORY_LEGEND}" +
     ` · לקוח ששילם במזומן — לסמן בעמודת "מזומן" ולעדכן במערכת`;
   sub.font = { size: 9, color: { argb: "FF666666" } };
   sub.alignment = { horizontal: "center" };
@@ -579,8 +598,26 @@ function buildDistributionSheet(
         const isLate =
           closeDate != null && new Date(o.createdAt) > closeDate;
         // §192: השם הנוכחי, לא ה-snapshot
+        // §278: מספר ההזמנה **ליד השם**.
+        //
+        // התרחיש מהשטח: הנציג מוצא חבילה, מזהה שהיא של "ניימן",
+        // ואז צריך לוודא באתר. בלי מספר ההזמנה הוא מחפש לפי שם -
+        // ובמכירה עם שני ניימנים זו טעות שמחכה לקרות.
+        //
+        // ⚠️ המספר זהה לזה שבאתר ובמייל ללקוח, וזו כל הנקודה:
+        // שפה אחת בין הנייר למסך.
+        // §281: "חדש" בטקסט ולא רק ⭐.
+        //
+        // ⚠️ בהדפסה שחור-לבן האדום נעלם, וכוכבית לבדה קלה
+        // לפספס בדף צפוף. מילה אי אפשר לפספס.
+        //
+        // ⚠️ ו-☐ הכל מוכן: הנציג מסמן כשההזמנה מוכנה למסירה,
+        // ורואה במבט אחד מי מוכן ומי לא.
         nameCell.value =
-          (isLate ? "⭐ " : "") + (o.customer?.name || o.customerName);
+          (isLate ? "⭐ חדש · " : "") +
+          `#${o.orderNumber}  ` +
+          (o.customer?.name || o.customerName) +
+          "\n☐ הכל מוכן";
         nameCell.font = {
           bold: true,
           size: 10,
@@ -648,7 +685,14 @@ function buildDistributionSheet(
           // ארוך ונחתך, והסימן היה נעלם. הכמות תמיד נראית.
           const isWholeCarton = !it.isSingle && cartonType;
           const cartonMark = isWholeCarton ? "⬛ " : "";
-          cell.value = `${name}${partTag}\n${cartonMark}${qty}   ______`;
+          // §278: סימן הקטגוריה **לפני שם המוצר**.
+          //
+          // הנציג שמוצא חבילת שניצל סורק את הדף ומחפש ⬤. עשרות
+          // תאים הופכים לחמישה.
+          const catMark = categoryMark(
+            it.product?.category?.name ?? (it as any).categoryName
+          );
+          cell.value = `${catMark ? catMark + " " : ""}${name}${partTag}\n${cartonMark}${qty}   ______`;
           cell.font = {
             size: 9,
             // ⚠️ קרטון מודגש: גם בהדפסה בשחור-לבן ההבדל נראה.

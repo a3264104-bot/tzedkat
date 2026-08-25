@@ -669,6 +669,33 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
           <span>הורדת דף חלוקה להדפסה</span>
         </a>
 
+        {/* §279: 📦 דף מיון — לפי מוצר.
+            
+            בחלוקה יש שני שלבים פיזיים שונים, ודף החלוקה משרת
+            רק את השני:
+            
+              מיון  — פותחים קרטון, מחלקים   ← הדף הזה
+              מסירה — לקוח מגיע, שוקלים      ← דף החלוקה
+            
+            השלב הראשון הוא הבלגן: הנציג מוצא חבילת שניצל ולא
+            יודע למי, ומתחיל לעבור על 40 שורות בזמן שלקוחות
+            מחכים.
+            
+            ההסבר מתחת לכפתור: בלעדיו הנציג לא יבין למה יש שני
+            דפים, ויוריד רק את הראשון. */}
+        <a
+          href={`/api/agent/sorting-sheet/${pricelistId}`}
+          className="flex flex-col items-center justify-center w-full mb-4 bg-blue-700 text-white rounded-xl py-3 shadow-sm hover:opacity-90 active:scale-[0.99] transition-all"
+        >
+          <span className="flex items-center gap-2 font-extrabold">
+            <span className="text-xl">📦</span>
+            <span>הורדת דף מיון (לפי מוצר)</span>
+          </span>
+          <span className="text-[11px] opacity-90 mt-0.5">
+            למי שייך כל מוצר · עם סה״כ וסימון מסירה
+          </span>
+        </a>
+
         {isSealed && (
           <div className="mb-4 bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
