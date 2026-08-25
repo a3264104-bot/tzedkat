@@ -21,6 +21,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       // גם ללקוחות שכן יש להם טוקן שמור. במקום זה הוצג רק לינק התשלום הישן.
       customer: {
         select: {
+          // §263: חוב מהעבר - להצגה ולרישום בפאנל
+          debtBalance: true,
+          debtNote: true,
           id: true,
           name: true,
           email: true,

@@ -822,6 +822,36 @@ function buildItemsTable(order: any): string {
         </tr>`
       : "";
 
+  // §263: 💸 חוב מהעבר שנגבה בהזמנה זו.
+  //
+  // ⚠️ הלקוח **חייב** לראות את זה במייל: הוא מקבל חיוב גבוה
+  // מהצפוי, ובלי השורה הזו הוא חושב שהמערכת טעתה.
+  //
+  // ⚠️ אדום ולא כחול: יתרת זכות מקטינה, חוב מגדיל. אותו צבע
+  // לשניהם היה מבלבל בסריקה מהירה.
+  const debtApplied =
+    (order as any)?.appliedDebt != null ? Number((order as any).appliedDebt) : 0;
+  const debtNote = (order as any)?.customer?.debtNote ?? "";
+  const debtRow =
+    debtApplied > 0
+      ? `
+        <tr style="background:#fef2f2;">
+          <td style="padding:8px;border-top:1px solid #fecaca;font-weight:bold;color:#b91c1c;">
+            חוב קודם
+            ${
+              debtNote
+                ? `<div style="font-weight:normal;font-size:12px;color:#991b1b;">${debtNote}</div>`
+                : ""
+            }
+          </td>
+          <td style="padding:8px;border-top:1px solid #fecaca;"></td>
+          <td style="padding:8px;border-top:1px solid #fecaca;"></td>
+          <td style="padding:8px;border-top:1px solid #fecaca;text-align:center;font-weight:bold;color:#b91c1c;">
+            +${fmt(debtApplied)}
+          </td>
+        </tr>`
+      : "";
+
   // §134/§135: משלוח וחיוב נוסף - שורות שמוסיפות לסכום.
   //
   // ⚠️ כל שורה עם הסיבה שלה. לקוח שרואה סכום גבוה מהצפוי בלי
@@ -872,7 +902,7 @@ function buildItemsTable(order: any): string {
             <th style="padding:6px 8px;text-align:center;font-size:12px;color:#666;">סכום</th>
           </tr>
         </thead>
-        <tbody>${rows}${deliveryRow}${extraRow}${creditRow}${balanceRow}</tbody>
+        <tbody>${rows}${deliveryRow}${extraRow}${creditRow}${debtRow}${balanceRow}</tbody>
       </table>
       ${
         anyNotSupplied

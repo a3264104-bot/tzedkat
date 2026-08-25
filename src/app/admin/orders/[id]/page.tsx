@@ -8,6 +8,8 @@ import { QuickCustomerEdit } from "@/components/QuickCustomerEdit";
 // §190: משלוח, חיוב נוסף וזיכוי - גם במסך המנהל
 import { DeliveryPanel } from "@/components/DeliveryPanel";
 import { CreditPanel } from "@/components/CreditPanel";
+// §263: רישום חוב ללקוח
+import { DebtPanel } from "@/components/DebtPanel";
 // §191: הערת הלקוח - הייתה רק במסך הנציג
 import { OrderNotePanel } from "@/components/OrderNotePanel";
 import { useParams, useRouter } from "next/navigation";
@@ -519,15 +521,21 @@ export default function OrderDetail() {
         )}
 
         {order.appliedCreditBalance != null && (
-
           <Info
-
             label="יתרת זכות שקוזזה"
-
             value={fmt(Number(order.appliedCreditBalance))}
-
           />
+        )}
 
+        {/* §263: 💸 חוב שנגבה בהזמנה זו.
+            
+            ⚠️ עם ההסבר: הלקוח שרואה "חוב ₪120" בפירוט צריך לדעת
+            על מה. בלי זה הוא מתקשר לברר, וזו שיחה שאפשר למנוע. */}
+        {(order as any).appliedDebt != null && (
+          <Info
+            label="חוב קודם שנגבה"
+            value={`+${fmt(Number((order as any).appliedDebt))}`}
+          />
         )}
 
         <Info
@@ -742,6 +750,23 @@ export default function OrderDetail() {
               alreadyPaid={order.paymentStatus === "PAID"}
             />
           </div>
+
+          {/* §263: 💸 חוב מהעבר — נפרד מזיכוי על ההזמנה הזו.
+              
+              ⚠️ זיכוי שייך להזמנה ("פריט חסר"), וחוב שייך ללקוח
+              ("לא שילם במכירת פסח"). ערבוב שלהם היה מבלבל את
+              המנהל ואת הלקוח כאחד. */}
+          {order.customer?.id && (
+            <div className="mb-3">
+              <DebtPanel
+                customerId={order.customer.id}
+                customerName={order.customer.name ?? ""}
+                debtBalance={Number((order.customer as any).debtBalance ?? 0)}
+                debtNote={(order.customer as any).debtNote}
+                onDone={() => window.location.reload()}
+              />
+            </div>
+          )}
 
           <div className="mb-3">
             <CreditPanel

@@ -112,6 +112,21 @@ model Customer {
   creditBalanceNote     String?
   creditBalanceAt       DateTime?
 
+  // §263: חוב מהעבר — הפוך מיתרת זכות.
+  //
+  // התרחיש: לקוחות עם חובות מלפני שהאתר היה קיים. המנהל או
+  // הנציג רושמים את החוב, והוא נגבה יחד עם ההזמנה הבאה.
+  //
+  // ⚠️ שדה נפרד ולא creditBalance שלילי:
+  //   1. הפירוט שונה — "זיכוי על פריט חסר" מול "חוב ממכירה"
+  //   2. הלקוח רואה שניהם בנפרד, וזה מה שהוא מבין
+  //   3. חישוב "כמה נגבה" צריך להבדיל ביניהם
+  debtBalance          Decimal   @default(0) @db.Decimal(10, 2)
+  debtNote             String?
+  debtUpdatedAt        DateTime?
+  // ⚠️ מי רשם: חוב הוא כסף, וצריך לדעת למי לפנות בשאלה.
+  debtUpdatedBy        String?
+
   creditVerificationCharged Boolean @default(false)
   // תוקף כרטיס (MM/YY או YYMM כפי שנדרים מחזירים) - נשמר מ-webhook להצגה במסך המנהל
   cardExpiry           String?
@@ -544,6 +559,11 @@ model Order {
   // בהזמנה הזו, ו-appliedCreditBalance הוא זיכוי **מהעבר** שקוזז
   // בה. ערבוב היה מונע מהלקוח להבין מאיפה כל סכום הגיע.
   appliedCreditBalance Decimal? @db.Decimal(10, 2)
+  // §263: כמה מהחוב נגבה בחיוב הזה.
+  //
+  // ⚠️ מקביל ל-appliedCreditBalance: מאפשר לראות בדיוק כמה
+  // חוב נסגר בכל תשלום, ולהציג ללקוח פירוט.
+  appliedDebt          Decimal?  @db.Decimal(10, 2)
   creditReason    String?
   creditById      String?
   creditAt        DateTime?

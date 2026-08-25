@@ -154,6 +154,9 @@ export default async function AccountPage() {
         // §124: יתרת זכות להזמנה הבאה. הלקוח צריך לראות שמגיע לו
         // כסף - אחרת הוא לא יודע, ויפנה לנציג לשאול.
         creditBalance: Number(customer.creditBalance ?? 0),
+        // §263: חוב מהעבר — הלקוח חייב לראות אותו לפני החיוב.
+        debtBalance: Number((customer as any).debtBalance ?? 0),
+        debtNote: (customer as any).debtNote ?? null,
         // §64: נציג במצב לקוח - מתג חזרה לאזור הנציג (סעיף 5)
         role: customer.role,
         // §64: השלמת הרשמה עצמאית (סעיף 9). לקוח מזומן לא נדרש

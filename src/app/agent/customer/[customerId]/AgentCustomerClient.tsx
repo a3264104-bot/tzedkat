@@ -7,6 +7,8 @@ import Link from "next/link";
 import { STATUS_LABELS, fmt } from "@/lib/pricing";
 import { formatItemQty } from "@/lib/order-display";
 import { UpdateCardModal } from "@/components/UpdateCardButton";
+// §263: רישום חוב ללקוח — אותו רכיב של המנהל
+import { DebtPanel } from "@/components/DebtPanel";
 import { AddOrderItem, type AddableProduct } from "@/components/AddOrderItem";
 
 type Item = {
@@ -42,6 +44,8 @@ export function AgentCustomerClient({
   customerId,
   customerName,
   customerPhone,
+  debtBalance = 0,
+  debtNote,
   paymentPreference: initialPref,
   hasCard: initialHasCard,
   cardLast4: initialCardLast4,
@@ -57,6 +61,15 @@ export function AgentCustomerClient({
   customerId: string;
   customerName: string;
   customerPhone: string | null;
+  /**
+   * §263: חוב מהעבר.
+   *
+   * ⚠️ הנציג בשטח הוא זה שיודע מי חייב מה מהמכירה הקודמת, והוא
+   * זה שהלקוח מדבר איתו. רישום שרק המנהל יכול לעשות היה אומר
+   * שיחת טלפון על כל חוב.
+   */
+  debtBalance?: number;
+  debtNote?: string | null;
   // §60: מצב התשלום של הלקוח
   paymentPreference: string;
   hasCard: boolean;
@@ -301,6 +314,21 @@ export function AgentCustomerClient({
               </button>
             )}
           </div>
+          {/* §263: 💸 רישום חוב מהעבר.
+              
+              ⚠️ ליד אמצעי התשלום, לא בתוך הזמנה: חוב שייך ללקוח
+              ולא להזמנה מסוימת. הנציג פותח את כרטיס הלקוח ורואה
+              את התמונה המלאה - כרטיס, אופן תשלום, וחוב. */}
+          <div className="mt-3">
+            <DebtPanel
+              customerId={customerId}
+              customerName={customerName}
+              debtBalance={debtBalance}
+              debtNote={debtNote}
+              onDone={() => window.location.reload()}
+            />
+          </div>
+
           {pref === "CASH" && (
             <p className="text-[11px] text-zinc-500 mt-2">
               הגבייה מתבצעת במזומן בעת החלוקה. הלקוח לא יכול להזמין באתר

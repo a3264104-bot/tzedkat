@@ -1705,6 +1705,10 @@ async function handleMyOrders(
       creditAmount: true,
       creditReason: true,
       appliedCreditBalance: true,
+      // §263: חוב מהעבר שנגבה — להקראה בפירוט
+      appliedDebt: true,
+      // §263: ההערה על החוב — להקראה
+      customer: { select: { debtNote: true } },
       deliveryFee: true,
       deliveryRequested: true,
       extraCharge: true,
@@ -1930,6 +1934,20 @@ async function handleMyOrders(
       parts.push(say("בניכוי זיכוי"));
       parts.push(sayNumber(Math.round(Number(o.creditAmount))));
       parts.push(prompt("shekels", "שקלים"));
+    }
+    // §263: 💸 חוב מהעבר — **לפני** יתרת הזכות.
+    //
+    // ⚠️ הסדר: מה שמגדיל את הסכום קודם, ואז מה שמקטין. הלקוח
+    // ששומע "בניכוי 30" ואז "בתוספת 120" נשאר עם רושם הפוך.
+    //
+    // ⚠️ ההערה מוקראת: "בתוספת חוב קודם 120 שקלים" בלי הסבר
+    // גורם ללקוח להתקשר לנציג. עם ההסבר הוא מבין.
+    if (isLatest && (o as any).appliedDebt != null && Number((o as any).appliedDebt) > 0) {
+      parts.push(say("בתוספת חוב קודם"));
+      parts.push(sayNumber(Math.round(Number((o as any).appliedDebt))));
+      parts.push(prompt("shekels", "שקלים"));
+      const dn = (o as any).customer?.debtNote;
+      if (dn) parts.push(say(`עבור ${dn}`));
     }
     if (isLatest && o.appliedCreditBalance != null && Number(o.appliedCreditBalance) > 0) {
       parts.push(say("בניכוי יתרת זכות"));

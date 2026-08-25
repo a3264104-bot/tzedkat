@@ -100,15 +100,16 @@ export async function applyBalanceToOrder(
   orderId: string,
   customerId: string,
   totalBeforeCredit: number
-): Promise<{ payable: number; applied: number }> {
+): Promise<{ payable: number; applied: number; debtApplied: number }> {
   const [customer, order] = await Promise.all([
     prisma.customer.findUnique({
       where: { id: customerId },
-      select: { creditBalance: true },
+      // §263: החוב נשלף יחד עם הזכות - שניהם משפיעים על הסכום.
+      select: { creditBalance: true, debtBalance: true },
     }),
     prisma.order.findUnique({
       where: { id: orderId },
-      select: { appliedCreditBalance: true },
+      select: { appliedCreditBalance: true, appliedDebt: true },
     }),
   ]);
 
@@ -117,24 +118,57 @@ export async function applyBalanceToOrder(
   // האידמפוטנטיות. בלי זה, כל שקילה הייתה גוזלת מהיתרה שוב.
   const available = Math.max(0, Number(customer?.creditBalance ?? 0) + alreadyApplied);
 
+  // §263: 💸 **החוב מתווסף לפני הזכות.**
+  //
+  // הסדר חשוב: אם ללקוח חוב ₪50 וזכות ₪30 על הזמנה של ₪100,
+  // התוצאה צריכה להיות 100 + 50 - 30 = ₪120.
+  //
+  // ⚠️ חישוב הפוך (זכות קודם) היה נותן אותו סכום כאן, אבל
+  // שובר כשהזכות גדולה מההזמנה: זכות ₪200 על הזמנה ₪100 עם
+  // חוב ₪50 - הזכות צריכה לכסות גם את החוב.
+  //
+  // ⚠️ אותה אידמפוטנטיות: מחזירים את מה שכבר נגבה לפני החישוב.
+  const alreadyDebt = Number(order?.appliedDebt ?? 0);
+  const debtAvailable = Math.max(
+    0,
+    Number(customer?.debtBalance ?? 0) + alreadyDebt
+  );
+
+  // ⚠️ **כל** החוב נגבה, לא חלקי: חוב הוא כסף שכבר חייבים,
+  // ואין סיבה לפרוס אותו על כמה הזמנות.
+  const debtApplied = Math.round(debtAvailable * 100) / 100;
+  const totalWithDebt = Math.round((totalBeforeCredit + debtApplied) * 100) / 100;
+
   const { applied, remaining, payable } = applyCreditBalance(
-    totalBeforeCredit,
+    totalWithDebt,
     available
   );
 
   // כתיבה רק כשמשהו באמת השתנה - חוסכת עדכון מיותר בכל שקילה
-  if (applied !== alreadyApplied) {
+  if (applied !== alreadyApplied || debtApplied !== alreadyDebt) {
     await prisma.$transaction([
       prisma.customer.update({
         where: { id: customerId },
-        data: { creditBalance: remaining },
+        data: {
+          creditBalance: remaining,
+          // §263: החוב נסגר ברגע שנגבה.
+          //
+          // ⚠️ ההערה נמחקת יחד איתו: "חוב ₪0 על מכירת פסח"
+          // מבלבל, והלקוח כבר שילם.
+          ...(debtApplied > 0
+            ? { debtBalance: 0, debtNote: null }
+            : {}),
+        },
       }),
       prisma.order.update({
         where: { id: orderId },
-        data: { appliedCreditBalance: applied > 0 ? applied : null },
+        data: {
+          appliedCreditBalance: applied > 0 ? applied : null,
+          appliedDebt: debtApplied > 0 ? debtApplied : null,
+        },
       }),
     ]);
   }
 
-  return { payable, applied };
+  return { payable, applied, debtApplied };
 }

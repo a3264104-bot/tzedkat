@@ -47,6 +47,9 @@ export default async function AgentOrderDetailPage({
           phone: true,
           email: true,
           paymentToken: true,
+          // §263: חוב מהעבר — משפיע על הסכום שהנציג אומר ללקוח
+          debtBalance: true,
+          debtNote: true,
           cardLast4: true,
           cardExpiry: true,
           cardNeedsUpdate: true,
@@ -247,12 +250,25 @@ export default async function AgentOrderDetailPage({
   const bal =
     order.appliedCreditBalance != null ? Number(order.appliedCreditBalance) : 0;
 
+  // §263: 💸 חוב מהעבר — **מגדיל** את הסכום.
+  //
+  // 🐛 בלי זה הנציג רואה סכום נמוך ממה שייגבה בפועל, ואומר
+  // ללקוח מספר שגוי בחלוקה. זו בדיוק השיחה שאי אפשר לתקן
+  // אחרי שהיא קרתה.
+  //
+  // ⚠️ appliedDebt (מה שנגבה בהזמנה) ולא debtBalance (מה
+  // שנשאר): אחרי הגבייה היתרה מתאפסת, והסכום צריך להישאר נכון.
+  const debt =
+    (order as any).appliedDebt != null
+      ? Number((order as any).appliedDebt)
+      : Number((order.customer as any)?.debtBalance ?? 0);
+
   // ⚠️ Math.max(0) - אותה רשת ביטחון כמו בשרת. זיכוי גדול
   // מהסכום לא אמור לקרות (הוולידציה חוסמת), אבל תצוגה של מינוס
   // הייתה מבלבלת יותר מ-0.
   const estimatedTotal = Math.max(
     0,
-    Math.round((rawEstimated + dlv + xtra - crd - bal) * 100) / 100
+    Math.round((rawEstimated + dlv + xtra + debt - crd - bal) * 100) / 100
   );
   const canChargeThisOrder =
     canCharge &&
@@ -406,6 +422,22 @@ export default async function AgentOrderDetailPage({
                     )}
                   </span>
                   <span className="font-bold">−{fmt(Number(order.creditAmount))}</span>
+                </div>
+              )}
+              {/* §263: חוב מהעבר — אדום, כי הוא מגדיל. */}
+              {debt > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-red-800 font-bold">
+                    חוב קודם
+                    {(order.customer as any)?.debtNote && (
+                      <span className="block text-[11px] font-normal text-red-700">
+                        {(order.customer as any).debtNote}
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-bold text-red-800">
+                    +₪{debt.toFixed(2)}
+                  </span>
                 </div>
               )}
               {order.appliedCreditBalance != null && (

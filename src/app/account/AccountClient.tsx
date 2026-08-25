@@ -80,6 +80,15 @@ type Customer = {
   agreedToEmails: boolean;
   /** §124: יתרת זכות שתקוזז מההזמנה הבאה */
   creditBalance?: number;
+  /**
+   * §263: חוב מהעבר שיתווסף להזמנה הבאה.
+   *
+   * ⚠️ הלקוח חייב לראות אותו **לפני** החיוב. אחרת הוא מגלה
+   * סכום גבוה מהצפוי ומתקשר לברר - וזו בדיוק השיחה שהשקיפות
+   * מונעת.
+   */
+  debtBalance?: number;
+  debtNote?: string | null;
   // §64: תפקיד - נציג רואה מתג חזרה לאזור הנציג
   role?: string;
   // §64: השלמת הרשמה עצמאית ללקוח שנרשם בטלפון (סעיף 9)
@@ -402,6 +411,32 @@ export function AccountClient({
                       דבר.
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* §263: 💸 חוב מהעבר.
+              
+              ⚠️ מוצג ליד יתרת הזכות ובאותה בולטות: שניהם משפיעים
+              על מה שיירד מהכרטיס, והלקוח צריך לראות את שניהם.
+              
+              ⚠️ ההסבר **חובה**: "חוב ₪120" בלי לדעת על מה הוא
+              שיחת טלפון מובטחת. */}
+          {!!customer.debtBalance && customer.debtBalance > 0 && (
+            <div className="px-4 pb-2">
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl p-3.5">
+                <div className="font-extrabold text-red-900">
+                  💸 חוב קודם: {fmt(customer.debtBalance)}
+                </div>
+                {customer.debtNote && (
+                  <div className="text-sm font-bold text-red-800 mt-1">
+                    {customer.debtNote}
+                  </div>
+                )}
+                <div className="text-xs text-red-700 mt-1 leading-relaxed">
+                  הסכום יתווסף אוטומטית לחיוב של ההזמנה הבאה שלך. לבירור יש
+                  לפנות לנציג.
                 </div>
               </div>
             </div>

@@ -621,6 +621,18 @@ export default function AdminCustomersPage() {
   //
   // ⚠️ מי שיש לו מייל יכול "שכחתי סיסמה" בעצמו - הוא לא נספר
   // כאן, ואיפוס שלו רק ינתק אותו מסיסמה שהוא אולי כן זוכר.
+  // §263: כמה לקוחות חייבים, וכמה כסף.
+  //
+  // ⚠️ הסכום הכולל: המנהל רוצה לדעת כמה כסף "תלוי באוויר",
+  // לא רק כמה אנשים.
+  const debtors = customers.filter(
+    (c) => Number((c as any).debtBalance ?? 0) > 0
+  );
+  const debtTotal = debtors.reduce(
+    (sum, c) => sum + Number((c as any).debtBalance ?? 0),
+    0
+  );
+
   const noPassCount = customers.filter(
     (c) =>
       c.isActive !== false &&
@@ -688,6 +700,16 @@ export default function AdminCustomersPage() {
               >
                 הצג רשימה
               </a>
+            </p>
+          )}
+          {debtors.length > 0 && (
+            <p className="text-[11px] text-red-900 bg-red-50 border border-red-300 rounded px-2 py-1 mt-1 inline-block">
+              💸 <b>{debtors.length} לקוחות עם חוב</b> — סה״כ ₪
+              {debtTotal.toLocaleString("he-IL", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+              . ייגבה אוטומטית בהזמנה הבאה שלהם.
             </p>
           )}
           {stuckCount > 0 && (
@@ -840,6 +862,21 @@ export default function AdminCustomersPage() {
                         title="יש סיסמה אך היא אינה גלויה — יש לאפס כדי למסור ללקוח"
                       >
                         🔑 סיסמה לא גלויה
+                      </span>
+                    )}
+                    {/* §263: 💸 תגית חוב.
+                        
+                        ⚠️ המנהל סורק את הרשימה ומחפש מי חייב כסף.
+                        בלי התגית הוא צריך לפתוח כל לקוח בנפרד.
+                        
+                        ⚠️ הסכום **בתגית עצמה**: "יש חוב" בלי סכום
+                        מחייב לפתוח בכל מקרה. */}
+                    {Number((c as any).debtBalance ?? 0) > 0 && (
+                      <span
+                        className="mr-1.5 text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded font-bold"
+                        title={(c as any).debtNote || "חוב מהעבר"}
+                      >
+                        💸 חוב ₪{Number((c as any).debtBalance).toFixed(0)}
                       </span>
                     )}
                     {c.isActive !== false &&

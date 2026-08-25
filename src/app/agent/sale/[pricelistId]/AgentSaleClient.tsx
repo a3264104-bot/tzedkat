@@ -525,7 +525,22 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
     );
   }
 
+  // §262: 🐛 **הנציג ננעל אחרי שסגר את הסיכום.**
+  //
+  // מה שקרה בשטח: נציג סיים לשקול, סגר סיכום, ואז לקוח הגיע
+  // ורצה לשנות. הוא לא יכול - וצריך להתקשר למנהל.
+  //
+  // ⚠️ הנעילה הנכונה היא **החיוב**, לא הסגירה: כל עוד לא נגבה
+  // כסף, שינוי משקל הוא תיקון לגיטימי. אחרי החיוב הוא יוצר
+  // פער בין מה שנגבה למה שרשום.
+  //
+  // ⚠️ נעילה **לכל לקוח בנפרד**: הזמנה אחת שחויבה לא אמורה
+  // לנעול את כל המסך. isSealed נשאר לפעולות ברמת המכירה
+  // (סגירת סיכום), והנעילה לפי הזמנה עוברת ל-OrderRow.
   const isSealed = data.summary.status === "CONFIRMED";
+
+  // ⚠️ נעילה אמיתית: רק כשההזמנה **שולמה**. עד אז הנציג מתקן.
+  const isOrderLocked = (o: any) => o.paymentStatus === "PAID";
 
   return (
     <div dir="rtl" className="min-h-screen bg-brand-cream pb-32">
@@ -817,7 +832,10 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                 availableProducts={data.availableProducts}
                 productWeightsFromNotes={data.productWeightsFromNotes}
                 productWeightsUsed={productWeightsUsed}
-                readOnly={isSealed}
+                // §262: הטבלה לא ננעלת ברמת המכירה - כל שורה
+                // נועלת את עצמה לפי מצב התשלום שלה.
+                readOnly={false}
+                isOrderLocked={isOrderLocked}
                 onItemUpdate={updateOrderItem}
                 onNeedsReload={load}
               />
@@ -830,7 +848,9 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                   singleSurcharge={Number(data.pricelist.singleSurcharge ?? 0)}
                   productWeightsFromNotes={data.productWeightsFromNotes}
                   productWeightsUsed={productWeightsUsed}
-                  readOnly={isSealed}
+                  // §262: נעילה לפי **ההזמנה** ולא לפי המכירה.
+                  // הזמנה ששולמה נעולה; השאר פתוחות לתיקון.
+                  readOnly={isOrderLocked(order)}
                   onItemUpdate={(itemId, updates) =>
                     updateOrderItem(order.id, itemId, updates)
                   }

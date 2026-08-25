@@ -147,6 +147,9 @@ export async function GET(req: Request) {
       // לא הגיע, ולכן הנפילה הייתה קוד מת ולקוחות בלי עיר
       // הוצגו בלי עיר - למרות שהנקודה שלהם יודעת אותה.
       pointCity: c.defaultPoint?.city ?? null,
+      // §263: חוב מהעבר — לתגית ולספירה במסך
+      debtBalance: Number(c.debtBalance ?? 0),
+      debtNote: c.debtNote,
       city: c.defaultPoint?.city ?? null,
       orderCount: c._count.orders,
       // §158: הזמנה פעילה - כדי שהמנהל ידע אם ללחוץ "הזמנה חדשה"

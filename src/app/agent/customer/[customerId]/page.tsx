@@ -145,6 +145,9 @@ export default async function AgentCustomerPage({
       customerId={customer.id}
       customerName={customer.name}
       customerPhone={customer.phone}
+      // §263: חוב מהעבר - להצגה ולרישום
+      debtBalance={Number((customer as any).debtBalance ?? 0)}
+      debtNote={(customer as any).debtNote}
       // §60: מצב התשלום - לתצוגה ולכפתור ההחלפה מזומן/אשראי
       paymentPreference={customer.paymentPreference}
       hasCard={!!customer.paymentToken}

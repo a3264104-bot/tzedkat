@@ -38,6 +38,16 @@ type Props = {
   productWeightsFromNotes: Record<string, number>;
   productWeightsUsed: Record<string, number>;
   readOnly?: boolean;
+  /**
+   * §262: נעילה **לכל הזמנה בנפרד**.
+   *
+   * 🐛 קודם הטבלה כולה ננעלה כשהנציג סגר סיכום, והוא לא יכול
+   * היה לתקן משקל של לקוח שהגיע אחר כך.
+   *
+   * ⚠️ הנעילה הנכונה היא החיוב: כל עוד לא נגבה כסף, תיקון הוא
+   * לגיטימי. אחרי החיוב הוא יוצר פער בין מה שנגבה למה שרשום.
+   */
+  isOrderLocked?: (order: any) => boolean;
   onItemUpdate: (orderId: string, itemId: string, updates: Partial<OrderItem>) => void;
   onNeedsReload: () => void;
   /** §81: דיווח על מספר המשקלים החסרים - לחסימת סגירת המכירה */
@@ -85,6 +95,7 @@ export function WeightsTable({
   orders,
   availableProducts,
   readOnly,
+  isOrderLocked,
   onItemUpdate,
   onNeedsReload,
   onMissingCountChange,
@@ -434,7 +445,8 @@ export function WeightsTable({
                           <WeightCell
                             cellId={`w-${cell.itemId}`}
                             cell={cell}
-                            readOnly={readOnly}
+                            // §262: נעול רק אם **ההזמנה הזו** שולמה
+                            readOnly={readOnly || !!isOrderLocked?.(r)}
                             onItemUpdate={onItemUpdate}
                             onNeedsReload={onNeedsReload}
                           />
@@ -449,7 +461,7 @@ export function WeightsTable({
                                 <WeightCell
                                   cellId={`w-${c.itemId}`}
                                   cell={c}
-                                  readOnly={readOnly}
+                                  readOnly={readOnly || !!isOrderLocked?.(r)}
                                   onItemUpdate={onItemUpdate}
                                   onNeedsReload={onNeedsReload}
                                 />
