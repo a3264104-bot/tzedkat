@@ -183,7 +183,11 @@ export function WeightsTable({
             // 🐛 הענף הישן היה `else total += w * price`, ובמוצר
             // יחידה w הוא null - כלומר הסכום שלו נעלם מסה"כ
             // ההזמנה. הלקוח היה מחויב פחות ממה שהזמין.
-            if (noWeighing) total += it.quantity * it.unitPrice;
+            // §268: אם הנציג הזין כמות בפועל - היא גוברת.
+            if (noWeighing) {
+              const actual = w ?? it.quantity;
+              total += actual * it.unitPrice;
+            }
             else missing++;
           } else {
             total += w * it.unitPrice;
@@ -238,7 +242,11 @@ export function WeightsTable({
     for (const r of rows) {
       if (r.missing === 0) continue;
       for (const cell of r.cells) {
-        if (!cell.noWeighing && cell.agentEnteredWeight === null) {
+        // §268: יחידות נספרות כמו משקל.
+        //
+        // ⚠️ קודם הן דולגו לגמרי ("אין מה לשקול"), ולכן הזמנה
+        // של נקניקים בלבד הוצגה כ"הושלמה" בלי שאיש אישר כמות.
+        if (cell.agentEnteredWeight === null) {
           return {
             cellId: `w-${cell.itemId}`,
             customerName: r.customerName,
@@ -337,7 +345,15 @@ export function WeightsTable({
           <thead>
             <tr className="bg-zinc-100 border-b-2 border-zinc-300">
               {/* עמודת הלקוח קפואה - היא נקודת הייחוס בגלילה אופקית */}
-              <th className="sticky right-0 z-10 bg-zinc-100 text-right px-3 py-2 min-w-[140px] border-l-2 border-zinc-300 text-[11px] font-bold text-zinc-600">
+              {/* §269: 📱 עמודת השם צרה יותר בנייד.
+                  
+                  🐛 140px + 110px לכל מוצר = **2 עמודות** במסך
+                  של 375px. לקוח עם 4 מוצרים דרש גלילה של שני
+                  מסכים, והנציג איבד את מקומו באמצע.
+                  
+                  ⚠️ 96px בנייד: מספיק לשם משפחה, שזה מה שהנציג
+                  מזהה לפיו ממילא. */}
+              <th className="sticky right-0 z-10 bg-zinc-100 text-right px-2 md:px-3 py-2 min-w-[96px] md:min-w-[140px] border-l-2 border-zinc-300 text-[11px] font-bold text-zinc-600">
                 שם הלקוח
               </th>
               {/* §141: כותרות גנריות - שם המוצר יושב בתא עצמו.
@@ -345,7 +361,8 @@ export function WeightsTable({
               {Array.from({ length: maxItems }, (_, i) => (
                 <th
                   key={i}
-                  className="px-2 py-2 min-w-[110px] border-l border-zinc-200 text-[10px] font-bold text-zinc-500"
+                  // §269: 84px בנייד — שדה של 4-5 ספרות + תווית.
+                  className="px-1 md:px-2 py-2 min-w-[84px] md:min-w-[110px] border-l border-zinc-200 text-[10px] font-bold text-zinc-500"
                 >
                   פריט {i + 1}
                 </th>
@@ -556,7 +573,11 @@ function WeightCell({
   // null ולא 0: "לא מולא" ו"מולא 0" הם שני מצבים שונים לגמרי, וזו
   // כל ההבחנה שמאפשרת לחסום סגירת מכירה על שכחה.
   // §137: מוצר יחידה - אין מה לשקול, ולכן אין "חסר".
-  const isMissing = !cell.noWeighing && cell.agentEnteredWeight === null;
+  // §268: יחידות שלא אושרו הן חסרות, כמו משקל שלא הוזן.
+  //
+  // ⚠️ הנציג חייב לאשר גם יחידות: "4 יח׳" ב-placeholder הוא
+  // הצעה, לא אישור. בלי הזנה מפורשת אין לדעת אם קיבל 4 או 3.
+  const isMissing = cell.agentEnteredWeight === null;
   const lineTotal =
     cell.agentEnteredWeight !== null ? cell.agentEnteredWeight * cell.unitPrice : 0;
 
@@ -652,17 +673,30 @@ function WeightCell({
       {/* §137: מוצר שנמכר ביחידות - המשקל ידוע מהאריזה, ואין
           שדה למלא. הצגת שדה ריק הייתה גורמת לנציג לחפש משקולת
           למשהו שכתוב עליו 500 גרם. */}
-      {cell.noWeighing ? (
-        <div className="w-full text-center text-[10px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded py-1">
-          יחידות · לא נשקל
-        </div>
+      {/* §268: 🐛 מוצר יחידות הציג טקסט במקום שדה.
+          
+          §141 הסתיר את השדה כי "אין מה לשקול" - נכון לגבי משקל,
+          שגוי לגבי **כמות**. הלקוח הזמין 4 נקניקים ולקח 5, או
+          קיבל 3 כי נגמר - ולנציג לא הייתה דרך לרשום את זה.
+          
+          התוצאה: הלקוח חויב על 4 בכל מקרה.
+          
+          ⚠️ **אותו שדה, אותה מכניקה**: finalPrice = כמות ×
+          מחיר ליחידה, בדיוק כמו משקל × מחיר לק"ג. לא נדרש
+          שינוי בשרת.
+          
+          ⚠️ מה שכן משתנה: step=1 (אין חצי נקניק), ותווית
+          "יח׳" במקום "משקל". */}
+      {false ? (
+        <div />
       ) : (
       <input
         ref={inputRef}
         id={cellId}
         type="number"
         inputMode="decimal"
-        step="0.01"
+        // §268: יחידות שלמות בלבד — אין חצי נקניק.
+        step={cell.noWeighing ? 1 : 0.01}
         min={0}
         dir="ltr"
         disabled={readOnly || saving}
@@ -675,10 +709,29 @@ function WeightCell({
             (e.target as HTMLInputElement).blur();
           }
         }}
-        placeholder={cell.estimatedWeight ? `~${cell.estimatedWeight}` : "משקל"}
+        // §268: התווית לפי סוג המוצר.
+        //
+        // ⚠️ "משקל" על נקניק היה מבלבל - הנציג היה מחפש משקולת.
+        // הכמות שהוזמנה כרמז: הוא מזין רק אם השתנה.
+        placeholder={
+          cell.noWeighing
+            ? `${cell.orderedQty} יח׳`
+            : cell.estimatedWeight
+              ? `~${cell.estimatedWeight}`
+              : "משקל"
+        }
         // ⚠️ תא חסר צועק: אדום מלא + מסגרת עבה + פעימה. משקל שנשכח
         // הוא כסף שלא נגבה, ולכן הוא לא יכול להיראות כמו שדה רגיל.
-        className={`w-full text-center font-bold text-sm rounded py-1 border-2 transition-colors ${
+        // §269: 📱 התאמה למגע.
+        //
+        // ⚠️ py-2 בנייד ולא py-1: השדה היה ~28px גובה, והנציג
+        // עם ידיים רטובות מהבשר מפספס אותו. 40px הוא המינימום
+        // המומלץ למגע.
+        //
+        // ⚠️ text-base (16px) בנייד: אייפון **מזום את כל העמוד**
+        // כשנכנסים לשדה עם טקסט קטן מ-16px, והנציג נשאר עם
+        // תצוגה מוגדלת שהוא צריך לצבוט חזרה. בכל שדה. בכל לקוח.
+        className={`w-full text-center font-bold text-base md:text-sm rounded py-2 md:py-1 border-2 transition-colors ${
           error
             ? "border-red-600 bg-red-100 text-red-800"
             : isMissing
