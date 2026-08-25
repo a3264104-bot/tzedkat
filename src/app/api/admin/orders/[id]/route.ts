@@ -116,6 +116,47 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       : line;
   }
 
+  // §272: 💰 **ביטול הזמנה ששולמה יוצר יתרת זכות.**
+  //
+  // 🐛 מה שהיה: האזהרה במסך אמרה "יש לטפל בהחזר מול נדרים
+  // בנפרד" - כלומר המנהל היה צריך לזכור, ידנית, מחוץ למערכת.
+  // בפועל זה לא קורה, והלקוח משלם על סחורה שלא קיבל.
+  //
+  // ⚠️ המודל העסקי כאן הוא **זיכוי להזמנה הבאה**, לא החזר
+  // כספי: הלקוח קונה כל שבוע, והזיכוי מתקזז אוטומטית (§124).
+  // זה גם מה שהתנאים באתר צריכים לומר.
+  //
+  // ⚠️ רק כשבאמת שולם: הזמנה שלא חויבה אין ממה לזכות.
+  if (
+    b.status === "CANCELLED" &&
+    current.status !== "CANCELLED" &&
+    current.paymentStatus === "PAID" &&
+    current.customerId
+  ) {
+    // ⚠️ amountPaid ולא finalTotal: מזכים את מה שבאמת נגבה.
+    // תשלום חלקי מזכה חלקית.
+    const refund = Number(current.amountPaid ?? current.finalTotal ?? 0);
+
+    if (refund > 0) {
+      const stamp = new Date().toLocaleDateString("he-IL", {
+        timeZone: "Asia/Jerusalem",
+      });
+      await prisma.customer.update({
+        where: { id: current.customerId },
+        data: {
+          // ⚠️ increment ולא set: ללקוח עשויה להיות יתרה קיימת,
+          // ודריסה שלה הייתה מוחקת אותה.
+          creditBalance: { increment: refund },
+          creditBalanceNote: `זיכוי על ביטול הזמנה #${current.orderNumber} (${stamp})`,
+          creditBalanceAt: new Date(),
+        },
+      });
+      console.log(
+        `[cancel] order #${current.orderNumber} refunded ₪${refund} as credit`
+      );
+    }
+  }
+
   // status: אסור לקבוע PAID דרך ה-PATCH הכללי הזה (זה נעשה רק ע"י cash-payment endpoint או webhook).
   // גם אסור לעבור לסטטוסים שדורשים תשלום (READY_FOR_PICKUP/COMPLETED) אם ההזמנה לא שולמה.
   if ("status" in b) {

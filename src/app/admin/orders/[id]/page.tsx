@@ -194,7 +194,12 @@ export default function OrderDetail() {
   async function cancelOrder() {
     const paid = order.paymentStatus === "PAID";
     const msg = paid
-      ? `לבטל את הזמנה #${order.orderNumber}?\n\n⚠️ ההזמנה כבר שולמה (${fmt(Number(order.amountPaid || order.finalTotal))}).\nהביטול לא מבצע החזר כספי - יש לטפל בכך מול נדרים בנפרד.`
+      ? // §272: הזיכוי אוטומטי — האזהרה הישנה אמרה "טפל בנפרד",
+        // וזה בדיוק מה שלא קורה בפועל.
+        `לבטל את הזמנה #${order.orderNumber}?\n\n` +
+        `⚠️ ההזמנה כבר שולמה (${fmt(Number(order.amountPaid || order.finalTotal))}).\n\n` +
+        `✅ הסכום ייזקף כיתרת זכות ללקוח, ויקוזז אוטומטית מההזמנה הבאה שלו.\n\n` +
+        `אם נדרש החזר כספי בפועל — יש לטפל מול נדרים בנפרד.`
       : `לבטל את הזמנה #${order.orderNumber}?\n\nההזמנה תישמר לתיעוד אך תצא מכל הספירות והדוחות.`;
     if (!confirm(msg)) return;
     const reason = prompt("סיבת הביטול (תישמר בהערות הפנימיות):");

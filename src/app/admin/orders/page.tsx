@@ -207,13 +207,44 @@ export default function OrdersPage() {
     if (fStage && orderStage(o).key !== fStage) return false;
     if (fPay === "PAID" && o.paymentStatus !== "PAID") return false;
     if (fPay === "UNPAID" && o.paymentStatus === "PAID") return false;
-    const t = q.trim().toLowerCase();
-    if (!t) return true;
-    return (
-      String(o.orderNumber).includes(t) ||
-      (o.customerName || "").toLowerCase().includes(t) ||
-      (o.phone || "").includes(t)
-    );
+    // §273: חיפוש **רב-מילים**, כמו במסך הלקוחות (§251).
+    //
+    // 🐛 `includes` על המחרוזת כולה: חיפוש "משה ניימן" לא מצא
+    // לקוח שנשמר "ניימן משה" - למרות ששתי המילים שם.
+    //
+    // ⚠️ כל מילה נבדקת בנפרד, וכולן חייבות להימצא. AND ולא OR:
+    // "משה ניימן" עם OR היה מחזיר את כל המשהים במכירה.
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return true;
+    const hay = [
+      String(o.orderNumber ?? ""),
+      o.customerName ?? "",
+      o.phone ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+
+  // §273: מיון לפי **שם משפחה**.
+  //
+  // 🐛 הרשימה הייתה לפי מספר הזמנה - סדר כרונולוגי שאין לו
+  // משמעות למי שמחפש לקוח. ברשימה של 252 הזמנות זה אומר לגלול.
+  //
+  // ⚠️ אותה נפילה של דף החלוקה (§233): lastName אם קיים, אחרת
+  // המילה האחרונה בשם המלא. עובד גם על 386 שטרם פוצלו.
+  const lastNameOf = (o: any): string => {
+    const full = (o.customerName || "").trim();
+    if (!full) return "";
+    const parts = full.split(/\s+/);
+    return parts.length > 1 ? parts[parts.length - 1] : full;
+  };
+  shown.sort((a, b) => {
+    const r = lastNameOf(a).localeCompare(lastNameOf(b), "he");
+    if (r !== 0) return r;
+    // ⚠️ שם משפחה זהה - לפי השם המלא, כדי ששני "כהן" יופיעו
+    // בסדר קבוע ולא ישתנו בכל רענון.
+    return (a.customerName || "").localeCompare(b.customerName || "", "he");
   });
 
   // סיכום כספי של מה שמוצג - המנהל צריך לדעת כמה כסף מול העיניים
