@@ -148,8 +148,41 @@ export default function PaymentsPage() {
   // בין שורות לא דורס.
   const [installments, setInstallments] = useState<Record<string, number>>({});
 
+  // §261: 🔍 חיפוש לפי שם / טלפון / מספר הזמנה.
+  //
+  // ⚠️ סינון **מקומי** ולא בשרת: הרשימה כבר בזיכרון (עד 300),
+  // וסיבוב למסד באירלנד על כל הקשה היה איטי ומיותר.
+  const [q, setQ] = useState("");
+
   const instOf = (o: PayOrder) =>
     installments[o.id] ?? (o as any).requestedInstallments ?? 1;
+
+  // §261: 💾 **הבחירה נשמרת מיד.**
+  //
+  // 🐛 בלי זה הבורר היה מקומי בלבד: המנהל בוחר 3 תשלומים, עובר
+  // למסך אחר, וחוזר - והבחירה נעלמה. הוא היה צריך לזכור.
+  //
+  // ⚠️ עדכון אופטימי: המסך מתעדכן מיד, והשמירה רצה ברקע. אם
+  // היא נכשלת - חוזרים אחורה ומודיעים.
+  async function saveInstallments(orderId: string, n: number, prev: number) {
+    setInstallments((p) => ({ ...p, [orderId]: n }));
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/installments`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ installments: n }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "שמירה נכשלה");
+      }
+    } catch (e: any) {
+      // ⚠️ החזרה למצב הקודם: אם לא נשמר, המסך לא יכול להראות
+      // ערך שאינו במסד - המנהל יחייב לפי מה שהוא רואה.
+      setInstallments((p) => ({ ...p, [orderId]: prev }));
+      setMessage({ text: e.message || "שמירת הפריסה נכשלה", type: "error" });
+    }
+  }
   const [message, setMessage] = useState<Message | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -251,6 +284,25 @@ export default function PaymentsPage() {
   //
   // ⚠️ המנהל רואה עשרות שורות ולא יודע כמה מהן רלוונטיות.
   // המספר הזה עונה על השאלה בלי לספור.
+  // §261: הרשימה המסוננת.
+  //
+  // ⚠️ כל מילה בנפרד: "משה ניימן" ימצא גם "ניימן משה" - אותה
+  // בעיה שתוקנה בחיפוש הלקוחות (§251).
+  const words = q.trim().split(/\s+/).filter(Boolean);
+  const shown =
+    words.length === 0
+      ? orders
+      : orders.filter((o) => {
+          const hay = [
+            o.customerName ?? "",
+            o.customer?.phone ?? "",
+            String(o.orderNumber ?? ""),
+          ]
+            .join(" ")
+            .toLowerCase();
+          return words.every((w) => hay.includes(w.toLowerCase()));
+        });
+
   const chargeable = orders.filter(
     (o) =>
       o.finalTotal != null &&
@@ -326,6 +378,17 @@ export default function PaymentsPage() {
             </option>
           ))}
         </select>
+
+        {/* §261: 🔍 חיפוש — **ראשון בשורה**.
+            
+            ⚠️ המנהל שמחפש לקוח ספציפי לא רוצה לסנן קודם לפי
+            סטטוס. שדה החיפוש הוא הדבר הראשון שהעין מחפשת. */}
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="🔍 חיפוש: שם, טלפון או מספר הזמנה"
+          className="flex-1 min-w-[200px] rounded-lg border-2 border-zinc-300 px-3 py-2 text-sm"
+        />
 
         <select
           value={filter}
@@ -408,7 +471,22 @@ export default function PaymentsPage() {
       {/* רשימת הזמנות */}
       {!loading && orders.length > 0 && (
         <div className="space-y-3">
-          {orders.map((o) => (
+          {/* §261: חיווי כשהחיפוש מסתיר תוצאות.
+              
+              ⚠️ בלעדיו המנהל מחפש "כהן", רואה 2 שורות, ולא זוכר
+              שיש עוד 40 מוסתרות. */}
+          {q.trim() && shown.length !== orders.length && (
+            <div className="text-xs text-zinc-500 mb-2">
+              מציג {shown.length} מתוך {orders.length} · חיפוש: &quot;{q}&quot;
+              <button
+                onClick={() => setQ("")}
+                className="mr-2 text-brand-rust underline font-bold"
+              >
+                נקה
+              </button>
+            </div>
+          )}
+          {shown.map((o) => (
             <OrderCard
               key={o.id}
               order={o}
@@ -416,9 +494,7 @@ export default function PaymentsPage() {
               isCharging={charging === o.id}
               // §260: הפריסה שנבחרה לשורה זו
               currentInstallments={instOf(o)}
-              onInstallmentsChange={(n) =>
-                setInstallments((prev) => ({ ...prev, [o.id]: n }))
-              }
+              onInstallmentsChange={(n) => saveInstallments(o.id, n, instOf(o))}
             />
           ))}
         </div>
@@ -551,7 +627,15 @@ function OrderCard({
               
               ⚠️ מוצג רק כשאפשר לחייב: בהזמנה בלי מחיר סופי הוא
               רעש. */}
-          {hasFinalTotal && order.customer.hasToken && !cardBlocked && (
+          {/* §261: הבורר מוצג **לכל** הזמנה, לא רק למה שאפשר לחייב.
+              
+              🐛 לקוחות מבקשים פריסה בטלפון ימים לפני החיוב -
+              לפעמים לפני שההזמנה נשקלה. המנהל צריך לרשום מיד,
+              אחרת הוא יזכור חמישה ויפספס את השישי.
+              
+              ⚠️ תנאי אחד נשאר: לקוח מזומן או בלי כרטיס לא ייחויב
+              באשראי, ובורר פריסה אצלו הוא רעש. */}
+          {order.customer.hasToken && (
             <div className="flex items-center gap-1.5">
               <label className="text-[11px] text-zinc-500">תשלומים:</label>
               <select
