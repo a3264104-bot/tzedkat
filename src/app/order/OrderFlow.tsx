@@ -1575,6 +1575,7 @@ export function OrderFlow({
                               )}
                             {/* שורת בודדים — רק למוצרים שמאפשרים */}
                             {p.allowSingles && (
+                              <>
                               <div className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2">
                                 <div>
                                   <span className="text-sm text-amber-900 font-medium">
@@ -1595,9 +1596,33 @@ export function OrderFlow({
                                   value={entry.singlesQty}
                                   step={1}
                                   min={p.singlesMode === "UNITS" ? 1 : MIN_SINGLES_KG}
+                                  suffix={
+                                    p.singlesMode === "UNITS" ? "יח׳" : 'ק"ג'
+                                  }
                                   onChange={(v) => setSinglesQty(p.id, v)}
                                 />
                               </div>
+                              {/* §275: כמה יחידות זה בערך.
+                                  
+                                  הבעיה מהשטח: לקוח הזמין 18 בודדים
+                                  של מושט וחשב שיקבל 18 דגים. קיבל
+                                  18 קילו.
+                                  
+                                  ההערכה הופכת מספר מופשט למשהו
+                                  שאפשר לדמיין - ואז הטעות בולטת.
+                                  
+                                  מוצג רק כשהמנהל מילא משקל ליחידה.
+                                  בלעדיו אין על מה לבסס, וניחוש
+                                  גרוע מכלום. */}
+                              {p.singlesMode !== "UNITS" &&
+                                entry.singlesQty > 0 &&
+                                !!p.avgWeightPerUnit &&
+                                Number(p.avgWeightPerUnit) > 0 && (
+                                  <p className="text-[11px] text-amber-800 px-3 -mt-1">
+                                    ≈ {Math.round(entry.singlesQty / Number(p.avgWeightPerUnit))} יחידות בערך
+                                  </p>
+                                )}
+                              </>
                             )}
                           </div>
                         </div>
@@ -2339,11 +2364,23 @@ function QtyControl({
   step,
   onChange,
   min = 0,
+  suffix,
 }: {
   value: number;
   step: number;
   onChange: (v: number) => void;
   min?: number;
+  /**
+   * §274: היחידה **ליד המספר**.
+   *
+   * הבעיה מהשטח: לקוח הזמין 18 בודדים של מושט וחשב שיקבל 18
+   * דגים - קיבל 18 קילו. ומי שהזמין 2 בודדים של בשר חשב 2
+   * חתיכות, וקיבל 2 קילו.
+   *
+   * התווית "בודדים (ק״ג)" הייתה מעל השדה, והעין הולכת למספר.
+   * ליד המספר עצמו אי אפשר לפספס.
+   */
+  suffix?: string;
 }) {
   const round = (n: number) => Math.round(n * 100) / 100;
   // ירידה מתחת למינימום (למשל 2 ק"ג בבודדים) - יורדים ל-0, לא לערך ביניים
@@ -2384,10 +2421,17 @@ function QtyControl({
           // מינימום עליו הייתה מחזירה אותו לעגלה.
           if (v > 0 && min > 0 && v < min) onChange(min);
         }}
-        className="w-12 text-center rounded-lg border border-zinc-200 py-1.5 font-semibold"
+        className={`text-center rounded-lg border border-zinc-200 py-1.5 font-semibold ${
+          suffix ? "w-16" : "w-12"
+        }`}
         placeholder="0"
         aria-label="כמות"
       />
+      {suffix && (
+        <span className="text-[11px] font-bold text-brand-rust shrink-0">
+          {suffix}
+        </span>
+      )}
       <button
         onClick={() => {
           const next = round(value + step);

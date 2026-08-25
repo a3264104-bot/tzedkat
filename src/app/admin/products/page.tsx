@@ -667,18 +667,33 @@ export default function ProductsPage() {
 
             {/* משקל משוער לקרטון - להערכת המחיר ללקוח לפני השקילה */}
             {showAvgWeight && (
-              <Field label='משקל משוער לקרטון (ק"ג)'>
+              <Field label='משקל משוער ליחידה / לקרטון (ק"ג)'>
                 <input
                   className="input"
                   type="number"
                   step="0.1"
-                  placeholder='לדוגמה: קרטון חזה עוף ≈ 12 ק"ג'
+                  placeholder='קרטון חזה ≈ 12 · מושט אחד ≈ 3'
                   value={editing.avgWeightPerUnit ?? ""}
                   onChange={(e) => setEditing({ ...editing, avgWeightPerUnit: e.target.value })}
                 />
+                {/* §275: השדה משמש **שני** דברים, והתווית הזכירה רק אחד.
+                    
+                    הבעיה מהשטח: לקוח הזמין 18 בודדים של מושט וחשב
+                    שיקבל 18 דגים - קיבל 18 קילו. המערכת יכולה
+                    לומר לו "≈ 6 דגים", אבל רק אם המנהל הזין כמה
+                    שוקל דג אחד.
+                    
+                    התווית הישנה דיברה על קרטון בלבד, ולכן איש לא
+                    מילא את זה למוצרי בודדים. */}
                 <p className="text-xs text-zinc-400 mt-1">
-                  חובה למילוי — להערכת מחיר ללקוח (מחיר לק"ג × משקל משוער × כמות). המחיר הסופי לפי
-                  שקילה בפועל.
+                  <b>לקרטון:</b> להערכת מחיר לפני שקילה (מחיר לק&quot;ג × משקל
+                  × כמות).
+                </p>
+                <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                  <b>ליחידה בודדת:</b> כמה שוקלת יחידה אחת — מושט אחד, נתח
+                  בשר אחד. אם תמלא, הלקוח שמזמין בבודדים יראה{" "}
+                  <b>&quot;≈ 6 יחידות בערך&quot;</b> ולא יתבלבל בין קילו
+                  ליחידות.
                 </p>
                 {!editing.avgWeightPerUnit && (
                   <p className="text-xs text-amber-600 mt-1 font-medium">
