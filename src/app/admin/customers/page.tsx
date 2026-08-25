@@ -692,14 +692,54 @@ export default function AdminCustomersPage() {
             <p className="text-[11px] text-violet-900 bg-violet-50 border border-violet-300 rounded px-2 py-1 mt-1 inline-block">
               🔑 <b>{noPassCount} לקוחות ללא סיסמה גלויה</b> — לא ניתן למסור
               להם סיסמה.{" "}
-              <a
-                href="/api/admin/reset-passwords"
-                target="_blank"
-                rel="noopener noreferrer"
+              {/* §271: 🐛 הקישור פתח JSON גולמי.
+                  
+                  המנהל לחץ "הצג רשימה" והגיע למסך של קוד. הוא לא
+                  יכול לעשות איתו כלום - לא לקרוא, לא להתקשר, ולא
+                  לאפס.
+                  
+                  ⚠️ עכשיו: איפוס ישיר + הורדת אקסל עם השמות,
+                  הטלפונים והסיסמאות. זה מה שהוא צריך כדי להתקשר
+                  אליהם. */}
+              <button
+                onClick={async () => {
+                  if (
+                    !window.confirm(
+                      `לאפס סיסמה ל-${noPassCount} לקוחות?\n\n` +
+                        "המערכת תייצר סיסמה חדשה לכל אחד ותוריד אקסל עם השמות, " +
+                        "הטלפונים והסיסמאות.\n\n" +
+                        "⚠️ מי שזכר את הסיסמה הישנה — היא לא תעבוד יותר."
+                    )
+                  )
+                    return;
+                  try {
+                    const res = await fetch("/api/admin/reset-passwords", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ confirm: "RESET" }),
+                    });
+                    if (!res.ok) {
+                      const e = await res.json().catch(() => ({}));
+                      throw new Error(e.error || "האיפוס נכשל");
+                    }
+                    // ⚠️ הורדה ישירה: התשובה היא קובץ, לא JSON.
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "סיסמאות-שאופסו.xlsx";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    // ⚠️ reload ולא load — זה שם הפונקציה בקובץ הזה.
+                    reload();
+                  } catch (err: any) {
+                    alert(err.message || "שגיאה");
+                  }
+                }}
                 className="underline font-bold"
               >
-                הצג רשימה
-              </a>
+                🔑 אפס והורד רשימה
+              </button>
             </p>
           )}
           {debtors.length > 0 && (
