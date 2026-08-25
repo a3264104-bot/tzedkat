@@ -616,8 +616,17 @@ function OrderCard({
         </div>
       )}
 
-      {/* כפתור חיוב */}
-      {showCharge && (
+      {/* §267: 🚨 **זה מה שהסתיר את הבורר.**
+          
+          showCharge עטף את **כל** הבלוק - גם את הבורר וגם את
+          הכפתור. והוא false כשאין finalTotal, כלומר הבורר נעלם
+          בדיוק בהזמנות שבהן צריך אותו: אלה שטרם נשקלו.
+          
+          רדפנו אחרי hasToken, אחרי הסטטוס, אחרי המטמון - והתנאי
+          הזה ישב שמונה שורות מעל, עוטף הכל.
+          
+          ⚠️ עכשיו הבלוק תמיד מוצג, והכפתור לבדו מותנה. */}
+      {(
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {/* §260: 💳 בורר פריסה — **ליד הכפתור**.
               
@@ -673,6 +682,8 @@ function OrderCard({
               </span>
             )}
           </div>
+          {/* §267: הכפתור לבדו מותנה — הבורר מוצג תמיד. */}
+          {showCharge && (
           <button
             onClick={onCharge}
             disabled={isCharging || cardBlocked || !hasFinalTotal || !order.customer.hasToken}
@@ -680,6 +691,7 @@ function OrderCard({
           >
             {isCharging ? "מחייב..." : "💳 חייב עכשיו"}
           </button>
+          )}
           {cardBlocked && (
             <span className="text-xs text-orange-700">
               הכרטיס מסומן כדורש עדכון - לא ניתן לחייב עד שהלקוח יזין כרטיס חדש
