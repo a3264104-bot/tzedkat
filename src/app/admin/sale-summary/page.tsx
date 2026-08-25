@@ -161,8 +161,17 @@ export default function SaleSummaryPage() {
     setLoading(true);
     setError("");
     try {
+      // §252: הנקודות הנבחרות נשלחות לשרת.
+      //
+      // ⚠️ הסינון **בשרת** ולא בקליינט: הסכומים והכמויות נבנים
+      // שם, וסינון מקומי היה מציג טבלה מסוננת עם סכומים מלאים.
+      const params = new URLSearchParams();
+      if (saleId) params.set("pricelistId", saleId);
+      if (visiblePointIds && visiblePointIds.size > 0) {
+        params.set("pointIds", Array.from(visiblePointIds).join(","));
+      }
       const d = await api(
-        `/api/admin/sale-summary${saleId ? `?pricelistId=${saleId}` : ""}`
+        `/api/admin/sale-summary${params.toString() ? `?${params}` : ""}`
       );
       setData(d);
     } catch (e: any) {
@@ -178,7 +187,8 @@ export default function SaleSummaryPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     load();
-  }, [saleId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saleId, visiblePointIds]);
 
   function exportProductsCsv() {
     if (!data) return;
@@ -204,7 +214,21 @@ export default function SaleSummaryPage() {
         ];
       }),
     ];
-    downloadCsv(`סיכום-מוצרים-${data.pricelist.name}.csv`, rows);
+    // §252: שם הקובץ מעיד על תוכנו.
+    //
+    // ⚠️ המנהל מוריד פעמיים באותה דקה - "סיכום-מוצרים.csv" ו-
+    // "סיכום-מוצרים (1).csv" הם מתכון לשדר את הקובץ הלא נכון.
+    const scope =
+      visiblePointIds === null
+        ? "כל-הנקודות"
+        : data.points
+            .filter((p: any) => visiblePointIds.has(p.pointId))
+            .map((p: any) => p.pointName)
+            .join("-")
+            // ⚠️ תווים שאסורים בשם קובץ, ואורך סביר
+            .replace(/[\\/:*?"<>|]/g, "-")
+            .slice(0, 60);
+    downloadCsv(`סיכום-מוצרים-${data.pricelist.name}-${scope}.csv`, rows);
   }
 
   // ─── §23: תזכורת חלוקה ללקוחות ───────────────────────────────
@@ -388,6 +412,53 @@ export default function SaleSummaryPage() {
       )}
 
       {/* טבלת מוצרים - להזמנה מהספק */}
+      {/* §252: 🏷️ **מה בדיוק הקובץ הזה מכיל.**
+          
+          התרחיש: שתי נקודות טרם שודרו לספק, והשאר כן. המנהל מוריד
+          פעמיים - ובלי חיווי הוא לא יזכור איזה קובץ זה מה.
+          
+          ⚠️ הבאנר **מעל הטבלה ולא ליד הכפתור**: הוא מתאר את כל
+          מה שמתחתיו, כולל הייצוא. */}
+      <div
+        className={`rounded-xl border-2 p-3 mb-3 ${
+          visiblePointIds === null
+            ? "border-emerald-300 bg-emerald-50"
+            : "border-blue-300 bg-blue-50"
+        }`}
+      >
+        <div className="flex items-start gap-2.5">
+          <span className="text-xl shrink-0">
+            {visiblePointIds === null ? "📦" : "🎯"}
+          </span>
+          <div className="min-w-0">
+            <div
+              className={`font-extrabold text-sm ${
+                visiblePointIds === null ? "text-emerald-900" : "text-blue-900"
+              }`}
+            >
+              {visiblePointIds === null
+                ? "סיכום מלא — כל הנקודות"
+                : `סיכום חלקי — ${visiblePointIds.size} נקודות נבחרו`}
+            </div>
+            <p className="text-[11px] text-zinc-700 mt-0.5 leading-relaxed">
+              {visiblePointIds === null
+                ? "הכמויות כוללות את כל ההזמנות במכירה. אם כבר שידרת חלק לספק — סנן נקודות כדי לקבל רק את מה שנותר."
+                : "הכמויות כוללות **רק** את הנקודות שסימנת. זהו הקובץ שתשדר עבורן."}
+            </p>
+            {/* ⚠️ שמות הנקודות במפורש: "3 נקודות" לא אומר איזה,
+                והמנהל שמוריד פעמיים צריך לדעת מה בכל קובץ. */}
+            {visiblePointIds !== null && (
+              <p className="text-[11px] font-bold text-blue-900 mt-1">
+                {data.points
+                  .filter((p: any) => visiblePointIds.has(p.pointId))
+                  .map((p: any) => p.pointName)
+                  .join(" · ")}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div>
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-bold text-brand-slatedark">

@@ -346,7 +346,35 @@ export function OrderFlow({
   const [favPrices, setFavPrices] = useState<Record<string, string>>({});
   // §172: בורר המוצרים המיוחדים - נפתח בלחיצה, ולא תופס מקום
   // ברשימה הרגילה.
-  const [specialOpen, setSpecialOpen] = useState(false);
+  // §253: 🐛 **אי אפשר לערוך מוצר מועדף.**
+  //
+  // §172 הוציא את המוצרים המיוחדים (מועדפים ולא-פעילים) מהרשימה
+  // הרגילה אל בורר נפרד - נכון להזמנה חדשה, שגוי בעריכה.
+  //
+  // מה שקרה: המנהל פותח הזמנה קיימת עם "שריר בננה" (מוצר מועדף),
+  // רואה את שאר הפריטים, ואת זה - לא. הוא בעגלה, אבל מוסתר
+  // מאחורי כפתור שאין שום סימן שצריך ללחוץ עליו.
+  //
+  // ⚠️ הבורר נפתח **אוטומטית** כשיש מוצר מיוחד בעגלה. אם אין -
+  // הוא נשאר סגור, וההתנהגות של הזמנה חדשה לא משתנית.
+  const hasSpecialInCart = useMemo(() => {
+    const cart = editMode?.initialCart;
+    if (!cart) return false;
+    return products.some(
+      (p) =>
+        (p.isInactive || p.isFavorite) &&
+        cart[p.id] &&
+        ((cart[p.id].cartonQty ?? 0) > 0 || (cart[p.id].singlesQty ?? 0) > 0)
+    );
+  }, [editMode, products]);
+
+  const [specialOpen, setSpecialOpen] = useState(hasSpecialInCart);
+
+  // ⚠️ useEffect ולא רק useState: הערך ההתחלתי מחושב ברינדור
+  // הראשון, ו-products עשוי להגיע מאוחר יותר.
+  useEffect(() => {
+    if (hasSpecialInCart) setSpecialOpen(true);
+  }, [hasSpecialInCart]);
 
   // §182: משלוח שנקבע כבר ביצירת ההזמנה.
   //
@@ -1206,9 +1234,21 @@ export function OrderFlow({
                   <div className="text-right">
                     <div className="font-extrabold text-amber-900 text-sm">
                       ⭐ מוצרים שאינם באתר ({specialProducts.length})
+                      {/* §253: חיווי שיש כאלה **בעגלה**.
+                          
+                          ⚠️ בלעדיו המנהל שעורך הזמנה רואה כפתור
+                          כללי, ולא יודע שדווקא בו מסתתר הפריט
+                          שהוא מחפש. */}
+                      {hasSpecialInCart && (
+                        <span className="mr-1.5 text-[10px] bg-amber-600 text-white px-1.5 py-0.5 rounded">
+                          בהזמנה
+                        </span>
+                      )}
                     </div>
                     <div className="text-[11px] text-amber-800 mt-0.5">
-                      מוצרים שהלקוחות לא רואים — ניתן להוסיף ולקבוע מחיר
+                      {hasSpecialInCart
+                        ? "בהזמנה זו יש מוצר מיוחד — לחץ לעריכה"
+                        : "מוצרים שהלקוחות לא רואים — ניתן להוסיף ולקבוע מחיר"}
                     </div>
                   </div>
                   <span className="text-amber-700 text-xl shrink-0">←</span>

@@ -46,8 +46,27 @@ export default function AdminPersonalRequestsClient() {
 
   useEffect(() => {
     load();
-    // רענון אוטומטי כל 30 שניות
-    const interval = setInterval(load, 30000);
+
+    // §254: 🐛 **הרענון מחק טקסט באמצע כתיבה.**
+    //
+    // רענון כל 30 שניות בנה מחדש את הרשימה, והרכיב של הצ'אט
+    // נטען מאפס - כולל שדה ההודעה. המנהל שכתב תשובה ארוכה
+    // איבד אותה, שוב ושוב.
+    //
+    // ⚠️ הרענון **נעצר בזמן כתיבה**: אם הפוקוס בשדה טקסט,
+    // מדלגים על המחזור הזה. הוא יתפוס בעוד 30 שניות.
+    //
+    // ⚠️ לא ביטלתי אותו לגמרי: הוא מה שמראה למנהל שהגיעה
+    // הודעה חדשה מלקוח בלי לרענן ידנית.
+    const interval = setInterval(() => {
+      const el = document.activeElement;
+      const typing =
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLInputElement ||
+        (el as HTMLElement | null)?.isContentEditable === true;
+      if (typing) return;
+      load();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 

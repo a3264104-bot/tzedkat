@@ -16,6 +16,21 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const pricelistIdParam = searchParams.get("pricelistId");
 
+  // §252: סינון לפי נקודות חלוקה.
+  //
+  // התרחיש מהשטח: שתי נקודות טרם שודרו לספק, והשאר כן. המנהל
+  // צריך **סיכום מלא** לשתיים ו**תוספות בלבד** לשאר - ואין דרך
+  // לקבל את זה בקובץ אחד.
+  //
+  // ⚠️ הפתרון: מוריד פעמיים, כל פעם עם נקודות אחרות. פשוט יותר
+  // מקובץ אחד עם שתי עמודות, והמנהל שולט בדיוק במה שהוא מקבל.
+  //
+  // ⚠️ ריק = כל הנקודות. ברירת מחדל שמורה על ההתנהגות הקיימת.
+  const pointIdsParam = (searchParams.get("pointIds") || "").trim();
+  const pointFilter = pointIdsParam
+    ? pointIdsParam.split(",").filter(Boolean)
+    : null;
+
   // §214: 🐛 המסך ננעל ברגע שהמכירה נסגרה.
   //
   // ברירת המחדל הייתה `status: "ACTIVE"` בלבד, ולכן דווקא ברגע
@@ -59,7 +74,13 @@ export async function GET(req: Request) {
 
   // כל ההזמנות של המכירה (לא מבוטלות), עם פריטים ונקודה
   const orders = await prisma.order.findMany({
-    where: { pricelistId: pricelist.id, status: { not: "CANCELLED" } },
+    where: {
+      pricelistId: pricelist.id,
+      status: { not: "CANCELLED" },
+      // §252: ⚠️ הסינון **בשליפה** ולא אחריה: הסכומים והכמויות
+      // נבנים מהתוצאה, וסינון מאוחר היה מותיר אותם שגויים.
+      ...(pointFilter ? { pointId: { in: pointFilter } } : {}),
+    },
     include: {
       items: { include: { product: { select: { id: true, limitedQty: true, limitedQtyAmount: true, saleType: true, priceType: true, singlesMode: true, unit: true } } } },
       point: { select: { id: true, name: true, city: true } },

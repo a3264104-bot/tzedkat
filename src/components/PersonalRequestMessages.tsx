@@ -30,8 +30,24 @@ export function PersonalRequestMessages({ requestId, currentUserType, readOnly }
   // טעינה
   useEffect(() => {
     load();
-    // רענון אוטומטי כל 15 שניות (למקרה של תגובות)
-    const interval = setInterval(load, 15000);
+    // §254: 🐛 **הרענון מחק טקסט באמצע כתיבה.**
+    //
+    // רענון כל 15 שניות בנה מחדש את הרשימה, והשדה איבד פוקוס
+    // ותוכן. מי שכתב תשובה ארוכה איבד אותה - וכל 15 שניות שוב.
+    //
+    // ⚠️ הרענון **נעצר בזמן כתיבה**: אם הפוקוס בשדה טקסט,
+    // מדלגים על המחזור. הוא יתפוס ברגע שהמשתמש עוזב.
+    //
+    // ⚠️ לא ביטלתי אותו: הוא מה שמראה תגובה חדשה בלי לרענן.
+    const interval = setInterval(() => {
+      const el = document.activeElement;
+      const typing =
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLInputElement ||
+        (el as HTMLElement | null)?.isContentEditable === true;
+      if (typing) return;
+      load();
+    }, 15000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestId]);

@@ -102,5 +102,61 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     data: updateData,
   });
 
+  // §255: 📧 **התראה במייל ללקוח.**
+  //
+  // 🐛 מה שהיה: המנהל עונה, hasUnreadForCustomer=true, וזהו.
+  // הלקוח לא נכנס לאתר לבדוק אם ענו לו - הוא שלח שאלה וחיכה.
+  // התשובה נשארה שם ואף אחד לא ראה אותה.
+  //
+  // ⚠️ רק כשה**מנהל** עונה: הודעה מלקוח מגיעה למסך שהמנהל
+  // ממילא פתוח בו, ומייל על כל הודעה היה הופך לרעש.
+  //
+  // ⚠️ try/catch עוטף הכל: כשל בשליחת מייל **לא** יפיל את
+  // ההודעה עצמה. היא כבר נשמרה, וזה מה שחשוב.
+  if (senderType === "ADMIN") {
+    try {
+      const reqRow = await prisma.personalRequest.findUnique({
+        where: { id },
+        select: {
+          customerName: true,
+          customer: { select: { email: true, name: true } },
+        },
+      });
+      const to = reqRow?.customer?.email;
+      const apiKey = process.env.RESEND_API_KEY;
+
+      if (to && apiKey) {
+        const { Resend } = await import("resend");
+        const resend = new Resend(apiKey);
+        const name = reqRow?.customer?.name || reqRow?.customerName || "";
+        // ⚠️ ההודעה עצמה **לא** במייל: היא עשויה להכיל מחירים
+        // ופרטים, והמייל אינו ערוץ מאובטח. הלקוח נכנס ורואה.
+        await resend.emails.send({
+          from: process.env.EMAIL_FROM || "onboarding@resend.dev",
+          to,
+          subject: "התקבלה תשובה לבקשה האישית שלך",
+          html: `
+            <div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.7">
+              <p>שלום ${name},</p>
+              <p>התקבלה תשובה חדשה לבקשה האישית שלך.</p>
+              <p style="margin:24px 0">
+                <a href="${process.env.NEXTAUTH_URL || "https://tzidkat.com"}/personal-order"
+                   style="background:#c0461e;color:#fff;padding:12px 24px;
+                          border-radius:8px;text-decoration:none;font-weight:bold">
+                  לצפייה בתשובה ←
+                </a>
+              </p>
+              <p style="color:#666;font-size:13px">צדקת רבותינו</p>
+            </div>
+          `,
+        });
+        console.log(`[personal-request] notified customer ${to} about reply`);
+      }
+    } catch (e) {
+      // ⚠️ נכשל בשקט: ההודעה נשמרה, והלקוח יראה אותה כשייכנס.
+      console.error("[personal-request] email notification failed:", e);
+    }
+  }
+
   return NextResponse.json({ ok: true, message: created });
 }

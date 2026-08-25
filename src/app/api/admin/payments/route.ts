@@ -16,13 +16,30 @@ import { auth } from "@/lib/auth";
 //   (בלי) → ברירת המחדל של §19, כל המכירות
 //
 // ⚠️ אימות admin: משתמש ב-auth() של Auth.js v5.
+// §256: 🐛 **PENDING לא היה ברשימה — והוא הסטטוס של כולם.**
+//
+// הרשימה נבנתה סביב READY_TO_CHARGE, שאמור לסמן "מוכן לחיוב".
+// אבל אין בקוד שום מקום שמסמן אותו (§250) - הוא משמש רק
+// כ-recovery אחרי כישלון.
+//
+// התוצאה בשטח: 250 הזמנות ב-PENDING, 4 מהן עם מחיר סופי -
+// ואף אחת לא הופיעה במסך התשלומים. המנהל ראה מסך כמעט ריק
+// ולא הבין למה.
+//
+// ⚠️ PENDING הוא ברירת המחדל של כל הזמנה חדשה, ולכן הרשימה
+// תכלול גם הזמנות שטרם נשקלו. **וזה בסדר**: המסך מציג אותן
+// עם "טרם נקבע מחיר סופי" והכפתור מוסתר, כך שהמנהל רואה את
+// התמונה המלאה ולא רק את מה שמוכן.
 const DEFAULT_STATUSES = [
+  "PENDING",
   "TOKEN_CREATED",
   "AWAITING_WEIGHING",
   "READY_TO_CHARGE",
   "CHARGING",
   "FAILED",
   "CARD_UPDATE_NEEDED",
+  // ⚠️ תשלום חלקי — נשאר פתוח עד שהיתרה נגבית.
+  "PARTIALLY_PAID",
 ];
 
 export async function GET(req: NextRequest) {
@@ -69,10 +86,21 @@ export async function GET(req: NextRequest) {
     const orders = await prisma.order.findMany({
       where: whereClause,
       orderBy: [
-        // מציגים קודם את הדורש-פעולה: FAILED / CARD_UPDATE_NEEDED / READY_TO_CHARGE
-        // הכי חדשים ראשונים
+        // §256: **מה שמוכן לחיוב קודם.**
+        //
+        // 🐛 אחרי שהוספנו PENDING לרשימה, המסך מציג 250 הזמנות -
+        // ו-4 שבאמת אפשר לחייב נקברות ביניהן. מיון לפי updatedAt
+        // בלבד היה מציג את מי שנגע בו אחרון, לא את מי שדורש
+        // פעולה.
+        //
+        // ⚠️ finalTotal desc: Prisma ממיין NULL אחרון ב-desc,
+        // כלומר מי שנשקל (יש לו סכום) עולה לראש. בדיוק הרצוי.
+        { finalTotal: "desc" },
         { updatedAt: "desc" },
       ],
+      // ⚠️ תקרה: 250 הזמנות עם כל השדות זה עמוד כבד בנייד.
+      // המנהל מסנן לפי מכירה או סטטוס כשהוא צריך משהו ספציפי.
+      take: 300,
       select: {
         id: true,
         orderNumber: true,
