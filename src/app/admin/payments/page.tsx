@@ -62,8 +62,36 @@ const FILTER_OPTIONS: { value: string; label: string }[] = [
 ];
 
 // אילו סטטוסים מאפשרים ללחוץ "חייב עכשיו"?
-function canCharge(status: string): boolean {
-  return status === "READY_TO_CHARGE" || status === "FAILED";
+//
+// §250: 🐛 **הכפתור לא הופיע אף פעם.**
+//
+// התנאי היה READY_TO_CHARGE בלבד - אבל **אין בקוד שום מקום
+// שמסמן הזמנה בסטטוס הזה**. הוא נקרא ב-admin-charge ונבדק כאן,
+// ואף אחד לא כותב אותו.
+//
+// התוצאה: 4 הזמנות עם מחיר סופי נתקעו ב-PENDING, והמנהל ראה
+// אותן במסך התשלומים בלי שום דרך לחייב.
+//
+// ⚠️ הקריטריון האמיתי הוא **מחיר סופי + לא שולם**, לא סטטוס.
+// מחיר סופי אומר שהשקילה הסתיימה ויש מה לגבות.
+//
+// ⚠️ READY_TO_CHARGE נשאר ברשימה לתאימות אחורה - אם בעתיד
+// יתווסף קוד שמסמן אותו, הוא ימשיך לעבוד.
+function canCharge(
+  status: string,
+  finalTotal?: number | null,
+  paymentStatus?: string
+): boolean {
+  if (status === "READY_TO_CHARGE" || status === "FAILED") return true;
+
+  // ⚠️ כבר שולם - אין מה לחייב שוב.
+  if (paymentStatus === "PAID") return false;
+
+  // ⚠️ ממתין לתשלום אונליין: הלקוח באמצע תהליך, וחיוב מקביל
+  // היה גובה פעמיים.
+  if (paymentStatus === "PAYMENT_PENDING") return false;
+
+  return finalTotal != null && finalTotal > 0;
 }
 
 function fmtIls(n: number | null): string {
@@ -323,7 +351,7 @@ function OrderCard({
 }) {
   const statusLabel = payStatusLabel(order.paymentStatus);
   const statusColor = payStatusColor(order.paymentStatus);
-  const showCharge = canCharge(order.paymentStatus);
+  const showCharge = canCharge(order.paymentStatus, order.finalTotal, order.paymentStatus);
   const cardBlocked = order.customer.cardNeedsUpdate;
   const hasFinalTotal = order.finalTotal !== null;
 

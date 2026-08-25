@@ -15,21 +15,34 @@ export async function GET(req: Request) {
   // includeInactive=false מסתיר אותם למי שרוצה רשימה נקייה.
   const includeInactive = searchParams.get("includeInactive") !== "false";
 
-  const searchFilter = q
-    ? {
-        OR: [
-          { name: { contains: q, mode: "insensitive" as const } },
-          { phone: { contains: q } },
-          // §199: חיפוש גם לפי הטלפון הנוסף - זה בדיוק המספר
-          // שממנו הלקוח מתקשר, והמנהל מחפש לפיו.
-          { phone2: { contains: q } },
-          { email: { contains: q, mode: "insensitive" as const } },
-          // §173: חיפוש גם לפי שם פרטי או משפחה בנפרד
-        { firstName: { contains: q, mode: "insensitive" as const } },
-        { lastName: { contains: q, mode: "insensitive" as const } },
-      ],
-      }
-    : {};
+  // §251: 🐛 **חיפוש "משה ניימן" לא מצא כלום.**
+  //
+  // `contains` מחפש את המחרוזת **כרצף**. אם השם נשמר "ניימן משה"
+  // (או שהפיצול הפך את הסדר), החיפוש נכשל למרות ששתי המילים שם.
+  //
+  // ⚠️ הפתרון: מפצלים למילים, וכל מילה **חייבת** להימצא באחד
+  // מהשדות. "משה ניימן" ימצא גם "ניימן משה" וגם "משה יעקב ניימן".
+  //
+  // ⚠️ AND בין המילים ולא OR: חיפוש "משה ניימן" עם OR היה מחזיר
+  // את כל המשהים במערכת - חסר תועלת ברשימה של 400 לקוחות.
+  const words = q.split(/\s+/).filter((w) => w.length > 0);
+
+  const wordFilter = (w: string) => ({
+    OR: [
+      { name: { contains: w, mode: "insensitive" as const } },
+      { phone: { contains: w } },
+      // §199: חיפוש גם לפי הטלפון הנוסף - זה בדיוק המספר שממנו
+      // הלקוח מתקשר, והמנהל מחפש לפיו.
+      { phone2: { contains: w } },
+      { email: { contains: w, mode: "insensitive" as const } },
+      // §173: חיפוש גם לפי שם פרטי או משפחה בנפרד
+      { firstName: { contains: w, mode: "insensitive" as const } },
+      { lastName: { contains: w, mode: "insensitive" as const } },
+    ],
+  });
+
+  const searchFilter =
+    words.length > 0 ? { AND: words.map(wordFilter) } : {};
 
   // §127: 🐛 ההגבלה הייתה 100 **בשקט**.
   //
@@ -65,6 +78,8 @@ export async function GET(req: Request) {
           status: { notIn: ["CANCELLED", "COMPLETED"] },
           pricelist: { status: "ACTIVE" },
         },
+        // ⚠️ **הזמנות**, לא לקוחות: כאן שולפים את ההזמנה האחרונה
+        // של כל לקוח, ולכן createdAt הוא המיון הנכון.
         orderBy: { createdAt: "desc" },
         take: 1,
         select: { id: true, orderNumber: true, pricelistId: true },
@@ -76,7 +91,8 @@ export async function GET(req: Request) {
         },
       },
     },
-    orderBy: { createdAt: "desc" },
+    // §251: מיון לפי שם משפחה - ראה ההסבר למעלה.
+    orderBy: [{ lastName: "asc" }, { name: "asc" }],
     take: LIMIT,
     }),
     prisma.customer.count({ where }),

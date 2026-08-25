@@ -578,6 +578,29 @@ export default function AdminCustomersPage() {
     .filter((c) => !hideInactive || c.isActive !== false)
     .sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
+
+      // §251: מיון לפי **שם משפחה** כשממיינים לפי שם.
+      //
+      // 🐛 המיון היה על השדה `name` - כלומר לפי השם הפרטי. המנהל
+      // שמחפש את "ניימן" עבר על כל האלף-בית של השמות הפרטיים.
+      //
+      // ⚠️ אותה נפילה של דף החלוקה (§233): lastName אם קיים,
+      // אחרת המילה האחרונה בשם המלא. כך זה עובד גם על 386
+      // הלקוחות שטרם פוצלו.
+      if (sortKey === "name") {
+        const last = (c: typeof a) => {
+          if (c.lastName?.trim()) return c.lastName.trim();
+          const full = (c.name || "").trim();
+          const parts = full.split(/\s+/);
+          return parts.length > 1 ? parts[parts.length - 1] : full;
+        };
+        const r = last(a).localeCompare(last(b), "he") * dir;
+        // ⚠️ שם משפחה זהה - ממיינים לפי השם המלא, כדי ששני
+        // "כהן" יופיעו בסדר קבוע.
+        if (r !== 0) return r;
+        return String(a.name ?? "").localeCompare(String(b.name ?? ""), "he") * dir;
+      }
+
       const av = a[sortKey] ?? "";
       const bv = b[sortKey] ?? "";
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;

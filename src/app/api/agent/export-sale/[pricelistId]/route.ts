@@ -163,13 +163,44 @@ export async function GET(
   wb.creator = "צדקת רבותינו";
   wb.created = new Date();
 
+  // §249: 🔄 **גיליון נפרד לסבב חלוקה שני.**
+  //
+  // התרחיש מהשטח: המנהל סיים לחלק בשתי נקודות, ואז נכנסו הזמנות
+  // חדשות לאותן נקודות. הדף המעודכן הציג את **כל** 40 הלקוחות,
+  // כולל אלה שכבר קיבלו - והנציג היה צריך לסרוק את כולם כדי
+  // למצוא 3 חדשים.
+  //
+  // ⚠️ ההבחנה: נקודה שבה **כבר נמסרה** לפחות הזמנה אחת, ויש בה
+  // הזמנות שטרם נמסרו. רק אז מפצלים.
+  //
+  // ⚠️ נקודה שטרם התחילה נשארת גיליון אחד: פיצול שלה היה יוצר
+  // גיליון ריק ומבלבל.
+  const deliveredByPoint = new Map<string, number>();
+  for (const o of orders) {
+    if ((o as any).deliveredAt) {
+      deliveredByPoint.set(o.pointId, (deliveredByPoint.get(o.pointId) ?? 0) + 1);
+    }
+  }
+
   // קיבוץ לפי נקודה
   const byPoint = new Map<string, { name: string; orders: typeof orders }>();
   for (const o of orders) {
     const pid = o.pointId;
-    const name = o.point?.name || o.pointNameSnapshot || "נקודה לא ידועה";
-    if (!byPoint.has(pid)) byPoint.set(pid, { name, orders: [] });
-    byPoint.get(pid)!.orders.push(o);
+    const baseName = o.point?.name || o.pointNameSnapshot || "נקודה לא ידועה";
+
+    // ⚠️ ההזמנה הולכת לגיליון "סבב 2" רק אם **גם** הנקודה כבר
+    // חילקה **וגם** ההזמנה עצמה טרם נמסרה. הזמנה שכבר נמסרה
+    // נשארת בגיליון המקורי - היא חלק מההיסטוריה של הסבב הראשון.
+    const pointStarted = (deliveredByPoint.get(pid) ?? 0) > 0;
+    const isSecondRound = pointStarted && !(o as any).deliveredAt;
+
+    // ⚠️ מפתח נפרד ליצירת גיליון נפרד. השם מסומן כדי שהנציג
+    // יזהה אותו מיד בלשוניות למטה.
+    const key = isSecondRound ? `${pid}__round2` : pid;
+    const name = isSecondRound ? `🔄 ${baseName} (חדש)` : baseName;
+
+    if (!byPoint.has(key)) byPoint.set(key, { name, orders: [] });
+    byPoint.get(key)!.orders.push(o);
   }
   if (byPoint.size === 0) {
     byPoint.set("empty", { name: "אין הזמנות", orders: [] });
@@ -417,7 +448,22 @@ function buildDistributionSheet(
   //
   // ⚠️ מוצג רק כשרלוונטי: בדף רגיל הוא רעש, ומי שרואה אותו
   // תמיד מפסיק לקרוא אותו.
-  if (lateCount > 0) {
+  // §249: חיווי סבב שני בכותרת הגיליון.
+  //
+  // ⚠️ הנציג פותח לשונית ורואה 3 לקוחות במקום 40 - בלי הסבר
+  // הוא יחשוב שהדף שבור.
+  const isRound2 = pointName.startsWith("🔄");
+
+  if (isRound2) {
+    ws.mergeCells(3, 1, 3, lastCol);
+    const r2 = ws.getCell(3, 1);
+    r2.value =
+      "🔄 סבב חלוקה שני — רק הזמנות שנוספו אחרי שהחלוקה בנקודה זו התחילה. מי שכבר קיבל נמצא בגיליון הראשי.";
+    r2.font = { size: 10, bold: true, color: { argb: "FF1D4ED8" } };
+    r2.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
+    r2.alignment = { horizontal: "center", vertical: "middle" };
+    ws.getRow(3).height = 18;
+  } else if (lateCount > 0) {
     ws.mergeCells(3, 1, 3, lastCol);
     const leg = ws.getCell(3, 1);
     leg.value =
