@@ -405,7 +405,21 @@ function buildDistributionSheet(
   });
 
   // §161: מפת הצבעים - נבנית פעם אחת לגיליון
-  const colorMap = buildColorMap(orders);
+  // §285: הצבעים בוטלו — ובכוונה.
+  //
+  // §161 בנה צבע לכל מוצר כדי שהנציג יזהה בסריקה מהירה. זה
+  // עבד על המסך - ובפועל הדפים מודפסים בשחור-לבן, וכל הצבעים
+  // הופכים לאותו אפור בינוני.
+  //
+  // גרוע מזה: הם ביטלו את פסי השורות. שורה אחת קיבלה חמישה
+  // גוונים שונים, וההפרדה בין לקוח ללקוח נעלמה - בדיוק הבעיה
+  // שהנציג מתאר ביום חלוקה.
+  //
+  // מה שהחליף אותם: הצורות (§278) שעובדות בכל הדפסה, ופסי
+  // רקע אחידים שמפרידים בין הזמנות.
+  //
+  // buildColorMap נשארת בקוד: אם תחליט להדפיס בצבע בעתיד היא
+  // מוכנה, ומחיקת לוגיקה שעשויה לחזור אינה שווה את הרעש.
 
   // ─── עמודות: שם, טלפון, 4 פריטים, מזומן, טופל ───
   ws.columns = [
@@ -458,7 +472,7 @@ function buildDistributionSheet(
     //
     // ⚠️ נציג שרואה ⬤ בלי מקרא לא יודע שזה עוף. הסימן עוזר רק
     // אם ברור מה הוא אומר.
-    " · ⬛ קרטון שלם · ${CATEGORY_LEGEND}" +
+    " · ${CATEGORY_LEGEND}" +
     ` · לקוח ששילם במזומן — לסמן בעמודת "מזומן" ולעדכן במערכת`;
   sub.font = { size: 9, color: { argb: "FF666666" } };
   sub.alignment = { horizontal: "center" };
@@ -486,7 +500,7 @@ function buildDistributionSheet(
     ws.mergeCells(3, 1, 3, lastCol);
     const leg = ws.getCell(3, 1);
     leg.value =
-      "⭐ שורות מסומנות בכוכבית ובאדום — נוספו אחרי סגירת המכירה. אם קיבלת דף קודם, אלה השורות החדשות.   ·   ⬛ = קרטון שלם";
+      "⭐ שורות מסומנות בכוכבית ובאדום — נוספו אחרי סגירת המכירה. אם קיבלת דף קודם, אלה השורות החדשות.";
     leg.font = { size: 10, bold: true, color: { argb: "FFB91C1C" } };
     leg.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
     leg.alignment = { horizontal: "center", vertical: "middle" };
@@ -626,9 +640,21 @@ function buildDistributionSheet(
           color: { argb: isLate ? "FFB91C1C" : "FF2C3E4F" },
         };
         nameCell.alignment = { vertical: "middle", wrapText: true };
+        // §285: הפס חייב לכלול גם את השם והטלפון — אחרת הוא
+        // מתחיל באמצע השורה והעין לא קוראת אותו כרצף.
+        nameCell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: stripe ? "FFF0F0F0" : "FFFFFFFF" },
+        };
 
         const phoneCell = ws.getCell(r, 2);
         phoneCell.value = o.phone || "";
+        phoneCell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: stripe ? "FFF0F0F0" : "FFFFFFFF" },
+        };
         phoneCell.font = { size: 9 };
         phoneCell.alignment = { horizontal: "center", vertical: "middle" };
       } else {
@@ -683,8 +709,16 @@ function buildDistributionSheet(
           //
           // ⚠️ הסימן **בתחילת השורה השנייה**, ליד הכמות: שם המוצר
           // ארוך ונחתך, והסימן היה נעלם. הכמות תמיד נראית.
+          // §284: 🐛 ⬛ (קרטון) ו-■ (בשר) — שני ריבועים באותו תא.
+          //
+          // §236 בחר ⬛ כשלא היו סימני קטגוריה. עכשיו יש ■ לבשר,
+          // ושני ריבועים דומים מבטלים זה את זה - הנציג לא מבדיל.
+          //
+          // ⚠️ הפתרון: המילה "קרטון" כבר מופיעה בכמות ("1 קרטון"),
+          // ולכן הסימן מיותר. ההדגשה לבדה מספיקה כדי שקרטון
+          // יבלוט - והיא עובדת גם בהדפסה שחור-לבן.
           const isWholeCarton = !it.isSingle && cartonType;
-          const cartonMark = isWholeCarton ? "⬛ " : "";
+          const cartonMark = "";
           // §278: סימן הקטגוריה **לפני שם המוצר**.
           //
           // הנציג שמוצא חבילת שניצל סורק את הדף ומחפש ⬤. עשרות
@@ -699,18 +733,34 @@ function buildDistributionSheet(
             bold: isWholeCarton,
           };
           cell.alignment = { vertical: "top", wrapText: true, horizontal: "right" };
-          // §161: צבע לפי המוצר - כדי שהנציג יזהה בסריקה מהירה
-          // ולא יצטרך לקרוא כל שם.
+          // §285: 🐛 הצבע למוצר (§161) **ביטל את פסי השורות.**
+          //
+          // תא עם מוצר קיבל צבע ורוד/תכלת, ותא ריק קיבל אפור -
+          // כלומר בשורה עם 3 מוצרים ו-2 ריקים היו 5 גוונים שונים,
+          // וההפרדה בין הזמנות נעלמה.
+          //
+          // ⚠️ ובהדפסה שחור-לבן כל הצבעים הופכים לאותו אפור
+          // בינוני, והדף נראה כמו רשת אחידה. זו בדיוק הבעיה
+          // שהנציג מתאר: "הדפים מתמלאים וצריך לחפש".
+          //
+          // ⚠️ הפתרון: **פס אחיד לכל השורה**, כולל התאים עם
+          // מוצרים. ההפרדה בין לקוח ללקוח חשובה יותר מהבחנה בין
+          // מוצר למוצר - את זו נותנים כבר הצורות (⬤ ■ ▲).
           cell.fill = {
             type: "pattern",
             pattern: "solid",
-            fgColor: { argb: colorMap.get(name) || "FFFFFBEF" },
+            fgColor: { argb: stripe ? "FFF0F0F0" : "FFFFFFFF" },
           };
         } else if (stripe) {
+          // §285: אותו גוון בתאים הריקים — הפס חייב להיות רציף.
+          //
+          // ⚠️ F0F0F0 ולא FAFAFA: 94% לבן נראה במדפסת רגילה,
+          // 98% נעלם. וזה עדיין בהיר מספיק שהטקסט יישאר חד
+          // והסימון בעט ברור.
           cell.fill = {
             type: "pattern",
             pattern: "solid",
-            fgColor: { argb: "FFFAFAFA" },
+            fgColor: { argb: "FFF0F0F0" },
           };
         }
         cell.border = cellBorder;

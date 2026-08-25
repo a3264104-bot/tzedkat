@@ -117,6 +117,8 @@ export async function GET(
     unitLabel: string;
     /** §281: משקל משוער כולל — קרטונים × משקל קרטון + בודדים */
     estWeight: number;
+    /** §284: PACKAGE = קרטון · UNIT/WEIGHT = יחידות */
+    isCartonProduct: boolean;
   };
 
   const byPoint = new Map<
@@ -148,6 +150,8 @@ export async function GET(
           totalCartons: 0,
           totalSingles: 0,
           estWeight: 0,
+          isCartonProduct:
+            (it.product?.saleType ?? (it as any).saleType) === "PACKAGE",
           unitLabel: it.product?.unit || "יח׳",
         });
       }
@@ -162,10 +166,15 @@ export async function GET(
         pg.estWeight += qty;
       } else {
         pg.totalCartons += qty;
-        // ⚠️ קרטון × משקל משוער. בלי הנתון לא מוסיפים כלום -
-        // סכום חלקי מדויק עדיף על סכום מלא מנוחש.
+        // ⚠️ קרטון × משקל משוער — **רק למוצרי PACKAGE**.
+        //
+        // §284: avgWeightPerUnit הוא משקל **קרטון** (§276).
+        // הכפלה שלו בכמות יחידות של נקניק הייתה נותנת מספר
+        // חסר משמעות - 10 נקניקים × 12 ק"ג = 120 ק"ג.
+        const isPkg =
+          (it.product?.saleType ?? (it as any).saleType) === "PACKAGE";
         const avg = Number((it.product as any)?.avgWeightPerUnit ?? 0);
-        if (avg > 0) pg.estWeight += qty * avg;
+        if (isPkg && avg > 0) pg.estWeight += qty * avg;
       }
 
       pg.lines.push({
@@ -173,11 +182,20 @@ export async function GET(
         // ⚠️ השם הנוכחי ולא ה-snapshot: המנהל תיקן שמות (§192).
         customerName: o.customer?.name || o.customerName,
         qty,
+        // §284: 🐛 כל מה שאינו "בודדים" נקרא "קרטון" — גם נקניק.
+        //
+        // מוצר UNIT (נקניק, כבד ארוז) נמכר ביחידות, לא בקרטונים.
+        // הנציג קרא "10 קרטון נקניק" וחיפש קרטונים שלא קיימים.
+        //
+        // ⚠️ אותה הבחנה של §233: saleType === "PACKAGE" הוא
+        // הקרטון. השאר יחידות.
         unitLabel: it.isSingle
           ? it.product?.unit === "יחידה"
             ? "יח׳"
             : 'ק"ג'
-          : "קרטון",
+          : (it.product?.saleType ?? (it as any).saleType) === "PACKAGE"
+            ? "קרטון"
+            : "יח׳",
         isLate,
       });
     }
@@ -270,8 +288,11 @@ export async function GET(
       // בקרה. הנציג סופר 18 ורואה 20 - וידע שחסרים שניים לפני
       // שהלקוח האחרון מגיע.
       const totals: string[] = [];
+      // §284: התווית לפי סוג המוצר, לא "קרטונים" תמיד.
       if (pg.totalCartons > 0)
-        totals.push(`${pg.totalCartons} קרטונים`);
+        totals.push(
+          `${pg.totalCartons} ${pg.isCartonProduct ? "קרטונים" : "יחידות"}`
+        );
       if (pg.totalSingles > 0)
         totals.push(`${Math.round(pg.totalSingles * 10) / 10} בודדים`);
 
@@ -346,8 +367,22 @@ export async function GET(
         q.font = { size: 12, bold: true };
         q.alignment = { horizontal: "center", vertical: "middle" };
 
+        // §285: פסי רקע לסירוגין — כמו בדף החלוקה.
+        //
+        // ⚠️ F0F0F0 (94% לבן): נראה במדפסת רגילה, לא מבזבז טונר,
+        // והטקסט נשאר חד. FAFAFA שהיה קודם פשוט נעלם בהדפסה.
+        //
+        // ⚠️ כאן הפס מפריד בין **לקוחות באותו מוצר** - הנציג
+        // עובר שורה-שורה ומסמן, וקו רציף מונע דילוג.
+        const rowStripe = (r - 5) % 2 === 1;
         for (let c = 1; c <= 4; c++) {
-          ws.getCell(r, c).border = {
+          const cc = ws.getCell(r, c);
+          cc.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: rowStripe ? "FFF0F0F0" : "FFFFFFFF" },
+          };
+          cc.border = {
             bottom: { style: "thin", color: { argb: "FFD1D5DB" } },
           };
         }
