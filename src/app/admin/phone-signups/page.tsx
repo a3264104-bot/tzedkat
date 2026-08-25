@@ -288,14 +288,33 @@ export default function PhoneSignupsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold text-brand-slatedark">
-          בקשות פתיחת חשבון בטלפון
-        </h1>
-        <p className="text-sm text-brand-slate/60 mt-0.5">
-          לקוחות שנרשמו במערכת הטלפונית וממתינים שנציג יצור קשר ויעדכן פרטי
-          אשראי. עד אז הם לא יכולים להזמין.
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-extrabold text-brand-slatedark">
+            בקשות פתיחת חשבון בטלפון
+          </h1>
+          <p className="text-sm text-brand-slate/60 mt-0.5">
+            לקוחות שנרשמו במערכת הטלפונית וממתינים שנציג יצור קשר ויעדכן פרטי
+            אשראי. עד אז הם לא יכולים להזמין.
+          </p>
+        </div>
+        {/* §257: 📥 ייצוא לאקסל.
+            
+            הרשימה קיימת במסך - אבל הנציג בשטח לא יושב מול מחשב.
+            המנהל שולח לו את הגיליון של הנקודה שלו, והוא מתקשר
+            לפיו.
+            
+            ⚠️ גיליון לכל נקודה: נציג לא רואה לקוחות של אחרים,
+            ואפשר לשלוח את הגיליון שלו בלבד. */}
+        <a
+          href="/api/admin/phone-signups/export?status=OPEN"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 no-print"
+        >
+          <span>📥</span>
+          <span>ייצוא לאקסל</span>
+        </a>
       </div>
 
       {/* §166: תזכורת על בקשות שנדחו.
