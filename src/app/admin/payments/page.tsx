@@ -19,6 +19,8 @@ type PayOrder = {
   paymentMethod: string | null;
   estimatedTotal: number | null;
   finalTotal: number | null;
+  /** §260: מספר התשלומים שהלקוח ביקש באתר */
+  requestedInstallments?: number | null;
   amountPaid: number | null;
   paidAt: string | null;
   paymentTransactionId: string | null;
@@ -50,14 +52,20 @@ const ALL = "__all__";
 
 // אפשרויות סינון סטטוס
 const FILTER_OPTIONS: { value: string; label: string }[] = [
-  { value: "default", label: "פעולות פתוחות (ברירת מחדל)" },
+  // §258: 🐛 הבורר הציע סטטוסים שלא קיימים במערכת.
+  //
+  // "מוכן לחיוב" סינן לפי READY_TO_CHARGE - סטטוס שאף אחד לא
+  // מסמן (§250). המנהל בחר בו, קיבל רשימה ריקה, והסיק שאין מה
+  // לחייב - בזמן שהיו 4 הזמנות מוכנות.
+  //
+  // ⚠️ "ניתן לחייב עכשיו" מסנן לפי **מחיר סופי**, בדיוק כמו
+  // הכפתור. מה שהבורר מבטיח הוא מה שהוא נותן.
+  { value: "chargeable", label: "💳 ניתן לחייב עכשיו" },
+  { value: "default", label: "פעולות פתוחות" },
   { value: "all", label: "כל הסטטוסים" },
-  { value: "READY_TO_CHARGE", label: "מוכן לחיוב בלבד" },
   { value: "FAILED", label: "חיוב נכשל בלבד" },
   { value: "CARD_UPDATE_NEEDED", label: "נדרש עדכון כרטיס בלבד" },
-  { value: "TOKEN_CREATED", label: "כרטיס נשמר בלבד" },
   { value: "AWAITING_WEIGHING", label: "ממתין לשקילה בלבד" },
-  { value: "CHARGING", label: "בחיוב בלבד" },
   { value: "PAID", label: "שולם בלבד" },
 ];
 
@@ -119,9 +127,29 @@ export default function PaymentsPage() {
   const [orders, setOrders] = useState<PayOrder[]>([]);
   const [lists, setLists] = useState<Pricelist[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string>("default");
+  // §258: ברירת המחדל היא **מה שניתן לחייב**.
+  //
+  // ⚠️ המנהל נכנס למסך התשלומים כדי לחייב, לא כדי לסקור. רשימה
+  // של 250 הזמנות שרובן ממתינות לשקילה קוברת את 4 שמוכנות.
+  const [filter, setFilter] = useState<string>("chargeable");
   const [fPricelist, setFPricelist] = useState<string>(ALL);
   const [charging, setCharging] = useState<string | null>(null);
+
+  // §260: 💳 **פריסה לתשלומים ברגע החיוב.**
+  //
+  // 🐛 המצב מהשטח: לקוחות מבקשים פריסה בטלפון, והמנהל צריך
+  // לזכור מי ביקש כמה. הבורר קיים רק במסך ההזמנה הבודדת
+  // (§189/§191) - כלומר לפתוח כל אחת בנפרד.
+  //
+  // ⚠️ ברירת המחדל היא **מה שהלקוח ביקש** (requestedInstallments)
+  // מהאתר. המנהל רואה אותה ולא צריך לזכור.
+  //
+  // ⚠️ מפה לפי מזהה הזמנה: כל שורה שומרת את הבחירה שלה, ומעבר
+  // בין שורות לא דורס.
+  const [installments, setInstallments] = useState<Record<string, number>>({});
+
+  const instOf = (o: PayOrder) =>
+    installments[o.id] ?? (o as any).requestedInstallments ?? 1;
   const [message, setMessage] = useState<Message | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -175,6 +203,11 @@ export default function PaymentsPage() {
       `לקוח: ${order.customerName}\n` +
       `סכום סופי: ${fmtIls(amount)}\n` +
       `כרטיס: ${order.customer.cardLast4 ? "****" + order.customer.cardLast4 : "לא ידוע"}` +
+      (instOf(order) > 1
+        ? `\nתשלומים: ${instOf(order)} × ${fmtIls(
+            Math.round((amount / instOf(order)) * 100) / 100
+          )}`
+        : "") +
       (order.customer.creditVerificationCharged ? "" : `\n\n(1₪ של האימות יקוזז מהסכום)`);
 
     if (!confirm(confirmMsg)) return;
@@ -185,7 +218,12 @@ export default function PaymentsPage() {
       const res = await fetch("/api/admin/charge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: order.id }),
+        body: JSON.stringify({
+          orderId: order.id,
+          // §260: הפריסה שנבחרה. השרת מקבל overrideInstallments
+          // וגובר על מה ששמור בהזמנה.
+          installments: instOf(order),
+        }),
       });
       const data = await res.json();
       if (res.ok && data.ok) {
@@ -208,6 +246,20 @@ export default function PaymentsPage() {
   }
 
   const needAttentionCount = orders.filter((o) => payStatusNeedsAttention(o.paymentStatus)).length;
+
+  // §258: כמה **באמת** ניתן לחייב עכשיו, וכמה כסף.
+  //
+  // ⚠️ המנהל רואה עשרות שורות ולא יודע כמה מהן רלוונטיות.
+  // המספר הזה עונה על השאלה בלי לספור.
+  const chargeable = orders.filter(
+    (o) =>
+      o.finalTotal != null &&
+      !["PAID", "CHARGING", "PAYMENT_PENDING"].includes(o.paymentStatus)
+  );
+  const chargeableSum = chargeable.reduce(
+    (sum, o) => sum + Number(o.finalTotal ?? 0),
+    0
+  );
   const currentList = lists?.find((l) => l.id === fPricelist) ?? null;
 
   return (
@@ -288,7 +340,40 @@ export default function PaymentsPage() {
           ))}
         </select>
 
-        {needAttentionCount > 0 && filter === "default" && (
+              {/* §258: 💳 כמה ניתן לחייב עכשיו.
+          
+          ⚠️ מוצג תמיד כשיש כאלה, בכל סינון: המנהל שנכנס למסך
+          רוצה לדעת קודם כל "כמה עבודה יש לי", ורק אחר כך לצלול
+          לרשימה. */}
+      {chargeable.length > 0 && (
+        <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3 mb-3 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-extrabold text-emerald-900 text-sm">
+              💳 {chargeable.length} הזמנות ניתנות לחיוב עכשיו
+            </div>
+            <div className="text-[11px] text-emerald-800 mt-0.5">
+              סה״כ ₪
+              {chargeableSum.toLocaleString("he-IL", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+              {" · "}
+              יש להן מחיר סופי וטרם שולמו
+            </div>
+          </div>
+          {/* ⚠️ הכפתור רק כשלא כבר בסינון הזה - אחרת הוא לא
+              עושה כלום ורק מבלבל. */}
+          {filter !== "chargeable" && (
+            <button
+              onClick={() => setFilter("chargeable")}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold"
+            >
+              הצג רק אותן ←
+            </button>
+          )}
+        </div>
+      )}
+      {needAttentionCount > 0 && filter === "default" && (
           <span className="text-sm bg-red-100 text-red-700 px-2.5 py-1 rounded-full font-medium">
             ⚠️ {needAttentionCount} דורש פעולה
           </span>
@@ -329,6 +414,11 @@ export default function PaymentsPage() {
               order={o}
               onCharge={() => handleCharge(o)}
               isCharging={charging === o.id}
+              // §260: הפריסה שנבחרה לשורה זו
+              currentInstallments={instOf(o)}
+              onInstallmentsChange={(n) =>
+                setInstallments((prev) => ({ ...prev, [o.id]: n }))
+              }
             />
           ))}
         </div>
@@ -344,10 +434,15 @@ function OrderCard({
   order,
   onCharge,
   isCharging,
+  currentInstallments,
+  onInstallmentsChange,
 }: {
   order: PayOrder;
   onCharge: () => void;
   isCharging: boolean;
+  /** §260: מספר התשלומים שנבחר לשורה הזו */
+  currentInstallments: number;
+  onInstallmentsChange: (n: number) => void;
 }) {
   const statusLabel = payStatusLabel(order.paymentStatus);
   const statusColor = payStatusColor(order.paymentStatus);
@@ -448,6 +543,42 @@ function OrderCard({
       {/* כפתור חיוב */}
       {showCharge && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* §260: 💳 בורר פריסה — **ליד הכפתור**.
+              
+              ⚠️ בשורה ולא במסך נפרד: המנהל עובר על רשימה ומחייב
+              אחת אחרי השנייה. פתיחת מסך לכל אחת הופכת 20 חיובים
+              לחצי שעה.
+              
+              ⚠️ מוצג רק כשאפשר לחייב: בהזמנה בלי מחיר סופי הוא
+              רעש. */}
+          {hasFinalTotal && order.customer.hasToken && !cardBlocked && (
+            <div className="flex items-center gap-1.5">
+              <label className="text-[11px] text-zinc-500">תשלומים:</label>
+              <select
+                value={currentInstallments}
+                onChange={(e) => onInstallmentsChange(Number(e.target.value))}
+                disabled={isCharging}
+                className="rounded-lg border-2 border-zinc-300 px-2 py-1.5 text-sm font-bold"
+              >
+                {[1, 2, 3, 4, 6, 10, 12].map((n) => (
+                  <option key={n} value={n}>
+                    {n === 1 ? "תשלום אחד" : `${n} תשלומים`}
+                  </option>
+                ))}
+              </select>
+              {/* ⚠️ הסכום לתשלום מוצג מיד: המנהל אומר ללקוח
+                  בטלפון כמה יירד כל חודש, בלי לחשב. */}
+              {currentInstallments > 1 && order.finalTotal != null && (
+                <span className="text-[11px] text-zinc-600">
+                  ≈{" "}
+                  {fmtIls(
+                    Math.round((order.finalTotal / currentInstallments) * 100) /
+                      100
+                  )}
+                </span>
+              )}
+            </div>
+          )}
           <button
             onClick={onCharge}
             disabled={isCharging || cardBlocked || !hasFinalTotal || !order.customer.hasToken}

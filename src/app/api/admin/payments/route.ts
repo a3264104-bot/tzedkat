@@ -128,6 +128,11 @@ export async function GET(req: NextRequest) {
         paymentMethod: true,
         estimatedTotal: true,
         finalTotal: true,
+        // §260: מה שהלקוח ביקש באתר - ברירת המחדל בבורר.
+        //
+        // ⚠️ בלעדיו המנהל צריך לזכור מי ביקש פריסה, וזו בדיוק
+        // הבעיה שהבורר בא לפתור.
+        requestedInstallments: true,
         amountPaid: true,
         paidAt: true,
         paymentTransactionId: true,
