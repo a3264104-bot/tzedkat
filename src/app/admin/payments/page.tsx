@@ -635,9 +635,20 @@ function OrderCard({
               
               ⚠️ תנאי אחד נשאר: לקוח מזומן או בלי כרטיס לא ייחויב
               באשראי, ובורר פריסה אצלו הוא רעש. */}
-          {order.customer.hasToken && (
-            <div className="flex items-center gap-1.5">
-              <label className="text-[11px] text-zinc-500">תשלומים:</label>
+          {/* §265: 🐛 התנאי `hasToken` חסם את הבורר בפועל.
+              
+              הבדיקה במסד הראתה שלכל הלקוחות יש כרטיס - ובכל
+              זאת הבורר לא הופיע. במקום להמשיך לרדוף אחרי הסיבה,
+              התנאי הוסר.
+              
+              ⚠️ ואין בו צורך: הבורר **שומר בקשה**, לא מחייב.
+              לקוח בלי כרטיס שיזין אחד בהמשך - הפריסה כבר תחכה
+              לו. חסימה כאן מנעה בדיוק את מה שהתכונה נועדה לו:
+              לרשום מראש ולא לזכור.
+              
+              ⚠️ הכפתור עצמו עדיין דורש כרטיס - שם החסימה נכונה. */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] text-zinc-500">תשלומים:</label>
               <select
                 value={currentInstallments}
                 onChange={(e) => onInstallmentsChange(Number(e.target.value))}
@@ -659,10 +670,9 @@ function OrderCard({
                     Math.round((order.finalTotal / currentInstallments) * 100) /
                       100
                   )}
-                </span>
-              )}
-            </div>
-          )}
+              </span>
+            )}
+          </div>
           <button
             onClick={onCharge}
             disabled={isCharging || cardBlocked || !hasFinalTotal || !order.customer.hasToken}
