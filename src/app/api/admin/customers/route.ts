@@ -92,7 +92,15 @@ export async function GET(req: Request) {
       },
     },
     // §251: מיון לפי שם משפחה - ראה ההסבר למעלה.
-    orderBy: [{ lastName: "asc" }, { name: "asc" }],
+    // §259: ⚠️ nulls: "last" מפורש.
+    //
+    // 🐛 PostgreSQL ממיין NULL **ראשון** ב-asc, ולכן 386
+    // הלקוחות שטרם פוצלו (§173) היו קופצים לראש הרשימה - לפני
+    // כל מי שיש לו שם משפחה.
+    orderBy: [
+      { lastName: { sort: "asc", nulls: "last" } },
+      { name: "asc" },
+    ],
     take: LIMIT,
     }),
     prisma.customer.count({ where }),

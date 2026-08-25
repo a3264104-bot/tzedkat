@@ -69,13 +69,27 @@ export async function GET(req: NextRequest) {
 
     // סינון סטטוס
     const whereClause: {
-      paymentStatus?: string | { in: string[] };
+      paymentStatus?: string | { in: string[] } | { notIn: string[] };
+      // §258: לסינון "ניתן לחייב עכשיו"
+      finalTotal?: { not: null };
       pricelistId?: string;
     } = {};
     if (statusParam === "all") {
       // בלי סינון סטטוס
     } else if (statusParam && statusParam.length > 0) {
-      whereClause.paymentStatus = statusParam;
+      // §258: "ניתן לחייב עכשיו" = יש מחיר סופי ולא שולם.
+      //
+      // ⚠️ **לא** סטטוס: READY_TO_CHARGE אינו נכתב בשום מקום
+      // (§250), וסינון לפיו החזיר רשימה ריקה תמיד. הקריטריון
+      // האמיתי הוא מה שהכפתור בודק - מחיר סופי קיים.
+      if (statusParam === "chargeable") {
+        whereClause.finalTotal = { not: null };
+        whereClause.paymentStatus = {
+          notIn: ["PAID", "CHARGING", "PAYMENT_PENDING"],
+        };
+      } else {
+        whereClause.paymentStatus = statusParam;
+      }
     } else {
       whereClause.paymentStatus = { in: DEFAULT_STATUSES };
     }
@@ -93,9 +107,13 @@ export async function GET(req: NextRequest) {
         // בלבד היה מציג את מי שנגע בו אחרון, לא את מי שדורש
         // פעולה.
         //
-        // ⚠️ finalTotal desc: Prisma ממיין NULL אחרון ב-desc,
-        // כלומר מי שנשקל (יש לו סכום) עולה לראש. בדיוק הרצוי.
-        { finalTotal: "desc" },
+        // §259: 🐛 הנחתי ש-NULL יורד לסוף ב-desc — ובפועל
+        // PostgreSQL ממיין אותו **ראשון**, וההזמנות המוכנות
+        // נדחקו לתחתית של 250 שורות.
+        //
+        // ⚠️ nulls: "last" מפורש: זו הדרך היחידה לשלוט בזה,
+        // ולא להסתמך על ברירת המחדל של מסד הנתונים.
+        { finalTotal: { sort: "desc", nulls: "last" } },
         { updatedAt: "desc" },
       ],
       // ⚠️ תקרה: 250 הזמנות עם כל השדות זה עמוד כבד בנייד.
