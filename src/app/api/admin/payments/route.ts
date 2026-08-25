@@ -71,7 +71,8 @@ export async function GET(req: NextRequest) {
     const whereClause: {
       paymentStatus?: string | { in: string[] } | { notIn: string[] };
       // §258: לסינון "ניתן לחייב עכשיו"
-      finalTotal?: { not: null };
+      // §270: הטיפוס לפי מה ש-Prisma מקבל בפועל.
+      finalTotal?: { gt: number };
       pricelistId?: string;
     } = {};
     if (statusParam === "all") {
@@ -83,7 +84,11 @@ export async function GET(req: NextRequest) {
       // (§250), וסינון לפיו החזיר רשימה ריקה תמיד. הקריטריון
       // האמיתי הוא מה שהכפתור בודק - מחיר סופי קיים.
       if (statusParam === "chargeable") {
-        whereClause.finalTotal = { not: null };
+        // §270: 🐛 `{ not: null }` אינו חוקי ב-Prisma.
+        //
+        // ⚠️ `gt: 0` על שדה nullable מסנן גם NULL וגם אפס - וזה
+        // בדיוק הרצוי: הזמנה עם finalTotal=0 אין מה לחייב בה.
+        whereClause.finalTotal = { gt: 0 };
         whereClause.paymentStatus = {
           notIn: ["PAID", "CHARGING", "PAYMENT_PENDING"],
         };

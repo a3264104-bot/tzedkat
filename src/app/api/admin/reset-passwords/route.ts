@@ -55,7 +55,14 @@ function generateStrongPassword(): string {
  */
 const STUCK_WHERE = {
   isActive: true,
-  passwordHash: { not: null },
+  // §270: 🐛 `{ not: null }` אינו חוקי ב-Prisma.
+  //
+  // המנוע מצפה לערך, לא ל-null - השגיאה היא
+  // "Argument `not` must not be null".
+  //
+  // ⚠️ הצורה הנכונה: `{ not: "" }` על שדה nullable מסנן גם
+  // NULL וגם מחרוזת ריקה, וזה בדיוק מה שרצינו.
+  passwordHash: { not: "" },
   passwordPlain: null,
   loginCode: null,
   OR: [{ email: null }, { email: "" }],

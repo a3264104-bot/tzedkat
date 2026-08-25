@@ -1165,7 +1165,8 @@ export async function sendAdminCancellationAlert(
           where: {
             role: "AGENT",
             isActive: true,
-            email: { not: null },
+            // §270: `{ not: null }` אינו חוקי — not: "" מסנן שניהם.
+            email: { not: "" },
             OR: [
               { agentPoints: { some: { pointId: order.pointId } } },
               { agentPointId: order.pointId },

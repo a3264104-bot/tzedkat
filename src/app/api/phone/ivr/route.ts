@@ -2411,7 +2411,8 @@ async function handleOrder(
     : await prisma.pricelistProduct.count({
         where: {
           pricelistId: pricelist.id,
-          product: { isActive: true, phoneEnabled: true, phoneCode: { not: null } },
+          product: { isActive: true, phoneEnabled: true, // §270: not: null אינו חוקי — not: "" מסנן שניהם.
+            phoneCode: { not: "" } },
         },
       });
 

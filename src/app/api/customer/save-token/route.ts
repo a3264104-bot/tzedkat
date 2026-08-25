@@ -247,7 +247,9 @@ export async function POST(req: Request) {
     await prisma.order.updateMany({
       where: {
         customerId: targetCustomerId,
-        lastChargeError: { not: null },
+        // §270: not: null אינו חוקי ב-Prisma — not: "" מסנן
+        // גם NULL וגם מחרוזת ריקה.
+        lastChargeError: { not: "" },
       },
       data: { lastChargeError: null },
     });

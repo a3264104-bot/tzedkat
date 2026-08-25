@@ -27,7 +27,8 @@ export async function GET(req: Request) {
     // זיכויים שניתנו
     prisma.order.findMany({
       where: {
-        creditAmount: { not: null },
+        // §270: `{ not: null }` אינו חוקי — gt: 0 מסנן גם NULL.
+        creditAmount: { gt: 0 },
         ...(pricelistId ? { pricelistId } : {}),
       },
       orderBy: { creditAt: "desc" },

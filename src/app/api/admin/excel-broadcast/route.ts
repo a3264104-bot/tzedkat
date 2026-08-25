@@ -171,8 +171,11 @@ export async function POST(req: Request) {
     where: {
       wantsExcelOrder: true,
       isActive: true,
-      email: { not: null },
-      defaultPointId: { not: null },
+      // §270: `{ not: null }` אינו חוקי ב-Prisma — הוא זורק
+      // "Argument `not` must not be null". `not: ""` מסנן גם
+      // NULL וגם מחרוזת ריקה.
+      email: { not: "" },
+      defaultPointId: { not: "" },
     },
     select: {
       id: true,
