@@ -9,8 +9,6 @@
 // - יתרת חוב + היסטוריית תשלומים
 
 import { useCallback, useEffect, useState } from "react";
-// §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
-import { fmtDate } from "@/lib/date-lib";
 import Link from "next/link";
 
 type Data = {
@@ -28,14 +26,9 @@ type Data = {
     canSendPaymentLink: boolean;
     canCharge: boolean;
     canUpdateCards: boolean;
+    /** §277: הרשאת מוקד טלפוני */
+    canManagePhoneRequests?: boolean;
     canResetPassword: boolean;
-    /**
-     * §197: הרשאה לסמן לקוח כמשלם מזומן.
-     *
-     * 🐛 השדה נוצר ב-§155 ונאכף בשרת, אבל **לא היה לו צ'קבוקס
-     * בשום מסך** - כלומר אף נציג לא יכול היה לקבל אותו.
-     */
-    canCreateCashCustomers?: boolean;
     commissionRateCarton: number;
     commissionRateSingles: number;
     createdAt: string;
@@ -270,7 +263,7 @@ export default function AgentProfileClient({ agentId }: { agentId: string }) {
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-zinc-500">📅</span>
                   <span className="text-brand-slate">
-                    נרשם: {fmtDate(agent.createdAt)}
+                    נרשם: {new Date(agent.createdAt).toLocaleDateString("he-IL")}
                   </span>
                 </div>
               </div>
@@ -444,7 +437,7 @@ export default function AgentProfileClient({ agentId }: { agentId: string }) {
                       <div className="text-xs text-zinc-500 mt-0.5 flex gap-3 flex-wrap">
                         {s.deliveryDate && (
                           <span>
-                            📅 {fmtDate(s.deliveryDate)}
+                            📅 {new Date(s.deliveryDate).toLocaleDateString("he-IL")}
                           </span>
                         )}
                         <span>
@@ -510,7 +503,7 @@ export default function AgentProfileClient({ agentId }: { agentId: string }) {
                           )}
                         </div>
                         <div className="text-xs text-zinc-500 mt-1">
-                          {fmtDate(p.createdAt)}
+                          {new Date(p.createdAt).toLocaleDateString("he-IL")}
                         </div>
                         {p.note && (
                           <div className="text-xs text-zinc-600 mt-1 bg-white/70 rounded px-2 py-1">
@@ -589,9 +582,9 @@ function EditModal({
   const [canCharge, setCanCharge] = useState(!!agent.canCharge);
   const [canUpdateCards, setCanUpdateCards] = useState(!!agent.canUpdateCards);
   const [canResetPassword, setCanResetPassword] = useState(!!agent.canResetPassword);
-  // §197: הרשאת מזומן
-  const [canCreateCashCustomers, setCanCreateCashCustomers] = useState(
-    !!agent.canCreateCashCustomers
+  // §277: הרשאת מוקד טלפוני — טיפול בכל הבקשות מהמערכת הטלפונית.
+  const [canPhoneDesk, setCanPhoneDesk] = useState(
+    !!agent.canManagePhoneRequests
   );
   const [saving, setSaving] = useState(false);
 
@@ -617,8 +610,7 @@ function EditModal({
           agentCanCharge: canCharge,
           agentCanUpdateCards: canUpdateCards,
           agentCanResetPassword: canResetPassword,
-          // §197: הרשאת סימון לקוח כמזומן
-          agentCanCreateCashCustomers: canCreateCashCustomers,
+          agentCanManagePhoneRequests: canPhoneDesk,
         }),
       });
       const json = await res.json();
@@ -798,22 +790,20 @@ function EditModal({
                 hint="נדרש ללקוחות טלפוניים שאין להם מייל ולא יכולים לאפס בעצמם"
                 sensitive
               />
-              {/* §197: 🐛 ההרשאה נוצרה ב-§155 ונאכפה בשרת, אבל
-                  **לא היה לה צ'קבוקס בשום מסך** - כלומר אף נציג
-                  לא יכול היה לקבל אותה בפועל.
+              {/* §277: הרשאת מוקד טלפוני.
                   
-                  ⚠️ לא sensitive: היא אינה נוגעת בכסף של הלקוח
-                  ולא בחשבון שלו. היא רק אומרת "הנציג גובה ממנו
-                  בחלוקה במקום באשראי", וזו החלטה תפעולית.
+                  נציג אחד מטפל בכל מה שמגיע מהמערכת הטלפונית -
+                  הרשמות, הודעות שהושארו, ועדכוני אשראי.
                   
-                  ⚠️ **רק לכיוון מזומן.** מעבר חזרה לאשראי דורש
-                  כרטיס ונשאר אצל המנהל - הוא יכול לנעול לקוח
-                  מחוץ למערכת. */}
+                  ההרשאה חוצה נקודות בכוונה: מוקד לא יודע מראש
+                  מאיזו נקודה הלקוח מתקשר, וסינון היה משאיר
+                  בקשות בלי מטפל. */}
               <PermToggle
-                checked={canCreateCashCustomers}
-                onChange={setCanCreateCashCustomers}
-                label="💵 לסמן לקוחות כמשלמים במזומן"
-                hint="להקים לקוח מזומן, ולהעביר לקוח קיים למזומן. מעבר חזרה לאשראי נשאר אצל המנהל."
+                checked={canPhoneDesk}
+                onChange={setCanPhoneDesk}
+                label="📞 מוקד טלפוני — כל הבקשות"
+                hint="טיפול בבקשות הרשמה, הודעות והקמת לקוחות מכל הנקודות (לא רק שלו). לא כולל הזמנות, משקלים או כספים."
+                sensitive
               />
             </div>
           </div>

@@ -196,8 +196,26 @@ const phone2Raw = String(body.phone2 || "").trim();
       select: {
         agentPointId: true,
         agentPoints: { select: { pointId: true } },
+        // §277: הרשאת מוקד טלפוני
+        canManagePhoneRequests: true,
       },
     });
+
+    // §277: 📞 **מוקד טלפוני מקים לקוחות בכל נקודה.**
+    //
+    // הצורך: לקוח מתקשר, בוחר נקודה בתפריט הקולי, והמוקדן מקים
+    // אותו. הנקודה שהלקוח בחר אינה בהכרח של המוקדן - ולרוב היא
+    // לא, כי הוא לא נציג שטח.
+    //
+    // ⚠️ בלי זה התפקיד לא עובד: הוא היה יכול להקים רק לקוחות
+    // לנקודות שלו, כלומר כמעט אף אחד.
+    //
+    // ⚠️ עדיין מוגבל לנקודות **פעילות** - הבדיקה הזו נשארת
+    // למטה ותקפה לכולם.
+    if (agent?.canManagePhoneRequests) {
+      // ⚠️ יציאה מוקדמת: אין מה לבדוק, כל נקודה מותרת.
+    } else {
+
     const agentPointIds =
       agent && agent.agentPoints.length > 0
         ? agent.agentPoints.map((ap) => ap.pointId)
@@ -247,6 +265,30 @@ const phone2Raw = String(body.phone2 || "").trim();
         },
         { status: 400 }
       );
+    }
+    }
+
+    // §277: מוקד טלפוני — חייב לציין נקודה במפורש.
+    //
+    // ⚠️ אין לו "נקודה משלו" ליפול אליה, ולכן בחירה היא חובה.
+    // המסך מציג בורר עם **כל** הנקודות הפעילות.
+    if (agent?.canManagePhoneRequests) {
+      if (!defaultPointId) {
+        const points = await prisma.deliveryPoint.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, city: true },
+          orderBy: { name: "asc" },
+        });
+        return NextResponse.json(
+          {
+            error: "יש לבחור נקודת חלוקה ללקוח",
+            needsPoint: true,
+            points,
+          },
+          { status: 400 }
+        );
+      }
+      effectivePointId = defaultPointId;
     }
   }
 

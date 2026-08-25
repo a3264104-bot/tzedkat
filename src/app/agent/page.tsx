@@ -39,6 +39,8 @@ export default async function AgentIndexPage() {
       },
       commissionRateCarton: true,
       commissionRateSingles: true,
+      // §277: הרשאת מוקד טלפוני — משנה את הספירה למטה
+      canManagePhoneRequests: true,
     },
   });
 
@@ -123,7 +125,17 @@ export default async function AgentIndexPage() {
   //
   // ⚠️ hasPoints נבדק לפני: נציג בלי נקודות אינו רואה בקשות כלל,
   // וספירה בלי הסינון הייתה מציגה לו את כל המערכת.
-  const pendingSignups = hasPoints
+  // §277: 📞 מוקד טלפוני רואה את **כל** הבקשות.
+  //
+  // ⚠️ בלי זה הכרטיס היה מראה לו "3 ממתינות" (הנקודות שלו)
+  // בזמן שיש 30 במערכת - והוא היה חושב שסיים.
+  const isPhoneDesk = (agent as any)?.canManagePhoneRequests === true;
+
+  const pendingSignups = isPhoneDesk
+    ? await prisma.phoneSignupRequest.count({
+        where: { status: { in: ["NEW", "ASSIGNED", "CONTACTED"] } },
+      })
+    : hasPoints
     ? await prisma.phoneSignupRequest.count({
         where: {
           pointId: { in: myPointIds },

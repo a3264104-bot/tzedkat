@@ -53,9 +53,15 @@ export async function POST(req: Request) {
       if (role === "AGENT") {
         const agent = await prisma.customer.findUnique({
           where: { id: sessionUserId },
-          select: { agentCanUpdateCards: true },
+          select: {
+            agentCanUpdateCards: true,
+            // §277: מוקד טלפוני מעדכן אשראי בהגדרה — זו כל
+            // מהות התפקיד. הרשאה נפרדת הייתה אומרת שצריך לסמן
+            // שתיים, ומי שסימן רק אחת קיבל תפקיד שבור.
+            canManagePhoneRequests: true,
+          },
         });
-        if (!agent?.agentCanUpdateCards) {
+        if (!agent?.agentCanUpdateCards && !agent?.canManagePhoneRequests) {
           return NextResponse.json(
             { error: "אין לך הרשאה לעדכן כרטיסי לקוחות" },
             { status: 403 }

@@ -42,6 +42,8 @@ export async function requireAgent() {
       },
       commissionRateCarton: true,
       commissionRateSingles: true,
+      // §277: הרשאת מוקד טלפוני
+      canManagePhoneRequests: true,
     },
   });
 
@@ -70,5 +72,20 @@ export async function requireAgent() {
     agent,
     agentPointIds,
     isAdmin: role === "ADMIN",
+    /**
+     * §277: הרשאת **מוקד טלפוני**.
+     *
+     * נציג עם ההרשאה הזו מטפל בכל הבקשות שמגיעות מהמערכת
+     * הטלפונית - הרשמות, הודעות שהושארו, ועדכוני אשראי.
+     *
+     * ⚠️ **חוצה נקודות**: בניגוד לכל הרשאה אחרת, הוא רואה את
+     * הכל. מוקד לא יודע מראש מאיזו נקודה הלקוח מתקשר, וסינון
+     * היה משאיר בקשות בלי מטפל.
+     *
+     * ⚠️ צרה בכוונה: היא פותחת שלושה מסכים בלבד - לא הזמנות,
+     * לא משקלים, ולא כספים.
+     */
+    canPhoneDesk:
+      role === "ADMIN" || agent.canManagePhoneRequests === true,
   };
 }

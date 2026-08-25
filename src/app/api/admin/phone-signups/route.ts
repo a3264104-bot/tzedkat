@@ -32,8 +32,30 @@ async function resolveAccess() {
     select: {
       agentPointId: true,
       agentPoints: { select: { pointId: true } },
+      // §277: הרשאת מוקד טלפוני
+      canManagePhoneRequests: true,
     },
   });
+
+  // §277: 📞 **מוקד טלפוני — בלי הגבלת נקודות.**
+  //
+  // הצורך: נציג אחד מטפל בכל מה שמגיע מהמערכת הטלפונית. הוא
+  // לא יודע מראש מאיזו נקודה הלקוח מתקשר, וסינון לפי הנקודות
+  // שלו היה משאיר בקשות בלי מטפל - בדיוק הבעיה שהתפקיד בא
+  // לפתור.
+  //
+  // ⚠️ pointIds: null זהה למנהל, וזה מכוון: במסך הזה הוא **כן**
+  // מנהל. ההרשאה צרה למסך הזה בלבד - הזמנות, משקלים וכספים
+  // נשארים חסומים בפניו.
+  if (agent?.canManagePhoneRequests) {
+    return {
+      ok: true as const,
+      role,
+      userId,
+      pointIds: null as string[] | null,
+    };
+  }
+
   const pointIds =
     agent && agent.agentPoints.length > 0
       ? agent.agentPoints.map((ap) => ap.pointId)

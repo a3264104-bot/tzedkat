@@ -36,6 +36,8 @@ export async function GET(
       agentCanCharge: true,
       agentCanUpdateCards: true,
       agentCanResetPassword: true,
+      // §277: הרשאת מוקד טלפוני
+      canManagePhoneRequests: true,
       // §197: הרשאת סימון לקוח כמזומן.
       //
       // 🐛 השדה נוצר ב-§155 ונאכף ב-/api/admin/customers/[id],
@@ -123,6 +125,7 @@ export async function GET(
       canCharge: agent.agentCanCharge,
       canUpdateCards: agent.agentCanUpdateCards,
       canResetPassword: agent.agentCanResetPassword,
+      canManagePhoneRequests: agent.canManagePhoneRequests,
       // §197: הרשאת מזומן
       canCreateCashCustomers: agent.agentCanCreateCashCustomers,
       commissionRateCarton: Number(agent.commissionRateCarton),
@@ -260,6 +263,16 @@ export async function PATCH(
   }
   if ("agentCanResetPassword" in body) {
     data.agentCanResetPassword = !!body.agentCanResetPassword;
+  }
+  // §277: הרשאת מוקד טלפוני — טיפול בכל הבקשות מהמערכת הטלפונית.
+  //
+  // ⚠️ השדה נקרא canManagePhoneRequests ולא agentCan...: הוא
+  // נוסף מאוחר יותר, ועקביות עם השם במסד חשובה יותר מעקביות
+  // עם התחילית הישנה.
+  //
+  // ⚠️ רגישה: היא חוצה נקודות — הנציג רואה לקוחות של כולם.
+  if ("agentCanManagePhoneRequests" in body) {
+    data.canManagePhoneRequests = !!body.agentCanManagePhoneRequests;
   }
   // §197: הרשאת סימון לקוח כמזומן (§155).
   //
