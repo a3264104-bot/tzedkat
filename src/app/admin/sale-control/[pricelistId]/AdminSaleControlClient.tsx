@@ -112,6 +112,18 @@ export default function AdminSaleControlClient({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // §283: 🚨 ה-useState חייב להיות **לפני** כל return מוקדם.
+  //
+  // 🐛 מה שקרה: הצבתי אותו אחרי `if (loading) return ...`, ואז
+  // מספר ה-hooks השתנה בין רינדורים - React זורק
+  // "Rendered fewer hooks than expected" והדף קורס לבן.
+  //
+  // ⚠️ זה חוק ברזל של React: hooks תמיד באותו סדר ובאותה כמות.
+  // תנאי, לולאה או return מוקדם לפניהם שוברים את זה.
+  //
+  // §282: בורר נקודה להדפסה - "" = כל הנקודות.
+  const [printPointId, setPrintPointId] = useState("");
+
   // §116: הוצא מ-useEffect לפונקציה, כדי שהזנת עלות תוכל לרענן
   // את המסך - הרווח משתנה עם כל הזנה, וללא רענון המנהל היה רואה
   // מספר ישן ולא יודע אם השמירה הצליחה.
@@ -155,14 +167,6 @@ if (loading) {
 
   const { financialSummary: fin, progress, productComparison, agents, alerts } = data;
 
-  // §282: 🎯 בורר נקודה להדפסה.
-  //
-  // התרחיש: המנהל מדפיס לנציג מסוים ולא צריך את 14 הנקודות.
-  // קובץ עם 14 לשוניות אומר לחפש את הנכונה ואז להדפיס רק
-  // אותה - שני שלבים שאפשר לחסוך.
-  //
-  // ⚠️ "" = כל הנקודות. ברירת המחדל שומרת על ההתנהגות הקיימת.
-  const [printPointId, setPrintPointId] = useState("");
   const pointQS = printPointId ? `?pointId=${printPointId}` : "";
 
   return (
