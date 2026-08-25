@@ -667,33 +667,25 @@ export default function ProductsPage() {
 
             {/* משקל משוער לקרטון - להערכת המחיר ללקוח לפני השקילה */}
             {showAvgWeight && (
-              <Field label='משקל משוער ליחידה / לקרטון (ק"ג)'>
+              <Field label='כמה ק"ג יש בקרטון אחד'>
                 <input
                   className="input"
                   type="number"
                   step="0.1"
-                  placeholder='קרטון חזה ≈ 12 · מושט אחד ≈ 3'
+                  placeholder="12"
                   value={editing.avgWeightPerUnit ?? ""}
                   onChange={(e) => setEditing({ ...editing, avgWeightPerUnit: e.target.value })}
                 />
-                {/* §275: השדה משמש **שני** דברים, והתווית הזכירה רק אחד.
-                    
-                    הבעיה מהשטח: לקוח הזמין 18 בודדים של מושט וחשב
-                    שיקבל 18 דגים - קיבל 18 קילו. המערכת יכולה
-                    לומר לו "≈ 6 דגים", אבל רק אם המנהל הזין כמה
-                    שוקל דג אחד.
-                    
-                    התווית הישנה דיברה על קרטון בלבד, ולכן איש לא
-                    מילא את זה למוצרי בודדים. */}
+                {/* §276: "משקל משוער לקרטון" לא אמר מה להזין -
+                    יחידה? קרטון? ממוצע? "כמה ק"ג יש בקרטון אחד"
+                    היא שאלה שיש לה תשובה אחת. */}
                 <p className="text-xs text-zinc-400 mt-1">
-                  <b>לקרטון:</b> להערכת מחיר לפני שקילה (מחיר לק&quot;ג × משקל
-                  × כמות).
+                  לדוגמה: קרטון חזה עוף = <b>12</b>
                 </p>
-                <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-                  <b>ליחידה בודדת:</b> כמה שוקלת יחידה אחת — מושט אחד, נתח
-                  בשר אחד. אם תמלא, הלקוח שמזמין בבודדים יראה{" "}
-                  <b>&quot;≈ 6 יחידות בערך&quot;</b> ולא יתבלבל בין קילו
-                  ליחידות.
+                <p className="text-xs text-zinc-400 mt-0.5 leading-relaxed">
+                  משמש להערכת המחיר שהלקוח רואה לפני השקילה (מחיר
+                  לק&quot;ג × 12 × מספר הקרטונים). המחיר הסופי נקבע לפי
+                  השקילה בפועל.
                 </p>
                 {!editing.avgWeightPerUnit && (
                   <p className="text-xs text-amber-600 mt-1 font-medium">

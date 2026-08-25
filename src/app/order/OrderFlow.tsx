@@ -1575,7 +1575,6 @@ export function OrderFlow({
                               )}
                             {/* שורת בודדים — רק למוצרים שמאפשרים */}
                             {p.allowSingles && (
-                              <>
                               <div className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2">
                                 <div>
                                   <span className="text-sm text-amber-900 font-medium">
@@ -1602,27 +1601,6 @@ export function OrderFlow({
                                   onChange={(v) => setSinglesQty(p.id, v)}
                                 />
                               </div>
-                              {/* §275: כמה יחידות זה בערך.
-                                  
-                                  הבעיה מהשטח: לקוח הזמין 18 בודדים
-                                  של מושט וחשב שיקבל 18 דגים. קיבל
-                                  18 קילו.
-                                  
-                                  ההערכה הופכת מספר מופשט למשהו
-                                  שאפשר לדמיין - ואז הטעות בולטת.
-                                  
-                                  מוצג רק כשהמנהל מילא משקל ליחידה.
-                                  בלעדיו אין על מה לבסס, וניחוש
-                                  גרוע מכלום. */}
-                              {p.singlesMode !== "UNITS" &&
-                                entry.singlesQty > 0 &&
-                                !!p.avgWeightPerUnit &&
-                                Number(p.avgWeightPerUnit) > 0 && (
-                                  <p className="text-[11px] text-amber-800 px-3 -mt-1">
-                                    ≈ {Math.round(entry.singlesQty / Number(p.avgWeightPerUnit))} יחידות בערך
-                                  </p>
-                                )}
-                              </>
                             )}
                           </div>
                         </div>
