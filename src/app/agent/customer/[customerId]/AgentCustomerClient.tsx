@@ -50,6 +50,7 @@ export function AgentCustomerClient({
   hasCard: initialHasCard,
   cardLast4: initialCardLast4,
   canUpdateCards,
+  canSetCash = false,
   orders: initialOrders,
   canSetFinalPrice,
   canSendPaymentLink,
@@ -75,6 +76,18 @@ export function AgentCustomerClient({
   hasCard: boolean;
   cardLast4: string | null;
   canUpdateCards: boolean;
+  /**
+   * §288: הרשאה **נפרדת** להעברה למזומן.
+   *
+   * הבעיה: הכפתור היה מותנה ב-canUpdateCards - אותה הרשאה של
+   * עדכון כרטיס אשראי. נציג שהוקם עם הרשאת מזומן בלבד
+   * (agentCanCreateCashCustomers) הקים לקוח מזדמן, ואז לא
+   * יכול היה להעביר אותו למזומן.
+   *
+   * §212 כבר יצר את ההפרדה הזו ב-AgentPaymentGate, והמסך הזה
+   * פשוט לא עודכן.
+   */
+  canSetCash?: boolean;
   orders: Order[];
   canSetFinalPrice: boolean;
   canSendPaymentLink: boolean;
@@ -300,7 +313,11 @@ export function AgentCustomerClient({
                 </div>
               </div>
             </div>
-            {canUpdateCards && (
+            {/* §288: כל כיוון לפי ההרשאה שלו.
+                
+                מזומן ← אשראי  דורש canUpdateCards (הוא יזין כרטיס)
+                אשראי ← מזומן  דורש canSetCash */}
+            {(pref === "CASH" ? canUpdateCards : canSetCash) && (
               <button
                 onClick={pref === "CASH" ? switchToCredit : switchToCash}
                 disabled={prefSaving}

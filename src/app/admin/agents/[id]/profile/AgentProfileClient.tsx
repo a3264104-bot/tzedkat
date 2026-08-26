@@ -9,6 +9,8 @@
 // - יתרת חוב + היסטוריית תשלומים
 
 import { useCallback, useEffect, useState } from "react";
+// §286: כניסה לחשבון הנציג — כמו במסך הלקוחות
+import { ImpersonateButton } from "@/components/ImpersonateButton";
 import Link from "next/link";
 
 type Data = {
@@ -806,6 +808,27 @@ function EditModal({
                 sensitive
               />
             </div>
+          </div>
+        </div>
+
+        {/* §286: 🧑 כניסה לחשבון הנציג.
+            
+            הבעיה: הכפתור היה קיים רק במסך הלקוחות. המנהל שרצה
+            לראות מה הנציג רואה היה צריך לצאת ממסך הנציגים,
+            לחפש אותו ברשימת הלקוחות, ולפתוח שם.
+            
+            אותו רכיב בדיוק - לא העתקה. הוא כבר יודע לטפל
+            בתפקידים שונים דרך ה-prop role. */}
+        <div className="px-4 pb-3">
+          <div className="rounded-xl border-2 border-zinc-200 bg-zinc-50 p-3">
+            <div className="text-xs text-zinc-500 mb-2">
+              כניסה לחשבון הנציג כדי לראות בדיוק מה שהוא רואה
+            </div>
+            <ImpersonateButton
+              customerId={agent.id}
+              customerName={agent.name}
+              role="AGENT"
+            />
           </div>
         </div>
 

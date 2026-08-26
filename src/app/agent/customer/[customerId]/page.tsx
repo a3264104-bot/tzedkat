@@ -33,6 +33,8 @@ export default async function AgentCustomerPage({
   let canSetFinalPrice = role === "ADMIN";
   let canSendPaymentLink = role === "ADMIN";
   let canUpdateCards = role === "ADMIN";
+  // §288: הרשאה נפרדת להעברה למזומן — ראה AgentCustomerClient.
+  let canSetCash = role === "ADMIN";
   if (role === "AGENT") {
     const agent = await prisma.customer.findUnique({
       where: { id: sessionUserId },
@@ -41,6 +43,7 @@ export default async function AgentCustomerPage({
     canSetFinalPrice = agent?.agentCanSetFinalPrice ?? false;
     canSendPaymentLink = agent?.agentCanSendPaymentLink ?? false;
     canUpdateCards = agent?.agentCanUpdateCards ?? false;
+    canSetCash = agent?.agentCanCreateCashCustomers ?? false;
 
     // §60: 🐛 תוקן דפוס ג' + חור מדפוס §55.
     //
@@ -153,6 +156,7 @@ export default async function AgentCustomerPage({
       hasCard={!!customer.paymentToken}
       cardLast4={customer.cardLast4}
       canUpdateCards={canUpdateCards}
+      canSetCash={canSetCash}
       orders={orders}
       canSetFinalPrice={canSetFinalPrice}
       canSendPaymentLink={canSendPaymentLink}

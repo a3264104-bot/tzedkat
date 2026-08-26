@@ -8,7 +8,11 @@
 // מעבר ל-CREDIT רק ללקוח שכבר יש לו טוקן שמור (למשל אחרי שסומן מזומן
 // בטעות).
 //
-// הרשאות: מנהל, או נציג עם agentCanUpdateCards - אותה הרשאה שמכסה
+// §288: הרשאות **לפי כיוון**:
+//   אשראי → מזומן  = agentCanCreateCashCustomers
+//   מזומן → אשראי  = agentCanUpdateCards
+//
+// (הערה ישנה) הרשאות: מנהל, או נציג עם agentCanUpdateCards - אותה הרשאה שמכסה
 // עדכון כרטיסי לקוחות, כי שני הכיוונים משנים את אופן הגבייה מהלקוח.
 // בנוסף, נציג מוגבל ללקוחות שלו לפי אותו כלל כמו מסך ההזמנה (§55):
 // לקוח שהוא יצר, או ששייך לאחת מנקודותיו, או שהזמין בהן בעבר.
@@ -70,13 +74,45 @@ export async function POST(req: Request) {
       where: { id: sessionUserId },
       select: {
         agentCanUpdateCards: true,
+        // §288: הרשאת מזומן — נפרדת מעדכון כרטיס.
+        agentCanCreateCashCustomers: true,
         agentPointId: true, // deprecated - תאימות אחורה
         agentPoints: { select: { pointId: true } },
       },
     });
-    if (!agent?.agentCanUpdateCards) {
+
+    // §288: 🐛 **הרשאה אחת חסמה שני כיוונים שונים.**
+    //
+    // מה שקרה בשטח: נציג עם הרשאת מזומן בלבד הקים לקוח מזדמן,
+    // ואז רצה להעביר אותו למזומן - וקיבל 403. ההרשאה שנדרשה
+    // הייתה agentCanUpdateCards, שכלל לא קשורה למזומן.
+    //
+    // ⚠️ כל כיוון והרשאה משלו:
+    //   אשראי → מזומן  = agentCanCreateCashCustomers
+    //   מזומן → אשראי  = agentCanUpdateCards (הוא יזין כרטיס)
+    //
+    // ⚠️ §212 כבר עשה את ההפרדה ב-AgentPaymentGate, וכאן היא
+    // פשוט לא הגיעה.
+    // ⚠️ בדיקת קיום **נפרדת**: הבדיקה הישנה `!agent?.can...`
+    // גם צמצמה את הטיפוס ל-non-null, והשורות שאחריה הסתמכו על
+    // זה. בלעדיה TypeScript צודק ש-agent עשוי להיות null.
+    if (!agent) {
+      return NextResponse.json({ error: "נציג לא נמצא" }, { status: 403 });
+    }
+
+    const allowed =
+      preference === "CASH"
+        ? agent.agentCanCreateCashCustomers
+        : agent.agentCanUpdateCards;
+
+    if (!allowed) {
       return NextResponse.json(
-        { error: "אין לך הרשאה לשנות אופן תשלום של לקוחות" },
+        {
+          error:
+            preference === "CASH"
+              ? "אין לך הרשאה להעביר לקוחות לתשלום במזומן"
+              : "אין לך הרשאה להעביר לקוחות לתשלום באשראי",
+        },
         { status: 403 }
       );
     }
