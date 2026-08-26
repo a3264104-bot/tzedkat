@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, Suspense } from "react";
+// §290: חלונית עדכון אשראי מיד אחרי ההרשמה
+import { UpdateCardModal } from "@/components/UpdateCardButton";
 import { PasswordInput } from "@/components/PasswordInput";
 import { signIn } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -54,6 +56,22 @@ function RegisterPageInner() {
     hasEmail: boolean;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // §290: 💳 חלונית האשראי מיד אחרי ההרשמה.
+  //
+  // הבעיה מהשטח: הרבה לקוחות נרשמים ולא מזמינים - והם נשארים
+  // בלי אמצעי תשלום. כשהם סוף סוף מזמינים, הם נתקלים בחסימה
+  // ברגע הכי גרוע: אחרי שבנו עגלה שלמה.
+  //
+  // ⚠️ **לא חובה**: אפשר לסגור ולהמשיך. החסימה בהזמנה הראשונה
+  // (§61/§202) נשארת בדיוק כפי שהיא - זה רק מקדים את ההזדמנות.
+  //
+  // ⚠️ מזהה הלקוח נשמר מהתשובה של ההרשמה, כי החלונית צריכה
+  // אותו כדי לשמור את הטוקן.
+  const [cardForCustomerId, setCardForCustomerId] = useState<string | null>(
+    null
+  );
+  const [pendingRedirect, setPendingRedirect] = useState<string | null>(null);
 
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [defaultPointId, setDefaultPointId] = useState("");
@@ -169,9 +187,26 @@ function RegisterPageInner() {
       const signInRes = await signIn("login", { identifier, password, redirect: false });
       if (signInRes?.error) {
         router.replace(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
-      } else {
-        router.replace(callbackUrl);
+        return;
       }
+
+      // §290: 💳 מציעים לעדכן אשראי **לפני** ההפניה.
+      //
+      // ⚠️ ההפניה נשמרת ולא מבוצעת: אחרי שהלקוח סוגר את החלונית
+      // (בין אם הזין כרטיס ובין אם לא) הוא ממשיך בדיוק לאן
+      // שהתכוון.
+      //
+      // ⚠️ רק כשיש מזהה: בלעדיו החלונית לא יכולה לשמור, ועדיף
+      // לדלג בשקט מאשר להציג חלונית שנכשלת.
+      // ⚠️ השדה נקרא id ולא customerId — זה מה שה-API מחזיר.
+      if (data?.id) {
+        setCardForCustomerId(data.id);
+        setPendingRedirect(callbackUrl);
+        setLoading(false);
+        return;
+      }
+
+      router.replace(callbackUrl);
     } catch {
       setError("שגיאת שרת. נסה שוב.");
     } finally {
@@ -181,6 +216,12 @@ function RegisterPageInner() {
 
 
   // בנוסף לחיוב 1₪ לאימות. אם נדרים דורשים שמות אחרים - נראה זאת בלוג ונתקן.
+
+  // §290: אחרי סגירת החלונית — ממשיכים לאן שהלקוח התכוון.
+  function finishCardStep() {
+    setCardForCustomerId(null);
+    router.replace(pendingRedirect || "/");
+  }
 
   return (
     <main
@@ -557,6 +598,20 @@ function RegisterPageInner() {
         )}
 
       </div>
+      {/* §290: 💳 חלונית עדכון האשראי.
+          
+          מוצגת מיד אחרי הרשמה מוצלחת, לפני ההפניה. הלקוח יכול
+          לסגור ולהמשיך - זו הזדמנות, לא חסימה.
+          
+          החסימה בהזמנה הראשונה (§61/§202) נשארת כפי שהיא. */}
+      {cardForCustomerId && (
+        <UpdateCardModal
+          customerId={cardForCustomerId}
+          hasCurrentCard={false}
+          onSuccess={finishCardStep}
+          onClose={finishCardStep}
+        />
+      )}
     </main>
   );
 }

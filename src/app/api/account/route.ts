@@ -235,9 +235,24 @@ export async function PATCH(req: Request) {
     if (body.defaultPointId) {
       const point = await prisma.deliveryPoint.findUnique({
         where: { id: body.defaultPointId },
+        select: { isActive: true, isPrivate: true },
       });
-      if (!point || !point.isActive) {
-        return NextResponse.json({ error: "נקודת חלוקה לא תקינה" }, { status: 400 });
+      // §289: 🚨 גם **סמויה** — לא רק לא-פעילה.
+      //
+      // הבדיקה כאן הייתה isActive בלבד, ולכן לקוח היה יכול
+      // לשנות את הנקודה שלו לנקודה סמויה של אדם אחר.
+      //
+      // ⚠️ המסך מציג רק נקודות ציבוריות (§289 תיקן את points),
+      // אבל בקשה ישירה עוקפת מסך - וזו בדיוק הפרצה שסגרנו
+      // בהרשמה.
+      //
+      // ⚠️ לקוח שכבר משויך לנקודה סמויה (בעל הנקודה) לא נפגע:
+      // הוא לא משנה אותה, ולכן הבדיקה לא רצה אצלו.
+      if (!point || !point.isActive || point.isPrivate) {
+        return NextResponse.json(
+          { error: "נקודת חלוקה לא תקינה" },
+          { status: 400 }
+        );
       }
     }
     data.defaultPointId = body.defaultPointId || null;

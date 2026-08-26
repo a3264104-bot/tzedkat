@@ -50,6 +50,33 @@ export async function POST(req: Request) {
     if (!isValidPhone(phone)) {
       return NextResponse.json({ error: "מספר טלפון לא תקין" }, { status: 400 });
     }
+
+    // §289: 🚨 **אימות הנקודה בשרת.**
+    //
+    // הפרצה: defaultPointId הגיע מהלקוח ונשמר כמו שהוא. מסך
+    // ההרשמה מציג רק נקודות ציבוריות (אחרי התיקון ב-points),
+    // אבל בקשה ידנית עוקפת מסך.
+    //
+    // נקודה סמויה נוצרת עבור אדם ספציפי - חנות או בית פרטי.
+    // לקוח שנרשם אליה מגיע למקום שלא מיועד לו, הנציג לא מכיר
+    // אותו, ובעל הנקודה מקבל אורח לא צפוי.
+    //
+    // ⚠️ אותה טעות של §221 (מחירון נציגים): המסך הסתיר, והשרת
+    // לא אימת. שם זה היה מחירי סיטונאות, כאן זו כתובת של אדם.
+    //
+    // ⚠️ המנהל משייך נקודה סמויה ידנית - זו כל מהותה.
+    if (data.defaultPointId) {
+      const point = await prisma.deliveryPoint.findUnique({
+        where: { id: data.defaultPointId },
+        select: { isActive: true, isPrivate: true },
+      });
+      if (!point || !point.isActive || point.isPrivate) {
+        return NextResponse.json(
+          { error: "נקודת החלוקה שנבחרה אינה זמינה" },
+          { status: 400 }
+        );
+      }
+    }
     // §173: הרכבת השם.
     //
     // 🐛 מה שגרם לבעיה: שדה שם אחד. לקוחות הזינו "ברכה" בלבד,
