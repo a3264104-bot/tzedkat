@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+// §296: מקור אמת יחיד לפריסה
+import { validateInstallments } from "@/lib/installments-lib";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { chargeToken } from "@/lib/nedarim-lib";
@@ -142,11 +144,20 @@ export async function POST(req: Request) {
     let overrideInstallments: number | null = null;
     if (rawInst != null && rawInst !== "") {
       const n = Number(rawInst);
-      if (!Number.isInteger(n) || n < 1 || n > 12) {
-        return NextResponse.json(
-          { error: "מספר תשלומים חייב להיות בין 1 ל-12" },
-          { status: 400 }
-        );
+      // §295: תקרה שונה לנציג ולמנהל.
+      //
+      // המנהל עד 12, הנציג עד 2.
+      //
+      // למה: פריסה ארוכה היא החלטה עסקית - היא דוחה את הכסף
+      // בחודשים ומגדילה את החשיפה. הנציג בשטח מקבל בקשה מלקוח
+      // ומאשר במקום, בלי לראות את התמונה הכוללת.
+      //
+      // ⚠️ נאכף **בשרת** ולא רק בבורר: בורר במסך אינו הרשאה,
+      // ובקשה ידנית עוקפת אותו. זה הדפוס שנתפס ב-§221 וב-§289.
+      // §296: אימות מהספרייה — אותה תקרה בכל המסלולים.
+      const err = validateInstallments(n, isAdmin);
+      if (err) {
+        return NextResponse.json({ error: err }, { status: 400 });
       }
       overrideInstallments = n;
     }

@@ -16,8 +16,10 @@
 // בטלפון, ומה שסוכם שם הוא האמת.
 
 import { NextResponse } from "next/server";
+import { validateInstallments } from "@/lib/installments-lib";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/guard";
+// §295: הנציג שומר פריסה כמו המנהל — עד 2.
+import { auth } from "@/lib/auth";
 
 /**
  * §261: מספרי התשלומים המותרים.
@@ -25,25 +27,34 @@ import { requireAdmin } from "@/lib/guard";
  * ⚠️ זהה לבורר במסך ולרשימה של נדרים. ערך אחר יתקבל כאן,
  * וייכשל בחיוב עצמו - כלומר הבעיה תתגלה ברגע הכי גרוע.
  */
-const ALLOWED = [1, 2, 3, 4, 6, 10, 12];
+// §296: הרשימה והתקרה בספרייה המשותפת.
 
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const g = await requireAdmin();
-  if (!g.ok) return g.res;
+  // §295: מנהל **או נציג**.
+  //
+  // הצורך: לקוח מבקש פריסה בטלפון ימים לפני החיוב, והנציג הוא
+  // זה שמדבר איתו. שליחתו למנהל על כל בקשה כזו הופכת אותו
+  // למתווך מיותר.
+  const session = await auth();
+  const role = (session?.user as any)?.role;
+  if (role !== "ADMIN" && role !== "AGENT") {
+    return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+  }
+  const isAdmin = role === "ADMIN";
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const n = Number(body.installments);
 
-  if (!ALLOWED.includes(n)) {
-    return NextResponse.json(
-      { error: `מספר תשלומים לא תקין. מותר: ${ALLOWED.join(", ")}` },
-      { status: 400 }
-    );
+  // §296: אימות מהספרייה — כולל תקרת הנציג.
+  const instErr = validateInstallments(n, isAdmin);
+  if (instErr) {
+    return NextResponse.json({ error: instErr }, { status: isAdmin ? 400 : 403 });
   }
+
 
   const order = await prisma.order.findUnique({
     where: { id },
@@ -68,7 +79,7 @@ export async function PATCH(
   });
 
   console.log(
-    `[installments] ADMIN set order #${order.orderNumber} to ${n} payments`
+    `[installments] ${role} set order #${order.orderNumber} to ${n} payments`
   );
 
   return NextResponse.json({ ok: true, installments: n });

@@ -10,11 +10,13 @@
 // "אפשר לפרוס?" לא יכול היה לעשות כלום.
 
 import { useState } from "react";
+import { installmentOptionsFor } from "@/lib/installments-lib";
 import { useRouter } from "next/navigation";
 
 // ⚠️ 1-12 הוא הטווח שנדרים תומכים בו. מעבר לזה החיוב נדחה אצלם
 // עם שגיאה גנרית שקשה לאבחן.
-const INSTALLMENT_OPTIONS = [1, 2, 3, 4, 6, 10, 12];
+// §296: מקור אמת יחיד — ראה src/lib/installments-lib.ts
+const INSTALLMENT_OPTIONS = installmentOptionsFor(false);
 
 export default function AgentChargeButton({
   orderId,
@@ -45,6 +47,40 @@ export default function AgentChargeButton({
   // §189: המודל מחליף את confirm(). confirm לא יכול להכיל בורר,
   // וזו הסיבה שהתשלומים לא היו נגישים כאן מלכתחילה.
   const [open, setOpen] = useState(false);
+  // §295: 💾 שמירת הפריסה **בלי לחייב**.
+  //
+  // הצורך: לקוח מבקש פריסה בטלפון ימים לפני החיוב - לפעמים
+  // לפני שההזמנה נשקלה. הנציג צריך לרשום מיד, אחרת הוא יזכור
+  // חמישה לקוחות ויפספס את השישי.
+  //
+  // ⚠️ נשמר ב-requestedInstallments, אותו שדה שהחיוב קורא ממנו
+  // (§189). אין שני מקומות שאומרים את אותו דבר.
+  const [savingInst, setSavingInst] = useState(false);
+  const [instSaved, setInstSaved] = useState(false);
+
+  async function saveInstallments(n: number) {
+    setSavingInst(true);
+    setInstSaved(false);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/installments`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ installments: n }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || "שמירה נכשלה");
+      }
+      setInstSaved(true);
+      // ⚠️ החיווי נעלם אחרי שתי שניות: הוא אישור, לא מצב.
+      setTimeout(() => setInstSaved(false), 2000);
+    } catch (e: any) {
+      alert(e.message || "שמירת הפריסה נכשלה");
+    } finally {
+      setSavingInst(false);
+    }
+  }
+
   const [installments, setInstallments] = useState(
     Math.min(Math.max(requestedInstallments || 1, 1), 12)
   );

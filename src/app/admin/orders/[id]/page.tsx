@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+// §296: מקור אמת יחיד לפריסה
+import { INSTALLMENT_OPTIONS } from "@/lib/installments-lib";
 // §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
 import { fmtDateTime } from "@/lib/date-lib";
 // §183: עריכת פרטי הלקוח מתוך ההזמנה
@@ -356,7 +358,7 @@ export default function OrderDetail() {
                     className="rounded-lg border-2 border-emerald-300 bg-white px-2 py-1 text-xs font-bold text-emerald-800"
                     title="מספר תשלומים"
                   >
-                    {[1, 2, 3, 4, 6, 10, 12].map((n) => (
+                    {INSTALLMENT_OPTIONS.map((n) => (
                       <option key={n} value={n}>
                         {n === 1 ? "תשלום 1" : `${n} תשלומים`}
                       </option>

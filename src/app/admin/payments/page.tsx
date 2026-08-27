@@ -7,6 +7,8 @@
 //    לתפוס, ופילטר שמסתיר אותם כברירת מחדל היה מסתיר כסף שממתין לגבייה.
 
 import { useEffect, useState, useCallback } from "react";
+// §296: מקור אמת יחיד לפריסה
+import { INSTALLMENT_OPTIONS } from "@/lib/installments-lib";
 import { payStatusLabel, payStatusColor, payStatusNeedsAttention } from "@/lib/pay-status-lib";
 
 // מבנה PayOrder כפי שמוחזר מ-/api/admin/payments
@@ -686,7 +688,8 @@ function OrderCard({
                 disabled={isCharging}
                 className="rounded-lg border-2 border-zinc-300 px-2 py-1.5 text-sm font-bold"
               >
-                {[1, 2, 3, 4, 6, 10, 12].map((n) => (
+                {/* §296: מהספרייה — לא רשימה מקומית */}
+                {INSTALLMENT_OPTIONS.map((n) => (
                   <option key={n} value={n}>
                     {n === 1 ? "תשלום אחד" : `${n} תשלומים`}
                   </option>
