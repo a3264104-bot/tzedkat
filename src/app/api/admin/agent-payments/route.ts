@@ -26,6 +26,8 @@ export async function GET(req: Request) {
       phone: true,
       email: true,
       agentPoint: { select: { id: true, name: true } },
+      // §292: כל הנקודות — לחישוב האשראי שנגבה מהן
+      agentPoints: { select: { pointId: true, point: { select: { name: true } } } },
       commissionRateCarton: true,
       commissionRateSingles: true,
     },
@@ -90,6 +92,63 @@ export async function GET(req: Request) {
       }, Promise.resolve(0));
       const totalCashCollected = await cashFromWalkins;
 
+      // §292: 💳 **כמה נגבה באשראי מהנקודות של הנציג.**
+      //
+      // הבעיה מהשטח: חברת האשראי מעבירה סכום אחד לכל המכירות
+      // ולכל הנקודות. המנהל מקבל ₪40,000 ואין לו שום דרך לדעת
+      // כמה מזה ברכפלד, כמה רמות, וכמה טבריה.
+      //
+      // ⚠️ הבנק לא יודע — **המערכת כן**: כל הזמנה יודעת לאיזו
+      // נקודה היא שייכת, וכל חיוב מוצלח יודע כמה נגבה.
+      //
+      // ⚠️ רק PAID: חיוב שנכשל או שממתין אינו כסף שנכנס.
+      //
+      // ⚠️ ולא מזומן: הוא נספר בנפרד ב-totalCashCollected, וכפל
+      // היה מנפח את מה שכביכול התקבל.
+      const myPointIds = agent.agentPoints.map((ap) => ap.pointId);
+      if (agent.agentPoint?.id && !myPointIds.includes(agent.agentPoint.id)) {
+        myPointIds.push(agent.agentPoint.id);
+      }
+
+      let cardCollected = 0;
+      let cardOrders = 0;
+      let pendingCollection = 0;
+      let pendingOrders = 0;
+
+      if (myPointIds.length > 0) {
+        const pointOrders = await prisma.order.findMany({
+          where: {
+            pointId: { in: myPointIds },
+            status: { not: "CANCELLED" },
+          },
+          select: {
+            paymentStatus: true,
+            paymentMethod: true,
+            amountPaid: true,
+            finalTotal: true,
+            estimatedTotal: true,
+          },
+        });
+
+        for (const o of pointOrders) {
+          const paid = Number(o.amountPaid ?? 0);
+          const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
+
+          if (o.paymentStatus === "PAID") {
+            // ⚠️ CASH ו-MANUAL הם מזומן (§239) — לא אשראי.
+            if (o.paymentMethod !== "CASH" && o.paymentMethod !== "MANUAL") {
+              cardCollected += paid > 0 ? paid : due;
+              cardOrders++;
+            }
+          } else {
+            pendingCollection += due;
+            pendingOrders++;
+          }
+        }
+      }
+
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+
       // יתרה: (עמלה - תשלומים ששולמו לו) - (מזומן שאסף - העברות שהעביר למנהל)
       const balance =
         totalCommission - totalPaid - (totalCashCollected - totalCollected);
@@ -131,7 +190,14 @@ export async function GET(req: Request) {
           createdAt: p.createdAt.toISOString(),
           createdById: p.createdById,
         })),
+        // §292: הנקודות בשמן — המנהל מדבר על "ברכפלד", לא על מזהה.
+        points: agent.agentPoints.map((ap) => ap.point.name),
         totals: {
+          // §292: האשראי שנגבה מהנקודות של הנציג
+          cardCollected: r2(cardCollected),
+          cardOrders,
+          pendingCollection: r2(pendingCollection),
+          pendingOrders,
           totalCommission,
           totalPaid,
           totalCollected,

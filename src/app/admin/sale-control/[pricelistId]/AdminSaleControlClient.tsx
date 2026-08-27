@@ -79,7 +79,14 @@ type Data = {
     status: "OK" | "OVER" | "UNDER" | "SIGNIFICANT_UNDER" | "NO_NOTE";
   }>;
   /** §282: נקודות שיש בהן הזמנות — לבורר ההדפסה */
-  pointsWithOrders?: Array<{ id: string; name: string; count: number }>;
+  pointsWithOrders?: Array<{
+    id: string;
+    name: string;
+    count: number;
+    /** §293: כמה נגבה מהנקודה */
+    collected?: number;
+    pending?: number;
+  }>;
   agents: Array<{
     agentId: string;
     agentName: string;
@@ -547,6 +554,53 @@ if (loading) {
                   ⚠️ שורה נפרדת ולא כרטיס: זה מידע משלים ("כמה כבר
                   סגרנו"), לא משימה. כרטיס חמישי היה מושך תשומת
                   לב למה שכבר טופל. */}
+              {/* §293: 📍 פירוק הגבייה **לפי נקודה**.
+                  
+                  הבעיה מהשטח: חברת האשראי מעבירה סכום אחד לכל
+                  הנקודות. המנהל מקבל ₪40,000 ואין לו דרך לדעת
+                  כמה מזה ברכפלד, כמה רמות, וכמה טבריה.
+                  
+                  הבנק לא יודע — המערכת כן: כל הזמנה משויכת
+                  לנקודה, וכל חיוב מוצלח יודע כמה נגבה.
+                  
+                  מוצג רק כשיש יותר מנקודה אחת: בנקודה יחידה
+                  הפירוק זהה לסה״כ. */}
+              {(data.pointsWithOrders?.length ?? 0) > 1 && (
+                <div className="mt-3 pt-3 border-t border-zinc-100">
+                  <div className="text-xs font-bold text-zinc-500 mb-2">
+                    📍 פירוק לפי נקודת חלוקה
+                  </div>
+                  <div className="space-y-1">
+                    {data.pointsWithOrders!.map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between gap-2 text-xs py-1 border-b border-zinc-50"
+                      >
+                        <span className="min-w-0 truncate text-brand-slatedark">
+                          {p.name}
+                          <span className="text-zinc-400"> ({p.count})</span>
+                        </span>
+                        <span className="shrink-0 flex items-center gap-2 tabular-nums">
+                          <span className="font-bold text-emerald-700">
+                            {money(p.collected ?? 0)}
+                          </span>
+                          {(p.pending ?? 0) > 0 && (
+                            <span className="text-amber-700">
+                              ⏳ {money(p.pending!)}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* ⚠️ ההסבר קצר: המנהל שרואה שתי עמודות צריך
+                      לדעת מה כל אחת אומרת, בלי לנחש. */}
+                  <p className="text-[10px] text-zinc-400 mt-1.5">
+                    ירוק = נגבה · כתום = טרם נגבה
+                  </p>
+                </div>
+              )}
+
               {(fin.cashReceivedFromAgents ?? 0) > 0 && (
                 <p className="text-[11px] text-zinc-500 mt-2">
                   ✓ מתוך המזומן, <b>{money(fin.cashReceivedFromAgents!)}</b>{" "}

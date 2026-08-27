@@ -594,20 +594,47 @@ export async function GET(
   //
   // ⚠️ נבנית מההזמנות ולא מטבלת הנקודות: המנהל צריך להדפיס רק
   // איפה שיש מה לחלק, ונקודה ריקה בבורר היא לחיצה מבוזבזת.
+  // §293: הפירוק כולל גם **כמה נגבה** מכל נקודה.
+  //
+  // הבעיה מהשטח: חברת האשראי מעבירה סכום אחד לכל הנקודות, והמנהל
+  // לא יודע כמה מזה ברכפלד. הסה״כ בבקרת המכירה (§239) אומר כמה
+  // נכנס בסך הכל - ולא איפה.
+  //
+  // ⚠️ אותו חישוב של /admin/agent-debts (§292), רק שכאן הוא לפי
+  // המכירה הנוכחית ולא לפי כל ההיסטוריה.
   const pointsWithOrders = Array.from(
     orders.reduce((map, o) => {
-      if (o.pointId && !map.has(o.pointId)) {
+      if (!o.pointId) return map;
+      if (!map.has(o.pointId)) {
         map.set(o.pointId, {
           id: o.pointId,
           name: o.point?.name || o.pointNameSnapshot || "נקודה",
           count: 0,
+          collected: 0,
+          pending: 0,
         });
       }
-      if (o.pointId) map.get(o.pointId)!.count++;
+      const e = map.get(o.pointId)!;
+      e.count++;
+
+      // ⚠️ אותה הבחנה של §239: CASH ו-MANUAL הם מזומן.
+      const paid = Number(o.amountPaid ?? 0);
+      const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
+      if (o.paymentStatus === "PAID") {
+        e.collected += paid > 0 ? paid : due;
+      } else {
+        e.pending += due;
+      }
       return map;
-    }, new Map<string, { id: string; name: string; count: number }>())
+    }, new Map<string, { id: string; name: string; count: number; collected: number; pending: number }>())
       .values()
-  ).sort((a, b) => a.name.localeCompare(b.name, "he"));
+  )
+    .map((p) => ({
+      ...p,
+      collected: Math.round(p.collected * 100) / 100,
+      pending: Math.round(p.pending * 100) / 100,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "he"));
 
   return NextResponse.json({
     pricelist: {

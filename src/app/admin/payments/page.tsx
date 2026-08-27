@@ -164,6 +164,22 @@ export default function PaymentsPage() {
   //
   // ⚠️ עדכון אופטימי: המסך מתעדכן מיד, והשמירה רצה ברקע. אם
   // היא נכשלת - חוזרים אחורה ומודיעים.
+
+  const [message, setMessage] = useState<Message | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // §291: 🐛 **הפונקציה השתמשה ב-setMessage לפני שהוגדר.**
+  //
+  // saveInstallments ישבה מעל `const [message, setMessage]`.
+  // ב-JavaScript הצהרת function עולה למעלה (hoisting), אבל
+  // const לא - ולכן כל קריאה ל-setMessage בתוך ה-catch זרקה
+  // ReferenceError.
+  //
+  // התוצאה: השמירה **כן** הצליחה בשרת, אבל אם משהו בדרך
+  // נכשל, השגיאה נבלעה. וגרוע מזה - ה-catch עצמו קרס, וה-state
+  // חזר אחורה בלי שהמנהל ידע.
+  //
+  // ⚠️ עכשיו הפונקציה **אחרי** כל ה-state שהיא נוגעת בו.
   async function saveInstallments(orderId: string, n: number, prev: number) {
     setInstallments((p) => ({ ...p, [orderId]: n }));
     try {
@@ -176,6 +192,14 @@ export default function PaymentsPage() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "שמירה נכשלה");
       }
+      // §291: חיווי קצר שהשמירה עברה.
+      //
+      // ⚠️ בלעדיו המנהל בוחר, לא רואה כלום, ולא יודע אם נשמר -
+      // בדיוק מה שקרה כאן: הוא יצא, חזר, וראה שהערך התאפס.
+      setMessage({
+        text: `נשמר: ${n === 1 ? "תשלום אחד" : `${n} תשלומים`}`,
+        type: "success",
+      });
     } catch (e: any) {
       // ⚠️ החזרה למצב הקודם: אם לא נשמר, המסך לא יכול להראות
       // ערך שאינו במסד - המנהל יחייב לפי מה שהוא רואה.
@@ -183,8 +207,6 @@ export default function PaymentsPage() {
       setMessage({ text: e.message || "שמירת הפריסה נכשלה", type: "error" });
     }
   }
-  const [message, setMessage] = useState<Message | null>(null);
-  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // טעינת רשימת המכירות לבורר (ברירת המחדל נשארת "כל המכירות")
   useEffect(() => {
