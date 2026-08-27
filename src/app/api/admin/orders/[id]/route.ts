@@ -380,8 +380,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     data,
     include: { point: true, items: true },
   });
-  // אם נקבע מחיר סופי עכשיו - שולחים ללקוח מייל עם קישור תשלום (לא חוסם)
-  if (justSetFinalTotal) {
+  // §303: 🐛 **מייל אוטומטי בכל קביעת מחיר סופי.**
+  //
+  // המנהל מתקן משקל, המחיר משתנה, והלקוח מקבל מייל נוסף. אחרי
+  // שלושה תיקונים יש לו שלושה סכומים שונים ואין לו דרך לדעת
+  // מה נכון.
+  //
+  // ⚠️ עכשיו: שליחה **ידנית בלבד**, דרך הכפתור "שלח מייל
+  // ללקוח" שקיים במסך ההזמנה. המנהל שולח כשהוא מוכן.
+  //
+  // ⚠️ הדגל ולא מחיקה: החזרת ההתנהגות היא שינוי של שורה אחת.
+  const AUTO_EMAIL_ON_FINAL_PRICE = false;
+
+  if (AUTO_EMAIL_ON_FINAL_PRICE && justSetFinalTotal) {
     const fullOrder = await prisma.order.findUnique({
       where: { id },
       include: { items: true, customer: true },

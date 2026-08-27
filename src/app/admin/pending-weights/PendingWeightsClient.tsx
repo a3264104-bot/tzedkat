@@ -239,6 +239,33 @@ function TableRow({
   const [weightVal, setWeightVal] = useState<string>(
     row.agentEnteredWeight?.toString() || ""
   );
+
+  // §301: 📦 **משבצת לכל קרטון** — כמו במסך הנציג.
+  //
+  // הבעיה מהשטח: לקוח לקח 2 קרטונים, והשוקל שוקל כל אחד בנפרד -
+  // 12.4 ו-13.1. משבצת אחת אילצה אותו לחבר בראש, ושם נופלות
+  // הטעויות.
+  //
+  // ⚠️ הסכום הוא מה שנשמר: הפריט מחזיק משקל אחד, ופיצול במסד
+  // היה דורש מיגרציה ושינוי בכל מי שקורא אותו.
+  //
+  // ⚠️ ומי ששקל ביחד ממלא הכל בראשונה ומשאיר את השנייה ריקה.
+  //
+  // ⚠️ רק קרטונים: בודדים לפי ק"ג הם שקילה אחת.
+  const cartonCount =
+    !row.isSingle && row.quantity > 1
+      ? Math.min(Math.floor(row.quantity), 6)
+      : 1;
+
+  // ⚠️ בטעינה הכל בראשונה: המסד מחזיק סכום, לא פירוט.
+  const [parts, setParts] = useState<string[]>(() => {
+    const arr = Array(cartonCount).fill("");
+    if (row.agentEnteredWeight != null) arr[0] = String(row.agentEnteredWeight);
+    return arr;
+  });
+
+  const partsSum = () =>
+    Math.round(parts.reduce((a, x) => a + (Number(x) || 0), 0) * 100) / 100;
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const weightRef = useRef<HTMLInputElement>(null);
@@ -351,6 +378,56 @@ function TableRow({
 
       {/* שדה משקל בפועל - הלב של הטבלה */}
       <td className="px-2 py-1.5 text-center bg-emerald-50/30 relative">
+        {/* §301: 📦 משבצת לכל קרטון.
+            
+            השוקל שוקל כל קרטון בנפרד. משבצת אחת אילצה אותו
+            לחבר בראש - ושם נופלות הטעויות.
+            
+            ⚠️ מי ששקל ביחד ממלא הכל בראשונה ומשאיר ריק. */}
+        {cartonCount > 1 ? (
+          <div className="flex flex-col gap-1">
+            {parts.map((p, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <span className="text-[10px] text-zinc-400 w-3 shrink-0">
+                  {i + 1}
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={p}
+                  onChange={(e) => {
+                    const next = [...parts];
+                    next[i] = e.target.value;
+                    setParts(next);
+                  }}
+                  onBlur={() => {
+                    // ⚠️ הסכום נשמר — הפריט מחזיק משקל אחד.
+                    const sum = parts.reduce(
+                      (a, x) => a + (Number(x) || 0),
+                      0
+                    );
+                    const r = Math.round(sum * 100) / 100;
+                    setWeightVal(r > 0 ? String(r) : "");
+                    // ⚠️ setTimeout כדי ש-weightVal יתעדכן לפני
+                    // שהשמירה קוראת אותו.
+                    setTimeout(() => saveWeight(), 0);
+                  }}
+                  disabled={saving}
+                  placeholder="0.00"
+                  className="w-full px-2 py-1.5 border-2 border-zinc-300 rounded-md text-center font-bold focus:outline-none focus:ring-2 focus:ring-brand-rust"
+                />
+              </div>
+            ))}
+            {/* ⚠️ הסכום מוצג: השוקל רואה מה יישמר בלי לחבר. */}
+            {parts.some((x) => x !== "") && (
+              <div className="text-[11px] font-bold text-emerald-700">
+                סה״כ {partsSum()}
+              </div>
+            )}
+          </div>
+        ) : (
         <input
           ref={weightRef}
           type="number"
@@ -373,6 +450,7 @@ function TableRow({
               : "border-zinc-300 bg-white"
           }`}
         />
+        )}
         {saving && (
           <span className="absolute top-0 left-1 text-[8px] text-amber-600 animate-pulse">
             שומר...

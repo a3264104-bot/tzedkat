@@ -467,6 +467,39 @@ function ItemRow({
                 הוחלף
               </span>
             )}
+            {/* §302: 🗑️ **ביטול פריט מהזמנה.**
+                
+                הפער: onToggleCancel כבר היה ב-props של ItemRow,
+                ההורה כבר חיבר אותו ל-onItemUpdate, והתצוגה ידעה
+                להציג קו חוצה - ולא היה שום כפתור שקורא לו.
+                
+                ⚠️ ביטול ולא מחיקה: הפריט נשאר לתיעוד ויוצא
+                מהחישוב, כמו ביטול הזמנה (§47).
+                
+                ⚠️ והחזרה אפשרית: לקוח שהתחרט לא דורש הקמה
+                מחדש של הפריט. */}
+            {!readOnly && (
+              <button
+                onClick={() => {
+                  if (
+                    !item.isCancelled &&
+                    !window.confirm(
+                      `לבטל את "${item.productName}" מההזמנה?\n\nהפריט יוצא מהחישוב אך יישאר לתיעוד.`
+                    )
+                  )
+                    return;
+                  onToggleCancel();
+                }}
+                className={`text-[10px] px-1.5 py-0.5 rounded font-bold mr-auto ${
+                  item.isCancelled
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-red-50 text-red-600 hover:bg-red-100"
+                }`}
+                title={item.isCancelled ? "החזר לחישוב" : "בטל פריט"}
+              >
+                {item.isCancelled ? "↩ החזר" : "🗑️"}
+              </button>
+            )}
           </div>
           <div className="text-xs text-zinc-500 mt-0.5">
             {/* 🐛 תוקן שני באגים בשורה אחת:

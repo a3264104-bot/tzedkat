@@ -562,6 +562,36 @@ function WeightCell({
   const [val, setVal] = useState(
     cell.agentEnteredWeight !== null ? String(cell.agentEnteredWeight) : ""
   );
+
+  // §301: 📦 **משבצת לכל קרטון.**
+  //
+  // הבעיה מהשטח: לקוח לקח 2 קרטונים, והנציג שוקל כל אחד בנפרד -
+  // 12.4 ו-13.1. אבל יש רק משבצת אחת, ולכן הוא צריך לחבר בראש
+  // או לרשום בצד. וזה בדיוק המקום שבו נופלות טעויות.
+  //
+  // ⚠️ הסכום הוא מה שנשמר: הפריט מחזיק משקל אחד, ופיצול שלו
+  // במסד היה דורש מיגרציה ושינוי בכל מי שקורא אותו.
+  //
+  // ⚠️ ומי שכן שקל ביחד יכול למלא הכל במשבצת אחת ולהשאיר את
+  // השנייה ריקה - הסכום זהה.
+  //
+  // ⚠️ רק קרטונים: בודדים לפי ק"ג הם שקילה אחת ("3 ק"ג פרגית"),
+  // ופיצול היה מבלבל.
+  const cartonCount =
+    !cell.isSingle && !cell.noWeighing && cell.orderedQty > 1
+      ? Math.min(Math.floor(cell.orderedQty), 6)
+      : 1;
+
+  // ⚠️ בטעינה הכל במשבצת הראשונה: המסד מחזיק סכום, לא פירוט.
+  // הנציג רואה את מה שהזין ויכול לתקן.
+  const [parts, setParts] = useState<string[]>(() => {
+    const arr = Array(cartonCount).fill("");
+    if (cell.agentEnteredWeight !== null) {
+      arr[0] = String(cell.agentEnteredWeight);
+    }
+    return arr;
+  });
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -606,7 +636,17 @@ function WeightCell({
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || "שגיאה");
-        onNeedsReload();
+        // §299: 🐛 **המחיקה טענה את כל המסך מחדש.**
+        //
+        // onNeedsReload() שולף 244 הזמנות ו-758 פריטים ממסד
+        // באירלנד - 2-3 שניות. הנציג מחק תא, והמסך נתקע.
+        //
+        // ⚠️ ההזנה כבר עשתה את זה נכון (onItemUpdate), והמחיקה
+        // פשוט נשארה מאחור. אותה פעולה, אותו עדכון.
+        onItemUpdate(cell.orderId, cell.itemId, {
+          agentEnteredWeight: null,
+          actualWeight: json.item?.actualWeight ?? null,
+        });
       } catch {
         setError(true);
         setVal(String(cell.agentEnteredWeight));
@@ -687,8 +727,59 @@ function WeightCell({
           
           ⚠️ מה שכן משתנה: step=1 (אין חצי נקניק), ותווית
           "יח׳" במקום "משקל". */}
-      {false ? (
-        <div />
+      {/* §301: 📦 משבצת לכל קרטון.
+          
+          לקוח לקח 2 קרטונים, והנציג שוקל כל אחד בנפרד. משבצת
+          אחת אילצה אותו לחבר בראש - ושם נופלות הטעויות.
+          
+          ⚠️ מי ששקל ביחד ממלא הכל בראשונה ומשאיר את השנייה
+          ריקה. הסכום זהה. */}
+      {cartonCount > 1 ? (
+        <div className="flex flex-col gap-1">
+          {parts.map((p, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <span className="text-[9px] text-zinc-400 w-3 shrink-0">
+                {i + 1}
+              </span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step={0.01}
+                min={0}
+                dir="ltr"
+                disabled={readOnly || saving}
+                value={p}
+                onChange={(e) => {
+                  const next = [...parts];
+                  next[i] = e.target.value;
+                  setParts(next);
+                }}
+                onBlur={() => {
+                  // ⚠️ הסכום הוא מה שנשמר — הפריט מחזיק משקל אחד.
+                  const sum = parts.reduce(
+                    (a, x) => a + (Number(x) || 0),
+                    0
+                  );
+                  const rounded = Math.round(sum * 100) / 100;
+                  setVal(rounded > 0 ? String(rounded) : "");
+                  // ⚠️ setTimeout כדי ש-val יתעדכן לפני save().
+                  setTimeout(() => save(), 0);
+                }}
+                placeholder={`ק"ג`}
+                className="w-full text-center font-bold text-base md:text-sm rounded py-1.5 md:py-1 border-2 border-zinc-200 focus:border-brand-rust"
+              />
+            </div>
+          ))}
+          {/* ⚠️ הסכום מוצג: הנציג רואה מה יישמר בלי לחבר בראש. */}
+          {parts.some((p) => p !== "") && (
+            <div className="text-[10px] text-center font-bold text-brand-rust">
+              סה״כ{" "}
+              {Math.round(
+                parts.reduce((a, x) => a + (Number(x) || 0), 0) * 100
+              ) / 100}
+            </div>
+          )}
+        </div>
       ) : (
       <input
         ref={inputRef}

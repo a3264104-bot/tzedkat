@@ -89,6 +89,40 @@ export default function OrderDetail() {
   const isPaid = order.paymentStatus === "PAID";
   const hasFinalTotal = order.finalTotal !== null && order.finalTotal !== undefined;
 
+  // §303: 📧 שליחת מייל **ידנית**.
+  //
+  // המייל האוטומטי בוטל (§303) כי הוא נשלח בכל תיקון משקל,
+  // והלקוח קיבל שלושה סכומים שונים.
+  //
+  // ⚠️ עכשיו המנהל שולח כשהוא מוכן - אחרי שכל השקילות
+  // הסתיימו והמחיר סופי באמת.
+  const [sendingMail, setSendingMail] = useState(false);
+
+  async function sendPriceEmail() {
+    if (!order?.finalTotal) {
+      alert("אין מחיר סופי — אין מה לשלוח");
+      return;
+    }
+    if (
+      !confirm(
+        `לשלוח מייל ל${order.customerName}?\n\nהמייל יכלול את הפירוט המלא והסכום הסופי: ${fmt(Number(order.finalTotal))}`
+      )
+    )
+      return;
+    setSendingMail(true);
+    try {
+      const res = await api(`/api/admin/orders/${id}/notify`, {
+        method: "POST",
+      });
+      alert(res?.ok ? "המייל נשלח ✓" : res?.error || "השליחה נכשלה");
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "שגיאה");
+    } finally {
+      setSendingMail(false);
+    }
+  }
+
   async function setStatus(status: string) {
     // ההגנה על סדר השלבים נעשית בפאנל המצב (הוא לא מציג פעולה
     // חסומה) ובצד השרת. אין צורך בבדיקה כפולה כאן.
@@ -300,6 +334,40 @@ export default function OrderDetail() {
 
       {/* §47: פאנל מצב מסודר במקום שורת כפתורים של כל הסטטוסים.
           הפירוט המלא בקומפוננטה עצמה. */}
+      {/* §303: 📧 כפתור שליחת המייל.
+          
+          המקום כאן מכוון: אחרי פאנל הסטטוסים, לפני התשלומים.
+          זו הפעולה שקורית **אחרי** שהמחיר סופי ולפני החיוב. */}
+      {order.finalTotal != null && (
+        <div className="card p-4 no-print mb-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <div className="font-bold text-sm text-brand-slatedark">
+                📧 מייל ללקוח
+              </div>
+              <div className="text-[11px] text-zinc-500 mt-0.5">
+                {order.customerNotifiedAt
+                  ? `נשלח ${new Date(order.customerNotifiedAt).toLocaleString("he-IL")}`
+                  : order.customer?.email
+                    ? "פירוט מלא + סכום סופי + קישור לתשלום"
+                    : "⚠️ ללקוח אין מייל"}
+              </div>
+            </div>
+            <button
+              onClick={sendPriceEmail}
+              disabled={sendingMail || !order.customer?.email}
+              className="px-4 py-2 rounded-xl bg-brand-slatedark text-white font-bold text-sm disabled:opacity-40"
+            >
+              {sendingMail
+                ? "שולח..."
+                : order.customerNotifiedAt
+                  ? "שלח שוב"
+                  : "שלח מייל"}
+            </button>
+          </div>
+        </div>
+      )}
+
       <OrderStatusPanel
         order={order}
         saving={saving}

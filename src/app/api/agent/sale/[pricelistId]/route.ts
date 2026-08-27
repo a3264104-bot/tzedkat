@@ -334,8 +334,21 @@ export async function GET(
         quantity: Number(it.quantity),
         unitPrice: Number(it.unitPrice),
         estimatedWeight: it.estimatedWeight ? Number(it.estimatedWeight) : null,
-        actualWeight: it.actualWeight ? Number(it.actualWeight) : null,
-        agentEnteredWeight: it.agentEnteredWeight ? Number(it.agentEnteredWeight) : null,
+        // §304: != null ולא truthy — 0 הוא משקל תקף.
+        actualWeight: it.actualWeight != null ? Number(it.actualWeight) : null,
+        // §304: 🐛 **משקל 0 נעלם.**
+        //
+        // `it.agentEnteredWeight ? ... : null` — ו-0 הוא falsy,
+        // כלומר כל משקל שהוזן כאפס חזר כ-null.
+        //
+        // ⚠️ וזו הבחנה שהמערכת בנויה עליה (§141):
+        //   null = טרם נשקל
+        //   0    = נשקל, והלקוח לא קיבל
+        //
+        // התוצאה: הנציג הזין 0, רענן, והמשבצת התרוקנה - כאילו
+        // לא הזין כלום. ואז "לא ניתן לסמן כטופל: חסרים משקלים".
+        agentEnteredWeight:
+          it.agentEnteredWeight != null ? Number(it.agentEnteredWeight) : null,
         // §119: המחיר שהנציג קבע במוצר מועדף. בלעדיו החישוב
         // בקליינט לעולם לא יופעל, והעמלה תישאר בכלל הרגיל.
         agentSetPrice: it.agentSetPrice != null ? Number(it.agentSetPrice) : null,

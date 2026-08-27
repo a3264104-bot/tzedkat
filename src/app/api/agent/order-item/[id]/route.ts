@@ -199,8 +199,26 @@ export async function PATCH(
   // בצד המנהל.
   await recomputeOrderTotal(item.order.id);
 
-  // עדכון סיכום הנציג בזמן אמת
-  await recalculateAgentSummary(item.order.pricelistId || "", g.agent.id);
+  // §299: 🐌 **סיכום הנציג מחושב מחדש בכל תא.**
+  //
+  // recalculateAgentSummary סורק את כל ההזמנות של הנציג במכירה
+  // ומסכם משקלים ועמלות. עם 34 לקוחות ו-100 פריטים זה שאילתה
+  // כבדה - ובכל הזנת משקל היא רצה שוב.
+  //
+  // התוצאה בשטח: הנציג מקליד משקל, ומחכה 2-3 שניות לכל תא.
+  // בחלוקה עם 40 לקוחות זה עשר דקות של המתנה מצטברת.
+  //
+  // ⚠️ הפתרון: לא ממתינים לה. הסיכום נדרש רק כשהנציג פותח את
+  // מסך הסיכום או סוגר את המכירה - לא בזמן ההקלדה.
+  //
+  // ⚠️ void ולא await: היא רצה ברקע, והתשובה חוזרת מיד. אם היא
+  // נכשלת, החישוב הבא יתקן - הוא ממילא סורק הכל מחדש.
+  void recalculateAgentSummary(
+    item.order.pricelistId || "",
+    g.agent.id
+  ).catch((e) => {
+    console.error("[order-item] agent summary recalc failed:", e);
+  });
 
   // §72: אם זה היה הפריט הפעיל האחרון - ההזמנה כולה מתבטלת.
   // אותו כלל כמו אצל המנהל: הזמנה בלי פריטים היא רשומת רפאים
@@ -233,7 +251,9 @@ export async function PATCH(
       agentEnteredWeight: updated.agentEnteredWeight
         ? Number(updated.agentEnteredWeight)
         : null,
-      actualWeight: updated.actualWeight ? Number(updated.actualWeight) : null,
+      // §304: != null — משקל 0 חוזר כ-0, לא כ-null.
+      actualWeight:
+        updated.actualWeight != null ? Number(updated.actualWeight) : null,
       finalPrice: updated.finalPrice ? Number(updated.finalPrice) : null,
       agentNote: updated.agentNote,
       isCancelled: updated.isCancelled,
@@ -322,7 +342,9 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
     for (const it of order.items) {
       // 📌 בכוונה agentEnteredWeight ולא actualWeight: העמלה מגיעה על מה
       // שהנציג שקל וחילק בפועל, ולא על תיקון שהמנהל ביצע אחר כך.
-      const w = it.agentEnteredWeight ? Number(it.agentEnteredWeight) : 0;
+      // §304: != null — 0 הוא משקל שהוזן, לא חוסר.
+      const w =
+        it.agentEnteredWeight != null ? Number(it.agentEnteredWeight) : 0;
       if (w > 0) {
         hasData = true;
         if (it.agentSetPrice != null) {
@@ -492,16 +514,58 @@ async function recomputeOrderTotal(orderId: string): Promise<void> {
     select: {
       finalTotal: true,
       finalPriceNotifiedAt: true,
+      // §266: הסטטוס הנוכחי - כדי לא לדרוס PAID או CHARGING
+      paymentStatus: true,
       customer: { select: { email: true, paymentPreference: true } },
     },
   });
 
+  // §266: 🚨 **הסטטוס לא עודכן — וזה השורש.**
+  //
+  // מה שקרה בשטח: נציג שוקל, finalTotal נקבע, ו-paymentStatus
+  // נשאר PENDING. המסך הציג "ממתין לשקילה" על הזמנה שכבר נשקלה,
+  // והכפתור "חייב עכשיו" לא הופיע.
+  //
+  // רדפנו אחרי זה שעה - תיוג, סינון, hasToken - וכל אלה היו
+  // תסמינים. **המקור היה כאן**: המסלול היחיד שכותב finalTotal
+  // בלי לסמן שההזמנה מוכנה.
+  //
+  // ⚠️ READY_TO_CHARGE **רק** מ-PENDING או AWAITING_WEIGHING:
+  // הזמנה ששולמה, נמצאת בחיוב, או שהכרטיס שלה בעייתי - הסטטוס
+  // שלה משמעותי ואסור לדרוס אותו.
+  const readyStatuses = ["PENDING", "AWAITING_WEIGHING", "TOKEN_CREATED"];
+  const shouldMarkReady =
+    payable > 0 && readyStatuses.includes(wasSet?.paymentStatus ?? "PENDING");
+
   await prisma.order.update({
     where: { id: orderId },
-    data: { finalTotal: payable },
+    data: {
+      finalTotal: payable,
+      ...(shouldMarkReady ? { paymentStatus: "READY_TO_CHARGE" } : {}),
+    },
   });
 
-  if (wasSet?.customer?.email && !wasSet.finalPriceNotifiedAt) {
+  // §303: 🐛 **מייל נשלח בכל הזנת משקל.**
+  //
+  // המצב מהשטח: הנציג מזין משקל, מתקן, מזין שוב - והלקוח מקבל
+  // מייל על כל שינוי. הוא רואה שלושה מיילים עם שלושה סכומים
+  // שונים ולא יודע מה נכון.
+  //
+  // ⚠️ וגרוע מזה: המייל נשלח **לפני** שהמחיר סופי. תיקון אחרי
+  // המייל אומר שהלקוח מחזיק בידו סכום שגוי.
+  //
+  // ⚠️ הפתרון: לא שולחים אוטומטית. המנהל שולח כשהוא מוכן,
+  // מכפתור ייעודי - אחרי שכל השקילות הסתיימו.
+  //
+  // ⚠️ הקוד נשאר כאן ומושבת בדגל: כשתרצה להחזיר את השליחה
+  // האוטומטית, זו שורה אחת. מחיקה הייתה מאלצת בנייה מחדש.
+  const AUTO_EMAIL_ON_FINAL_PRICE = false;
+
+  if (
+    AUTO_EMAIL_ON_FINAL_PRICE &&
+    wasSet?.customer?.email &&
+    !wasSet.finalPriceNotifiedAt
+  ) {
     const full = await prisma.order.findUnique({
       where: { id: orderId },
       include: { items: true, customer: true },

@@ -52,6 +52,8 @@ export async function POST(req: Request) {
       pricelistId: true,
       status: true,
       finalTotal: true,
+      // §300: מצב התשלום — הוא הקובע אם מותר להוסיף, לא finalTotal
+      paymentStatus: true,
     },
   });
   if (!order) {
@@ -84,14 +86,29 @@ export async function POST(req: Request) {
     );
   }
 
-  // הזמנה שכבר נקבע לה מחיר סופי - הוספה כאן תיצור פער בין הסכום
-  // שנקבע לבין הפריטים בפועל, והלקוח יחויב בסכום שאינו תואם את
-  // מה שקיבל. חוסמים במפורש במקום להשאיר סתירה שקטה.
-  if (order.finalTotal != null) {
+  // §300: 🐛 **החסימה על finalTotal חסמה בדיוק את מי שצריך.**
+  //
+  // המצב מהשטח: הנציג בחלוקה, ההזמנה נשקלה (ולכן יש finalTotal),
+  // והלקוח מבקש עוד קילו. הוא מוסיף - ונחסם עם "יש לפנות למנהל".
+  //
+  // ⚠️ החשש המקורי היה נכון: פער בין הסכום שנקבע לפריטים בפועל
+  // אומר שהלקוח יחויב על מה שלא קיבל.
+  //
+  // ⚠️ אבל הפתרון אינו חסימה אלא **חישוב מחדש** - וזה מה שקורה
+  // עכשיו בסוף הפונקציה.
+  //
+  // ⚠️ מה שכן נשאר חסום: הזמנה **ששולמה**. שם הכסף כבר נגבה,
+  // והוספה הייתה יוצרת חוב שקט שאיש לא יודע עליו. ההודעה מפנה
+  // לפתרון הנכון - חיוב נוסף או זיכוי, שני פאנלים שקיימים במסך.
+  if (
+    order.paymentStatus === "PAID" ||
+    order.paymentStatus === "PARTIALLY_PAID" ||
+    order.paymentStatus === "CHARGING"
+  ) {
     return NextResponse.json(
       {
         error:
-          "להזמנה כבר נקבע מחיר סופי. יש לפנות למנהל להוספת פריט ולחישוב מחדש.",
+          "ההזמנה כבר חויבה. להוספת פריט יש להשתמש ב\"חיוב נוסף\" או לפנות למנהל.",
       },
       { status: 400 }
     );
@@ -238,23 +255,71 @@ export async function POST(req: Request) {
     select: { id: true },
   });
 
-  // עדכון הסכום המשוער של ההזמנה. finalTotal לא נוגעים - הוא null
-  // כאן בהכרח (נחסם למעלה), וייקבע בשקילה.
+  // עדכון הסכום המשוער של ההזמנה.
   const items = await prisma.orderItem.findMany({
     where: { orderId: order.id, isCancelled: false },
-    select: { estimatedPrice: true },
+    select: { estimatedPrice: true, finalPrice: true },
   });
   const itemsSum = items.reduce((s, i) => s + Number(i.estimatedPrice), 0);
   const plFee = await prisma.pricelist.findUnique({
     where: { id: order.pricelistId },
     select: { orderFee: true },
   });
-  const estimatedTotal =
-    Math.round((itemsSum + Number(plFee?.orderFee ?? 0)) * 100) / 100;
+  const orderFee = Number(plFee?.orderFee ?? 0);
+  const estimatedTotal = Math.round((itemsSum + orderFee) * 100) / 100;
+
+  // §300: 🧮 **חישוב מחדש של המחיר הסופי.**
+  //
+  // ההזמנה כבר נשקלה, ולכן finalTotal קיים. הוספת פריט בלי
+  // לעדכן אותו הייתה יוצרת בדיוק את הפער שהחסימה הישנה חששה
+  // ממנו: הלקוח מחויב על מה שלא קיבל.
+  //
+  // ⚠️ רק כשכל הפריטים נשקלו: פריט חדש שטרם נשקל (finalPrice
+  // ריק) אומר שהסכום עוד לא סופי, ואיפוס ל-null הוא הנכון -
+  // הוא מחזיר את ההזמנה למצב "ממתינה לשקילה", שזה בדיוק מה
+  // שהיא.
+  const allWeighed =
+    items.length > 0 && items.every((i) => i.finalPrice !== null);
+
+  let newFinalTotal: number | null = null;
+  if (allWeighed) {
+    const finalSum = items.reduce((s, i) => s + Number(i.finalPrice ?? 0), 0);
+    // ⚠️ אותם רכיבים של recomputeOrderTotal: משלוח, חיוב נוסף
+    // וזיכוי משפיעים על הסכום ואסור לאבד אותם.
+    const full = await prisma.order.findUnique({
+      where: { id: order.id },
+      select: {
+        deliveryRequested: true,
+        deliveryFee: true,
+        extraCharge: true,
+        creditAmount: true,
+        appliedCreditBalance: true,
+      },
+    });
+    const dlv =
+      full?.deliveryRequested && full.deliveryFee != null
+        ? Number(full.deliveryFee)
+        : 0;
+    const extra = full?.extraCharge != null ? Number(full.extraCharge) : 0;
+    const credit = full?.creditAmount != null ? Number(full.creditAmount) : 0;
+    const bal =
+      full?.appliedCreditBalance != null
+        ? Number(full.appliedCreditBalance)
+        : 0;
+    newFinalTotal = Math.max(
+      0,
+      Math.round((finalSum + orderFee + dlv + extra - credit - bal) * 100) / 100
+    );
+  }
 
   await prisma.order.update({
     where: { id: order.id },
-    data: { estimatedTotal },
+    data: {
+      estimatedTotal,
+      // ⚠️ null כשלא הכל נשקל — ההזמנה חוזרת ל"ממתינה לשקילה",
+      // והנציג יראה את הפריט החדש בטבלה עם משבצת ריקה.
+      finalTotal: newFinalTotal,
+    },
   });
 
   console.log(
