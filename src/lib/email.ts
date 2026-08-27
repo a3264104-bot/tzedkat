@@ -302,6 +302,62 @@ export async function sendFinalPriceEmail(
         </tr></thead>
         <tbody>${itemsRows(order.items, true)}</tbody>
       </table>
+      ${(() => {
+        // §308: 🐛 **הטבלה הציגה פריטים בלבד, והסכום כלל עוד.**
+        //
+        // הלקוח ראה במייל פריטים ב-₪800 ו"לתשלום ₪838", ולא
+        // הבין מאיפה ההפרש. באתר הוא ראה פירוט מלא - וזו בדיוק
+        // אי-ההתאמה שדווחה.
+        //
+        // ⚠️ ההפרש מורכב מ: דמי טיפול, משלוח, חיוב נוסף - פחות
+        // זיכוי ויתרת זכות. כולם קיימים על ההזמנה ולא הוצגו.
+        //
+        // ⚠️ מוצג רק מה שקיים: שורות ריקות של "משלוח ₪0" הן
+        // רעש, והלקוח סורק מייל בשתי שניות.
+        const o: any = order;
+        const rows: string[] = [];
+        const line = (label: string, val: number, color = "#333") =>
+          `<tr>
+            <td style="padding:6px 8px;color:${color};">${label}</td>
+            <td style="padding:6px 8px;text-align:left;color:${color};">${
+              val < 0 ? "-" : "+"
+            }${fmt(Math.abs(val))}</td>
+          </tr>`;
+
+        const itemsSum = (o.items || []).reduce(
+          (sum: number, it: any) =>
+            sum + Number(it.finalPrice ?? it.estimatedPrice ?? 0),
+          0
+        );
+
+        // ⚠️ דמי הטיפול נגזרים מההפרש ולא נשלפים: הם אינם על
+        // ההזמנה כשדה נפרד, אלא כבר בתוך estimatedTotal (§245).
+        const dlv =
+          o.deliveryRequested && o.deliveryFee != null
+            ? Number(o.deliveryFee)
+            : 0;
+        const extra = o.extraCharge != null ? Number(o.extraCharge) : 0;
+        const credit = o.creditAmount != null ? Number(o.creditAmount) : 0;
+        const bal =
+          o.appliedCreditBalance != null ? Number(o.appliedCreditBalance) : 0;
+        const debt = o.appliedDebt != null ? Number(o.appliedDebt) : 0;
+
+        const known = itemsSum + dlv + extra + debt - credit - bal;
+        const fee = Math.round((Number(o.finalTotal ?? 0) - known) * 100) / 100;
+
+        if (Math.abs(fee) > 0.01) rows.push(line("דמי טיפול", fee));
+        if (dlv > 0) rows.push(line("משלוח", dlv));
+        if (extra > 0) rows.push(line("חיוב נוסף", extra));
+        if (debt > 0) rows.push(line("חוב קודם", debt, "#b91c1c"));
+        if (credit > 0) rows.push(line("זיכוי", -credit, "#15803d"));
+        if (bal > 0) rows.push(line("יתרת זכות", -bal, "#15803d"));
+
+        return rows.length
+          ? `<table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:4px;">
+               <tbody>${rows.join("")}</tbody>
+             </table>`
+          : "";
+      })()}
       <p style="font-size:18px;text-align:left;"><strong>לתשלום: ${fmt(Number(order.finalTotal))}</strong></p>
       ${
         // §147: לקוח מזומן מקבל הוראה אחרת לגמרי.

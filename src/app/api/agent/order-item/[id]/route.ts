@@ -31,7 +31,14 @@ export async function PATCH(
     where: { id },
     include: {
       order: {
-        select: { id: true, pointId: true, pricelistId: true, status: true },
+        select: {
+          id: true,
+          pointId: true,
+          pricelistId: true,
+          status: true,
+          // §309: נעילה אחרי שליחת המייל
+          weightsLockedAt: true,
+        },
       },
       product: {
         select: {
@@ -49,6 +56,28 @@ export async function PATCH(
   if (!item) {
     return NextResponse.json({ error: "פריט לא נמצא" }, { status: 404 });
   }
+  // §309: 🔒 **משקל נעול אחרי שליחת המייל.**
+  //
+  // המייל הוא הרגע שבו הסכום הופך למחייב - הלקוח מחזיק בידו
+  // מספר. שינוי משקל אחריו יוצר פער בין מה שהוא יודע למה
+  // שייגבה.
+  //
+  // ⚠️ זה בדיוק מה שקרה בהזמנה 616: מייל ב-20:31 עם ₪89.05,
+  // ותיקון ב-20:32 ל-₪128.84.
+  //
+  // ⚠️ המנהל יכול לשחרר: /admin/orders/[id] → "פתח לעריכה".
+  // נעילה בלי מפתח היא מלכודת.
+  if ((item.order as any)?.weightsLockedAt) {
+    return NextResponse.json(
+      {
+        error:
+          "ההזמנה נעולה — נשלח ללקוח מייל עם הסכום הסופי. לשינוי יש לפנות למנהל.",
+        code: "WEIGHTS_LOCKED",
+      },
+      { status: 423 }
+    );
+  }
+
 
   // 🐛 תוקן: הבדיקה השתמשה ב-agentPointId היחיד (deprecated), ולכן נציג
   // המשויך לכמה נקודות נחסם מלעדכן משקלים בכל נקודה חוץ מהראשונה.

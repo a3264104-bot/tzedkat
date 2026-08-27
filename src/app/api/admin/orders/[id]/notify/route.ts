@@ -65,7 +65,16 @@ export async function POST(
   await prisma.order.update({
     where: { id },
     data: res.ok
-      ? { customerNotifiedAt: new Date(), customerNotifyError: null }
+      ? {
+          customerNotifiedAt: new Date(),
+          customerNotifyError: null,
+          // §309: 🔒 השליחה נועלת — כמו בשליחה הקבוצתית.
+          //
+          // ⚠️ בלי זה יש שני מסלולי שליחה עם התנהגות שונה:
+          // אחד נועל ואחד לא. המנהל ששלח מהמסך הבודד היה
+          // חושב שההזמנה נעולה, והנציג היה ממשיך לשנות.
+          weightsLockedAt: new Date(),
+        }
       : { customerNotifyError: res.error },
   });
 

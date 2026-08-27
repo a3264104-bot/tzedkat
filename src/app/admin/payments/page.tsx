@@ -450,6 +450,50 @@ export default function PaymentsPage() {
           </div>
           {/* ⚠️ הכפתור רק כשלא כבר בסינון הזה - אחרת הוא לא
               עושה כלום ורק מבלבל. */}
+          {/* §309: 📧 שליחת מייל לכל המוכנות.
+              
+              עם 244 הזמנות, שליחה אחת-אחת היא 244 לחיצות.
+              
+              ⚠️ והשליחה **נועלת** את המשקלים: הלקוח מחזיק בידו
+              סכום, ושינוי אחריו יוצר פער - בדיוק מה שקרה
+              בהזמנה 616. */}
+          <button
+            onClick={async () => {
+              const ids = chargeable.map((o) => o.id);
+              if (
+                !window.confirm(
+                  `לשלוח מייל ל-${ids.length} לקוחות?\n\n` +
+                    `כל אחד יקבל את הפירוט המלא והסכום הסופי שלו.\n\n` +
+                    `⚠️ אחרי השליחה לא ניתן לשנות משקלים בהזמנות האלה.`
+                )
+              )
+                return;
+              try {
+                const res = await fetch("/api/admin/notify-batch", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ orderIds: ids }),
+                });
+                const d = await res.json();
+                if (!res.ok) throw new Error(d.error || "השליחה נכשלה");
+                const lines = [`נשלחו ${d.sent} מיילים`];
+                if (d.failed > 0) {
+                  lines.push(`\n${d.failed} נכשלו:`);
+                  (d.errors || []).forEach((e: any) =>
+                    lines.push(`#${e.orderNumber}: ${e.error}`)
+                  );
+                }
+                alert(lines.join("\n"));
+                fetchOrders();
+              } catch (e: any) {
+                alert(e.message || "שגיאה");
+              }
+            }}
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-blue-700 text-white text-xs font-bold"
+          >
+            📧 שלח מייל לכולן
+          </button>
+
           {filter !== "chargeable" && (
             <button
               onClick={() => setFilter("chargeable")}

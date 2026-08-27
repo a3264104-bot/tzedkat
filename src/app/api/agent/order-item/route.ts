@@ -54,6 +54,8 @@ export async function POST(req: Request) {
       finalTotal: true,
       // §300: מצב התשלום — הוא הקובע אם מותר להוסיף, לא finalTotal
       paymentStatus: true,
+      // §309: נעילה אחרי שליחת המייל
+      weightsLockedAt: true,
     },
   });
   if (!order) {
@@ -100,6 +102,21 @@ export async function POST(req: Request) {
   // ⚠️ מה שכן נשאר חסום: הזמנה **ששולמה**. שם הכסף כבר נגבה,
   // והוספה הייתה יוצרת חוב שקט שאיש לא יודע עליו. ההודעה מפנה
   // לפתרון הנכון - חיוב נוסף או זיכוי, שני פאנלים שקיימים במסך.
+  // §309: 🔒 הזמנה נעולה — נשלח ללקוח מייל עם הסכום.
+  //
+  // הוספת פריט אחרי המייל משנה את הסכום שהלקוח מחזיק בידו,
+  // וזה בדיוק הפער שהנעילה מונעת.
+  if ((order as any).weightsLockedAt) {
+    return NextResponse.json(
+      {
+        error:
+          "ההזמנה נעולה — נשלח ללקוח מייל עם הסכום הסופי. לשינוי יש לפנות למנהל.",
+        code: "WEIGHTS_LOCKED",
+      },
+      { status: 423 }
+    );
+  }
+
   if (
     order.paymentStatus === "PAID" ||
     order.paymentStatus === "PARTIALLY_PAID" ||

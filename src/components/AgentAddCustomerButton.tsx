@@ -371,6 +371,41 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
                     
                     ⚠️ מי שמילא רק את השם המלא - הלקוח יופיע במסך
                     "השלמת שמות" ויטופל שם בהמשך. */}
+                {/* §310: 📞 הטלפון שיישמר — מוצג, לא מוקלד שוב.
+                    
+                    הטלפון נלקח משדה החיפוש (q), והמסך לא הראה
+                    את זה. הנציג לא ידע מה בדיוק יישמר, ואם
+                    חיפש לפי שם - הוא היה מקים לקוח עם שם
+                    בשדה הטלפון.
+                    
+                    ⚠️ ניתן לעריכה במקום: אם הוא הקליד עם רווח
+                    או מקף, הוא מתקן כאן בלי לחזור לחיפוש. */}
+                <div className="mb-3">
+                  <label className="text-xs font-bold text-zinc-500 block mb-1">
+                    טלפון * <span className="font-normal">(מהחיפוש)</span>
+                  </label>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    dir="ltr"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="0501234567"
+                    className={`w-full px-3 py-2.5 border-2 rounded-lg text-sm text-center font-bold focus:outline-none ${
+                      q.replace(/\D/g, "").length >= 9
+                        ? "border-emerald-300 bg-emerald-50 focus:border-emerald-500"
+                        : "border-amber-300 bg-amber-50 focus:border-amber-500"
+                    }`}
+                  />
+                  {/* ⚠️ החיווי מיידי: הנציג רואה שהמספר תקין
+                      לפני שהוא ממלא את שאר הטופס. */}
+                  {q.replace(/\D/g, "").length < 9 && (
+                    <p className="text-[11px] text-amber-800 mt-1">
+                      ⚠️ מספר טלפון תקין נדרש — זהו מזהה הכניסה של הלקוח
+                    </p>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-xs font-bold text-zinc-500 block mb-1">

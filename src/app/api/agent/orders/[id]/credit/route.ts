@@ -39,6 +39,8 @@ export async function POST(
       estimatedTotal: true,
       customerId: true,
       paymentStatus: true,
+      // §309: נעילה אחרי שליחת המייל
+      weightsLockedAt: true,
       creditAmount: true,
       pricelistId: true,
     },
@@ -71,6 +73,17 @@ export async function POST(
   // עכשיו: הזיכוי נשמר כיתרה על הלקוח ומקוזז אוטומטית בהזמנה
   // הבאה. אין החזר כספי, אין התעסקות מול הסליקה, והלקוח מקבל
   // את מה שמגיע לו.
+
+  // §309: 🔒 זיכוי אחרי המייל משנה את הסכום שהלקוח מחזיק.
+  if ((order as any).weightsLockedAt) {
+    return NextResponse.json(
+      {
+        error: "ההזמנה נעולה — נשלח ללקוח מייל עם הסכום הסופי.",
+        code: "WEIGHTS_LOCKED",
+      },
+      { status: 423 }
+    );
+  }
   const alreadyPaid =
     order.paymentStatus === "PAID" || order.paymentStatus === "PARTIALLY_PAID";
 
@@ -225,6 +238,12 @@ async function recomputeTotal(orderId: string): Promise<number | null> {
       extraCharge: true,
       customerId: true,
       appliedCreditBalance: true,
+      // §266: מצב התשלום — לסימון READY_TO_CHARGE אחרי הזיכוי.
+      //
+      // ⚠️ זו השליפה השנייה בקובץ. הראשונה (שורה 33) כן כוללת
+      // אותו, וההנחה שהשדה קיים גם כאן היא בדיוק סוג הטעות
+      // שחוזרת: שתי שליפות לאותו אובייקט עם select שונה.
+      paymentStatus: true,
       items: { where: { isCancelled: false }, select: { finalPrice: true } },
     },
   });
@@ -270,7 +289,18 @@ async function recomputeTotal(orderId: string): Promise<number | null> {
 
   await prisma.order.update({
     where: { id: orderId },
-    data: { finalTotal: payable },
+    // §266: מסמנים מוכן לחיוב, כמו בהזנת משקל.
+    //
+    // ⚠️ אותו תנאי: לא דורסים PAID / CHARGING / FAILED.
+    data: {
+      finalTotal: payable,
+      ...(payable > 0 &&
+      ["PENDING", "AWAITING_WEIGHING", "TOKEN_CREATED"].includes(
+        order.paymentStatus ?? "PENDING"
+      )
+        ? { paymentStatus: "READY_TO_CHARGE" }
+        : {}),
+    },
   });
   return payable;
 }

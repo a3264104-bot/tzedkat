@@ -107,6 +107,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // §47: ביטול הזמנה. שונה ממחיקה - ההזמנה נשמרת לתיעוד ולדוחות.
   // סיבת הביטול נשמרת בהערות הפנימיות עם חותמת זמן ושם המבטל, כי
   // בלעדיה אי אפשר לדעת בדיעבד למה הזמנה בוטלה.
+  // §309: 🔓 **המנהל משחרר נעילה.**
+  //
+  // הנעילה חוסמת את הנציג, לא את המנהל: מנהל שגילה טעות אחרי
+  // המייל צריך דרך לתקן. נעילה בלי מפתח היא מלכודת.
+  //
+  // ⚠️ והשחרור מפורש: הוא שולח unlockWeights ומקבל אחריות על
+  // כך שהלקוח יקבל מייל מעודכן.
+  if (b.unlockWeights === true) {
+    data.weightsLockedAt = null;
+    console.log(
+      `[unlock] order ${id} weights unlocked by ${g.session?.user?.email}`
+    );
+  }
+
   if (b.status === "CANCELLED" && b.cancelReason) {
     const stamp = new Date().toLocaleString("he-IL");
     const by = g.session?.user?.email ?? "מנהל";

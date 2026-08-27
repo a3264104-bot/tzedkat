@@ -344,6 +344,50 @@ export default function OrderDetail() {
 
       {/* §47: פאנל מצב מסודר במקום שורת כפתורים של כל הסטטוסים.
           הפירוט המלא בקומפוננטה עצמה. */}
+      {/* §309: 🔒 חיווי נעילה + שחרור.
+          
+          הנעילה נקבעת בשליחת המייל: הלקוח מחזיק בידו סכום,
+          ושינוי אחריו יוצר פער.
+          
+          ⚠️ והשחרור כאן, אצל המנהל בלבד - נעילה בלי מפתח היא
+          מלכודת. */}
+      {(order as any).weightsLockedAt && (
+        <div className="card p-4 no-print mb-3 border-2 border-amber-300 bg-amber-50">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <div className="font-bold text-sm text-amber-900">
+                🔒 ההזמנה נעולה לשינויים
+              </div>
+              <div className="text-[11px] text-amber-800 mt-0.5">
+                נשלח ללקוח מייל עם הסכום הסופי ב-
+                {new Date((order as any).weightsLockedAt).toLocaleString(
+                  "he-IL"
+                )}
+                . הנציג אינו יכול לשנות משקלים.
+              </div>
+            </div>
+            <button
+              onClick={async () => {
+                if (
+                  !confirm(
+                    "לפתוח את ההזמנה לשינויים?\n\n⚠️ הלקוח כבר קיבל מייל עם הסכום. אחרי התיקון יש לשלוח לו מייל מעודכן."
+                  )
+                )
+                  return;
+                await api(`/api/admin/orders/${id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ unlockWeights: true }),
+                });
+                await load();
+              }}
+              className="px-3 py-1.5 rounded-lg bg-amber-700 text-white text-xs font-bold shrink-0"
+            >
+              🔓 פתח לשינויים
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* §303: 📧 כפתור שליחת המייל.
           
           המקום כאן מכוון: אחרי פאנל הסטטוסים, לפני התשלומים.
