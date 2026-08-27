@@ -28,6 +28,16 @@ export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [order, setOrder] = useState<any>(null);
+  // §305: 🚨 ה-useState חייב להיות **לפני** כל return מוקדם.
+  //
+  // 🐛 הצבתי אותו ליד הפונקציה שמשתמשת בו (שורה 99), אחרי
+  // `if (!order) return ...` בשורה 67. מספר ה-hooks השתנה בין
+  // רינדורים, React זרק "Rendered fewer hooks than expected",
+  // והדף קרס לבן.
+  //
+  // ⚠️ זו הפעם השנייה היום (§283). החוק: hooks תמיד בשורות
+  // הראשונות של הרכיב, בלי יוצא מן הכלל.
+  const [sendingMail, setSendingMail] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [internalNotes, setInternalNotes] = useState("");
@@ -96,7 +106,7 @@ export default function OrderDetail() {
   //
   // ⚠️ עכשיו המנהל שולח כשהוא מוכן - אחרי שכל השקילות
   // הסתיימו והמחיר סופי באמת.
-  const [sendingMail, setSendingMail] = useState(false);
+
 
   async function sendPriceEmail() {
     if (!order?.finalTotal) {
