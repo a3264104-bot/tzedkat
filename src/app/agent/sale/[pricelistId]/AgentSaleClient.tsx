@@ -638,9 +638,24 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                 </span>
               )}
             </TabBtn>
-            <TabBtn active={tab === "walkins"} onClick={() => setTab("walkins")}>
-              מזדמנים ({data.walkins.length})
-            </TabBtn>
+            {/* §307: לשונית המזדמנים — רק כשיש כאלה.
+                
+                מזדמן הוא שם בלי טלפון: אי אפשר לחפש אותו, לא
+                לחייב, ולא ליצור איתו קשר. ובשבוע הבא מקימים
+                אותו מחדש.
+                
+                מעכשיו כל לקוח מוקם כלקוח מלא דרך "לקוח חדש" -
+                עם טלפון, שם מלא, ואמצעי תשלום. הלשונית נשארת
+                כדי לראות את מי שכבר נוצר, ואי אפשר להוסיף
+                דרכה. */}
+            {data.walkins.length > 0 && (
+              <TabBtn
+                active={tab === "walkins"}
+                onClick={() => setTab("walkins")}
+              >
+                מזדמנים ({data.walkins.length})
+              </TabBtn>
+            )}
             <TabBtn active={tab === "summary"} onClick={() => setTab("summary")}>
               סיכום וסגירה
             </TabBtn>
@@ -888,12 +903,19 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
           </div>
         )}
 
+        {/* §306: הכפתור "הוסף לקוח מזדמן" נעלם אחרי סגירת סיכום.
+            
+            הנציג סגר סיכום, מגיע לקוח מזדמן, והכפתור איננו.
+            
+            סגירת סיכום היא דיווח - לא נעילה. מזדמן הוא מכירה
+            במקום, ואם יש סחורה אפשר למכור. */}
         {tab === "walkins" && (
           <WalkinList
             pricelistId={pricelistId}
             walkins={data.walkins}
             availableProducts={data.availableProducts}
-            readOnly={isSealed}
+            // §307: אי אפשר להוסיף מזדמן חדש — רק לצפות בקיימים.
+            readOnly={true}
             onChange={load}
           />
         )}
