@@ -114,6 +114,9 @@ export async function GET(req: Request) {
       let cardOrders = 0;
       let pendingCollection = 0;
       let pendingOrders = 0;
+      // §294: מזומן מלקוחות רגילים (בנוסף למזדמנים)
+      let cashFromOrders = 0;
+      let cashOrders = 0;
 
       if (myPointIds.length > 0) {
         const pointOrders = await prisma.order.findMany({
@@ -135,10 +138,22 @@ export async function GET(req: Request) {
           const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
 
           if (o.paymentStatus === "PAID") {
+            const actual = paid > 0 ? paid : due;
             // ⚠️ CASH ו-MANUAL הם מזומן (§239) — לא אשראי.
             if (o.paymentMethod !== "CASH" && o.paymentMethod !== "MANUAL") {
-              cardCollected += paid > 0 ? paid : due;
+              cardCollected += actual;
               cardOrders++;
+            } else {
+              // §294: 💵 מזומן מ**לקוחות רגילים** — לא רק ממזדמנים.
+              //
+              // הפער: totalCashCollected סופר רק walkinOrder. נציג
+              // שגבה מזומן מלקוח שהזמין מראש (§130) - הכסף אצלו,
+              // ולא הופיע בשום מקום.
+              //
+              // ⚠️ וזה בדיוק מה ששובר את ההצלבה: המנהל רואה
+              // "טרם נגבה ₪3,000" בזמן שהנציג כבר גבה במזומן.
+              cashFromOrders += actual;
+              cashOrders++;
             }
           } else {
             pendingCollection += due;
@@ -196,6 +211,9 @@ export async function GET(req: Request) {
           // §292: האשראי שנגבה מהנקודות של הנציג
           cardCollected: r2(cardCollected),
           cardOrders,
+          // §294: מזומן מלקוחות רגילים — משלים את התמונה
+          cashFromOrders: r2(cashFromOrders),
+          cashOrders,
           pendingCollection: r2(pendingCollection),
           pendingOrders,
           totalCommission,

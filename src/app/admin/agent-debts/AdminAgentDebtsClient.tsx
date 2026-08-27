@@ -49,6 +49,14 @@ type AgentData = {
     /** §292: כמה נגבה באשראי מהנקודות שלו */
     cardCollected?: number;
     cardOrders?: number;
+    /**
+     * §294: מזומן מ**לקוחות רגילים** — לא רק ממזדמנים.
+     *
+     * totalCashCollected סופר walkinOrder בלבד. נציג שגבה מזומן
+     * מלקוח שהזמין מראש (§130) - הכסף אצלו, ולא הופיע בשום מקום.
+     */
+    cashFromOrders?: number;
+    cashOrders?: number;
     pendingCollection?: number;
     pendingOrders?: number;
     totalCommission: number;
@@ -286,6 +294,115 @@ function AgentCard({
       </button>
 
       {/* Expanded content */}
+      {/* §292: 💳 האשראי שנגבה מהנקודות של הנציג.
+          
+          הבעיה מהשטח: חברת האשראי מעבירה סכום אחד לכל
+          המכירות ולכל הנקודות. המנהל מקבל ₪40,000 ואין לו
+          דרך לדעת כמה מזה ברכפלד.
+          
+          המערכת כן יודעת: כל הזמנה משויכת לנקודה, וכל חיוב
+          מוצלח יודע כמה נגבה. */}
+      {(totals.cardCollected ?? 0) > 0 ||
+      (totals.pendingCollection ?? 0) > 0 ? (
+        <div className="mt-3 rounded-xl border-2 border-blue-200 bg-blue-50 p-3">
+          <div className="text-xs font-bold text-blue-900 mb-2">
+            💳 גבייה מהנקודות של הנציג
+            {data.points && data.points.length > 0 && (
+              <span className="font-normal text-blue-700">
+                {" · "}
+                {data.points.join(" · ")}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[10px] text-blue-700">
+                נגבה באשראי
+              </div>
+              <div className="text-lg font-extrabold text-blue-900 tabular-nums">
+                ₪{(totals.cardCollected ?? 0).toLocaleString("he-IL", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </div>
+              <div className="text-[10px] text-blue-700">
+                {totals.cardOrders ?? 0} הזמנות
+              </div>
+            </div>
+        {/* ⚠️ כתום לממתין: זה מה שעדיין לא נכנס, וזו
+                השורה שאומרת למנהל שהנקודה לא סגורה. */}
+            <div>
+              <div className="text-[10px] text-amber-800">
+                ⏳ טרם נגבה
+              </div>
+              <div className="text-lg font-extrabold text-amber-800 tabular-nums">
+                ₪{(totals.pendingCollection ?? 0).toLocaleString("he-IL", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </div>
+              <div className="text-[10px] text-amber-800">
+                {totals.pendingOrders ?? 0} הזמנות
+              </div>
+            </div>
+          </div>
+          {/* §294: 💵 מזומן מלקוחות רגילים.
+              
+              הפער: "מזומן שאסף" סופר רק מזדמנים. נציג שגבה
+              מזומן מלקוח שהזמין מראש (§130) - הכסף אצלו, ולא
+              הופיע בשום מקום. */}
+          {(totals.cashFromOrders ?? 0) > 0 && (
+            <div className="mt-2 pt-2 border-t border-blue-200 flex items-center justify-between text-xs">
+              <span className="text-blue-900">
+                💵 מזומן שגבה מלקוחות ({totals.cashOrders ?? 0})
+              </span>
+              <span className="font-bold text-blue-900 tabular-nums">
+                ₪{(totals.cashFromOrders ?? 0).toLocaleString("he-IL", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </div>
+          )}
+
+          {/* §294: 🧮 שורת ההצלבה — "כמה כסף אצלו עכשיו".
+              
+              מזומן שגבה (מזדמנים + לקוחות) פחות מה שהעביר. זה
+              הסכום שהוא אמור למסור, וזו השאלה שהמנהל שואל. */}
+          <div className="mt-2 pt-2 border-t-2 border-blue-300 flex items-center justify-between">
+            <span className="text-xs font-bold text-blue-900">
+              💰 מזומן שאמור להיות אצלו
+            </span>
+            <span
+              className={`text-base font-extrabold tabular-nums ${
+                (totals.totalCashCollected ?? 0) +
+                  (totals.cashFromOrders ?? 0) -
+                  (totals.totalCollected ?? 0) >
+                0.01
+                  ? "text-amber-700"
+                  : "text-emerald-700"
+              }`}
+            >
+              ₪
+              {Math.max(
+                0,
+                (totals.totalCashCollected ?? 0) +
+                  (totals.cashFromOrders ?? 0) -
+                  (totals.totalCollected ?? 0)
+              ).toLocaleString("he-IL", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+          </div>
+
+          <p className="text-[10px] text-blue-800 mt-2 leading-relaxed">
+            הסכומים לפי ההזמנות בנקודות של הנציג. חברת האשראי מעבירה
+            הכל יחד, וזה הפירוק לפי נקודה.
+          </p>
+        </div>
+      ) : null}
+
       {expanded && (
         <div className="border-t border-zinc-100">
           {/* פירוט חשבון */}
@@ -311,64 +428,7 @@ function AgentCard({
             />
           </div>
 
-          {/* §292: 💳 האשראי שנגבה מהנקודות של הנציג.
-              
-              הבעיה מהשטח: חברת האשראי מעבירה סכום אחד לכל
-              המכירות ולכל הנקודות. המנהל מקבל ₪40,000 ואין לו
-              דרך לדעת כמה מזה ברכפלד.
-              
-              המערכת כן יודעת: כל הזמנה משויכת לנקודה, וכל חיוב
-              מוצלח יודע כמה נגבה. */}
-          {(totals.cardCollected ?? 0) > 0 ||
-          (totals.pendingCollection ?? 0) > 0 ? (
-            <div className="mt-3 rounded-xl border-2 border-blue-200 bg-blue-50 p-3">
-              <div className="text-xs font-bold text-blue-900 mb-2">
-                💳 גבייה מהנקודות של הנציג
-                {data.points && data.points.length > 0 && (
-                  <span className="font-normal text-blue-700">
-                    {" · "}
-                    {data.points.join(" · ")}
-                  </span>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-[10px] text-blue-700">
-                    נגבה באשראי
-                  </div>
-                  <div className="text-lg font-extrabold text-blue-900 tabular-nums">
-                    ₪{(totals.cardCollected ?? 0).toLocaleString("he-IL", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </div>
-                  <div className="text-[10px] text-blue-700">
-                    {totals.cardOrders ?? 0} הזמנות
-                  </div>
-                </div>
-                {/* ⚠️ כתום לממתין: זה מה שעדיין לא נכנס, וזו
-                    השורה שאומרת למנהל שהנקודה לא סגורה. */}
-                <div>
-                  <div className="text-[10px] text-amber-800">
-                    ⏳ טרם נגבה
-                  </div>
-                  <div className="text-lg font-extrabold text-amber-800 tabular-nums">
-                    ₪{(totals.pendingCollection ?? 0).toLocaleString("he-IL", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </div>
-                  <div className="text-[10px] text-amber-800">
-                    {totals.pendingOrders ?? 0} הזמנות
-                  </div>
-                </div>
-              </div>
-              <p className="text-[10px] text-blue-800 mt-2 leading-relaxed">
-                הסכומים לפי ההזמנות בנקודות של הנציג. חברת האשראי מעבירה
-                הכל יחד, וזה הפירוק לפי נקודה.
-              </p>
-            </div>
-          ) : null}
+
 
           {/* מכירות */}
           {summaries.length > 0 && (
