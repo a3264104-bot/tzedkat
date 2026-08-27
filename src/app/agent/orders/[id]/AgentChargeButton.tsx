@@ -124,6 +124,49 @@ export default function AgentChargeButton({
 
   return (
     <div className="mt-2">
+      {/* §297: 💳 בורר הפריסה **מחוץ למודל החיוב**.
+          
+          🐛 הבעיה: הבורר ישב בתוך {open && (...)}, וכדי להגיע
+          אליו הנציג היה צריך ללחוץ "💳 חייב עכשיו". אבל הכפתור
+          מושבת כשאין מחיר סופי (enabled=false) - כלומר בדיוק
+          בהזמנות שבהן צריך לרשום פריסה **מראש**.
+          
+          לקוח מבקש פריסה בטלפון ימים לפני החיוב, לפעמים לפני
+          שההזמנה נשקלה. הנציג צריך לרשום מיד.
+          
+          ⚠️ מוצג רק כשיש כרטיס: ללקוח מזומן אין מה לפרוס.
+          
+          ⚠️ ונשמר בבחירה, בלי לחייב - שני דברים נפרדים. */}
+      {!!cardLast4 && (
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <label className="text-xs font-bold text-zinc-600">תשלומים:</label>
+          <select
+            value={installments}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              setInstallments(n);
+              saveInstallments(n);
+            }}
+            disabled={savingInst}
+            className="rounded-lg border-2 border-zinc-300 px-2 py-1.5 text-sm font-bold disabled:opacity-50"
+          >
+            {INSTALLMENT_OPTIONS.map((n) => (
+              <option key={n} value={n}>
+                {n === 1 ? "תשלום אחד" : `${n} תשלומים`}
+              </option>
+            ))}
+          </select>
+          {savingInst && (
+            <span className="text-[11px] text-zinc-400">שומר...</span>
+          )}
+          {instSaved && (
+            <span className="text-[11px] font-bold text-emerald-600">
+              ✓ נשמר
+            </span>
+          )}
+        </div>
+      )}
+
       <button
         onClick={() => setOpen(true)}
         disabled={!enabled || charging}

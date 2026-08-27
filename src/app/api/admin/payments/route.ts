@@ -172,6 +172,17 @@ export async function GET(req: NextRequest) {
       customerName: o.customerName,
       phone: o.phone,
       paymentStatus: o.paymentStatus,
+      // §297: 🐛 **נשלף ולא הוחזר.**
+      //
+      // requestedInstallments היה ב-select אבל לא ב-payOrders,
+      // ולכן המסך קיבל undefined ונפל ל-1 בכל רענון.
+      //
+      // התוצאה בשטח: המנהל בוחר 3 תשלומים, מקבל 200 מהשרת
+      // (השמירה הצליחה!), יוצא וחוזר - והערך התאפס.
+      //
+      // ⚠️ זה הדפוס שחזר היום שבע פעמים: שדה נשלף, נבדק במסך,
+      // ולא עובר את שכבת ההמרה באמצע.
+      requestedInstallments: o.requestedInstallments ?? 1,
       paymentMethod: o.paymentMethod,
       estimatedTotal: o.estimatedTotal ? Number(o.estimatedTotal) : null,
       finalTotal: o.finalTotal ? Number(o.finalTotal) : null,
