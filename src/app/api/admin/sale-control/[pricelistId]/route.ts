@@ -611,27 +611,44 @@ export async function GET(
           name: o.point?.name || o.pointNameSnapshot || "נקודה",
           count: 0,
           collected: 0,
+          card: 0,
+          cash: 0,
           pending: 0,
         });
       }
       const e = map.get(o.pointId)!;
       e.count++;
 
-      // ⚠️ אותה הבחנה של §239: CASH ו-MANUAL הם מזומן.
       const paid = Number(o.amountPaid ?? 0);
       const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
       if (o.paymentStatus === "PAID") {
-        e.collected += paid > 0 ? paid : due;
+        const actual = paid > 0 ? paid : due;
+        e.collected += actual;
+        // §293: הפרדה בין אשראי למזומן — כמו ב-§239 וב-§292.
+        //
+        // ⚠️ למה זה חשוב דווקא כאן: המנהל מסתכל על הנקודה כדי
+        // להצליב מול מה שחברת האשראי העבירה. מזומן שנספר יחד
+        // מנפח את מה שכביכול הגיע מהבנק, וההצלבה נשברת.
+        //
+        // ⚠️ CASH **וגם** MANUAL: סימון הנציג (§130) שומר
+        // MANUAL, וספירה שלו כאשראי הייתה אותה טעות בדיוק.
+        if (o.paymentMethod === "CASH" || o.paymentMethod === "MANUAL") {
+          e.cash += actual;
+        } else {
+          e.card += actual;
+        }
       } else {
         e.pending += due;
       }
       return map;
-    }, new Map<string, { id: string; name: string; count: number; collected: number; pending: number }>())
+    }, new Map<string, { id: string; name: string; count: number; collected: number; card: number; cash: number; pending: number }>())
       .values()
   )
     .map((p) => ({
       ...p,
       collected: Math.round(p.collected * 100) / 100,
+      card: Math.round(p.card * 100) / 100,
+      cash: Math.round(p.cash * 100) / 100,
       pending: Math.round(p.pending * 100) / 100,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "he"));

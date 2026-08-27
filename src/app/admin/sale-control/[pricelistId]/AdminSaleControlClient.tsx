@@ -85,6 +85,9 @@ type Data = {
     count: number;
     /** §293: כמה נגבה מהנקודה */
     collected?: number;
+    /** §293: אשראי בלבד — להצלבה מול העברת חברת האשראי */
+    card?: number;
+    cash?: number;
     pending?: number;
   }>;
   agents: Array<{
@@ -581,9 +584,21 @@ if (loading) {
                           <span className="text-zinc-400"> ({p.count})</span>
                         </span>
                         <span className="shrink-0 flex items-center gap-2 tabular-nums">
-                          <span className="font-bold text-emerald-700">
-                            {money(p.collected ?? 0)}
-                          </span>
+                          {/* §293: אשראי ומזומן בנפרד.
+                              
+                              המנהל מצליב את האשראי מול מה שחברת
+                              האשראי העבירה. מזומן שנספר יחד
+                              מנפח את המספר וההצלבה נשברת. */}
+                          {(p.card ?? 0) > 0 && (
+                            <span className="font-bold text-emerald-700">
+                              💳 {money(p.card!)}
+                            </span>
+                          )}
+                          {(p.cash ?? 0) > 0 && (
+                            <span className="font-bold text-zinc-600">
+                              💵 {money(p.cash!)}
+                            </span>
+                          )}
                           {(p.pending ?? 0) > 0 && (
                             <span className="text-amber-700">
                               ⏳ {money(p.pending!)}
@@ -596,7 +611,7 @@ if (loading) {
                   {/* ⚠️ ההסבר קצר: המנהל שרואה שתי עמודות צריך
                       לדעת מה כל אחת אומרת, בלי לנחש. */}
                   <p className="text-[10px] text-zinc-400 mt-1.5">
-                    ירוק = נגבה · כתום = טרם נגבה
+                    💳 אשראי · 💵 מזומן · ⏳ טרם נגבה
                   </p>
                 </div>
               )}
