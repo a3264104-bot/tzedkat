@@ -10,6 +10,8 @@ import { AgentAddItemPanel } from "./AgentAddItemPanel";
 import { AgentCashPanel } from "./AgentCashPanel";
 // §123: זיכוי ללקוח
 import { CreditPanel } from "@/components/CreditPanel";
+// §298: הגדרת תשלומים — פאנל עצמאי, כמו משלוח וזיכוי
+import AgentInstallmentsPanel from "./AgentInstallmentsPanel";
 // §133: הערת הלקוח ותשובת הנציג
 import { OrderNotePanel } from "@/components/OrderNotePanel";
 // §134: סימון משלוח
@@ -663,6 +665,31 @@ export default async function AgentOrderDetailPage({
                 order.paymentStatus === "PARTIALLY_PAID"
               }
               kind="charge"
+            />
+          </div>
+
+          {/* §298: 💳 הגדרת תשלומים — פאנל בפני עצמו.
+              
+              🐛 הבורר ישב בתוך מודל החיוב, והכפתור שפותח אותו
+              מושבת בלי מחיר סופי - כלומר בדיוק בהזמנות שבהן
+              צריך לרשום פריסה מראש.
+              
+              ⚠️ המקום כאן מכוון: **אחרי** הזיכוי והחיוב הנוסף,
+              כי הם משנים את הסכום, ו**לפני** המזומן והחיוב, כי
+              הם הפעולות הסופיות. */}
+          <div className="mb-3">
+            <AgentInstallmentsPanel
+              orderId={order.id}
+              orderNumber={order.orderNumber}
+              customerName={order.customerName}
+              current={order.requestedInstallments ?? 1}
+              orderTotal={finalTotal ?? estimatedTotal}
+              hasCard={!!order.customer.cardLast4}
+              alreadyPaid={
+                order.paymentStatus === "PAID" ||
+                order.paymentStatus === "PARTIALLY_PAID"
+              }
+              isAdmin={role === "ADMIN"}
             />
           </div>
 
