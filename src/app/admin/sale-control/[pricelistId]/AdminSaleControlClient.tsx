@@ -45,6 +45,14 @@ type Data = {
     collectedCard?: number;
     collectedCash?: number;
     totalCollected?: number;
+    /**
+     * §325: חוב קודם שנגבה — **אינו הכנסה מהמכירה**.
+     *
+     * amountPaid כולל את החוב (§263), ולכן "נגבה בפועל" ניפח
+     * את המחזור בסכום ממכירה קודמת — ושבר את ההצלבה מול
+     * תעודות הספק.
+     */
+    totalDebtCollected?: number;
     /** §240: מזומן שעדיין אצל הנציגים (אסף פחות העביר) */
     cashWithAgents?: number;
     /** §240: מזומן שהנציגים כבר העבירו למנהל */
@@ -557,6 +565,30 @@ if (loading) {
                   ⚠️ שורה נפרדת ולא כרטיס: זה מידע משלים ("כמה כבר
                   סגרנו"), לא משימה. כרטיס חמישי היה מושך תשומת
                   לב למה שכבר טופל. */}
+              {/* §325: 💸 חוב קודם — **מופרד מהכנסות המכירה**.
+                  
+                  🐛 amountPaid כולל את החוב שנגבה (§263), ולכן
+                  "נגבה בפועל ₪12,450" כלל ₪1,200 שהם חוב ממכירה
+                  קודמת. המנהל השווה לתעודות הספק ולא הבין למה
+                  יש עודף.
+                  
+                  ⚠️ החוב כן נכנס לקופה - אבל הוא **החזר**, לא
+                  מכירה. הצגה משותפת שוברת כל הצלבה מול הספק. */}
+              {(fin.totalDebtCollected ?? 0) > 0 && (
+                <div className="mt-2 pt-2 border-t border-zinc-100 flex items-center justify-between text-xs">
+                  <span className="text-zinc-600">
+                    💸 חוב קודם שנגבה
+                    <span className="text-zinc-400">
+                      {" "}
+                      · לא נספר בהכנסות המכירה
+                    </span>
+                  </span>
+                  <span className="font-bold text-zinc-700 tabular-nums">
+                    {money(fin.totalDebtCollected!)}
+                  </span>
+                </div>
+              )}
+
               {/* §293: 📍 פירוק הגבייה **לפי נקודה**.
                   
                   הבעיה מהשטח: חברת האשראי מעבירה סכום אחד לכל

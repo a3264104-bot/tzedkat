@@ -260,14 +260,22 @@ export async function GET(
   // ⚠️ שליפה מפורשת ולא הסתמכות על ה-guard: הוא עשוי לא לכלול
   // את השדה, ואז הכפתור היה נעלם לנציג שכן מורשה - בלי שאיש
   // יבין למה.
-  const agentCanUpdateCards = g.isAdmin
-    ? true
-    : !!(
-        await prisma.customer.findUnique({
-          where: { id: g.agent.id },
-          select: { agentCanUpdateCards: true },
-        })
-      )?.agentCanUpdateCards;
+  // §322: שתי ההרשאות בשליפה אחת — לבורר אמצעי התשלום בטבלה.
+  //
+  // ⚠️ שאילתה אחת ולא שתיים: הן על אותה שורה, ופיצול היה
+  // מכפיל את זמן התגובה של מסך שנטען בכל רענון.
+  const agentPerms = g.isAdmin
+    ? { agentCanUpdateCards: true, agentCanCreateCashCustomers: true }
+    : await prisma.customer.findUnique({
+        where: { id: g.agent.id },
+        select: {
+          agentCanUpdateCards: true,
+          agentCanCreateCashCustomers: true,
+        },
+      });
+
+  const agentCanUpdateCards = !!agentPerms?.agentCanUpdateCards;
+  const agentCanSetCash = !!agentPerms?.agentCanCreateCashCustomers;
 
   return NextResponse.json({
     pricelist: {
@@ -289,6 +297,8 @@ export async function GET(
       // ⚠️ מנהל תמיד רשאי: הוא לא עובר דרך מנגנון ההרשאות של
       // הנציגים, ובלי החריג הזה הוא היה רואה כפתור מושבת.
       canUpdateCards: agentCanUpdateCards,
+      // §322: הרשאת מזומן — לבורר אמצעי התשלום בטבלה.
+      canSetCash: agentCanSetCash,
     },
     // §235: ⚠️ המיון כאן, **אחרי** שהשליפה הסתיימה.
     //
@@ -307,6 +317,9 @@ export async function GET(
       // שמשלם באשראי - והנציג היה גובה ממנו במקום, בזמן
       // שהכרטיס עומד להיות מחויב.
       customerPaymentPreference: o.customer?.paymentPreference ?? null,
+      // §322: לבורר אמצעי התשלום בטבלה
+      customerId: o.customerId,
+      hasCard: !!o.customer?.paymentToken,
       phone: o.phone,
       customer: o.customer,
       point: o.point,

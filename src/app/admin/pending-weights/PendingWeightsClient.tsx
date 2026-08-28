@@ -269,6 +269,30 @@ function TableRow({
     return arr;
   });
 
+  // §326: ביטול פריט — אותה פעולה של שאר המסכים.
+  async function cancelItem() {
+    if (
+      !window.confirm(
+        `לבטל את "${row.productName}" מההזמנה?\n\nהפריט יוצא מהחישוב אך יישאר לתיעוד.`
+      )
+    )
+      return;
+    try {
+      const res = await fetch(`/api/agent/order-item/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isCancelled: true }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || "הביטול נכשל");
+      }
+      onSaved(row.id);
+    } catch (e: any) {
+      alert(e?.message || "שגיאה");
+    }
+  }
+
   const partsSum = () =>
     Math.round(parts.reduce((a, x) => a + (Number(x) || 0), 0) * 100) / 100;
   const [saving, setSaving] = useState(false);
@@ -355,7 +379,11 @@ function TableRow({
       {/* מוצר */}
       <td className="px-3 py-2">
         <div className="flex items-center gap-1 flex-wrap">
-          <span className="font-semibold text-brand-slatedark">
+          <span
+            onDoubleClick={cancelItem}
+            title={`${row.productName} · לחיצה כפולה לביטול`}
+            className="font-semibold text-brand-slatedark cursor-pointer"
+          >
             {row.productName}
           </span>
           {row.isSingle && (
@@ -388,6 +416,13 @@ function TableRow({
             : `${row.quantity} ${row.unit || "יח׳"}`}
       </td>
 
+      {/* §326: 🗑️ ביטול פריט — גם מכאן.
+          
+          הפעולה קיימת בכל מסך אחר (§302/§315/§326), ולא במסך
+          המשקלים של המנהל. מי שעובד שם היה צריך לצאת למסך
+          ההזמנה כדי לבטל פריט אחד.
+          
+          ⚠️ לחיצה כפולה על שם המוצר — כמו בטבלת הנציג. */}
       {/* §312: מוצר יחידות — התווית "משקל" מטעה.
           
           המנהל מחפש משקולת למשהו שכתוב עליו 500 גרם. מה שנדרש

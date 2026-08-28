@@ -29,6 +29,14 @@ export async function POST(req: Request) {
     ? body.orderIds
     : [];
   const pricelistId: string | null = body.pricelistId ?? null;
+  // §327: סינון לפי אמצעי תשלום.
+  //
+  // הצורך: לקוח מזומן צריך לדעת כמה להביא לחלוקה - וזו התזכורת
+  // הכי חשובה. לקוח אשראי יחויב אוטומטית ממילא.
+  //
+  // ⚠️ ולפעמים זה הפוך: אחרי החיוב שולחים לאשראי בלבד. שני
+  // הכיוונים נתמכים.
+  const onlyPref: string | null = body.paymentPreference ?? null;
 
   if (orderIds.length === 0 && !pricelistId) {
     return NextResponse.json(
@@ -45,7 +53,15 @@ export async function POST(req: Request) {
       ...(pricelistId ? { pricelistId } : {}),
       status: { not: "CANCELLED" },
       finalTotal: { gt: 0 },
-      customer: { email: { not: "" } },
+      customer: {
+        email: { not: "" },
+        // §327: סינון לפי אמצעי תשלום — מזומן או אשראי בלבד.
+        ...(onlyPref === "CASH"
+          ? { paymentPreference: "CASH" }
+          : onlyPref === "CREDIT"
+            ? { paymentPreference: { not: "CASH" } }
+            : {}),
+      },
     },
     include: { items: true, customer: true },
   });

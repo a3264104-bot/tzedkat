@@ -128,6 +128,8 @@ export async function GET(req: Request) {
             paymentStatus: true,
             paymentMethod: true,
             amountPaid: true,
+            // §325: חוב קודם — מופרד מהכנסות המכירה
+            appliedDebt: true,
             finalTotal: true,
             estimatedTotal: true,
           },
@@ -136,9 +138,15 @@ export async function GET(req: Request) {
         for (const o of pointOrders) {
           const paid = Number(o.amountPaid ?? 0);
           const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
+          // §325: 💸 חוב קודם אינו הכנסה מהמכירה.
+          //
+          // המנהל מצליב את "נגבה באשראי" מול העברת חברת האשראי.
+          // חוב שנספר יחד מנפח את הסכום, וההצלבה נשברת - וזה
+          // בדיוק מה שהמסך הזה נועד לאפשר.
+          const debtPart = Number((o as any).appliedDebt ?? 0);
 
           if (o.paymentStatus === "PAID") {
-            const actual = paid > 0 ? paid : due;
+            const actual = Math.max(0, (paid > 0 ? paid : due) - debtPart);
             // ⚠️ CASH ו-MANUAL הם מזומן (§239) — לא אשראי.
             if (o.paymentMethod !== "CASH" && o.paymentMethod !== "MANUAL") {
               cardCollected += actual;
@@ -156,7 +164,7 @@ export async function GET(req: Request) {
               cashOrders++;
             }
           } else {
-            pendingCollection += due;
+            pendingCollection += Math.max(0, due - debtPart);
             pendingOrders++;
           }
         }

@@ -134,6 +134,7 @@ export async function GET(req: Request) {
     pending: 0,
     estimatedSum: 0,
     finalSum: 0,
+    debtSum: 0,
     paidSum: 0,
   };
 
@@ -143,7 +144,16 @@ export async function GET(req: Request) {
     // הוא נשמר ברגע ההזמנה, ומשלוח/חיוב/זיכוי נוספים אחר כך.
     // התוצאה: הסיכום הראה ₪358,684 ובקרת המכירה ₪358,929.
     paymentSummary.estimatedSum += orderGrandTotal(o);
-    if (o.finalTotal != null) paymentSummary.finalSum += Number(o.finalTotal);
+    // §325: 💸 חוב קודם אינו הכנסה מהמכירה הזו.
+    //
+    // finalTotal כולל את החוב שנגבה (§263), ולכן הסיכום ניפח
+    // את המחזור בסכום שהגיע ממכירה קודמת - ושבר את ההצלבה מול
+    // תעודות הספק.
+    if (o.finalTotal != null) {
+      const debt = Number((o as any).appliedDebt ?? 0);
+      paymentSummary.finalSum += Number(o.finalTotal) - debt;
+      paymentSummary.debtSum += debt;
+    }
     if (o.paymentStatus === "PAID") {
       paymentSummary.paid++;
       paymentSummary.paidSum += Number(o.amountPaid ?? o.finalTotal ?? 0);
@@ -274,6 +284,8 @@ export async function GET(req: Request) {
 
   paymentSummary.estimatedSum = Math.round(paymentSummary.estimatedSum * 100) / 100;
   paymentSummary.finalSum = Math.round(paymentSummary.finalSum * 100) / 100;
+  // §325: חוב קודם — מעוגל כמו שאר הסכומים.
+  paymentSummary.debtSum = Math.round(paymentSummary.debtSum * 100) / 100;
   paymentSummary.paidSum = Math.round(paymentSummary.paidSum * 100) / 100;
 
   return NextResponse.json({

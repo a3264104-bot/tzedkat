@@ -888,6 +888,9 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                 isOrderLocked={isOrderLocked}
                 onItemUpdate={updateOrderItem}
                 onNeedsReload={load}
+                // §322: הרשאות — לבורר אמצעי התשלום בשורה
+                canUpdateCards={data.agent?.canUpdateCards ?? false}
+                canSetCash={(data.agent as any)?.canSetCash ?? false}
               />
             ) : (
               filteredOrders.map((order) => (

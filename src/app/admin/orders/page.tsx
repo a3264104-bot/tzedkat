@@ -250,6 +250,13 @@ export default function OrdersPage() {
   // סיכום כספי של מה שמוצג - המנהל צריך לדעת כמה כסף מול העיניים
   const sumEst = shown.reduce((a, o) => a + Number(o.estimatedTotal || 0), 0);
   const sumFinal = shown.reduce((a, o) => a + Number(o.finalTotal || 0), 0);
+  // §325: 💸 חוב קודם שנגבה — נכלל ב-finalTotal אך אינו הכנסה
+  // מהמכירה הזו. מוצג בנפרד כדי שהסיכום לא יטעה בהצלבה מול
+  // תעודות הספק.
+  const sumDebt = shown.reduce(
+    (a, o) => a + Number((o as any).appliedDebt || 0),
+    0
+  );
   const unpaidCount = shown.filter((o) => o.paymentStatus !== "PAID").length;
 
   return (
@@ -480,6 +487,11 @@ export default function OrdersPage() {
             <span>
               <span className="text-zinc-500">סה״כ סופי:</span>{" "}
               <strong>{fmt(sumFinal)}</strong>
+            {sumDebt > 0 && (
+              <span className="text-[11px] text-zinc-500 block">
+                כולל {fmt(sumDebt)} חוב קודם
+              </span>
+            )}
             </span>
           )}
           {unpaidCount > 0 && (

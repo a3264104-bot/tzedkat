@@ -52,6 +52,9 @@ type Props = {
   onNeedsReload: () => void;
   /** §81: דיווח על מספר המשקלים החסרים - לחסימת סגירת המכירה */
   onMissingCountChange?: (count: number) => void;
+  /** §322: הרשאות — הבורר מוצג רק למי שיש לו את שתיהן */
+  canUpdateCards?: boolean;
+  canSetCash?: boolean;
 };
 
 type Cell = {
@@ -96,6 +99,11 @@ type CustomerRow = {
    * שהכרטיס עומד להיות מחויב אוטומטית.
    */
   customerPaymentPreference?: string | null;
+  /** §322: לבורר אמצעי התשלום */
+  customerId?: string;
+  hasCard?: boolean;
+  /** §323: סימון מסירה — הלקוח הגיע ולקח */
+  deliveredAt?: string | null;
   finalTotal: number | null;
 };
 
@@ -107,6 +115,9 @@ export function WeightsTable({
   onItemUpdate,
   onNeedsReload,
   onMissingCountChange,
+  // §322: הרשאות — לבורר אמצעי התשלום בשורה
+  canUpdateCards = false,
+  canSetCash = false,
 }: Props) {
   // ─── עמודות: כל המוצרים שהוזמנו בפועל ───
   // לא כל הקטלוג - רק מה שמישהו הזמין. מוצר שאיש לא הזמין הוא
@@ -238,6 +249,11 @@ export function WeightsTable({
           // §314: אופן התשלום — לסינון סימון המזומן
           customerPaymentPreference:
             (o as any).customerPaymentPreference ?? null,
+          // §322: לבורר אמצעי התשלום
+          customerId: (o as any).customerId ?? "",
+          hasCard: !!(o as any).hasCard,
+          // §323: סימון מסירה — היה רק בכרטיסים
+          deliveredAt: (o as any).deliveredAt ?? null,
           paymentStatus: (o as any).paymentStatus ?? null,
           finalTotal: (o as any).finalTotal ?? null,
         };
@@ -394,6 +410,17 @@ export function WeightsTable({
               <th className="px-3 py-2 min-w-[90px] border-l border-zinc-200 text-[11px] font-bold text-zinc-600">
                 תשלום
               </th>
+              {/* §323: 📦 מסירה — היה רק בכרטיסים.
+                  
+                  הנציג שעובד בטבלה (רובם, בחלוקה) לא סימן מסירה
+                  כלל, והמונה "0 מתוך 34 נמסרו" נשאר אפס.
+                  
+                  ⚠️ שני סימונים שונים: "טופל" = סיימתי לשקול.
+                  "נמסר" = הלקוח הגיע ולקח. הזמנה יכולה להיות
+                  שקולה ולא נמסרה, ולהפך. */}
+              <th className="px-2 py-2 min-w-[60px] border-l border-zinc-200 text-[11px] font-bold text-zinc-600">
+                נמסר
+              </th>
               <th className="sticky left-0 z-10 bg-zinc-100 px-3 py-2 min-w-[80px] border-r-2 border-zinc-300 text-[11px] font-bold text-zinc-600">
                 טופל
               </th>
@@ -526,7 +553,28 @@ export function WeightsTable({
                     
                     התא נשאר (כדי שהטבלה לא תישבר), והתוכן ריק. */}
                 <td className="px-2 py-2 border-l border-zinc-200 text-center">
-                  {r.customerPaymentPreference === "CREDIT" ? (
+                  {/* §322: 🔀 בורר אמצעי תשלום בשורה.
+                      
+                      הצורך: הלקוח מגיע לחלוקה ואומר "אשלם
+                      במזומן" - או להפך. הנציג היה צריך לצאת
+                      לכרטיס הלקוח, לשנות, ולחזור.
+                      
+                      ⚠️ מוצג רק לנציג עם **שתי** ההרשאות: מי
+                      שיכול רק כיוון אחד מקבל את הכפתור הישן,
+                      שעושה בדיוק את זה.
+                      
+                      ⚠️ ומעבר לאשראי דורש כרטיס - בלעדיו
+                      הלקוח נתקע בלי אמצעי גבייה. */}
+                  {canUpdateCards && canSetCash ? (
+                    <PayPrefToggle
+                      customerId={r.customerId}
+                      customerName={r.customerName}
+                      pref={r.customerPaymentPreference}
+                      hasCard={r.hasCard}
+                      readOnly={readOnly}
+                      onDone={onNeedsReload}
+                    />
+                  ) : r.customerPaymentPreference === "CREDIT" ? (
                     <span className="text-[10px] text-zinc-300">—</span>
                   ) : (
                   <CashCell
@@ -540,6 +588,17 @@ export function WeightsTable({
                     onDone={onNeedsReload}
                   />
                   )}
+                </td>
+
+                {/* §323: 📦 סימון מסירה — אותה פעולה של הכרטיסים. */}
+                <td className="px-2 py-2 border-l border-zinc-200 text-center">
+                  <DeliverCell
+                    orderId={r.orderId}
+                    customerName={r.customerName}
+                    deliveredAt={r.deliveredAt}
+                    readOnly={readOnly}
+                    onDone={onNeedsReload}
+                  />
                 </td>
 
                 <td className="sticky left-0 z-10 bg-inherit px-2 py-2 border-r-2 border-zinc-300 text-center">
@@ -636,6 +695,35 @@ function WeightCell({
   const lineTotal =
     cell.agentEnteredWeight !== null ? cell.agentEnteredWeight * cell.unitPrice : 0;
 
+  // §326: ביטול הפריט — אותה פעולה של הכרטיסים (§302).
+  //
+  // ⚠️ הפריט נשאר לתיעוד ויוצא מהחישוב, ולא נמחק.
+  async function cancelItem() {
+    if (
+      !window.confirm(
+        `לבטל את "${cell.productName}" מההזמנה?\n\nהפריט יוצא מהחישוב אך יישאר לתיעוד.`
+      )
+    )
+      return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/agent/order-item/${cell.itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isCancelled: true }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || "הביטול נכשל");
+      }
+      onNeedsReload();
+    } catch (e: any) {
+      alert(e?.message || "שגיאה");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function save() {
     const raw = val.trim();
 
@@ -727,9 +815,23 @@ function WeightCell({
           ⚠️ truncate ולא wrap: שם ארוך היה מותח את גובה כל
           השורה, ובטבלה של 40 לקוחות זה עמוד שלם של רווח מבוזבז.
           השם המלא ב-title. */}
+      {/* §326: 🗑️ ביטול מוצר מהטבלה.
+          
+          הפעולה הייתה קיימת בכרטיסים ובמסכי ההזמנה - ולא כאן,
+          במקום שבו הנציג עובד בפועל.
+          
+          ⚠️ לחיצה ארוכה על השם ולא כפתור: הטבלה צרה בנייד,
+          וכפתור בכל תא היה גוזל את המקום של השדה עצמו.
+          
+          ⚠️ ולחיצה רגילה לא עושה כלום — ביטול בטעות בזמן
+          גלילה הוא בדיוק מה שאסור שיקרה. */}
       <div
-        className="text-[10px] font-bold text-brand-slatedark leading-tight truncate"
-        title={cell.productName}
+        onDoubleClick={() => {
+          if (readOnly) return;
+          cancelItem();
+        }}
+        title={`${cell.productName} · לחיצה כפולה לביטול`}
+        className="text-[10px] font-bold text-brand-slatedark leading-tight truncate cursor-pointer"
       >
         {cell.productName}
       </div>
@@ -1045,6 +1147,195 @@ function CashCell({
       }`}
     >
       {saving ? "…" : "💵 מזומן"}
+    </button>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// §322: בורר אמצעי תשלום בשורת הטבלה
+// ═══════════════════════════════════════════════════════════════
+// הצורך: הלקוח מגיע לחלוקה ואומר "אשלם במזומן" - או להפך. הנציג
+// היה צריך לצאת לכרטיס הלקוח, לשנות שם, ולחזור לטבלה.
+//
+// ⚠️ מוצג רק לנציג עם **שתי** ההרשאות. מי שיכול רק כיוון אחד
+// מקבל את הכפתור הישן, שעושה בדיוק את זה.
+//
+// ⚠️ ומעבר לאשראי דורש כרטיס שמור: בלעדיו הלקוח נשאר בלי אמצעי
+// גבייה, ונתקע ברשימת הכשלים.
+function PayPrefToggle({
+  customerId,
+  customerName,
+  pref,
+  hasCard,
+  readOnly,
+  onDone,
+}: {
+  customerId?: string;
+  customerName: string;
+  pref?: string | null;
+  hasCard?: boolean;
+  readOnly?: boolean;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const isCash = pref === "CASH";
+
+  async function switchTo(next: "CASH" | "CREDIT") {
+    if (!customerId || busy) return;
+
+    // ⚠️ מעבר לאשראי בלי כרטיס - חוסמים כאן ולא נותנים לשרת
+    // להחזיר שגיאה, כי ההודעה שלו גנרית והנציג בשטח צריך לדעת
+    // מה לעשות.
+    if (next === "CREDIT" && !hasCard) {
+      alert(
+        `ל${customerName} אין כרטיס שמור.\n\nיש להזין כרטיס מכרטיס הלקוח — עם השמירה הוא יעבור לאשראי אוטומטית.`
+      );
+      return;
+    }
+
+    if (
+      !window.confirm(
+        next === "CASH"
+          ? `להעביר את ${customerName} לתשלום במזומן?\n\nהגבייה תתבצע בחלוקה, והחיוב בכרטיס יפסיק.`
+          : `להעביר את ${customerName} לתשלום באשראי?\n\nהכרטיס השמור יחויב אוטומטית.`
+      )
+    )
+      return;
+
+    setBusy(true);
+    try {
+      const res = await fetch("/api/agent/customer-payment-pref", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId, preference: next }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "השינוי נכשל");
+      onDone();
+    } catch (e: any) {
+      alert(e?.message || "שגיאה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (readOnly || !customerId) {
+    return (
+      <span className="text-[10px] font-bold text-zinc-500">
+        {isCash ? "💵" : "💳"}
+      </span>
+    );
+  }
+
+  // ⚠️ שני כפתורים ולא select: בנייד עם ידיים רטובות, שטח מגע
+  // גדול הוא ההבדל בין בחירה נכונה לטעות. ו-select דורש שתי
+  // פעולות - פתיחה ובחירה.
+  return (
+    <div className="inline-flex rounded-lg overflow-hidden border border-zinc-300">
+      <button
+        onClick={() => switchTo("CASH")}
+        disabled={busy || isCash}
+        className={`px-1.5 py-1 text-[11px] font-bold transition-colors ${
+          isCash
+            ? "bg-amber-500 text-white"
+            : "bg-white text-zinc-400 hover:bg-amber-50"
+        }`}
+        title="מזומן"
+      >
+        💵
+      </button>
+      <button
+        onClick={() => switchTo("CREDIT")}
+        disabled={busy || !isCash}
+        className={`px-1.5 py-1 text-[11px] font-bold transition-colors border-r border-zinc-300 ${
+          !isCash
+            ? "bg-emerald-600 text-white"
+            : "bg-white text-zinc-400 hover:bg-emerald-50"
+        }`}
+        title={hasCard ? "אשראי" : "אשראי — נדרש כרטיס"}
+      >
+        💳
+      </button>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// §323: סימון מסירה מתוך הטבלה
+// ═══════════════════════════════════════════════════════════════
+// 🐛 הפעולה הייתה קיימת **רק בכרטיסים**. הנציג שעובד בטבלה -
+// ורובם עובדים בטבלה בחלוקה - לא סימן מסירה כלל, והמונה
+// "0 מתוך 34 נמסרו" נשאר אפס לאורך כל היום.
+//
+// ⚠️ הכלל: פעולה שקיימת בתצוגה אחת חייבת להיות בשנייה. מי
+// שבוחר תצוגה לא אמור לוותר על יכולת.
+//
+// ⚠️ ושני סימונים שונים: "טופל" = סיימתי לשקול. "נמסר" = הלקוח
+// הגיע ולקח. הזמנה יכולה להיות שקולה ולא נמסרה, ולהפך.
+function DeliverCell({
+  orderId,
+  customerName,
+  deliveredAt,
+  readOnly,
+  onDone,
+}: {
+  orderId: string;
+  customerName: string;
+  deliveredAt?: string | null;
+  readOnly?: boolean;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const delivered = !!deliveredAt;
+
+  async function toggle() {
+    // ⚠️ אישור רק בביטול: סימון מסירה הוא הפעולה השכיחה ביום
+    // חלוקה, ואישור על כל לקוח מאמן ללחוץ בלי לקרוא.
+    if (
+      delivered &&
+      !window.confirm(`לבטל את סימון המסירה של ${customerName}?`)
+    )
+      return;
+
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/agent/orders/${orderId}/deliver`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delivered: !delivered }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "שגיאה");
+      onDone();
+    } catch (e: any) {
+      alert(e?.message || "שגיאה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (readOnly) {
+    return (
+      <span className={delivered ? "text-emerald-600" : "text-zinc-300"}>
+        {delivered ? "✓" : "—"}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      title={delivered ? "בטל סימון מסירה" : "סמן שנמסר ללקוח"}
+      className={`w-7 h-7 rounded-lg font-bold text-sm transition-colors disabled:opacity-40 ${
+        delivered
+          ? "bg-emerald-600 text-white"
+          : "bg-white border-2 border-zinc-300 text-zinc-300 hover:border-emerald-400"
+      }`}
+    >
+      {busy ? "·" : delivered ? "✓" : "📦"}
     </button>
   );
 }

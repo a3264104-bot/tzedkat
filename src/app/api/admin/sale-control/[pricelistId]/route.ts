@@ -461,6 +461,8 @@ export async function GET(
   let collectedCash = 0;
   let pendingCollection = 0;
   let paidOrdersCount = 0;
+  // §325: חוב קודם שנגבה — נספר בנפרד מהכנסות המכירה
+  let collectedDebt = 0;
 
   for (const o of orders) {
     const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
@@ -470,13 +472,26 @@ export async function GET(
       // ⚠️ הסכום שבאמת נכנס. אם amountPaid ריק אבל הסטטוס PAID
       // (סימון ידני ישן) - נופלים לסכום שהיה אמור להיגבות.
       const actual = paid > 0 ? paid : due;
+
+      // §325: 💸 **חוב קודם אינו הכנסה מהמכירה הזו.**
+      //
+      // הבעיה: amountPaid כולל את החוב שנגבה (§263), ולכן
+      // "נגבה בפועל ₪12,450" כלל ₪1,200 שהם חוב ממכירה קודמת.
+      // המנהל השווה את זה לתעודות הספק ולא הבין למה יש עודף.
+      //
+      // ⚠️ החוב נספר בנפרד: הוא כסף שנכנס, אבל הוא **החזר**
+      // ולא מכירה. הצגה משותפת מנפחת את המחזור ושוברת כל
+      // הצלבה מול הספק.
+      const debtPart = Number((o as any).appliedDebt ?? 0);
+      if (debtPart > 0) collectedDebt += debtPart;
+      const saleActual = Math.max(0, actual - debtPart);
       // ⚠️ CASH **או** MANUAL: "סימון תשלום מזומן" של הנציג
       // (§130) שומר MANUAL, וספירה שלו כאשראי הייתה מנפחת את
       // מה שכביכול כבר אצלנו.
       if (o.paymentMethod === "CASH" || o.paymentMethod === "MANUAL") {
-        collectedCash += actual;
+        collectedCash += saleActual;
       } else {
-        collectedCard += actual;
+        collectedCard += saleActual;
       }
       if (o.paymentStatus === "PAID") paidOrdersCount++;
       // ⚠️ יתרה בתשלום חלקי עדיין ממתינה
@@ -514,6 +529,8 @@ export async function GET(
   collectedCash = r2(collectedCash);
   pendingCollection = r2(pendingCollection);
   const totalCollected = r2(collectedCard + collectedCash);
+  // §325: החוב בנפרד — הוא נכנס לקופה אך אינו מכירה
+  const totalDebtCollected = r2(collectedDebt);
   // ⚠️ Math.max(0): אם נציג העביר יותר ממה שנרשם שאסף (טעות
   // הזנה), המספר לא הופך שלילי - זה היה נראה כמו באג.
   const cashWithAgents = r2(Math.max(0, collectedCash - cashHandedToAdmin));
@@ -683,6 +700,8 @@ export async function GET(
       collectedCard,
       collectedCash,
       totalCollected,
+      // §325: חוב קודם שנגבה — מוצג בנפרד
+      totalDebtCollected,
       // §240: פירוט המזומן - אצל הנציגים מול מה שכבר הועבר
       cashWithAgents,
       cashReceivedFromAgents,

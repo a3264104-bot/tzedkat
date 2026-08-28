@@ -457,6 +457,53 @@ export default function PaymentsPage() {
               ⚠️ והשליחה **נועלת** את המשקלים: הלקוח מחזיק בידו
               סכום, ושינוי אחריו יוצר פער - בדיוק מה שקרה
               בהזמנה 616. */}
+          {/* §327: 💵 שליחה ללקוחות מזומן בלבד.
+              
+              הצורך: לקוח מזומן צריך לדעת כמה להביא לחלוקה - וזו
+              התזכורת הכי חשובה. לקוח אשראי יחויב אוטומטית ממילא.
+              
+              ⚠️ כפתור נפרד ולא בורר: המנהל יודע מראש למי הוא
+              שולח, ובורר היה מוסיף לחיצה לכל שליחה. */}
+          <button
+            onClick={async () => {
+              const ids = chargeable.map((o) => o.id);
+              if (
+                !window.confirm(
+                  `לשלוח מייל ללקוחות **מזומן** בלבד?\n\n` +
+                    `כל אחד יקבל תזכורת כמה להביא לחלוקה.\n\n` +
+                    `⚠️ אחרי השליחה לא ניתן לשנות משקלים בהזמנות האלה.`
+                )
+              )
+                return;
+              try {
+                const res = await fetch("/api/admin/notify-batch", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    orderIds: ids,
+                    paymentPreference: "CASH",
+                  }),
+                });
+                const d = await res.json();
+                if (!res.ok) throw new Error(d.error || "השליחה נכשלה");
+                const lines = [`נשלחו ${d.sent} מיילים ללקוחות מזומן`];
+                if (d.failed > 0) {
+                  lines.push(`\n${d.failed} נכשלו:`);
+                  (d.errors || []).forEach((e: any) =>
+                    lines.push(`#${e.orderNumber}: ${e.error}`)
+                  );
+                }
+                alert(lines.join("\n"));
+                fetchOrders();
+              } catch (e: any) {
+                alert(e.message || "שגיאה");
+              }
+            }}
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold"
+          >
+            💵 מזומן בלבד
+          </button>
+
           <button
             onClick={async () => {
               const ids = chargeable.map((o) => o.id);

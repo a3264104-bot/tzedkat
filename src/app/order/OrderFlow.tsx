@@ -214,6 +214,8 @@ export function OrderFlow({
     }
   }
   // §13: מספר תשלומים (1 או 2 — מוצג ללקוח רק מעל 800₪)
+  // §324: הפריסה מוסתרת עד שהלקוח מבקש אותה.
+  const [showInstallments, setShowInstallments] = useState(false);
   const [installments, setInstallments] = useState(1);
   // §11: אם ללקוח יש נקודה שמורה — דילוג אוטומטי על בחירת נקודה
   const point = points.find((p) => p.id === pointId) || null;
@@ -1763,6 +1765,27 @@ export function OrderFlow({
                 שיהיה חיוב אשראי - מה שאינו נכון. */}
             {estimatedTotal > 800 && !isCashCustomer && (
               <div className="card p-4 mt-3 bg-blue-50 border-blue-200">
+                {/* §324: הפריסה **מוצעת ולא מוצגת**.
+                    
+                    השאלה "האם תרצה לפצל?" הופיעה פתוחה, וכל לקוח
+                    שהזמין מעל ₪800 נשאל אותה. חלק ענו כן רק כי
+                    נשאלו - וכל תשלום נוסף דוחה את הכסף בחודש.
+                    
+                    ⚠️ ההפרש בין להסתיר לבין להסיר: מי שבאמת
+                    צריך פריסה יחפש אותה וימצא. מי שלא - לא
+                    יישאל.
+                    
+                    ⚠️ הניסוח שונה: "לפצל את התשלום" הוא הצעה,
+                    "אפשרויות תשלום" הוא מידע. */}
+                {!showInstallments ? (
+                  <button
+                    onClick={() => setShowInstallments(true)}
+                    className="text-xs text-blue-800 underline"
+                  >
+                    אפשרויות תשלום ←
+                  </button>
+                ) : (
+                <>
                 <div className="text-sm font-medium text-blue-900 mb-2">
                   האם תרצה לפצל את התשלום לשני תשלומים?
                 </div>
@@ -1788,6 +1811,8 @@ export function OrderFlow({
                     שני תשלומים
                   </button>
                 </div>
+                </>
+                )}
               </div>
             )}
             {/* פירוט התשלום המשוער - כולל דמי הזמנה */}
