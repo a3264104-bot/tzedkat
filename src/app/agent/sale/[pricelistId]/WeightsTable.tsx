@@ -1179,7 +1179,9 @@ function PayPrefToggle({
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const isCash = pref === "CASH";
+  // §329: עדכון אופטימי — כמו בסימון המסירה.
+  const [localPref, setLocalPref] = useState<string | null>(null);
+  const isCash = (localPref ?? pref) === "CASH";
 
   async function switchTo(next: "CASH" | "CREDIT") {
     if (!customerId || busy) return;
@@ -1203,6 +1205,9 @@ function PayPrefToggle({
     )
       return;
 
+    // ⚠️ מיד, לפני הקריאה — הנציג רואה את התוצאה בלי המתנה.
+    const prev = localPref ?? pref ?? null;
+    setLocalPref(next);
     setBusy(true);
     try {
       const res = await fetch("/api/agent/customer-payment-pref", {
@@ -1210,10 +1215,12 @@ function PayPrefToggle({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customerId, preference: next }),
       });
-      const d = await res.json();
+      const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "השינוי נכשל");
-      onDone();
+      // ⚠️ אין onDone(): השינוי מוצג, ואין צורך לטעון 244
+      // הזמנות בשביל תא אחד.
     } catch (e: any) {
+      setLocalPref(prev);
       alert(e?.message || "שגיאה");
     } finally {
       setBusy(false);
@@ -1288,7 +1295,19 @@ function DeliverCell({
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const delivered = !!deliveredAt;
+
+  // §329: 🐌 **עדכון אופטימי במקום טעינה מלאה.**
+  //
+  // onDone() שולף 244 הזמנות ו-758 פריטים ממסד באירלנד - 2-3
+  // שניות. הנציג לחץ "נמסר", והמסך נתקע.
+  //
+  // ⚠️ וזו אותה בעיה של §299 (הזנת משקל): פעולה נקודתית שגררה
+  // רענון של הכל.
+  //
+  // ⚠️ המצב המקומי גובר: המשתמש רואה את התוצאה מיד, והשרת
+  // מתעדכן ברקע. אם השמירה נכשלת - חוזרים אחורה.
+  const [localDelivered, setLocalDelivered] = useState<boolean | null>(null);
+  const delivered = localDelivered ?? !!deliveredAt;
 
   async function toggle() {
     // ⚠️ אישור רק בביטול: סימון מסירה הוא הפעולה השכיחה ביום
@@ -1299,6 +1318,10 @@ function DeliverCell({
     )
       return;
 
+    // ⚠️ מעדכנים **לפני** הקריאה: המסך מגיב מיד, וההמתנה
+    // לשרת קורית ברקע.
+    const next = !delivered;
+    setLocalDelivered(next);
     setBusy(true);
     try {
       const res = await fetch(`/api/agent/orders/${orderId}/deliver`, {
@@ -1317,8 +1340,12 @@ function DeliverCell({
       // שגיאה שלא אומרת למשתמש כלום.
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || `שגיאה (${res.status})`);
-      onDone();
+      // ⚠️ אין onDone(): הסימון כבר מוצג, והמונה למעלה יתעדכן
+      // ברענון הבא. טעינת 244 הזמנות עבור תא אחד היא בזבוז.
     } catch (e: any) {
+      // ⚠️ חזרה אחורה: המשתמש ראה סימון שלא נשמר, וזה גרוע
+      // יותר מהמתנה.
+      setLocalDelivered(!next);
       alert(e?.message || "שגיאה");
     } finally {
       setBusy(false);
