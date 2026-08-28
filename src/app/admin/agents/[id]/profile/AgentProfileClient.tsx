@@ -28,6 +28,8 @@ type Data = {
     canSendPaymentLink: boolean;
     canCharge: boolean;
     canUpdateCards: boolean;
+    /** §318: הרשאת סימון מזומן — §155/§288 */
+    canCreateCashCustomers?: boolean;
     /** §277: הרשאת מוקד טלפוני */
     canManagePhoneRequests?: boolean;
     canResetPassword: boolean;
@@ -585,6 +587,11 @@ function EditModal({
   const [canUpdateCards, setCanUpdateCards] = useState(!!agent.canUpdateCards);
   const [canResetPassword, setCanResetPassword] = useState(!!agent.canResetPassword);
   // §277: הרשאת מוקד טלפוני — טיפול בכל הבקשות מהמערכת הטלפונית.
+  // §318: 🐛 ההרשאה קיימת בשרת מ-§155, נאכפת ב-§288 — ומעולם
+  // לא הופיעה במסך. הדרך היחידה לתת אותה הייתה SQL ידני.
+  const [canCash, setCanCash] = useState(
+    !!agent.canCreateCashCustomers
+  );
   const [canPhoneDesk, setCanPhoneDesk] = useState(
     !!agent.canManagePhoneRequests
   );
@@ -613,6 +620,7 @@ function EditModal({
           agentCanUpdateCards: canUpdateCards,
           agentCanResetPassword: canResetPassword,
           agentCanManagePhoneRequests: canPhoneDesk,
+          agentCanCreateCashCustomers: canCash,
         }),
       });
       const json = await res.json();
@@ -800,6 +808,22 @@ function EditModal({
                   ההרשאה חוצה נקודות בכוונה: מוקד לא יודע מראש
                   מאיזו נקודה הלקוח מתקשר, וסינון היה משאיר
                   בקשות בלי מטפל. */}
+              {/* §318: 💵 סימון לקוח כמזומן.
+                  
+                  ההרשאה נוצרה ב-§155 ונאכפת ב-§288, ומעולם לא
+                  הופיעה כאן. הדרך היחידה לתת אותה הייתה SQL.
+                  
+                  ⚠️ לא ברשימת ה"רגישות": היא אינה נוגעת בכסף
+                  של הלקוח אלא באופן הגבייה — אשראי או מזומן.
+                  
+                  ⚠️ ומאפשרת **רק מעבר למזומן**. חזרה לאשראי
+                  דורשת הזנת כרטיס, וזו הרשאה אחרת. */}
+              <PermToggle
+                checked={canCash}
+                onChange={setCanCash}
+                label="💵 לסמן לקוח כמשלם מזומן"
+                hint="לקוח שמשלם בחלוקה במקום באשראי. חזרה לאשראי דורשת הזנת כרטיס."
+              />
               <PermToggle
                 checked={canPhoneDesk}
                 onChange={setCanPhoneDesk}
