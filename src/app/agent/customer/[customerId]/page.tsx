@@ -147,6 +147,10 @@ export default async function AgentCustomerPage({
     <AgentCustomerClient
       customerId={customer.id}
       customerName={customer.name}
+      // §320: לעריכת פרטי הלקוח מכרטיס הלקוח
+      customerFirstName={(customer as any).firstName ?? null}
+      customerLastName={(customer as any).lastName ?? null}
+      customerPhone2={(customer as any).phone2 ?? null}
       customerPhone={customer.phone}
       // §263: חוב מהעבר - להצגה ולרישום
       debtBalance={Number((customer as any).debtBalance ?? 0)}

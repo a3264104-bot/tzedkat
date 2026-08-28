@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+// §320: עריכת פרטי לקוח — אותו רכיב של מסך ההזמנה
+import { QuickCustomerEdit } from "@/components/QuickCustomerEdit";
 // §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
 import { fmtDate } from "@/lib/date-lib";
 import Link from "next/link";
@@ -44,6 +46,10 @@ export function AgentCustomerClient({
   customerId,
   customerName,
   customerPhone,
+  // §320: לעריכת פרטי הלקוח מכאן — ראה QuickCustomerEdit למטה.
+  customerFirstName = null,
+  customerLastName = null,
+  customerPhone2 = null,
   debtBalance = 0,
   debtNote,
   paymentPreference: initialPref,
@@ -61,6 +67,9 @@ export function AgentCustomerClient({
 }: {
   customerId: string;
   customerName: string;
+  customerFirstName?: string | null;
+  customerLastName?: string | null;
+  customerPhone2?: string | null;
   customerPhone: string | null;
   /**
    * §263: חוב מהעבר.
@@ -380,6 +389,28 @@ export function AgentCustomerClient({
                   : "הזנת כרטיס אשראי"}
             </button>
           )}
+          {/* §320: ✏️ עריכת פרטי הלקוח — גם מכאן.
+              
+              הפער: הנציג שפתח הזמנה יכול היה לערוך שם, טלפון
+              ואמצעי תשלום. אותו נציג שפתח את **כרטיס הלקוח**
+              קיבל רק עדכון אשראי.
+              
+              ⚠️ אותו רכיב בדיוק, לא העתקה: שני מסכי עריכה היו
+              מתפצלים ביום שמישהו מוסיף שדה לאחד מהם. */}
+          <div className="mt-2">
+            <QuickCustomerEdit
+              customerId={customerId}
+              name={customerName}
+              firstName={customerFirstName}
+              lastName={customerLastName}
+              phone={customerPhone}
+              phone2={customerPhone2}
+              paymentPreference={pref}
+              hasCard={hasCard}
+              canSetCash={canSetCash}
+            />
+          </div>
+
           {prefMsg && <p className="text-emerald-700 text-xs mt-2">✓ {prefMsg}</p>}
           {prefErr && <p className="text-red-600 text-xs mt-2">{prefErr}</p>}
         </div>

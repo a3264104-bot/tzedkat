@@ -1559,105 +1559,33 @@ export default function AdminCustomersPage() {
               )}
             </div>
 
-            {/* ═══ הרשאות נציג - רק אם הrole הוא AGENT ═══ */}
+            {/* §321: 🔐 הרשאות הנציג — **מסך אחד בלבד**.
+                
+                🐛 מה שהיה: אותן הרשאות בשני מסכים - כאן ובפרופיל
+                הנציג. וכשהוספנו שתיים חדשות (§277 מוקד, §318
+                מזומן) הן נוספו רק שם.
+                
+                התוצאה: המנהל שנכנס מהלקוחות ראה 5, ומהנציגים 7 -
+                בלי לדעת שהוא מפספס.
+                
+                ⚠️ קישור ולא שכפול: שני מסכי הרשאות יתפצלו שוב
+                ביום שתיווסף השמינית. */}
             {editing.role === "AGENT" && !convertingToAgent && (
               <div className="border-t pt-3">
-                <div className="text-xs font-bold text-zinc-500 mb-2">
-                  🔐 הרשאות נציג
-                </div>
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2 text-sm">
-                  <PermissionCheckbox
-                    checked={!!editing.agentCanSetFinalPrice}
-                    label="קביעת מחיר סופי"
-                    hint="הנציג יכול לחתום על מחיר סופי לאחר שקילה"
-                    onChange={(v) => togglePermission("agentCanSetFinalPrice", v)}
-                    saving={saving}
-                  />
-                  <PermissionCheckbox
-                    checked={!!editing.agentCanSendPaymentLink}
-                    label="שליחת קישור תשלום"
-                    hint="הנציג יכול לשלוח ללקוח קישור לתשלום"
-                    onChange={(v) => togglePermission("agentCanSendPaymentLink", v)}
-                    saving={saving}
-                  />
-                  <PermissionCheckbox
-                    checked={!!editing.agentCanCharge}
-                    label="💳 חיוב אוטומטי עם טוקן"
-                    hint="הנציג יכול לחייב את הלקוח אוטומטית בכרטיס השמור"
-                    onChange={(v) => togglePermission("agentCanCharge", v)}
-                    saving={saving}
-                  />
-                  {/* §155: הקמת לקוחות מזומן.
-                      
-                      ⚠️ זו ההרשאה היחידה כאן שנוגעת ישירות בכסף
-                      שנכנס: לקוח מזומן מזמין בלי כרטיס, והנציג
-                      שסימן אותו לוקח אחריות לגבות בחלוקה. */}
-                  <PermissionCheckbox
-                    checked={!!editing.agentCanCreateCashCustomers}
-                    label="💵 הקמת לקוחות מזומן"
-                    hint="הנציג יוכל להקים לקוח בלי כרטיס אשראי, ולסמן לקוח קיים כמזומן. הגבייה תתבצע על ידו בחלוקה."
-                    onChange={(v) => togglePermission("agentCanCreateCashCustomers", v)}
-                    saving={saving}
-                  />
-                  <PermissionCheckbox
-                    checked={!!editing.agentCanUpdateCards}
-                    label="🔄 עדכון פרטי אשראי"
-                    hint="הנציג יכול להזמין את הלקוח לעדכן כרטיס אצלו"
-                    onChange={(v) => togglePermission("agentCanUpdateCards", v)}
-                    saving={saving}
-                  />
-                </div>
-
-                {/* 🆕 נקודות חלוקה משויכות - many-to-many */}
-                <div className="mt-3">
-                  <div className="text-xs font-bold text-zinc-500 mb-2">
-                    📍 נקודות חלוקה משויכות
-                    <span className="font-normal text-zinc-400 mr-1">
-                      (הנציג יראה לקוחות והזמנות מכל הנקודות שסומנו)
-                    </span>
+                <div className="rounded-xl border-2 border-purple-300 bg-purple-50 p-3">
+                  <div className="font-bold text-purple-900 text-sm">
+                    🎯 זהו נציג
                   </div>
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                    {points.length === 0 ? (
-                      <p className="text-xs text-zinc-500">טוען נקודות...</p>
-                    ) : (
-                      <div className="space-y-1 max-h-52 overflow-y-auto">
-                        {points.map((p) => (
-                          <label
-                            key={p.id}
-                            className={`flex items-center gap-2 p-2 rounded cursor-pointer text-sm transition-colors ${
-                              selectedAgentPointIds.has(p.id)
-                                ? "bg-emerald-100"
-                                : "hover:bg-white"
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedAgentPointIds.has(p.id)}
-                              onChange={() => toggleAgentPoint(p.id)}
-                              className="w-4 h-4 accent-emerald-600"
-                            />
-                            <span className="flex-1 min-w-0 truncate text-brand-slatedark">
-                              {p.name}
-                              {p.city ? ` — ${p.city}` : ""}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-emerald-200">
-                      <span className="text-xs text-emerald-800 font-medium">
-                        {selectedAgentPointIds.size} נקודות נבחרו
-                      </span>
-                      <button
-                        type="button"
-                        onClick={saveAgentPoints}
-                        disabled={saving}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50"
-                      >
-                        {saving ? "שומר..." : "שמור נקודות"}
-                      </button>
-                    </div>
-                  </div>
+                  <p className="text-[11px] text-purple-800 mt-0.5 leading-relaxed">
+                    הרשאות, נקודות חלוקה ועמלות מוגדרות במסך הנציגים —
+                    שם הרשימה המלאה.
+                  </p>
+                  <a
+                    href={`/admin/agents/${editing.id}/profile`}
+                    className="inline-block mt-2 px-3 py-1.5 rounded-lg bg-purple-700 text-white text-xs font-bold"
+                  >
+                    לפרופיל הנציג ←
+                  </a>
                 </div>
               </div>
             )}
