@@ -123,6 +123,8 @@ export async function POST(req: Request) {
               unit: true,
               cartonPrice: true,
               priceType: true,
+          // §313: saleType — הוא הקובע אם זה קרטון, לא priceType
+          saleType: true,
               isActive: true,
               allowSingles: true,
               singlesMode: true,
@@ -215,7 +217,20 @@ export async function POST(req: Request) {
       categoryName: category,
       productName: p.name,
       kashrut,
-      unit: p.priceType === "PER_KG" ? 'קרטון (מחיר לק"ג)' : p.unit || "יחידה",
+      // §313: 🐛 priceType אינו saleType.
+      //
+      // priceType=PER_KG אומר **איך מתמחרים** (לפי ק"ג), ולא
+      // **איך מוכרים**. כבד ארוז מתומחר לק"ג ונמכר ביחידות -
+      // והוא הוצג באקסל כ"קרטון".
+      //
+      // ⚠️ saleType הוא הקובע: PACKAGE = קרטון, השאר יחידות.
+      // אותה הבחנה של §233, §284 ו-§312.
+      unit:
+        p.saleType === "PACKAGE"
+          ? p.priceType === "PER_KG"
+            ? 'קרטון (מחיר לק"ג)'
+            : "קרטון"
+          : p.unit || "יחידה",
       unitPrice: base,
     });
 

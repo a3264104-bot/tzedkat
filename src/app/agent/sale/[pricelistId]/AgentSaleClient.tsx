@@ -59,6 +59,14 @@ export type Order = {
   id: string;
   orderNumber: number;
   customerName: string;
+  /**
+   * §311: אופן התשלום של הלקוח — CASH / CREDIT.
+   *
+   * ללא זה כפתור "סימון תשלום מזומן" הוצג לכל לקוח, כולל מי
+   * שמשלם באשראי. הנציג ראה אותו וחשב שצריך לגבות במקום -
+   * בזמן שהכרטיס עומד להיות מחויב אוטומטית.
+   */
+  customerPaymentPreference?: string | null;
   phone: string;
   status: string;
   // §21: סימון מסירה בנקודת החלוקה

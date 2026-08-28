@@ -112,6 +112,15 @@ export default async function AdminPendingWeightsPage() {
     productName: it.productName || it.product.name,
     unit: it.unit,
     isSingle: it.isSingle,
+    // §312: 🐛 saleType נשלף (ב-include) ולא הועבר ל-client.
+    //
+    // התוצאה: כל מה שאינו "בודדים" הוצג כ"קרטון", גם כבד ארוז
+    // שנמכר ביחידות. המנהל קרא "3 קרטון כבד" וחיפש קרטונים
+    // שלא קיימים.
+    //
+    // ⚠️ הדפוס שחוזר: שדה נשלף מהמסד, נבדק במסך, ולא עובר את
+    // שכבת ההמרה באמצע.
+    saleType: it.product.saleType,
     quantity: Number(it.quantity),
     unitPrice: Number(it.unitPrice),
     estimatedWeight: it.estimatedWeight ? Number(it.estimatedWeight) : null,

@@ -21,6 +21,8 @@ type Row = {
   productName: string;
   unit: string;
   isSingle: boolean;
+  /** §312: PACKAGE = קרטון · UNIT/WEIGHT = יחידות */
+  saleType?: string | null;
   quantity: number;
   unitPrice: number;
   estimatedWeight: number | null;
@@ -252,8 +254,11 @@ function TableRow({
   // ⚠️ ומי ששקל ביחד ממלא הכל בראשונה ומשאיר את השנייה ריקה.
   //
   // ⚠️ רק קרטונים: בודדים לפי ק"ג הם שקילה אחת.
+  // §312: הפיצול רק לקרטונים — 3 יחידות כבד אינן 3 שקילות.
   const cartonCount =
-    !row.isSingle && row.quantity > 1
+    !row.isSingle &&
+    (row as any).saleType === "PACKAGE" &&
+    row.quantity > 1
       ? Math.min(Math.floor(row.quantity), 6)
       : 1;
 
@@ -368,9 +373,25 @@ function TableRow({
 
       {/* הוזמן */}
       <td className="px-3 py-2 text-xs text-zinc-600 whitespace-nowrap">
-        {row.isSingle ? `${row.quantity} ק"ג` : `${row.quantity} קרטון`}
+        {/* §312: 🐛 כל מה שאינו "בודדים" נקרא "קרטון" — גם כבד.
+            
+            מוצר UNIT (כבד ארוז, נקניק) נמכר ביחידות, לא
+            בקרטונים. המנהל קרא "3 קרטון כבד" וחיפש קרטונים
+            שלא קיימים.
+            
+            ⚠️ אותה הבחנה של §233 ו-§284: saleType === "PACKAGE"
+            הוא הקרטון. השאר יחידות. */}
+        {row.isSingle
+          ? `${row.quantity} ק"ג`
+          : (row as any).saleType === "PACKAGE"
+            ? `${row.quantity} קרטון`
+            : `${row.quantity} ${row.unit || "יח׳"}`}
       </td>
 
+      {/* §312: מוצר יחידות — התווית "משקל" מטעה.
+          
+          המנהל מחפש משקולת למשהו שכתוב עליו 500 גרם. מה שנדרש
+          כאן הוא **אישור כמות**: הלקוח הזמין 3 וקיבל 2. */}
       {/* משקל משוער */}
       <td className="px-3 py-2 text-xs text-zinc-500 whitespace-nowrap">
         {row.estimatedWeight ? `~${row.estimatedWeight.toFixed(1)} ק"ג` : "—"}
@@ -432,7 +453,8 @@ function TableRow({
           ref={weightRef}
           type="number"
           inputMode="decimal"
-          step="0.01"
+          // §312: יחידות שלמות במוצר UNIT — אין חצי כבד.
+          step={(row as any).saleType === "UNIT" ? "1" : "0.01"}
           min="0"
           value={weightVal}
           onChange={(e) => setWeightVal(e.target.value)}
@@ -440,7 +462,10 @@ function TableRow({
           onKeyDown={handleKey}
           disabled={saving}
           data-weight-idx={rowIdx}
-          placeholder="0.00"
+          // §312: מוצר יחידות — הכמות שהתקבלה, לא משקל.
+          placeholder={
+            (row as any).saleType === "UNIT" ? `${row.quantity} יח׳` : "0.00"
+          }
           autoFocus={rowIdx === 0}
           className={`w-full px-2 py-1.5 border-2 rounded-md text-center font-bold text-base focus:outline-none focus:ring-2 focus:ring-brand-rust transition-all ${
             savedFlash

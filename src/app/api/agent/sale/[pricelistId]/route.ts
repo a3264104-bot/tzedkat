@@ -301,6 +301,12 @@ export async function GET(
       // §192: השם הנוכחי ולא ה-snapshot. המנהל תיקן שמות, והנציג
       // המשיך לראות את הישנים במסך המכירה ובטבלת המשקלים.
       customerName: o.customer?.name || o.customerName,
+      // §311: אופן התשלום — לכפתור המזומן במסך הנציג.
+      //
+      // ⚠️ ללא זה "סימון תשלום מזומן" הוצג לכל לקוח, כולל מי
+      // שמשלם באשראי - והנציג היה גובה ממנו במקום, בזמן
+      // שהכרטיס עומד להיות מחויב.
+      customerPaymentPreference: o.customer?.paymentPreference ?? null,
       phone: o.phone,
       customer: o.customer,
       point: o.point,
