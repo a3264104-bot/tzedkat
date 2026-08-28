@@ -1302,12 +1302,21 @@ function DeliverCell({
     setBusy(true);
     try {
       const res = await fetch(`/api/agent/orders/${orderId}/deliver`, {
-        method: "POST",
+        // §328: 🐛 PATCH ולא POST.
+        //
+        // ה-route מוגדר כ-PATCH (§21), ו-POST החזיר 405 עם גוף
+        // ריק - ומכאן "Unexpected end of JSON input" במסך.
+        //
+        // ⚠️ העתקתי את הקריאה מ-OrderRow בלי לבדוק את השיטה.
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ delivered: !delivered }),
       });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "שגיאה");
+      // ⚠️ catch על ה-json: תשובת 405 או 500 מגיעה בלי גוף,
+      // ו-res.json() נופל עם "Unexpected end of JSON input" -
+      // שגיאה שלא אומרת למשתמש כלום.
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `שגיאה (${res.status})`);
       onDone();
     } catch (e: any) {
       alert(e?.message || "שגיאה");
