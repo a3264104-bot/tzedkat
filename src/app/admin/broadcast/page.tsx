@@ -28,6 +28,25 @@ export default function AdminBroadcastPage() {
   // דלוק כברירת מחדל - רוב הברודקסטים הם עדכונים תפעוליים שרלוונטיים
   // גם ללקוחות הטלפוניים, שאין להם מייל בכלל.
   const [alsoPhone, setAlsoPhone] = useState(true);
+
+  // §330: 🚚 תזכורת חלוקה — הועברה לכאן מסיכום המכירה.
+  //
+  // הכפתור ישב בסיכום המכירה, שהוא **דוח** ולא מסך פעולות.
+  // שליחת מיילים היא פעולה, ומקומה במסך אחד - אחרת המנהל
+  // מחפש אותה בשלושה מקומות.
+  //
+  // ⚠️ ובורר מכירה: בסיכום המכירה ההקשר היה מובן מאליו (אתה
+  // בתוך מכירה), וכאן צריך לבחור.
+  const [mailKind, setMailKind] = useState<"free" | "reminder">("free");
+  const [sales, setSales] = useState<
+    Array<{ id: string; name: string; deliveryDateText: string | null }>
+  >([]);
+  const [reminderSaleId, setReminderSaleId] = useState("");
+  const [reminderPreview, setReminderPreview] = useState<{
+    count: number;
+    points: number;
+  } | null>(null);
+  const [sendingReminder, setSendingReminder] = useState(false);
   // §36: מתי ההודעה הקולית מפסיקה להישמע. חובה - הודעה כמו "החלוקה
   // נדחתה לשעה 18:00" שממשיכה להישמע מחרתיים היא שקר. במייל אין בעיה
   // כי הוא מגיע פעם אחת, אבל הודעה קולית נשמעת בכל שיחה.
@@ -49,6 +68,75 @@ export default function AdminBroadcastPage() {
   // מצב שליחה
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // §330: המכירות הפעילות — לבורר התזכורת.
+  //
+  // ⚠️ רק ACTIVE ו-CLOSED: תזכורת חלוקה למכירה שהסתיימה היא
+  // הודעה על משהו שכבר קרה.
+  useEffect(() => {
+    if (mailKind !== "reminder") return;
+    fetch("/api/admin/pricelists", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: any[]) =>
+        setSales(
+          (Array.isArray(rows) ? rows : [])
+            .filter((p) => p.status === "ACTIVE" || p.status === "CLOSED")
+            .map((p) => ({
+              id: p.id,
+              name: p.name,
+              deliveryDateText: p.deliveryDateText ?? null,
+            }))
+        )
+      )
+      .catch(() => setSales([]));
+  }, [mailKind]);
+
+  // §330: תצוגה מקדימה — כמה לקוחות יקבלו.
+  //
+  // ⚠️ לפני השליחה ולא אחריה: "נשלח ל-0 לקוחות" זו הפתעה
+  // שאפשר למנוע.
+  useEffect(() => {
+    if (!reminderSaleId) {
+      setReminderPreview(null);
+      return;
+    }
+    fetch(`/api/admin/delivery-reminder?pricelistId=${reminderSaleId}`, {
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) =>
+        setReminderPreview(
+          d ? { count: d.count ?? 0, points: d.points ?? 0 } : null
+        )
+      )
+      .catch(() => setReminderPreview(null));
+  }, [reminderSaleId]);
+
+  async function sendReminder() {
+    if (!reminderSaleId) return;
+    const n = reminderPreview?.count ?? 0;
+    if (
+      !window.confirm(
+        `לשלוח תזכורת חלוקה ל-${n} לקוחות?\n\nכל אחד יקבל את הנקודה, התאריך והסכום שלו.`
+      )
+    )
+      return;
+    setSendingReminder(true);
+    try {
+      const res = await fetch("/api/admin/delivery-reminder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pricelistId: reminderSaleId }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `שגיאה (${res.status})`);
+      alert(`נשלחו ${d.sent ?? 0} תזכורות`);
+    } catch (e: any) {
+      alert(e?.message || "שגיאה");
+    } finally {
+      setSendingReminder(false);
+    }
+  }
 
   useEffect(() => {
     fetch("/api/admin/broadcast/recipients")
@@ -203,7 +291,84 @@ export default function AdminBroadcastPage() {
         </p>
       </div>
 
+      {/* §330: 🚚 בורר סוג המייל.
+          
+          התזכורת ישבה בסיכום המכירה - מסך שהוא **דוח**, לא מסך
+          פעולות. המנהל חיפש שליחת מיילים בשלושה מקומות.
+          
+          ⚠️ ובורר מכירה: בסיכום ההקשר היה מובן מאליו (אתה בתוך
+          מכירה), וכאן צריך לבחור. */}
+      <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-4 mb-3">
+        <div className="text-xs font-bold text-zinc-500 mb-2">סוג המייל</div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setMailKind("free")}
+            className={`py-2.5 rounded-xl border-2 font-bold text-sm transition-colors ${
+              mailKind === "free"
+                ? "border-brand-rust bg-brand-rust/10 text-brand-rust"
+                : "border-zinc-200 text-zinc-500"
+            }`}
+          >
+            ✉️ הודעה חופשית
+          </button>
+          <button
+            onClick={() => setMailKind("reminder")}
+            className={`py-2.5 rounded-xl border-2 font-bold text-sm transition-colors ${
+              mailKind === "reminder"
+                ? "border-violet-600 bg-violet-50 text-violet-700"
+                : "border-zinc-200 text-zinc-500"
+            }`}
+          >
+            🚚 תזכורת חלוקה
+          </button>
+        </div>
+
+        {mailKind === "reminder" && (
+          <div className="mt-3 pt-3 border-t border-zinc-100 space-y-2">
+            <label className="text-xs font-bold text-zinc-500 block">
+              לאיזו מכירה?
+            </label>
+            <select
+              value={reminderSaleId}
+              onChange={(e) => setReminderSaleId(e.target.value)}
+              className="w-full px-3 py-2.5 border-2 border-zinc-300 rounded-lg text-sm font-bold"
+            >
+              <option value="">— בחר מכירה —</option>
+              {sales.map((sl) => (
+                <option key={sl.id} value={sl.id}>
+                  {sl.name}
+                  {sl.deliveryDateText ? ` · ${sl.deliveryDateText}` : ""}
+                </option>
+              ))}
+            </select>
+
+            {/* ⚠️ התצוגה המקדימה לפני השליחה: "נשלח ל-0 לקוחות"
+                זו הפתעה שאפשר למנוע. */}
+            {reminderPreview && (
+              <div className="rounded-lg bg-violet-50 border border-violet-200 px-3 py-2 text-xs text-violet-900">
+                <b>{reminderPreview.count} לקוחות</b> יקבלו תזכורת
+                {reminderPreview.points > 0 && (
+                  <span> · {reminderPreview.points} נקודות חלוקה</span>
+                )}
+                <div className="text-[11px] text-violet-800 mt-0.5">
+                  כל אחד מקבל את הנקודה, התאריך והסכום שלו.
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={sendReminder}
+              disabled={!reminderSaleId || sendingReminder}
+              className="w-full py-3 rounded-xl bg-violet-700 text-white font-bold disabled:opacity-40"
+            >
+              {sendingReminder ? "שולח..." : "🚚 שלח תזכורת חלוקה"}
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* תוכן ההודעה */}
+      {mailKind === "free" && (
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-4 space-y-3">
         <div>
           <label className="text-xs font-bold text-zinc-500 block mb-1">
@@ -278,6 +443,7 @@ export default function AdminBroadcastPage() {
           </label>
         )}
       </div>
+      )}
 
       {/* בחירת נמענים */}
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-4 space-y-3">

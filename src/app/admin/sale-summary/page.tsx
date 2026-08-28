@@ -231,53 +231,8 @@ export default function SaleSummaryPage() {
     downloadCsv(`סיכום-מוצרים-${data.pricelist.name}-${scope}.csv`, rows);
   }
 
-  // ─── §23: תזכורת חלוקה ללקוחות ───────────────────────────────
-  // שליחה יזומה. לפני השליחה מציגים למנהל בדיוק כמה לקוחות יקבלו
-  // וכמה נשארים בחוץ בלי מייל - זה מייל לעשרות אנשים ולא כדאי
-  // לגלות אחרי מי קיבל.
-  const [reminderBusy, setReminderBusy] = useState(false);
-
-  async function sendDeliveryReminder() {
-    if (!data) return;
-    setReminderBusy(true);
-    try {
-      const pid = data.pricelist.id;
-      const preview = await api(`/api/admin/delivery-reminder?pricelistId=${pid}`);
-      if (preview.recipientCount === 0) {
-        alert("אין לקוחות עם כתובת מייל במכירה הזו.");
-        return;
-      }
-      const warnDate = preview.hasDeliveryDate
-        ? ""
-        : "\n\n⚠️ למכירה זו לא הוגדר תאריך חלוקה — המייל יישלח בלי התאריך העברי.";
-      const warnNoMail =
-        preview.noEmailCount > 0
-          ? `\n(${preview.noEmailCount} לקוחות ללא מייל יקבלו צינתוק קולי)`
-          : "";
-      const ok = confirm(
-        `לשלוח תזכורת חלוקה ל-${preview.recipientCount} לקוחות?${warnNoMail}${warnDate}`
-      );
-      if (!ok) return;
-
-      const res = await api("/api/admin/delivery-reminder", {
-        method: "POST",
-        body: JSON.stringify({ pricelistId: pid }),
-      });
-      alert(
-        `נשלחו ${res.sent} תזכורות במייל.` +
-          (res.voiceSent ? `\n${res.voiceSent} צינתוקים קוליים ללקוחות ללא מייל.` : "") +
-          (res.failed ? `\n${res.failed} נכשלו.` : "") +
-          (res.voiceFailed ? `\n${res.voiceFailed} צינתוקים נכשלו.` : "") +
-          (res.voiceSkipped
-            ? `\n\n⚠️ הצינתוקים לא נשלחו - חסרות הגדרות YEMOT_USER ו-YEMOT_PASSWORD.`
-            : "")
-      );
-    } catch (e: any) {
-      alert("שגיאה: " + e.message);
-    } finally {
-      setReminderBusy(false);
-    }
-  }
+  // §330: התזכורת עברה ל-/admin/broadcast — הפונקציה הוסרה
+  // כדי שלא יישאר קוד מת שמישהו יחשוב שהוא פעיל.
 
 
 
@@ -356,14 +311,21 @@ export default function SaleSummaryPage() {
               )}
           </p>
         </div>
-        <button
-          onClick={sendDeliveryReminder}
-          disabled={reminderBusy}
+        {/* §330: התזכורת עברה למסך שליחת המיילים.
+            
+            סיכום מכירה הוא **דוח** - לא מסך פעולות. שליחת
+            מיילים היא פעולה, ומקומה במסך אחד: אחרת המנהל
+            מחפש אותה בשלושה מקומות.
+            
+            ⚠️ קישור ולא הסרה: מי שהתרגל למצוא אותה כאן צריך
+            לדעת לאן היא עברה. */}
+        <a
+          href="/admin/broadcast"
           className="btn-ghost btn-sm no-print"
-          title="שליחת תזכורת ללקוחות עם מועד ומיקום החלוקה"
+          title="שליחת תזכורת חלוקה ומיילים נוספים"
         >
-          {reminderBusy ? "שולח..." : "✉ שלח תזכורת חלוקה"}
-        </button>
+          ✉ שליחת מיילים ←
+        </a>
         <button onClick={() => window.print()} className="btn-ghost btn-sm no-print">
           🖨 הדפסה
         </button>

@@ -8,6 +8,8 @@ import { AdminCustomerCodePanel } from "@/components/AdminCustomerCodePanel";
 import { ImpersonateButton } from "@/components/ImpersonateButton";
 // §82: עדכון אשראי ישירות ממסך הלקוחות
 import { UpdateCardModal } from "@/components/UpdateCardButton";
+// §331: רישום חוב — אותו רכיב של מסך ההזמנה
+import { DebtPanel } from "@/components/DebtPanel";
 
 type Customer = {
   id: string;
@@ -1546,6 +1548,26 @@ export default function AdminCustomersPage() {
                 
                 ⚠️ קישור ולא שכפול: שני מסכי הרשאות יתפצלו שוב
                 ביום שתיווסף השמינית. */}
+            {/* §331: 💸 רישום חוב — גם מכאן.
+                
+                הפער: התגית "💸 חוב ₪120" מוצגת ברשימה (§263),
+                והמנהל שפתח את הלקוח לא מצא דרך לערוך. הוא היה
+                צריך למצוא הזמנה של אותו לקוח ולפתוח אותה.
+                
+                ⚠️ אותו רכיב בדיוק — שני פאנלים היו מתפצלים
+                ביום שמישהו משנה אחד מהם. */}
+            {editing.role === "CUSTOMER" && (
+              <div className="border-t pt-3">
+                <DebtPanel
+                  customerId={editing.id}
+                  customerName={editing.name}
+                  debtBalance={Number((editing as any).debtBalance ?? 0)}
+                  debtNote={(editing as any).debtNote ?? null}
+                  onDone={reload}
+                />
+              </div>
+            )}
+
             {editing.role === "AGENT" && !convertingToAgent && (
               <div className="border-t pt-3">
                 <div className="rounded-xl border-2 border-purple-300 bg-purple-50 p-3">
