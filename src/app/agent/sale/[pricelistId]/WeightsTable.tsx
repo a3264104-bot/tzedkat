@@ -88,6 +88,14 @@ type CustomerRow = {
   agentClosedAt: string | null;
   // §130: מצב התשלום - לסימון מזומן מהטבלה
   paymentStatus: string | null;
+  /**
+   * §314: אופן התשלום של הלקוח — CASH / CREDIT.
+   *
+   * בלעדיו סימון המזומן הוצג בכל שורה, כולל לקוחות אשראי.
+   * הנציג בחלוקה ראה אותו וחשב שצריך לגבות במקום - בזמן
+   * שהכרטיס עומד להיות מחויב אוטומטית.
+   */
+  customerPaymentPreference?: string | null;
   finalTotal: number | null;
 };
 
@@ -227,6 +235,9 @@ export function WeightsTable({
           total,
           missing,
           agentClosedAt: (o as any).agentClosedAt ?? null,
+          // §314: אופן התשלום — לסינון סימון המזומן
+          customerPaymentPreference:
+            (o as any).customerPaymentPreference ?? null,
           paymentStatus: (o as any).paymentStatus ?? null,
           finalTotal: (o as any).finalTotal ?? null,
         };
@@ -504,7 +515,20 @@ export function WeightsTable({
                   )}
                 </td>
 
+                {/* §314: 💵 סימון מזומן — **רק ללקוח מזומן**.
+                    
+                    הסימון הוצג בכל שורה, כולל אשראי. הנציג
+                    בחלוקה ראה אותו על לקוח שכרטיסו שמור, וחשב
+                    שצריך לגבות ממנו במקום.
+                    
+                    ואם סימן - הלקוח שילם פעמיים: במזומן לנציג,
+                    ובכרטיס בחיוב האוטומטי.
+                    
+                    התא נשאר (כדי שהטבלה לא תישבר), והתוכן ריק. */}
                 <td className="px-2 py-2 border-l border-zinc-200 text-center">
+                  {r.customerPaymentPreference === "CREDIT" ? (
+                    <span className="text-[10px] text-zinc-300">—</span>
+                  ) : (
                   <CashCell
                     orderId={r.orderId}
                     orderNumber={r.orderNumber}
@@ -515,6 +539,7 @@ export function WeightsTable({
                     readOnly={readOnly}
                     onDone={onNeedsReload}
                   />
+                  )}
                 </td>
 
                 <td className="sticky left-0 z-10 bg-inherit px-2 py-2 border-r-2 border-zinc-300 text-center">
