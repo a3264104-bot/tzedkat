@@ -305,9 +305,28 @@ export default async function AgentOrderDetailPage({
         {/* לקוח + סטטוס */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-4">
           <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+            {/* §317: 🧑 קישור לכרטיס הלקוח.
+                
+                הפער: הנציג בטבלה פתח הזמנה, וכשהתברר שהכרטיס
+                פג-תוקף - לא הייתה דרך להגיע למסך שבו מעדכנים
+                אותו. הוא חיפש את הלקוח מהתחלה, או פנה למנהל.
+                
+                ⚠️ קישור ולא שכפול: מסך הלקוח כבר קיים ועושה
+                הכל (כרטיס, מזומן, חוב, פרטים). */}
             <div>
-              <div className="font-extrabold text-brand-slatedark">{order.customerName}</div>
+              <a
+                href={`/agent/customer/${order.customerId}`}
+                className="font-extrabold text-brand-slatedark hover:text-brand-rust underline decoration-dotted"
+              >
+                {order.customerName}
+              </a>
               <div className="text-xs text-zinc-500" dir="ltr">{order.phone}</div>
+              <a
+                href={`/agent/customer/${order.customerId}`}
+                className="inline-block mt-1 text-[11px] font-bold text-brand-rust"
+              >
+                💳 עדכון כרטיס ופרטים ←
+              </a>
             </div>
             <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700">
               {STATUS_LABELS[order.status] ?? order.status}

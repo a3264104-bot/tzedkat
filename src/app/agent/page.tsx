@@ -125,6 +125,8 @@ export default async function AgentIndexPage() {
   //
   // ⚠️ hasPoints נבדק לפני: נציג בלי נקודות אינו רואה בקשות כלל,
   // וספירה בלי הסינון הייתה מציגה לו את כל המערכת.
+  // §317: הקישור לרשימת הלקוחות — ראה JSX למטה.
+
   // §277: 📞 מוקד טלפוני רואה את **כל** הבקשות.
   //
   // ⚠️ בלי זה הכרטיס היה מראה לו "3 ממתינות" (הנקודות שלו)
@@ -293,6 +295,27 @@ export default async function AgentIndexPage() {
 
             ⚠️ מעל קיצורי הדרך: זו פעולה שממתינה, ולא כלי שפותחים
             כשצריך. */}
+        {/* §317: 🧑 רשימת הלקוחות של הנציג.
+            
+            הפער: הנציג הכיר את הלקוחות שלו רק דרך מכירה פעילה.
+            לקוח שהתקשר לעדכן כרטיס בין מכירות - לא הייתה דרך
+            להגיע אליו.
+            
+            ⚠️ רק הנקודות שלו: נציג שרואה את כל 296 הלקוחות
+            רואה טלפונים של לקוחות נציגים אחרים. */}
+        <a
+          href="/agent/customers"
+          className="flex items-center justify-between gap-2 bg-white rounded-xl border-2 border-zinc-200 px-4 py-3 hover:border-brand-rust transition-colors"
+        >
+          <div className="text-right">
+            <div className="font-bold text-brand-slatedark">🧑 הלקוחות שלי</div>
+            <div className="text-[11px] text-zinc-500">
+              עדכון כרטיס, פרטים ואמצעי תשלום
+            </div>
+          </div>
+          <span className="text-zinc-400">←</span>
+        </a>
+
         {pendingSignups > 0 && (
           <Link
             href="/agent/signups"
