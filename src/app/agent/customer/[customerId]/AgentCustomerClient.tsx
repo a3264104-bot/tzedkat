@@ -356,12 +356,28 @@ export function AgentCustomerClient({
               של מעבר ממזומן לאשראי. לקוח שכבר באשראי עם כרטיס פג-תוקף
               או שנחסם לא ניתן היה לעדכן מכאן כלל, והנציג נאלץ לפנות
               למנהל. עכשיו זו פעולה עצמאית. */}
-          {canUpdateCards && pref !== "CASH" && (
+          {/* §316: 🐛 `pref !== "CASH"` חסם את מי שהכי צריך.
+              
+              לקוח מזומן שרוצה לעבור לאשראי **חייב** להזין כרטיס -
+              זו הדרך היחידה (save-token מעביר ל-CREDIT אוטומטית).
+              והכפתור היה מוסתר ממנו בדיוק.
+              
+              ⚠️ הנציג נאלץ קודם להעביר ל"אשראי" (וזה נחסם בלי
+              כרטיס), או לפנות למנהל.
+              
+              ⚠️ ההרשאה נשארת canUpdateCards - היא על **הפעולה**
+              (הזנת כרטיס), לא על מצב הלקוח. */}
+          {canUpdateCards && (
             <button
               onClick={() => setShowCardModal(true)}
               className="mt-2 w-full text-xs font-bold text-brand-rust border border-brand-rust rounded-lg py-2 hover:bg-brand-rust hover:text-white transition-colors"
             >
-              💳 {hasCard ? "החלפת כרטיס אשראי" : "הזנת כרטיס אשראי"}
+              💳{" "}
+              {hasCard
+                ? "החלפת כרטיס אשראי"
+                : pref === "CASH"
+                  ? "הזנת כרטיס (יעבור לאשראי)"
+                  : "הזנת כרטיס אשראי"}
             </button>
           )}
           {prefMsg && <p className="text-emerald-700 text-xs mt-2">✓ {prefMsg}</p>}

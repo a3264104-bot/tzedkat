@@ -303,10 +303,28 @@ export default function OrderDetail() {
     await load();
   }
 
-  async function removeItem(itemId: string) {
-    await api(`/api/admin/orders/${id}`, {
+  // §315: 🗑️ **ביטול ולא מחיקה.**
+  //
+  // 🐛 מה שהיה: `_delete: true` מחק את הפריט מהמסד. אחרי המחיקה
+  // אין דרך לדעת שהלקוח הזמין אותו, למה הוא ירד, ומי הוריד -
+  // וכשהוא מתקשר לשאול, אין תשובה.
+  //
+  // ⚠️ אותה גישה של ביטול הזמנה (§47): הפריט נשאר לתיעוד ויוצא
+  // מהחישוב. היסטוריה שנמחקת אי אפשר לשחזר.
+  //
+  // ⚠️ ואותה פעולה בדיוק כמו אצל הנציג (§302/§315) - שני מסכים
+  // שעושים דברים שונים לאותה לחיצה הם באג שמחכה לקרות.
+  async function removeItem(itemId: string, isCancelled: boolean) {
+    if (
+      !isCancelled &&
+      !window.confirm(
+        "לבטל את הפריט מההזמנה?\n\nהפריט יוצא מהחישוב אך יישאר לתיעוד."
+      )
+    )
+      return;
+    await api(`/api/agent/order-item/${itemId}`, {
       method: "PATCH",
-      body: JSON.stringify({ items: [{ id: itemId, _delete: true }], recomputeFinal: true }),
+      body: JSON.stringify({ isCancelled: !isCancelled }),
     });
     load();
   }
@@ -730,7 +748,11 @@ export default function OrderDetail() {
             <tbody>
               {order.items.map((it: any) => (
                 <tr key={it.id}>
-                  <td className="font-medium">
+                  <td
+                    className={`font-medium ${
+                      it.isCancelled ? "line-through text-zinc-400" : ""
+                    }`}
+                  >
                     {it.productName}
                     {it.isSingle && <span className="badge bg-amber-100 text-amber-700 mr-1">בודדים</span>}
                   </td>
@@ -761,8 +783,14 @@ export default function OrderDetail() {
                     />
                   </td>
                   <td className="no-print">
-                    <button onClick={() => removeItem(it.id)} className="text-red-500 text-sm">
-                      הסר
+                    {/* §315: הכפתור משתנה לפי המצב — ביטול או החזרה. */}
+                    <button
+                      onClick={() => removeItem(it.id, !!it.isCancelled)}
+                      className={`text-sm font-bold ${
+                        it.isCancelled ? "text-emerald-600" : "text-red-500"
+                      }`}
+                    >
+                      {it.isCancelled ? "↩ החזר" : "בטל"}
                     </button>
                   </td>
                 </tr>

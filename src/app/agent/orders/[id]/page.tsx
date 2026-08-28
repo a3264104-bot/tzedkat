@@ -1,4 +1,6 @@
 import Link from "next/link";
+// §315: ביטול פריט — רכיב משותף לשלושת המסכים
+import CancelItemButton from "@/components/CancelItemButton";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -367,7 +369,13 @@ export default async function AgentOrderDetailPage({
               return (
               <div key={it.id} className="p-3 flex items-center justify-between gap-2 text-sm">
                 <div>
-                  <div className="font-medium text-brand-slatedark">
+                  <div
+                    className={`font-medium ${
+                      it.isCancelled
+                        ? "line-through text-zinc-400"
+                        : "text-brand-slatedark"
+                    }`}
+                  >
                     {it.productName}
                     <span className="text-[10px] mr-2 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
                       {orderItemBadge(displayItem)}
@@ -375,12 +383,28 @@ export default async function AgentOrderDetailPage({
                   </div>
                   <div className="text-xs text-zinc-500">{formatItemQty(displayItem)}</div>
                 </div>
-                <div className="text-left">
-                  {it.finalPrice != null ? (
-                    <div className="font-bold text-emerald-700">{fmt(Number(it.finalPrice))}</div>
-                  ) : (
-                    <div className="text-zinc-500">~{fmt(Number(it.estimatedPrice))}</div>
-                  )}
+                <div className="text-left flex items-center gap-2">
+                  <div>
+                    {it.finalPrice != null ? (
+                      <div className="font-bold text-emerald-700">{fmt(Number(it.finalPrice))}</div>
+                    ) : (
+                      <div className="text-zinc-500">~{fmt(Number(it.estimatedPrice))}</div>
+                    )}
+                  </div>
+                  {/* §315: 🗑️ ביטול פריט — גם מכאן.
+                      
+                      הפער: הכפתור היה רק בתצוגת הכרטיסים. נציג
+                      שעבד בטבלה ופתח הזמנה - לא מצא דרך לבטל,
+                      והיה צריך לחזור אחורה ולהחליף תצוגה.
+                      
+                      ⚠️ נעול אחרי המייל (§309): הלקוח מחזיק
+                      בידו סכום, וביטול פריט משנה אותו. */}
+                  <CancelItemButton
+                    itemId={it.id}
+                    productName={it.productName}
+                    isCancelled={it.isCancelled}
+                    locked={!!(order as any).weightsLockedAt}
+                  />
                 </div>
               </div>
               );
