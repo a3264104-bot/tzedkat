@@ -1474,30 +1474,6 @@ export default function AdminCustomersPage() {
                 />
               </div>
 
-              {/* §286: 🎯 נציג — ההרשאות במסך הנציגים.
-                  
-                  הבעיה: המנהל חיפש נציג ברשימת הלקוחות, פתח,
-                  ולא מצא את ההרשאות. הן קיימות רק במסך הנציגים -
-                  ובלי קישור הוא לא ידע לאן ללכת.
-                  
-                  קישור ולא שכפול: שני מסכי הרשאות היו מתפצלים
-                  ביום שמישהו מוסיף הרשאה לאחד מהם. */}
-              {editing.role === "AGENT" && (
-                <div className="rounded-xl border-2 border-purple-300 bg-purple-50 p-3 mb-3">
-                  <div className="font-bold text-purple-900 text-sm">
-                    🎯 זהו נציג
-                  </div>
-                  <p className="text-[11px] text-purple-800 mt-0.5 leading-relaxed">
-                    הרשאות, נקודות חלוקה ועמלות מוגדרות במסך הנציגים.
-                  </p>
-                  <a
-                    href={`/admin/agents/${editing.id}/profile`}
-                    className="inline-block mt-2 px-3 py-1.5 rounded-lg bg-purple-700 text-white text-xs font-bold"
-                  >
-                    לפרופיל הנציג ←
-                  </a>
-                </div>
-              )}
 
               {/* §152: פרטי הכניסה מוצגים בפאנל אחד למעלה.
                   
