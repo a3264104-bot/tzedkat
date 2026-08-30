@@ -6,6 +6,7 @@
 // להחזיק onAdd, ולכן החיבור ל-API והרענון יושבים כאן.
 
 import { AddOrderItem, type AddableProduct } from "@/components/AddOrderItem";
+import { useRouter } from "next/navigation";
 
 export function AgentAddItemPanel({
   orderId,
@@ -16,6 +17,7 @@ export function AgentAddItemPanel({
   products: AddableProduct[];
   singleSurcharge: number;
 }) {
+  const router = useRouter();
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-4">
       <AddOrderItem
@@ -32,13 +34,27 @@ export function AgentAddItemPanel({
               isSingle: item.isSingle,
               // unitPrice לא נשלח - השרת גוזר אותו מהמחירון, כדי
               // שנציג לא יוכל לקבוע מחיר בעצמו.
+              //
+              // §334: 🐛 **agentSetPrice נזרק בדרך.**
+              //
+              // AddOrderItem מציג שדה מחיר במוצר מועדף (§119)
+              // ושולח את הערך ב-onAdd. הפאנל הזה קיבל אותו
+              // ופשוט לא העביר לשרת - כלומר הנציג הקליד מחיר,
+              // ראה אישור, והלקוח חויב לפי המחירון.
+              //
+              // ⚠️ והשרת מאמת: רק מוצר מועדף, ורק העלאה (§119).
+              // אין כאן פתח לנציג לקבוע מחיר שרירותי.
+              agentSetPrice: item.agentSetPrice ?? null,
             }),
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "שגיאה בהוספה");
-          // רענון מלא: הפריט והסכום המעודכן מגיעים מהשרת ולא
-          // מורכבים מחדש בקליינט.
-          window.location.reload();
+          // §334: router.refresh ולא reload.
+          //
+          // ⚠️ reload() טוען את כל העמוד מחדש - כולל התמונות
+          // וה-JS. refresh() מושך רק את הנתונים, והנציג לא
+          // מאבד את מקומו בגלילה.
+          router.refresh();
         }}
       />
     </div>

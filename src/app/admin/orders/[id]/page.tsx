@@ -292,6 +292,8 @@ export default function OrderDetail() {
     quantity: number;
     isSingle: boolean;
     unitPrice: number;
+    /** §334: מחיר שנקבע במוצר מועדף (§119) */
+    agentSetPrice?: number | null;
   }) {
     await api(`/api/admin/orders/${id}`, {
       method: "PATCH",

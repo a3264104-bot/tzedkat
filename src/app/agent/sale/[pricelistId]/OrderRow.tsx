@@ -278,6 +278,8 @@ export function OrderRow({
                       productId: item.productId,
                       quantity: item.quantity,
                       isSingle: item.isSingle,
+                      // §334: מחיר שהנציג קבע במוצר מועדף (§119)
+                      agentSetPrice: (item as any).agentSetPrice ?? null,
                       // unitPrice לא נשלח בכוונה - השרת גוזר אותו
                       // מהמחירון, כדי שנציג לא יוכל לקבוע מחיר.
                     }),
