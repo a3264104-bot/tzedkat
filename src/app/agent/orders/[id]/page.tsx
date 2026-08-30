@@ -1,4 +1,6 @@
 import Link from "next/link";
+// §333: כפתור חזרה — צעד אחד אחורה
+import BackButton from "@/components/BackButton";
 // §315: ביטול פריט — רכיב משותף לשלושת המסכים
 import CancelItemButton from "@/components/CancelItemButton";
 import { redirect } from "next/navigation";
@@ -292,12 +294,12 @@ export default async function AgentOrderDetailPage({
             </div>
             <div className="font-extrabold text-lg">#{order.orderNumber}</div>
           </div>
-          <Link
-            href="/agent"
-            className="text-xs font-bold text-white/80 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition-colors"
-          >
-            ← חזרה
-          </Link>
+          {/* §333: 🔙 צעד אחד אחורה.
+              
+              הנציג מגיע לכאן מטבלת המשקלים, מהכרטיסים, או
+              מרשימת הלקוחות — וקישור קשיח החזיר את כולם
+              לדף הבית. */}
+          <BackButton />
         </div>
       </div>
 

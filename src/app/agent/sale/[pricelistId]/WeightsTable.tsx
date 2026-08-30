@@ -25,6 +25,8 @@
 //     מ"שכחתי למלא", ורק ההבחנה הזו מאפשרת לחסום את השני.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+// §332: טופס הכרטיס — נפתח מהבורר בטבלה
+import { UpdateCardModal } from "@/components/UpdateCardButton";
 // §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
 import { fmtDateTime } from "@/lib/date-lib";
 import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
@@ -104,6 +106,8 @@ type CustomerRow = {
   hasCard?: boolean;
   /** §323: סימון מסירה — הלקוח הגיע ולקח */
   deliveredAt?: string | null;
+  /** §332: אמצעי התשלום **של ההזמנה** — גובר על העדפת הלקוח */
+  orderPaymentMethod?: string | null;
   finalTotal: number | null;
 };
 
@@ -134,6 +138,18 @@ export function WeightsTable({
   // עכשיו: **כל תא הוא פריט**. שם המוצר בתוך התא, והפריטים של
   // כל לקוח צמודים משמאל בלי רווחים. לקוח שהזמין 2 פריטים תופס
   // 2 תאים, ולא 2 מתוך 20.
+  // §332: 💳 טופס הכרטיס — נפתח מהבורר כשאין ללקוח כרטיס.
+  //
+  // ⚠️ המודל ברמת הטבלה ולא בתא: הוא ברוחב מלא, ותא בטבלה צרה
+  // לא יכול להכיל אותו.
+  //
+  // ⚠️ ה-hook כאן, לפני כל תנאי — §283/§305 חזרו על עצמם פעמיים
+  // ביום אחד כי הוא הוצב ליד הקוד שמשתמש בו.
+  const [cardFor, setCardFor] = useState<{
+    customerId: string;
+    name: string;
+  } | null>(null);
+
   const maxItems = useMemo(() => {
     // §246: הגנה מפני orders שאינו מערך.
     //
@@ -254,6 +270,8 @@ export function WeightsTable({
           hasCard: !!(o as any).hasCard,
           // §323: סימון מסירה — היה רק בכרטיסים
           deliveredAt: (o as any).deliveredAt ?? null,
+          // §332: אמצעי התשלום של ההזמנה
+          orderPaymentMethod: (o as any).paymentMethod ?? null,
           paymentStatus: (o as any).paymentStatus ?? null,
           finalTotal: (o as any).finalTotal ?? null,
         };
@@ -567,12 +585,27 @@ export function WeightsTable({
                       הלקוח נתקע בלי אמצעי גבייה. */}
                   {canUpdateCards && canSetCash ? (
                     <PayPrefToggle
-                      customerId={r.customerId}
+                      orderId={r.orderId}
                       customerName={r.customerName}
-                      pref={r.customerPaymentPreference}
+                      // §332: מצב **ההזמנה**, עם נפילה להעדפת
+                      // הלקוח כשלא סומן במפורש.
+                      pref={
+                        r.orderPaymentMethod === "MANUAL" ||
+                        r.orderPaymentMethod === "CASH"
+                          ? "CASH"
+                          : r.orderPaymentMethod
+                            ? "CREDIT"
+                            : r.customerPaymentPreference
+                      }
                       hasCard={r.hasCard}
                       readOnly={readOnly}
                       onDone={onNeedsReload}
+                      onNeedCard={() =>
+                        setCardFor({
+                          customerId: r.customerId ?? "",
+                          name: r.customerName,
+                        })
+                      }
                     />
                   ) : r.customerPaymentPreference === "CREDIT" ? (
                     <span className="text-[10px] text-zinc-300">—</span>
@@ -622,6 +655,25 @@ export function WeightsTable({
         <div className="p-8 text-center text-zinc-500 text-sm">
           אין הזמנות להזנה בנקודה זו.
         </div>
+      )}
+
+      {/* §332: 💳 טופס הכרטיס.
+          
+          נפתח מהבורר כשהנציג בוחר "אשראי" ללקוח בלי כרטיס -
+          במקום הודעה ששולחת אותו למסך אחר.
+          
+          ⚠️ והכרטיס נשמר **לתמיד** (save-token מציב CREDIT),
+          בניגוד לבחירת המזומן שהיא להזמנה בלבד. */}
+      {cardFor && (
+        <UpdateCardModal
+          customerId={cardFor.customerId}
+          hasCurrentCard={false}
+          onSuccess={() => {
+            setCardFor(null);
+            onNeedsReload();
+          }}
+          onClose={() => setCardFor(null)}
+        />
       )}
     </div>
   );
@@ -1164,19 +1216,23 @@ function CashCell({
 // ⚠️ ומעבר לאשראי דורש כרטיס שמור: בלעדיו הלקוח נשאר בלי אמצעי
 // גבייה, ונתקע ברשימת הכשלים.
 function PayPrefToggle({
-  customerId,
+  orderId,
   customerName,
   pref,
   hasCard,
   readOnly,
   onDone,
+  onNeedCard,
 }: {
-  customerId?: string;
+  orderId: string;
   customerName: string;
+  /** §332: המצב **של ההזמנה** — לא ההעדפה הקבועה של הלקוח */
   pref?: string | null;
   hasCard?: boolean;
   readOnly?: boolean;
   onDone: () => void;
+  /** §332: אין כרטיס — פותחים את הטופס במקום להודיע */
+  onNeedCard: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   // §329: עדכון אופטימי — כמו בסימון המסירה.
@@ -1184,15 +1240,21 @@ function PayPrefToggle({
   const isCash = (localPref ?? pref) === "CASH";
 
   async function switchTo(next: "CASH" | "CREDIT") {
-    if (!customerId || busy) return;
+    if (!orderId || busy) return;
 
     // ⚠️ מעבר לאשראי בלי כרטיס - חוסמים כאן ולא נותנים לשרת
     // להחזיר שגיאה, כי ההודעה שלו גנרית והנציג בשטח צריך לדעת
     // מה לעשות.
+    // §332: 💳 אין כרטיס — פותחים את הטופס במקום להודיע.
+    //
+    // 🐛 מה שהיה: הודעה "יש להזין מכרטיס הלקוח". הנציג בשטח
+    // קרא, יצא למסך אחר, הזין, וחזר — שלושה מסכים לפעולה אחת.
+    //
+    // ⚠️ והכרטיס נשמר **לתמיד** ללקוח, בניגוד לבחירת המזומן
+    // שהיא להזמנה בלבד. זו לא סתירה: כרטיס הוא אמצעי תשלום
+    // של הלקוח, ומזומן הוא החלטה על הזמנה.
     if (next === "CREDIT" && !hasCard) {
-      alert(
-        `ל${customerName} אין כרטיס שמור.\n\nיש להזין כרטיס מכרטיס הלקוח — עם השמירה הוא יעבור לאשראי אוטומטית.`
-      );
+      onNeedCard();
       return;
     }
 
@@ -1210,10 +1272,15 @@ function PayPrefToggle({
     setLocalPref(next);
     setBusy(true);
     try {
-      const res = await fetch("/api/agent/customer-payment-pref", {
-        method: "POST",
+      // §332: 🎯 **ההזמנה הזו בלבד.**
+      //
+      // 🐛 הבורר שינה את paymentPreference של הלקוח — לתמיד.
+      // לקוח שביקש מזומן פעם אחת נשאר מזומן גם בשבוע הבא,
+      // והכרטיס שלו הפסיק להיות מחויב.
+      const res = await fetch(`/api/agent/orders/${orderId}/payment-method`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId, preference: next }),
+        body: JSON.stringify({ paymentMethod: next }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "השינוי נכשל");
@@ -1227,7 +1294,7 @@ function PayPrefToggle({
     }
   }
 
-  if (readOnly || !customerId) {
+  if (readOnly || !orderId) {
     return (
       <span className="text-[10px] font-bold text-zinc-500">
         {isCash ? "💵" : "💳"}

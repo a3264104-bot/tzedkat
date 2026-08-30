@@ -1,4 +1,6 @@
 import Link from "next/link";
+// §333: כפתור חזרה — צעד אחד אחורה
+import BackButton from "@/components/BackButton";
 // §202: תוקף כרטיס האשראי
 import { canChargeCard, expiryMessage } from "@/lib/card-expiry-lib";
 import { redirect } from "next/navigation";
@@ -529,12 +531,18 @@ export default async function AgentOrderPage({
                 </div>
               </div>
             </div>
-            <Link
-              href="/agent"
-              className="shrink-0 text-xs font-bold text-white/80 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition-colors"
-            >
-              חזרה לנציג
-            </Link>
+            {/* §333: 🔙 חזרה **צעד אחד אחורה**, לא לדשבורד.
+                
+                🐛 מה שהיה: קישור קשיח ל-/agent. הנציג שהגיע
+                מטבלת המשקלים, הוסיף מוצר, ולחץ חזרה - נזרק
+                לדף הבית וצריך למצוא את המכירה מחדש.
+                
+                ⚠️ router.back() מחזיר למקום שהיה, ולא למקום
+                שמישהו החליט מראש שהוא הנכון.
+                
+                ⚠️ ורכיב נפרד כי זה Server Component - חזרה
+                דורשת JS בצד הלקוח. */}
+            <BackButton />
           </div>
 
           {/* §60: לקוח מזומן - אין דרישת כרטיס, הגבייה בחלוקה */}

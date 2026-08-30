@@ -317,6 +317,8 @@ export async function GET(
       // שמשלם באשראי - והנציג היה גובה ממנו במקום, בזמן
       // שהכרטיס עומד להיות מחויב.
       customerPaymentPreference: o.customer?.paymentPreference ?? null,
+      // §332: אמצעי התשלום **של ההזמנה** — גובר על העדפת הלקוח
+      paymentMethod: o.paymentMethod ?? null,
       // §322: לבורר אמצעי התשלום בטבלה
       customerId: o.customerId,
       hasCard: !!o.customer?.paymentToken,
