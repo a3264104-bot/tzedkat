@@ -167,14 +167,60 @@ export async function POST(req: Request) {
     },
   });
 
+  // §337: 🐛 **מוצר מחוץ למחירון נדחה — למרות שהמסך מציע אותו.**
+  //
+  // המסך בונה את הרשימה משני מקורות (§169): מוצרי המחירון,
+  // ומוצרים "מיוחדים" שאינם בו כלל. הנציג בחר אחד מהשניים,
+  // והשרת החזיר "המוצר אינו נכלל במכירה הזו".
+  //
+  // ⚠️ ואלה בדיוק המוצרים שהתכונה נועדה להם: פרימיום שהנציג
+  // מביא לפי בקשה, ושאינו במחירון הכללי.
+  //
+  // ⚠️ המחיר במקרה כזה הוא cartonPrice של המוצר עצמו — אותה
+  // נפילה שהמסך כבר עושה.
+  let product = pp?.product ?? null;
+  let basePrice: number | null = pp ? Number(pp.price ?? pp.product.cartonPrice) : null;
+
   if (!pp) {
+    const standalone = await prisma.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        name: true,
+        unit: true,
+        cartonPrice: true,
+        priceType: true,
+        saleType: true,
+        allowSingles: true,
+        singlesMode: true,
+        singleUnitPrice: true,
+        avgWeightPerUnit: true,
+        isActive: true,
+        isFavorite: true,
+      },
+    });
+
+    // ⚠️ רק מועדף או לא-פעיל: מוצר רגיל שאינו במחירון הושמט
+    // בכוונה, והוספתו הייתה עוקפת את החלטת המנהל.
+    if (!standalone || !(standalone.isFavorite || !standalone.isActive)) {
+      return NextResponse.json(
+        { error: "המוצר אינו נכלל במכירה הזו ולכן אין לו מחיר" },
+        { status: 400 }
+      );
+    }
+    product = standalone as any;
+    basePrice = Number(standalone.cartonPrice);
+  }
+
+  // ⚠️ שני התנאים יחד: TypeScript לא יכול לדעת ש-basePrice
+  // נקבע בכל מסלול שבו product קיים, והבדיקה המשותפת מבהירה
+  // לו — ומגנה גם אם מישהו יוסיף מסלול שלישי בעתיד.
+  if (!product || basePrice == null) {
     return NextResponse.json(
       { error: "המוצר אינו נכלל במכירה הזו ולכן אין לו מחיר" },
       { status: 400 }
     );
   }
-
-  const product = pp.product;
 
   if (isSingle && !product.allowSingles) {
     return NextResponse.json(
@@ -188,7 +234,7 @@ export async function POST(req: Request) {
     select: { singleSurcharge: true },
   });
 
-  const basePrice = Number(pp.price ?? product.cartonPrice);
+  // §337: basePrice כבר נקבע למעלה — כולל מוצר מחוץ למחירון.
   const unitPrice = effectiveUnitPrice(
     basePrice,
     isSingle,

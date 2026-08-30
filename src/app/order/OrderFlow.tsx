@@ -302,6 +302,12 @@ export function OrderFlow({
     () => products.filter((p) => p.isInactive || p.isFavorite),
     [products]
   );
+  // §336: מחירים מותאמים למוצרים מועדפים (§178).
+  //
+  // ⚠️ מוגדר **לפני** cartLines: החישוב תלוי בו, וב-JS
+  // const אינו עולה למעלה כמו function.
+  const [favPrices, setFavPrices] = useState<Record<string, string>>({});
+
   // ח4: cartLines — מפרק כל entry לשורה/שתיים (קרטונים + בודדים)
   type ComputedLine = {
     product: Product;
@@ -315,21 +321,47 @@ export function OrderFlow({
     for (const [id, entry] of Object.entries(cart)) {
       const p = products.find((x) => x.id === id);
       if (!p) continue;
+      // §336: 🐛 **המחיר המותאם לא נכנס לחישוב המוצג.**
+      //
+      // הנציג הקליד מחיר במוצר מועדף (§178), והסכום על המסך
+      // נשאר לפי המחירון. קרטון ובודדים נראו זהים כי שניהם
+      // התעלמו מהמחיר שהוא קבע.
+      //
+      // ⚠️ favPrices נשלח לשרת (§160) והשרת מכבד אותו — כלומר
+      // הלקוח חויב נכון, והנציג ראה מספר אחר. פער שקט שקשה
+      // לתפוס.
+      //
+      // ⚠️ המחיר המותאם הוא **לק"ג/ליחידה**, בדיוק כמו המחירון.
+      // הכפלה במשקל הקרטון נעשית ב-smartLineEstimate כרגיל.
+      const favRaw = favPrices[p.id];
+      const favNum =
+        favRaw != null && favRaw !== "" ? Number(favRaw) : null;
+      const favValid =
+        favNum != null && Number.isFinite(favNum) && favNum >= p.price
+          ? favNum
+          : null;
+
       // שורת קרטונים
       if (entry.cartonQty > 0) {
-        const up = effectiveUnitPrice(p.price, false, pricelist.singleSurcharge, p.singlesMode, p.singleUnitPrice);
+        const base = effectiveUnitPrice(p.price, false, pricelist.singleSurcharge, p.singlesMode, p.singleUnitPrice);
+        // ⚠️ המחיר המותאם גובר על המחירון, אבל **לא** על תוספת
+        // הבודדים: היא לא רלוונטית לקרטון.
+        const up = favValid ?? base;
         const lt = smartLineEstimate(up, entry.cartonQty, p.saleType, p.priceType, p.avgWeightPerUnit);
         lines.push({ product: p, isSingle: false, qty: entry.cartonQty, unitPrice: up, lineTotal: lt });
       }
       // שורת בודדים
       if (entry.singlesQty > 0) {
-        const up = effectiveUnitPrice(p.price, true, pricelist.singleSurcharge, p.singlesMode, p.singleUnitPrice);
+        const base = effectiveUnitPrice(p.price, true, pricelist.singleSurcharge, p.singlesMode, p.singleUnitPrice);
+        // ⚠️ בבודדים תוספת המחיר נשמרת גם על המחיר המותאם:
+        // ההפרש בין קרטון לבודדים הוא עלות אמיתית, ולא רווח.
+        const up = favValid != null ? favValid + (base - p.price) : base;
         const lt = Math.round(up * entry.singlesQty * 100) / 100;
         lines.push({ product: p, isSingle: true, qty: entry.singlesQty, unitPrice: up, lineTotal: lt });
       }
     }
     return lines;
-  }, [cart, products, pricelist.singleSurcharge]);
+  }, [cart, products, pricelist.singleSurcharge, favPrices]);
   // סה"כ מוצרים (בלי דמי הזמנה)
   const itemsSubtotal = cartLines.reduce((s, l) => s + (l.lineTotal ?? 0), 0);
   // דמי הזמנה (תוספת קבועה על כל הזמנה)
@@ -345,7 +377,6 @@ export function OrderFlow({
   // ⚠️ נפרד מ-cart בכוונה: cart מוחזק גם במצב עריכה ומגיע מהשרת,
   // ומחיר מותאם הוא החלטה של הנציג ברגע הזה. ערבוב היה גורם
   // למחיר להישמר בעריכה חוזרת בלי שהוא יתכוון.
-  const [favPrices, setFavPrices] = useState<Record<string, string>>({});
   // §172: בורר המוצרים המיוחדים - נפתח בלחיצה, ולא תופס מקום
   // ברשימה הרגילה.
   // §253: 🐛 **אי אפשר לערוך מוצר מועדף.**

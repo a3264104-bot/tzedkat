@@ -90,7 +90,39 @@ export async function GET(req: Request) {
     const candidates = Array.from(new Set([raw, digits, localPhone])).filter(Boolean);
     where = { OR: candidates.map((p) => ({ phone: p })) };
   } else {
-    where = { name: { contains: raw, mode: "insensitive" as const } };
+    // §338: 🐛 **חיפוש רב-מילים.**
+    //
+    // `contains` על המחרוזת השלמה: חיפוש "משה ניימן" לא מצא
+    // לקוח שנשמר "ניימן משה" — למרות ששתי המילים שם.
+    //
+    // ⚠️ והנציג בשטח מקליד את מה שהלקוח אומר לו, לא את מה
+    // שרשום במערכת. הוא חיפש, לא מצא, והקים אותו מחדש —
+    // וכך נוצרו כפילויות.
+    //
+    // ⚠️ AND בין המילים ו-OR בין השדות: "משה ניימן" עם OR היה
+    // מחזיר את כל המשהים ואת כל הניימנים.
+    //
+    // ⚠️ אותו דפוס של §251 במסך הלקוחות — מקום אחד שכבר עשה
+    // את זה נכון, וזה לא הגיע לכאן.
+    const words = raw.split(/\s+/).filter((w) => w.length > 0);
+
+    const wordFilter = (w: string) => ({
+      OR: [
+        { name: { contains: w, mode: "insensitive" as const } },
+        // ⚠️ גם lastName: 386 לקוחות פוצלו (§184), ומי שחיפש
+        // רק לפי שם משפחה לא נמצא כי name מכיל את השם המלא.
+        { lastName: { contains: w, mode: "insensitive" as const } },
+        { firstName: { contains: w, mode: "insensitive" as const } },
+        // ⚠️ והטלפון: הנציג מקליד "ניימן 0527" ומצפה שיימצא.
+        { phone: { contains: w } },
+        { phone2: { contains: w } },
+      ],
+    });
+
+    where =
+      words.length > 0
+        ? { AND: words.map(wordFilter) }
+        : { name: { contains: raw, mode: "insensitive" as const } };
   }
 
   const rows = await prisma.customer.findMany({
