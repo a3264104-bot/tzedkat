@@ -80,6 +80,8 @@ type Cell = {
   unitPrice: number;
   /** §339: מוצר מועדף — ניתן לשנות מחיר עד החיוב */
   isFavorite?: boolean;
+  /** §342: לא-פעיל — משמש בפועל כ"מועדף" */
+  isInactive?: boolean;
   agentSetPrice?: number | null;
   estimatedWeight: number | null;
   agentEnteredWeight: number | null;
@@ -224,13 +226,33 @@ export function WeightsTable({
             // יחידה w הוא null - כלומר הסכום שלו נעלם מסה"כ
             // ההזמנה. הלקוח היה מחויב פחות ממה שהזמין.
             // §268: אם הנציג הזין כמות בפועל - היא גוברת.
+            // §344: 🐛 **המחיר המותאם לא נכנס לסה״כ בטבלה.**
+            //
+            // הנציג שינה מחיר במוצר מועדף (§339), השרת שמר
+            // וחישב — והטבלה המשיכה להכפיל ב-unitPrice, כלומר
+            // במחירון.
+            //
+            // ⚠️ הוא ראה "נשמר ✓" והסכום בשורה לא זז, למרות
+            // שהחיוב עצמו כן היה נכון.
+            //
+            // ⚠️ agentSetPrice גובר על unitPrice — בדיוק כמו
+            // בשרת (commission-lib, recomputeOrderTotal).
+            const effPrice =
+              (it as any).agentSetPrice != null
+                ? Number((it as any).agentSetPrice)
+                : it.unitPrice;
+
             if (noWeighing) {
               const actual = w ?? it.quantity;
-              total += actual * it.unitPrice;
+              total += actual * effPrice;
             }
             else missing++;
           } else {
-            total += w * it.unitPrice;
+            const effPrice =
+              (it as any).agentSetPrice != null
+                ? Number((it as any).agentSetPrice)
+                : it.unitPrice;
+            total += w * effPrice;
           }
           cells.push({
             itemId: it.id,
@@ -256,6 +278,7 @@ export function WeightsTable({
             unitPrice: it.unitPrice,
             // §339: לעריכת מחיר מותאם מהטבלה
             isFavorite: !!(it as any).isFavorite,
+            isInactive: !!(it as any).isInactive,
             agentSetPrice: (it as any).agentSetPrice ?? null,
             estimatedWeight: it.estimatedWeight,
             agentEnteredWeight: w ?? null,
@@ -926,7 +949,9 @@ function WeightCell({
             cell.agentSetPrice != null ? Number(cell.agentSetPrice) : null
           }
           quantity={Number(cell.orderedQty)}
-          isFavorite={!!cell.isFavorite}
+          // §342: מועדף **או** לא-פעיל — שניהם "מוצרים
+          // שאינם באתר", ובפועל רק השני בשימוש.
+          isFavorite={!!(cell.isFavorite || cell.isInactive)}
           locked={!!readOnly}
         />
       </div>
