@@ -49,6 +49,11 @@ export async function PATCH(
           // §339: לאימות שינוי מחיר — רק מוצר מועדף
           isFavorite: true,
           cartonPrice: true,
+          // §343: לחישוב estimatedPrice מחדש אחרי שינוי מחיר —
+          // קרטון שנמכר לפי ק"ג מוכפל במשקל הקרטון.
+          saleType: true,
+          priceType: true,
+          avgWeightPerUnit: true,
           singlesMode: true,
           singleUnitPrice: true,
           singleSurcharge: true,
@@ -219,12 +224,44 @@ export async function PATCH(
       item.agentEnteredWeight != null
         ? Number(item.agentEnteredWeight)
         : Number(item.actualWeight ?? 0);
+    const effective =
+      data.agentSetPrice != null
+        ? Number(data.agentSetPrice)
+        : Number(item.unitPrice);
+
     if (w > 0 && !item.isCancelled) {
-      const effective =
-        data.agentSetPrice != null
-          ? Number(data.agentSetPrice)
-          : Number(item.unitPrice);
       data.finalPrice = Math.round(w * effective * 100) / 100;
+    }
+
+    // §343: 🐛 **estimatedPrice לא התעדכן.**
+    //
+    // הנציג שינה מחיר, השרת שמר את agentSetPrice וחישב
+    // finalPrice — אבל estimatedPrice נשאר מהמחיר הישן.
+    //
+    // ⚠️ ו-estimatedPrice הוא מה שמוצג **לפני השקילה**, וגם
+    // מה ש-estimatedTotal של ההזמנה מסתכם ממנו. הנציג ראה
+    // מחיר שנשמר, וסכום שלא זז.
+    //
+    // ⚠️ אותה נוסחה של ההוספה (§119): כמות × מחיר, ובקרטון
+    // שנמכר לפי ק"ג — כפול משקל הקרטון.
+    if (!item.isCancelled) {
+      const qty = Number(item.quantity);
+      const avgW =
+        item.product?.avgWeightPerUnit != null
+          ? Number(item.product.avgWeightPerUnit)
+          : null;
+
+      // ⚠️ קרטון לפי ק"ג: הכמות היא קרטונים, והמחיר לק"ג.
+      const est =
+        !item.isSingle &&
+        item.product?.saleType === "PACKAGE" &&
+        item.product?.priceType === "PER_KG" &&
+        avgW != null &&
+        avgW > 0
+          ? qty * avgW * effective
+          : qty * effective;
+
+      data.estimatedPrice = Math.round(est * 100) / 100;
     }
   }
 
@@ -303,6 +340,35 @@ export async function PATCH(
   // משקף את ההזמנה, והחיוב היה יוצא שגוי - הבאג שכבר תוקן פעם
   // בצד המנהל.
   await recomputeOrderTotal(item.order.id);
+
+  // §343: 🧮 **estimatedTotal מחושב מחדש.**
+  //
+  // recomputeOrderTotal מטפל ב-finalTotal בלבד, ורק כשכל
+  // הפריטים נשקלו. שינוי מחיר לפני שקילה השאיר את
+  // estimatedTotal מהמחיר הישן — והנציג ראה סכום שלא זז.
+  //
+  // ⚠️ כולל דמי הטיפול: הם חלק מ-estimatedTotal מרגע ההזמנה
+  // (§245), והשמטתם כאן הייתה מקטינה את הסכום בכל שינוי מחיר.
+  if ("agentSetPrice" in body) {
+    const all = await prisma.orderItem.findMany({
+      where: { orderId: item.order.id, isCancelled: false },
+      select: { estimatedPrice: true },
+    });
+    const sum = all.reduce((a, i) => a + Number(i.estimatedPrice ?? 0), 0);
+    const pl = item.order.pricelistId
+      ? await prisma.pricelist.findUnique({
+          where: { id: item.order.pricelistId },
+          select: { orderFee: true },
+        })
+      : null;
+    await prisma.order.update({
+      where: { id: item.order.id },
+      data: {
+        estimatedTotal:
+          Math.round((sum + Number(pl?.orderFee ?? 0)) * 100) / 100,
+      },
+    });
+  }
 
   // §299: 🐌 **סיכום הנציג מחושב מחדש בכל תא.**
   //
