@@ -444,19 +444,17 @@ export function WeightsTable({
                   ⚠️ שני סימונים שונים: "טופל" = סיימתי לשקול.
                   "נמסר" = הלקוח הגיע ולקח. הזמנה יכולה להיות
                   שקולה ולא נמסרה, ולהפך. */}
-              {/* §340: 🐛 עמודת "נמסר" **לא הייתה דביקה**.
+              {/* §341: "נמסר" **לא דביקה** — ובכוונה.
                   
-                  "טופל" מוצמדת לשמאל (sticky), ו"נמסר" גללה עם
-                  הטבלה. הנציג ניסה ללחוץ, גלל מעט, והכפתור
-                  נעלם מתחת לעמודה הדביקה.
+                  §340 הצמיד אותה לשמאל כדי שלא תיעלם, ואז שלוש
+                  עמודות דביקות תפסו שליש מהמסך בנייד — והבורר
+                  💵/💳 נדחס מתחתן.
                   
-                  ⚠️ left-[80px] — בדיוק ברוחב "טופל", כדי ששתי
-                  העמודות ייצמדו זו לצד זו ולא יחפפו. */}
-              <th className="sticky left-[80px] z-10 bg-zinc-100 px-2 py-2 min-w-[60px] border-l border-zinc-200 text-[11px] font-bold text-zinc-600">
-                נמסר
-              </th>
-              <th className="sticky left-0 z-10 bg-zinc-100 px-3 py-2 min-w-[80px] border-r-2 border-zinc-300 text-[11px] font-bold text-zinc-600">
-                טופל
+                  ⚠️ הפתרון הנכון: לאחד אותה עם "טופל" לעמודה
+                  אחת. שתי פעולות על אותו לקוח, זו לצד זו,
+                  ובלי לגזול רוחב נוסף. */}
+              <th className="sticky left-0 z-10 bg-zinc-100 px-1.5 py-2 min-w-[80px] border-r-2 border-zinc-300 text-[11px] font-bold text-zinc-600">
+                מסירה
               </th>
             </tr>
           </thead>
@@ -640,28 +638,37 @@ export function WeightsTable({
                 </td>
 
                 {/* §323: 📦 סימון מסירה — אותה פעולה של הכרטיסים. */}
-                {/* §340: דביקה כמו הכותרת — אחרת הן מתפצלות
-                    בגלילה והתא נעלם מתחת לעמודה השכנה. */}
-                <td className="sticky left-[80px] z-10 bg-inherit px-2 py-2 border-l border-zinc-200 text-center">
-                  <DeliverCell
-                    orderId={r.orderId}
-                    customerName={r.customerName}
-                    deliveredAt={r.deliveredAt}
-                    readOnly={readOnly}
-                    onDone={onNeedsReload}
-                  />
-                </td>
-
-                <td className="sticky left-0 z-10 bg-inherit px-2 py-2 border-r-2 border-zinc-300 text-center">
-                  <CloseOrderCheck
-                    orderId={r.orderId}
-                    orderNumber={r.orderNumber}
-                    customerName={r.customerName}
-                    missing={r.missing}
-                    closedAt={r.agentClosedAt}
-                    readOnly={readOnly}
-                    onDone={onNeedsReload}
-                  />
+                {/* §341: 📦✓ שתי הפעולות בעמודה אחת.
+                    
+                    §323 הוסיף עמודת "נמסר", §340 הצמיד אותה —
+                    ואז שלוש עמודות דביקות תפסו שליש מהמסך
+                    בנייד, והבורר 💵/💳 נדחס.
+                    
+                    ⚠️ שתי הפעולות קורות על אותו לקוח באותו רגע:
+                    הוא מגיע, מקבל, וסוגרים. עמודה אחת עם שני
+                    כפתורים זה בדיוק המבנה הנכון.
+                    
+                    ⚠️ ורוחב 80px נשאר — שני כפתורים של 28px
+                    ורווח ביניהם. */}
+                <td className="sticky left-0 z-10 bg-inherit px-1.5 py-2 border-r-2 border-zinc-300">
+                  <div className="flex items-center justify-center gap-1">
+                    <DeliverCell
+                      orderId={r.orderId}
+                      customerName={r.customerName}
+                      deliveredAt={r.deliveredAt}
+                      readOnly={readOnly}
+                      onDone={onNeedsReload}
+                    />
+                    <CloseOrderCheck
+                      orderId={r.orderId}
+                      orderNumber={r.orderNumber}
+                      customerName={r.customerName}
+                      missing={r.missing}
+                      closedAt={r.agentClosedAt}
+                      readOnly={readOnly}
+                      onDone={onNeedsReload}
+                    />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -1467,7 +1474,11 @@ function DeliverCell({
       onClick={toggle}
       disabled={busy}
       title={delivered ? "בטל סימון מסירה" : "סמן שנמסר ללקוח"}
-      className={`w-7 h-7 rounded-lg font-bold text-sm transition-colors disabled:opacity-40 ${
+      // §341: 28px — שני כפתורים ורווח נכנסים ב-80px.
+      //
+      // ⚠️ וזה עדיין מעל המינימום למגע (24px), שחשוב לנציג
+      // עם ידיים רטובות מהבשר.
+      className={`w-7 h-7 shrink-0 rounded-lg font-bold text-sm transition-colors disabled:opacity-40 ${
         delivered
           ? "bg-emerald-600 text-white"
           : "bg-white border-2 border-zinc-300 text-zinc-300 hover:border-emerald-400"
