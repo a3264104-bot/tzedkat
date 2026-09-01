@@ -136,6 +136,8 @@ export async function GET(
               singleUnitPrice: true,
               singleSurcharge: true,
               avgWeightPerUnit: true,
+              // §339: מוצר מועדף — לעריכת מחיר מהכרטיסים
+              isFavorite: true,
               imageUrl: true,
               // §138: 🐛 saleType לא נשלף, ולכן הבדיקה בטבלה
               // (product?.saleType === "UNIT") הייתה תמיד
@@ -373,6 +375,8 @@ export async function GET(
         // §119: המחיר שהנציג קבע במוצר מועדף. בלעדיו החישוב
         // בקליינט לעולם לא יופעל, והעמלה תישאר בכלל הרגיל.
         agentSetPrice: it.agentSetPrice != null ? Number(it.agentSetPrice) : null,
+        // §339: מוצר מועדף — לעריכת מחיר מהכרטיסים
+        isFavorite: !!it.product?.isFavorite,
         agentNote: it.agentNote,
         isCancelled: it.isCancelled,
         originalProductId: it.originalProductId,

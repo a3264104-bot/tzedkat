@@ -2,6 +2,8 @@
 
 // §20: שורת הזמנה של לקוח - עם עריכת משקלים, הערות, החלפה וביטול
 import { useState } from "react";
+// §339: עריכת מחיר במוצר מועדף
+import FavoritePriceEditor from "@/components/FavoritePriceEditor";
 import Link from "next/link";
 import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
 import { AddOrderItem } from "@/components/AddOrderItem";
@@ -490,6 +492,26 @@ function ItemRow({
                 
                 ⚠️ והחזרה אפשרית: לקוח שהתחרט לא דורש הקמה
                 מחדש של הפריט. */}
+            {/* §339: ⭐ מחיר מותאם — גם בכרטיסים.
+                
+                זה המסך שבו הנציג עובד בחלוקה, ומעבר למסך
+                ההזמנה על כל תיקון מחיר לא יקרה. */}
+            <FavoritePriceEditor
+              itemId={item.id}
+              productName={item.productName}
+              unitPrice={Number(item.unitPrice)}
+              agentSetPrice={
+                (item as any).agentSetPrice != null
+                  ? Number((item as any).agentSetPrice)
+                  : null
+              }
+              quantity={Number(item.quantity)}
+              isFavorite={!!(item as any).isFavorite}
+              // ⚠️ readOnly לבדו: ההורה כבר מחשב אותו מהסטטוס
+              // (§262 — נעילה לפי חיוב), ו-ItemRow אינו מקבל
+              // את ההזמנה עצמה.
+              locked={!!readOnly}
+            />
             {!readOnly && (
               <button
                 onClick={() => {

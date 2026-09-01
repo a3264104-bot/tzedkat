@@ -3,6 +3,8 @@ import Link from "next/link";
 import BackButton from "@/components/BackButton";
 // §315: ביטול פריט — רכיב משותף לשלושת המסכים
 import CancelItemButton from "@/components/CancelItemButton";
+// §339: עריכת מחיר במוצר מועדף
+import FavoritePriceEditor from "@/components/FavoritePriceEditor";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -45,7 +47,15 @@ export default async function AgentOrderDetailPage({
   const order = await prisma.order.findUnique({
     where: { id },
     include: {
-      items: true,
+      // §339: product.isFavorite — לעריכת מחיר מותאם.
+      //
+      // ⚠️ items: true החזיר את הפריטים בלי המוצר, ולכן המסך
+      // לא ידע אילו מהם מועדפים.
+      items: {
+        include: {
+          product: { select: { isFavorite: true } },
+        },
+      },
       customer: {
         select: {
           id: true,
@@ -420,6 +430,31 @@ export default async function AgentOrderDetailPage({
                       
                       ⚠️ נעול אחרי המייל (§309): הלקוח מחזיק
                       בידו סכום, וביטול פריט משנה אותו. */}
+                  {/* §339: ⭐ מחיר מותאם — מוצר מועדף בלבד.
+                      
+                      הנציג הוסיף, ואז הלקוח ביקש כמות אחרת או
+                      סוכם מחיר שונה. עד היום היה צריך למחוק
+                      ולהוסיף מחדש.
+                      
+                      ⚠️ נעול אחרי חיוב או שליחת מייל: שינוי
+                      מחיר אז יוצר פער בין מה ששולם לרשום. */}
+                  <FavoritePriceEditor
+                    itemId={it.id}
+                    productName={it.productName}
+                    unitPrice={Number(it.unitPrice)}
+                    agentSetPrice={
+                      (it as any).agentSetPrice != null
+                        ? Number((it as any).agentSetPrice)
+                        : null
+                    }
+                    quantity={Number(it.quantity)}
+                    isFavorite={!!(it as any).product?.isFavorite}
+                    locked={
+                      !!(order as any).weightsLockedAt ||
+                      order.paymentStatus === "PAID" ||
+                      order.paymentStatus === "PARTIALLY_PAID"
+                    }
+                  />
                   <CancelItemButton
                     itemId={it.id}
                     productName={it.productName}

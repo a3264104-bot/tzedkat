@@ -49,7 +49,9 @@ export type OrderItem = {
   // §119: מחיר שהנציג קבע במוצר מועדף. null = לא נקבע, וחלים
   // כללי העמלה הרגילים.
   agentSetPrice?: number | null;
-  agentNote: string | null;
+
+  /** §339: מוצר מועדף — ניתן לשנות מחיר עד החיוב */
+  isFavorite?: boolean;  agentNote: string | null;
   isCancelled: boolean;
   originalProductId: string | null;
   product: Product;

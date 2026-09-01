@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+// §339: עריכת מחיר במוצר מועדף
+import FavoritePriceEditor from "@/components/FavoritePriceEditor";
 // §296: מקור אמת יחיד לפריסה
 import { INSTALLMENT_OPTIONS } from "@/lib/installments-lib";
 // §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
@@ -786,6 +788,27 @@ export default function OrderDetail() {
                   </td>
                   <td className="no-print">
                     {/* §315: הכפתור משתנה לפי המצב — ביטול או החזרה. */}
+                    {/* §339: ⭐ מחיר מותאם — גם למנהל.
+                        
+                        הוא זה שמתקן טעויות של נציגים, ומסך
+                        ההזמנה שלו הוא המקום שבו הוא עושה את זה. */}
+                    <FavoritePriceEditor
+                      itemId={it.id}
+                      productName={it.productName}
+                      unitPrice={Number(it.unitPrice)}
+                      agentSetPrice={
+                        it.agentSetPrice != null
+                          ? Number(it.agentSetPrice)
+                          : null
+                      }
+                      quantity={Number(it.quantity)}
+                      isFavorite={!!it.product?.isFavorite}
+                      locked={
+                        !!order.weightsLockedAt ||
+                        order.paymentStatus === "PAID" ||
+                        order.paymentStatus === "PARTIALLY_PAID"
+                      }
+                    />
                     <button
                       onClick={() => removeItem(it.id, !!it.isCancelled)}
                       className={`text-sm font-bold ${

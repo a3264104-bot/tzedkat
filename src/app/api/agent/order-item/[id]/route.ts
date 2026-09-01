@@ -36,6 +36,8 @@ export async function PATCH(
           pointId: true,
           pricelistId: true,
           status: true,
+          // §339: מצב התשלום — חוסם שינוי מחיר אחרי חיוב
+          paymentStatus: true,
           // §309: נעילה אחרי שליחת המייל
           weightsLockedAt: true,
         },
@@ -44,6 +46,8 @@ export async function PATCH(
         select: {
           id: true,
           name: true,
+          // §339: לאימות שינוי מחיר — רק מוצר מועדף
+          isFavorite: true,
           cartonPrice: true,
           singlesMode: true,
           singleUnitPrice: true,
@@ -150,6 +154,78 @@ export async function PATCH(
   // הערת נציג
   if ("agentNote" in body) {
     data.agentNote = body.agentNote ? String(body.agentNote).trim() : null;
+  }
+
+  // §339: 💰 **שינוי מחיר במוצר מועדף — אחרי ההוספה.**
+  //
+  // הצורך: הנציג הוסיף מוצר מועדף, ואז הלקוח ביקש כמות אחרת
+  // או שהוא סיכם מחיר שונה. עד היום הדרך היחידה הייתה למחוק
+  // את הפריט ולהוסיף מחדש.
+  //
+  // ⚠️ **רק מוצר מועדף**: זו כל מהות התכונה (§119). מוצר רגיל
+  // מתומחר לפי המחירון, ופתיחת עריכה שם הייתה נותנת לנציג
+  // לקבוע מחירים שרירותיים.
+  //
+  // ⚠️ **העלאה בלבד**: הורדה מתחת למחירון פוגעת בהכנסה של
+  // המכירה, לא בעמלה של הנציג.
+  //
+  // ⚠️ **עד החיוב**: אחרי שהכסף נגבה, שינוי מחיר יוצר פער בין
+  // מה שהלקוח שילם למה שרשום — וזה בדיוק סוג הפער שאי אפשר
+  // לתקן בדיעבד.
+  if ("agentSetPrice" in body) {
+    if (!item.product?.isFavorite) {
+      return NextResponse.json(
+        { error: "ניתן לקבוע מחיר מותאם רק במוצר מועדף" },
+        { status: 400 }
+      );
+    }
+
+    const ps = (item.order as any)?.paymentStatus;
+    if (ps === "PAID" || ps === "PARTIALLY_PAID" || ps === "CHARGING") {
+      return NextResponse.json(
+        { error: "ההזמנה כבר חויבה — לא ניתן לשנות מחיר" },
+        { status: 400 }
+      );
+    }
+
+    const raw = body.agentSetPrice;
+    if (raw === null || raw === "") {
+      // ⚠️ ניקוי מפורש: חזרה למחיר המחירון.
+      data.agentSetPrice = null;
+    } else {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n <= 0) {
+        return NextResponse.json(
+          { error: "מחיר לא תקין" },
+          { status: 400 }
+        );
+      }
+      // ⚠️ unitPrice הוא מחיר המחירון שנשמר על הפריט בהוספה.
+      const floor = Number(item.unitPrice);
+      if (n < floor) {
+        return NextResponse.json(
+          {
+            error: `לא ניתן לקבוע מחיר נמוך מהמחירון (${floor.toFixed(2)} ₪)`,
+          },
+          { status: 400 }
+        );
+      }
+      data.agentSetPrice = n;
+    }
+
+    // ⚠️ המחיר הסופי מחושב מחדש: הפריט כבר נשקל, והסכום
+    // שנשמר מבוסס על המחיר הישן.
+    const w =
+      item.agentEnteredWeight != null
+        ? Number(item.agentEnteredWeight)
+        : Number(item.actualWeight ?? 0);
+    if (w > 0 && !item.isCancelled) {
+      const effective =
+        data.agentSetPrice != null
+          ? Number(data.agentSetPrice)
+          : Number(item.unitPrice);
+      data.finalPrice = Math.round(w * effective * 100) / 100;
+    }
   }
 
   // ביטול פריט
