@@ -444,7 +444,15 @@ export function WeightsTable({
                   ⚠️ שני סימונים שונים: "טופל" = סיימתי לשקול.
                   "נמסר" = הלקוח הגיע ולקח. הזמנה יכולה להיות
                   שקולה ולא נמסרה, ולהפך. */}
-              <th className="px-2 py-2 min-w-[60px] border-l border-zinc-200 text-[11px] font-bold text-zinc-600">
+              {/* §340: 🐛 עמודת "נמסר" **לא הייתה דביקה**.
+                  
+                  "טופל" מוצמדת לשמאל (sticky), ו"נמסר" גללה עם
+                  הטבלה. הנציג ניסה ללחוץ, גלל מעט, והכפתור
+                  נעלם מתחת לעמודה הדביקה.
+                  
+                  ⚠️ left-[80px] — בדיוק ברוחב "טופל", כדי ששתי
+                  העמודות ייצמדו זו לצד זו ולא יחפפו. */}
+              <th className="sticky left-[80px] z-10 bg-zinc-100 px-2 py-2 min-w-[60px] border-l border-zinc-200 text-[11px] font-bold text-zinc-600">
                 נמסר
               </th>
               <th className="sticky left-0 z-10 bg-zinc-100 px-3 py-2 min-w-[80px] border-r-2 border-zinc-300 text-[11px] font-bold text-zinc-600">
@@ -632,7 +640,9 @@ export function WeightsTable({
                 </td>
 
                 {/* §323: 📦 סימון מסירה — אותה פעולה של הכרטיסים. */}
-                <td className="px-2 py-2 border-l border-zinc-200 text-center">
+                {/* §340: דביקה כמו הכותרת — אחרת הן מתפצלות
+                    בגלילה והתא נעלם מתחת לעמודה השכנה. */}
+                <td className="sticky left-[80px] z-10 bg-inherit px-2 py-2 border-l border-zinc-200 text-center">
                   <DeliverCell
                     orderId={r.orderId}
                     customerName={r.customerName}
