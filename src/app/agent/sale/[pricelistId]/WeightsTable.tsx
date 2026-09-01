@@ -792,8 +792,24 @@ function WeightCell({
   // ⚠️ הנציג חייב לאשר גם יחידות: "4 יח׳" ב-placeholder הוא
   // הצעה, לא אישור. בלי הזנה מפורשת אין לדעת אם קיבל 4 או 3.
   const isMissing = cell.agentEnteredWeight === null;
+
+  // §344: המחיר המותאם גובר גם **בתא**.
+  //
+  // §344 תיקן את הסכום הכולל, והתא עצמו המשיך להכפיל
+  // ב-unitPrice — כלומר הסכום למעלה תאם לחיוב, והשורה
+  // בתא הראתה מספר אחר.
+  //
+  // ⚠️ שני חישובים לאותו דבר בקובץ אחד: זה בדיוק הדפוס
+  // שיוצר פערים שקטים.
+  const effPrice =
+    cell.agentSetPrice != null
+      ? Number(cell.agentSetPrice)
+      : cell.unitPrice;
+
   const lineTotal =
-    cell.agentEnteredWeight !== null ? cell.agentEnteredWeight * cell.unitPrice : 0;
+    cell.agentEnteredWeight !== null
+      ? cell.agentEnteredWeight * effPrice
+      : 0;
 
   // §326: ביטול הפריט — אותה פעולה של הכרטיסים (§302).
   //
@@ -824,8 +840,20 @@ function WeightCell({
     }
   }
 
-  async function save() {
-    const raw = val.trim();
+  // §345: 🐛 **save() קרא את val הישן.**
+  //
+  // המשבצות המפוצלות (§301) קראו setVal ואז setTimeout(save, 0)
+  // בהנחה שה-state יתעדכן בינתיים. ב-React 18 עדכוני state
+  // מקובצים ולא מובטח שיסתיימו בתוך טיק אחד — ולכן save שמר את
+  // הערך מלפני ההקלדה.
+  //
+  // התוצאה בשטח: הנציג מילא משבצת ראשונה, עבר לשנייה, והראשונה
+  // נשמרה בלבד. השנייה "לא נתפסה".
+  //
+  // ⚠️ override מפורש: מי שיודע מה הערך מעביר אותו, ומי שלא
+  // נופל ל-state כרגיל. אין הסתמכות על תזמון.
+  async function save(override?: string) {
+    const raw = (override ?? val).trim();
 
     // §141: 🐛 מחיקת משקל לא נשמרה.
     //
@@ -1007,9 +1035,11 @@ function WeightCell({
                     0
                   );
                   const rounded = Math.round(sum * 100) / 100;
-                  setVal(rounded > 0 ? String(rounded) : "");
-                  // ⚠️ setTimeout כדי ש-val יתעדכן לפני save().
-                  setTimeout(() => save(), 0);
+                  const next = rounded > 0 ? String(rounded) : "";
+                  setVal(next);
+                  // §345: מעבירים את הערך ישירות — בלי להסתמך
+                  // על כך ש-setVal יסתיים לפני save().
+                  save(next);
                 }}
                 placeholder={`ק"ג`}
                 className="w-full text-center font-bold text-base md:text-sm rounded py-1.5 md:py-1 border-2 border-zinc-200 focus:border-brand-rust"
@@ -1039,7 +1069,9 @@ function WeightCell({
         disabled={readOnly || saving}
         value={val}
         onChange={(e) => setVal(e.target.value)}
-        onBlur={save}
+        // §345: עוטפים — React מעביר את אירוע ה-blur כפרמטר,
+        // ו-save היה מקבל אותו כ-override ומנסה לפרסר.
+        onBlur={() => save()}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();

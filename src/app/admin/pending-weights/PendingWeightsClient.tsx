@@ -308,8 +308,13 @@ function TableRow({
   const validWeight = !isNaN(currentWeight) && currentWeight > 0;
   const finalPrice = validWeight ? currentWeight * row.unitPrice : 0;
 
-  async function saveWeight() {
-    const w = parseFloat(weightVal);
+  // §345: 🐛 override מפורש — אותו באג של הטבלה.
+  //
+  // המשבצות המפוצלות קראו setWeightVal ואז setTimeout(save, 0).
+  // ב-React 18 העדכון לא מובטח בטיק אחד, והשמירה קלטה את הערך
+  // הישן — כלומר משבצת שנייה "לא נתפסה".
+  async function saveWeight(override?: string) {
+    const w = parseFloat(override ?? weightVal);
     if (isNaN(w) || w <= 0) {
       // ערך לא תקין - איפוס
       setWeightVal("");
@@ -405,7 +410,11 @@ function TableRow({
                 : null
             }
             quantity={Number(row.quantity)}
-            isFavorite={!!(row as any).isFavorite}
+            // §342: מועדף או לא-פעיל
+            isFavorite={
+              !!((row as any).isFavorite ||
+                (row as any).isInactive)
+            }
             locked={false}
           />
           {row.isSingle && (
@@ -487,10 +496,10 @@ function TableRow({
                       0
                     );
                     const r = Math.round(sum * 100) / 100;
-                    setWeightVal(r > 0 ? String(r) : "");
-                    // ⚠️ setTimeout כדי ש-weightVal יתעדכן לפני
-                    // שהשמירה קוראת אותו.
-                    setTimeout(() => saveWeight(), 0);
+                    const next = r > 0 ? String(r) : "";
+                    setWeightVal(next);
+                    // §345: הערך עובר ישירות, בלי תלות בתזמון.
+                    saveWeight(next);
                   }}
                   disabled={saving}
                   placeholder="0.00"
@@ -515,7 +524,9 @@ function TableRow({
           min="0"
           value={weightVal}
           onChange={(e) => setWeightVal(e.target.value)}
-          onBlur={saveWeight}
+          // §345: עוטפים — אחרת React מעביר את אירוע ה-blur
+          // כפרמטר override, והשמירה מנסה לפרסר אותו כמספר.
+          onBlur={() => saveWeight()}
           onKeyDown={handleKey}
           disabled={saving}
           data-weight-idx={rowIdx}
