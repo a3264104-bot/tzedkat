@@ -7,6 +7,8 @@
 // - שמירה אוטומטית ב-onBlur + Tab/Enter לשדה הבא
 
 import { useMemo, useRef, useState } from "react";
+// §339: עריכת מחיר במוצר מועדף
+import FavoritePriceEditor from "@/components/FavoritePriceEditor";
 import Link from "next/link";
 
 type Row = {
@@ -23,6 +25,9 @@ type Row = {
   isSingle: boolean;
   /** §312: PACKAGE = קרטון · UNIT/WEIGHT = יחידות */
   saleType?: string | null;
+  /** §339: מוצר מועדף — ניתן לשנות מחיר עד החיוב */
+  isFavorite?: boolean;
+  agentSetPrice?: number | null;
   quantity: number;
   unitPrice: number;
   estimatedWeight: number | null;
@@ -386,6 +391,23 @@ function TableRow({
           >
             {row.productName}
           </span>
+          {/* §339: ⭐ מחיר מותאם — גם במסך המשקלים של המנהל.
+              
+              הוא זה שמתקן טעויות של נציגים, וכאן הוא רואה את
+              כל הפריטים הממתינים במקום אחד. */}
+          <FavoritePriceEditor
+            itemId={row.id}
+            productName={row.productName}
+            unitPrice={Number((row as any).unitPrice ?? 0)}
+            agentSetPrice={
+              (row as any).agentSetPrice != null
+                ? Number((row as any).agentSetPrice)
+                : null
+            }
+            quantity={Number(row.quantity)}
+            isFavorite={!!(row as any).isFavorite}
+            locked={false}
+          />
           {row.isSingle && (
             <span className="text-[9px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded font-bold">
               בודדים

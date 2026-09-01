@@ -25,6 +25,8 @@
 //     מ"שכחתי למלא", ורק ההבחנה הזו מאפשרת לחסום את השני.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+// §339: עריכת מחיר במוצר מועדף
+import FavoritePriceEditor from "@/components/FavoritePriceEditor";
 // §332: טופס הכרטיס — נפתח מהבורר בטבלה
 import { UpdateCardModal } from "@/components/UpdateCardButton";
 // §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
@@ -76,6 +78,9 @@ type Cell = {
   noWeighing: boolean;
   orderedQty: number;
   unitPrice: number;
+  /** §339: מוצר מועדף — ניתן לשנות מחיר עד החיוב */
+  isFavorite?: boolean;
+  agentSetPrice?: number | null;
   estimatedWeight: number | null;
   agentEnteredWeight: number | null;
 };
@@ -249,6 +254,9 @@ export function WeightsTable({
             }),
             orderedQty: it.quantity,
             unitPrice: it.unitPrice,
+            // §339: לעריכת מחיר מותאם מהטבלה
+            isFavorite: !!(it as any).isFavorite,
+            agentSetPrice: (it as any).agentSetPrice ?? null,
             estimatedWeight: it.estimatedWeight,
             agentEnteredWeight: w ?? null,
           });
@@ -887,7 +895,24 @@ function WeightCell({
       >
         {cell.productName}
       </div>
-      <div className="text-[9px] text-zinc-500 leading-none">{cell.ordered}</div>
+      <div className="text-[9px] text-zinc-500 leading-none flex items-center gap-1">
+        <span>{cell.ordered}</span>
+        {/* §339: ⭐ מחיר מותאם — כאן הנציג עובד בחלוקה.
+            
+            מעבר למסך ההזמנה על כל תיקון מחיר לא יקרה בזמן
+            שלקוחות מחכים. */}
+        <FavoritePriceEditor
+          itemId={cell.itemId}
+          productName={cell.productName}
+          unitPrice={Number(cell.unitPrice)}
+          agentSetPrice={
+            cell.agentSetPrice != null ? Number(cell.agentSetPrice) : null
+          }
+          quantity={Number(cell.orderedQty)}
+          isFavorite={!!cell.isFavorite}
+          locked={!!readOnly}
+        />
+      </div>
 
       {/* §137: מוצר שנמכר ביחידות - המשקל ידוע מהאריזה, ואין
           שדה למלא. הצגת שדה ריק הייתה גורמת לנציג לחפש משקולת

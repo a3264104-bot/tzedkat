@@ -63,6 +63,8 @@ export default async function AdminPendingWeightsPage() {
           name: true,
           unit: true,
           saleType: true,
+          // §339: מוצר מועדף — לעריכת מחיר מותאם
+          isFavorite: true,
           avgWeightPerUnit: true,
         },
       },
@@ -121,6 +123,9 @@ export default async function AdminPendingWeightsPage() {
     // ⚠️ הדפוס שחוזר: שדה נשלף מהמסד, נבדק במסך, ולא עובר את
     // שכבת ההמרה באמצע.
     saleType: it.product.saleType,
+    // §339: לעריכת מחיר מותאם
+    isFavorite: it.product.isFavorite,
+    agentSetPrice: it.agentSetPrice != null ? Number(it.agentSetPrice) : null,
     quantity: Number(it.quantity),
     unitPrice: Number(it.unitPrice),
     estimatedWeight: it.estimatedWeight ? Number(it.estimatedWeight) : null,
