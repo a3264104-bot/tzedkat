@@ -47,6 +47,9 @@ export async function POST(req: Request) {
       limitedQty: b.limitedQty ?? false,
       limitedQtyAmount: b.limitedQtyAmount ?? null,
       isActive: b.isActive ?? true,
+      // §342: מוצר שנוצר כלא-פעיל הוא פרימיום לנציגים — אותו
+      // כלל של העדכון (admin-products-id).
+      isFavorite: b.isFavorite ?? b.isActive === false,
       sortOrder: b.sortOrder ?? 0,
       // §24: תפריט טלפוני
       phoneEnabled: b.phoneEnabled ?? true,

@@ -21,6 +21,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     "priceType",
     "packageWeight",
     "avgWeightPerUnit",
+    // §275: משקל יחידה בודדת
+    "avgWeightPerPiece",
     "imageUrl",
     "kashrut",
     "kashrutId",
@@ -47,6 +49,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     "phoneName",
   ]) {
     if (k in b) data[k] = b[k];
+  }
+
+  // §342: 🔗 **לא-פעיל ⇒ מועדף, אוטומטית.**
+  //
+  // המצב מהשטח: 4 מוצרים סומנו "לא פעיל" ו-0 סומנו "מועדף",
+  // כלומר התכונה של §119 (מחיר מותאם ועמלה) מעולם לא הופעלה —
+  // והנציגים הוסיפו את אותם מוצרים 28 פעמים בלי מחיר מותאם.
+  //
+  // ⚠️ בפועל שני הסימונים משמשים לאותו דבר: "מוצר שהלקוחות לא
+  // רואים והנציג מוכר לפי בקשה". הסנכרון כאן חוסך למנהל לזכור
+  // לסמן שניים.
+  //
+  // ⚠️ **בכיוון אחד בלבד**: הפעלה מחדש אינה מבטלת את המועדף.
+  // מוצר שהיה פרימיום ועכשיו נכנס למחירון עשוי עדיין להיות
+  // כזה שהנציג מוכר במחיר מותאם — וזו החלטה של המנהל, לא של
+  // המערכת.
+  if (data.isActive === false) {
+    data.isFavorite = true;
   }
 
   // §69: מק"ט טלפוני.
@@ -110,7 +130,11 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const usedPersonal = await prisma.personalRequestItem.count({ where: { productId: id } });
   if (usedOrders > 0 || usedPersonal > 0) {
     // לא מוחקים מוצר שמופיע בהזמנות — רק מסתירים
-    await prisma.product.update({ where: { id }, data: { isActive: false } });
+    // §342: השבתה = מועדף — אותו כלל של העדכון למעלה.
+    await prisma.product.update({
+      where: { id },
+      data: { isActive: false, isFavorite: true },
+    });
     return NextResponse.json({ ok: true, hidden: true });
   }
   await prisma.pricelistProduct.deleteMany({ where: { productId: id } });
