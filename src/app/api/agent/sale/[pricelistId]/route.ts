@@ -255,6 +255,8 @@ export async function GET(
           saleType: true,
           avgWeightPerUnit: true,
           isActive: true,
+          // §350: לסימון ⭐ בבורר ההוספה המהירה
+          isFavorite: true,
         },
       },
     },

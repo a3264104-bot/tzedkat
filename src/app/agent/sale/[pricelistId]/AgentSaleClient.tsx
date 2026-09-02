@@ -148,6 +148,8 @@ export type AvailableProduct = {
     avgWeightPerUnit?: number | null;
     // §7: מוצר שאינו מוצג ללקוחות - מוצג לנציג בקבוצה נפרדת
     isActive?: boolean;
+    // §350: מועדף — לסימון ⭐ בהוספה המהירה
+    isFavorite?: boolean;
   };
 };
 

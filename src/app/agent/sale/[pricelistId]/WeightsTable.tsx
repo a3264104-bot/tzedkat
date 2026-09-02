@@ -24,7 +24,7 @@
 //   • 0 הוא ערך **תקף** ומולא במפורש - "הלקוח לא קיבל" שונה
 //     מ"שכחתי למלא", ורק ההבחנה הזו מאפשרת לחסום את השני.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Fragment } from "react";
 // §339: עריכת מחיר במוצר מועדף
 import FavoritePriceEditor from "@/components/FavoritePriceEditor";
 // §332: טופס הכרטיס — נפתח מהבורר בטבלה
@@ -154,6 +154,9 @@ export function WeightsTable({
   //
   // ⚠️ ה-hook כאן, לפני כל תנאי — §283/§305 חזרו על עצמם פעמיים
   // ביום אחד כי הוא הוצב ליד הקוד שמשתמש בו.
+  // §350: הוספה מהירה — איזו הזמנה פתוחה כרגע.
+  const [quickAddFor, setQuickAddFor] = useState<string | null>(null);
+
   const [cardFor, setCardFor] = useState<{
     customerId: string;
     name: string;
@@ -487,8 +490,8 @@ export function WeightsTable({
           </thead>
           <tbody>
             {rows.map((r) => (
+              <Fragment key={r.orderId}>
               <tr
-                key={r.orderId}
                 className={`border-b border-zinc-200 ${
                   r.missing > 0 ? "bg-red-50/40" : "hover:bg-zinc-50"
                 }`}
@@ -513,13 +516,29 @@ export function WeightsTable({
                     <span className="text-[10px] text-zinc-400">
                       #{r.orderNumber}
                     </span>
+                    {/* §350: ➕ הוספה **במקום** — לא במסך אחר.
+                        
+                        הקישור הישן שלח למסך ההזמנה: בחירה, חזרה,
+                        ואיבוד המקום בטבלה. בחלוקה עם 40 לקוחות
+                        זה 40 יציאות.
+                        
+                        ⚠️ ובורר ולא מודל: הנציג בוחר מוצר וכמות,
+                        והפריט נוצר. שתי לחיצות. */}
                     {!readOnly && (
-                      <a
-                        href={`/agent/orders/${r.orderId}`}
-                        className="text-[10px] font-bold text-brand-rust hover:underline whitespace-nowrap"
+                      <button
+                        onClick={() =>
+                          setQuickAddFor(
+                            quickAddFor === r.orderId ? null : r.orderId
+                          )
+                        }
+                        className={`text-[10px] font-bold whitespace-nowrap px-1.5 py-0.5 rounded ${
+                          quickAddFor === r.orderId
+                            ? "bg-brand-rust text-white"
+                            : "text-brand-rust hover:bg-brand-rust/10"
+                        }`}
                       >
                         ➕ הוספת מוצר
-                      </a>
+                      </button>
                     )}
                   </div>
                 </td>
@@ -698,6 +717,28 @@ export function WeightsTable({
                   </div>
                 </td>
               </tr>
+
+              {/* §350: ➕ שורת ההוספה המהירה — מתחת ללקוח.
+                  
+                  ⚠️ שורה בטבלה ולא מודל: הנציג רואה את הלקוח
+                  שהוא מוסיף לו, ולא מאבד את ההקשר. */}
+              {quickAddFor === r.orderId && (
+                <tr className="bg-amber-50 border-b-2 border-amber-300">
+                  <td colSpan={99} className="px-3 py-2">
+                    <QuickAddRow
+                      orderId={r.orderId}
+                      customerName={r.customerName}
+                      products={availableProducts}
+                      onDone={() => {
+                        setQuickAddFor(null);
+                        onNeedsReload();
+                      }}
+                      onCancel={() => setQuickAddFor(null)}
+                    />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -1632,5 +1673,153 @@ function DeliverCell({
     >
       {busy ? "·" : delivered ? "✓" : "📦"}
     </button>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// §350: הוספה מהירה מתוך הטבלה
+// ═══════════════════════════════════════════════════════════════
+// הצורך מהשטח: הספק שלח 500 ג' במקום 200 ג', והנציג צריך להוסיף
+// את המוצר הנכון ל-40 לקוחות. הקישור הישן שלח למסך ההזמנה —
+// 40 יציאות וחזרות.
+//
+// ⚠️ שתי לחיצות: מוצר, כמות, ✓. הפריט נוצר והטבלה מתרעננת.
+//
+// ⚠️ המוצרים המיוחדים (⭐) קודם: זה בדיוק המקרה — סחורה שהגיעה
+// שונה ואינה במחירון הרגיל.
+function QuickAddRow({
+  orderId,
+  customerName,
+  products,
+  onDone,
+  onCancel,
+}: {
+  orderId: string;
+  customerName: string;
+  products: AvailableProduct[];
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [productId, setProductId] = useState("");
+  const [qty, setQty] = useState("1");
+  const [isSingle, setIsSingle] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // ⚠️ המבנה: { productId, price, product: { id, name, ... } }.
+  // הגישה דרך .product — לא ישירות.
+  const selected = products.find((p) => p.productId === productId)?.product;
+
+  // ⚠️ מיוחדים קודם, ואז לפי שם.
+  const isSpecial = (p: AvailableProduct) =>
+    !!(p.product as any).isFavorite || (p.product as any).isActive === false;
+  const sorted = [...products].sort((a, b) => {
+    const aS = isSpecial(a) ? 0 : 1;
+    const bS = isSpecial(b) ? 0 : 1;
+    if (aS !== bS) return aS - bS;
+    return a.product.name.localeCompare(b.product.name, "he");
+  });
+
+  async function add() {
+    if (!productId) {
+      setErr("יש לבחור מוצר");
+      return;
+    }
+    const q = Number(qty);
+    if (!Number.isFinite(q) || q <= 0) {
+      setErr("כמות לא תקינה");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/agent/order-item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, productId, quantity: q, isSingle }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `שגיאה (${res.status})`);
+      onDone();
+    } catch (e: any) {
+      setErr(e?.message || "שגיאה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-[11px] font-bold text-amber-900 shrink-0">
+        ➕ {customerName}:
+      </span>
+
+      <select
+        value={productId}
+        onChange={(e) => {
+          setProductId(e.target.value);
+          setIsSingle(false);
+        }}
+        autoFocus
+        className="flex-1 min-w-[160px] px-2 py-1.5 border-2 border-amber-300 rounded-lg text-sm bg-white"
+      >
+        <option value="">— בחר מוצר —</option>
+        {sorted.map((p) => (
+          <option key={p.productId} value={p.productId}>
+            {isSpecial(p) ? "⭐ " : ""}
+            {p.product.name}
+          </option>
+        ))}
+      </select>
+
+      {/* ⚠️ בודדים רק כשהמוצר מאפשר: הבורר מוסתר אחרת. */}
+      {selected?.allowSingles && (
+        <label className="flex items-center gap-1 text-[11px] text-amber-900 shrink-0">
+          <input
+            type="checkbox"
+            checked={isSingle}
+            onChange={(e) => setIsSingle(e.target.checked)}
+          />
+          בודדים
+        </label>
+      )}
+
+      <input
+        type="number"
+        inputMode="decimal"
+        step={isSingle ? 0.5 : 1}
+        min={0}
+        dir="ltr"
+        value={qty}
+        onChange={(e) => setQty(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") add();
+          if (e.key === "Escape") onCancel();
+        }}
+        className="w-16 px-2 py-1.5 border-2 border-amber-300 rounded-lg text-center font-bold text-sm"
+      />
+      <span className="text-[11px] text-amber-900 shrink-0">
+        {isSingle ? 'ק"ג' : selected?.unit || "קרטון"}
+      </span>
+
+      <button
+        onClick={add}
+        disabled={busy || !productId}
+        className="px-3 py-1.5 rounded-lg bg-brand-rust text-white text-xs font-bold disabled:opacity-40"
+      >
+        {busy ? "..." : "✓ הוסף"}
+      </button>
+      <button
+        onClick={onCancel}
+        className="text-zinc-400 text-lg leading-none px-1"
+      >
+        ×
+      </button>
+
+      {err && (
+        <span className="text-[11px] text-red-700 font-bold w-full">{err}</span>
+      )}
+    </div>
   );
 }
