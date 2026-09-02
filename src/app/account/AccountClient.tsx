@@ -49,6 +49,14 @@ type Order = {
   deliveryDate: string | null;
   estimatedTotal: number;
   finalTotal: number | null;
+  /** §356: רכיבי הסכום — לפירוט מלא */
+  deliveryFee?: number;
+  extraCharge?: number;
+  extraChargeReason?: string | null;
+  creditAmount?: number;
+  creditReason?: string | null;
+  appliedCreditBalance?: number;
+  appliedDebt?: number;
   amountPaid: number | null;
   createdAt: string;
   itemCount: number;
@@ -1225,14 +1233,55 @@ function BreakdownTotals({ o }: { o: Order }) {
   const diffC = totalC - itemsSumC;
   const feeC = o.pricelistOrderFee != null ? cents(o.pricelistOrderFee) : null;
 
-  const diffLabel =
-    diffC === 0
-      ? null
-      : feeC != null && diffC === feeC
-        ? "דמי הזמנה"
-        : diffC > 0
-          ? "דמי הזמנה והתאמות"
-          : "קיזוז";
+  // §356: 🧾 **פירוט מלא — כל רכיב בשורה משלו.**
+  //
+  // 🐛 מה שהיה: "דמי הזמנה והתאמות ₪38" — שורה אחת. הלקוח
+  // לא ידע שזה 3 טיפול + 35 משלוח, ולא יכול היה לבדוק.
+  //
+  // ⚠️ אותו פירוט של המייל (§308): טיפול, משלוח, חיוב נוסף,
+  // חוב — פחות זיכוי ויתרת זכות. מה שהלקוח רואה במייל הוא מה
+  // שהוא רואה באתר.
+  //
+  // ⚠️ דמי הטיפול נגזרים מההפרש: הם לא שדה על ההזמנה, אלא
+  // כבר בתוך הסכום. מה שנשאר אחרי ניכוי כל הרכיבים הידועים
+  // הוא הטיפול (ולפעמים גם קיזוז שקל האימות, §46).
+  const dlvC = cents(o.deliveryFee ?? 0);
+  const extraC = cents(o.extraCharge ?? 0);
+  const creditC = cents(o.creditAmount ?? 0);
+  const balC = cents(o.appliedCreditBalance ?? 0);
+  const debtC = cents(o.appliedDebt ?? 0);
+  const knownC = dlvC + extraC + debtC - creditC - balC;
+  const feeDerivedC = diffC - knownC;
+
+  const rows: Array<{ label: string; c: number; color?: string }> = [];
+  if (feeDerivedC !== 0)
+    rows.push({
+      label:
+        feeC != null && feeDerivedC === feeC
+          ? "דמי הזמנה"
+          : feeDerivedC > 0
+            ? "דמי הזמנה"
+            : "קיזוז",
+      c: feeDerivedC,
+    });
+  if (dlvC > 0) rows.push({ label: "משלוח", c: dlvC });
+  if (extraC > 0)
+    rows.push({
+      label: o.extraChargeReason
+        ? `חיוב נוסף — ${o.extraChargeReason}`
+        : "חיוב נוסף",
+      c: extraC,
+    });
+  if (debtC > 0)
+    rows.push({ label: "חוב ממכירה קודמת", c: debtC, color: "text-red-700" });
+  if (creditC > 0)
+    rows.push({
+      label: o.creditReason ? `זיכוי — ${o.creditReason}` : "זיכוי",
+      c: -creditC,
+      color: "text-emerald-700",
+    });
+  if (balC > 0)
+    rows.push({ label: "יתרת זכות", c: -balC, color: "text-emerald-700" });
 
   const paid = o.paymentStatus === "PAID";
   const amountPaidC = o.amountPaid != null ? cents(o.amountPaid) : null;
@@ -1243,15 +1292,18 @@ function BreakdownTotals({ o }: { o: Order }) {
         <span>סה&quot;כ מוצרים</span>
         <span>{fmt(itemsSumC / 100)}</span>
       </div>
-      {diffLabel && (
-        <div className="flex items-center justify-between text-zinc-600">
-          <span>{diffLabel}</span>
+      {rows.map((r, i) => (
+        <div
+          key={i}
+          className={`flex items-center justify-between ${r.color ?? "text-zinc-600"}`}
+        >
+          <span>{r.label}</span>
           <span>
-            {diffC < 0 ? "-" : ""}
-            {fmt(Math.abs(diffC) / 100)}
+            {r.c < 0 ? "−" : "+"}
+            {fmt(Math.abs(r.c) / 100)}
           </span>
         </div>
-      )}
+      ))}
       <div className="flex items-center justify-between font-bold text-brand-slatedark pt-1 border-t border-zinc-100">
         <span>{isFinal ? "סה\"כ לחיוב" : "סה\"כ משוער"}</span>
         <span>

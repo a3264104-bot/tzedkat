@@ -444,6 +444,9 @@ export async function POST(req: Request) {
           transactionId: successfulTransactionId,
           pointName: preOrder.pointNameSnapshot || undefined,
           deliveryDate: preOrder.deliveryDateSnapshot || undefined,
+          // §357: הפירוט המלא — הלקוח לא תמיד קיבל מייל "מחיר
+          // סופי" לפני (§303: השליחה ידנית).
+          orderId,
         });
         if (!mailResult.ok) {
           console.error("sendChargeSucceededEmail failed:", mailResult.error);

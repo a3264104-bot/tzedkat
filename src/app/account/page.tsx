@@ -129,6 +129,22 @@ export default async function AccountPage() {
       finalPrice: item.finalPrice != null ? Number(item.finalPrice) : null,
     })),
     pricelistOrderFee: o.pricelist?.orderFee != null ? Number(o.pricelist.orderFee) : null,
+    // §356: רכיבי הסכום — לפירוט מלא ללקוח.
+    //
+    // 🐛 הפירוט הציג "דמי הזמנה והתאמות ₪38" — שורה אחת מאוחדת.
+    // הלקוח לא ידע שזה 3 טיפול + 35 משלוח. השדות קיימים על
+    // ההזמנה, פשוט לא הועברו.
+    deliveryFee:
+      o.deliveryRequested && o.deliveryFee != null
+        ? Number(o.deliveryFee)
+        : 0,
+    extraCharge: o.extraCharge != null ? Number(o.extraCharge) : 0,
+    extraChargeReason: o.extraChargeReason ?? null,
+    creditAmount: o.creditAmount != null ? Number(o.creditAmount) : 0,
+    creditReason: o.creditReason ?? null,
+    appliedCreditBalance:
+      o.appliedCreditBalance != null ? Number(o.appliedCreditBalance) : 0,
+    appliedDebt: o.appliedDebt != null ? Number(o.appliedDebt) : 0,
     // שדות ל-§16: עריכה/ביטול הזמנה
     customerName: o.customerName,
     phone: o.phone,
