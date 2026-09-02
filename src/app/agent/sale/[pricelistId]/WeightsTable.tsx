@@ -776,6 +776,21 @@ function WeightCell({
     return arr;
   });
 
+  // §346: 🐛 **הערך של המשבצת השנייה לא הגיע לשמירה.**
+  //
+  // onBlur קרא את parts מה-closure של הרינדור, ו-onChange
+  // שקדם לו יצר מערך חדש ב-setParts. ב-React ה-closure של
+  // ה-handler מצלם את הערך **מרגע הרינדור**, ולכן onBlur ראה
+  // את המערך מלפני ההקלדה.
+  //
+  // התוצאה בשטח: הנציג מילא משבצת שנייה, יצא, והסכום נשאר
+  // כפי שהיה — כאילו לא הקליד.
+  //
+  // ⚠️ ref ולא state: הוא מתעדכן מיידית ולא מחכה לרינדור, וזה
+  // בדיוק מה שנדרש כשקוראים ערך בתוך handler.
+  const partsRef = useRef<string[]>(parts);
+  partsRef.current = parts;
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1024,13 +1039,19 @@ function WeightCell({
                 disabled={readOnly || saving}
                 value={p}
                 onChange={(e) => {
-                  const next = [...parts];
+                  const next = [...partsRef.current];
                   next[i] = e.target.value;
+                  // ⚠️ ה-ref קודם: onBlur עשוי לרוץ לפני
+                  // שהרינדור הבא מסתיים.
+                  partsRef.current = next;
                   setParts(next);
                 }}
                 onBlur={() => {
                   // ⚠️ הסכום הוא מה שנשמר — הפריט מחזיק משקל אחד.
-                  const sum = parts.reduce(
+                  //
+                  // §346: מה-ref ולא מה-state — הוא מכיל את מה
+                  // שהוקלד ברגע זה, ולא את הצילום מהרינדור.
+                  const sum = partsRef.current.reduce(
                     (a, x) => a + (Number(x) || 0),
                     0
                   );
@@ -1254,9 +1275,44 @@ function CashCell({
       );
       return;
     }
+    // §347: 💵 **כמה שילם בפועל — ולא רק "שילם".**
+    //
+    // הצורך מהשטח: הלקוח נתן 200 ש"ח על חשבון 232.04, או שילם
+    // בדיוק והנציג רוצה לאשר. עד היום הכפתור סימן את הסכום
+    // המלא בלבד, ותשלום חלקי לא היה ניתן לרישום כלל.
+    //
+    // ⚠️ prompt ולא מודל: הנציג בחלוקה, עם ידיים מלאות, וכל
+    // מסך נוסף הוא עוד שתי לחיצות. הסכום המלא ממולא מראש —
+    // רוב המקרים הם אישור בלחיצה אחת.
+    //
+    // ⚠️ והשרת מחליט אם זה PAID או PARTIALLY_PAID (§239), לא
+    // המסך.
+    const entered = window.prompt(
+      `כמה שילם ${customerName} במזומן?\n\nסכום ההזמנה: ${finalTotal} ש"ח`,
+      String(finalTotal)
+    );
+    if (entered === null) return;
+
+    const amt = Number(entered.trim());
+    if (!Number.isFinite(amt) || amt <= 0) {
+      alert("סכום לא תקין");
+      return;
+    }
+    // ⚠️ חריגה מעל הסכום נחסמת: תשלום גדול מהחוב הוא טעות
+    // הקלדה, ולא מתנה.
+    if (amt > Number(finalTotal) + 0.01) {
+      alert(
+        `הסכום גבוה מההזמנה (${finalTotal} ש"ח). יש לוודא שלא נפלה טעות.`
+      );
+      return;
+    }
+
+    const isPartial = amt < Number(finalTotal) - 0.01;
     if (
       !window.confirm(
-        `${customerName} שילם ${finalTotal} ש"ח במזומן?\n\nההזמנה תסומן כשולמה והכרטיס לא יחויב.`
+        isPartial
+          ? `${customerName} שילם ${amt} מתוך ${finalTotal} ש"ח.\n\nיישאר חוב של ${(Number(finalTotal) - amt).toFixed(2)} ש"ח.`
+          : `${customerName} שילם ${amt} ש"ח במזומן?\n\nההזמנה תסומן כשולמה והכרטיס לא יחויב.`
       )
     )
       return;
@@ -1267,8 +1323,10 @@ function CashCell({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amountPaid: finalTotal,
-          note: "שולם במזומן בחלוקה",
+          amountPaid: amt,
+          note: isPartial
+            ? `שולם ${amt} מתוך ${finalTotal} במזומן בחלוקה`
+            : "שולם במזומן בחלוקה",
         }),
       });
       const data = await res.json();

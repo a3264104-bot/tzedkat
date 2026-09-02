@@ -298,6 +298,11 @@ function TableRow({
     }
   }
 
+  // §346: ref לערך העדכני — ה-closure של onBlur מצלם את parts
+  // מרגע הרינדור, ולכן הערך שהוקלד זה עתה לא מגיע לשמירה.
+  const partsRef = useRef<string[]>(parts);
+  partsRef.current = parts;
+
   const partsSum = () =>
     Math.round(parts.reduce((a, x) => a + (Number(x) || 0), 0) * 100) / 100;
   const [saving, setSaving] = useState(false);
@@ -485,13 +490,15 @@ function TableRow({
                   min="0"
                   value={p}
                   onChange={(e) => {
-                    const next = [...parts];
+                    const next = [...partsRef.current];
                     next[i] = e.target.value;
+                    partsRef.current = next;
                     setParts(next);
                   }}
                   onBlur={() => {
                     // ⚠️ הסכום נשמר — הפריט מחזיק משקל אחד.
-                    const sum = parts.reduce(
+                    // §346: מה-ref — הערך שהוקלד ברגע זה.
+                    const sum = partsRef.current.reduce(
                       (a, x) => a + (Number(x) || 0),
                       0
                     );
