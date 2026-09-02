@@ -138,6 +138,9 @@ export async function GET(
               avgWeightPerUnit: true,
               // §339: מוצר מועדף — לעריכת מחיר מהכרטיסים
               isFavorite: true,
+              // §342: לא-פעיל משמש בפועל כ"מועדף" — אין במערכת
+              // אף מוצר עם isFavorite=true.
+              isActive: true,
               imageUrl: true,
               // §138: 🐛 saleType לא נשלף, ולכן הבדיקה בטבלה
               // (product?.saleType === "UNIT") הייתה תמיד
@@ -372,11 +375,17 @@ export async function GET(
         // לא הזין כלום. ואז "לא ניתן לסמן כטופל: חסרים משקלים".
         agentEnteredWeight:
           it.agentEnteredWeight != null ? Number(it.agentEnteredWeight) : null,
+        // §349: פירוט לפי קרטון — המשבצות משוחזרות ממנו
+        weightParts: Array.isArray((it as any).weightParts)
+          ? ((it as any).weightParts as number[])
+          : null,
         // §119: המחיר שהנציג קבע במוצר מועדף. בלעדיו החישוב
         // בקליינט לעולם לא יופעל, והעמלה תישאר בכלל הרגיל.
         agentSetPrice: it.agentSetPrice != null ? Number(it.agentSetPrice) : null,
         // §339: מוצר מועדף — לעריכת מחיר מהכרטיסים
         isFavorite: !!it.product?.isFavorite,
+        // §342: לא-פעיל — משמש בפועל כ"מועדף"
+        isInactive: it.product?.isActive === false,
         agentNote: it.agentNote,
         isCancelled: it.isCancelled,
         originalProductId: it.originalProductId,

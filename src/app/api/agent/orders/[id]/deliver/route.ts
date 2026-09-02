@@ -57,20 +57,30 @@ export async function PATCH(
     );
   }
 
+  // §348: 🐛 **מסירה אינה משנה סטטוס.**
+  //
+  // מה שהיה: סימון "נמסר" הציב status=COMPLETED. ו-COMPLETED
+  // חוסם עריכת פריטים (agent-order-item §72) — הנציג מסר, ניסה
+  // להשלים משקל, וקיבל "לא ניתן לערוך פריט בהזמנה שהושלמה".
+  //
+  // ⚠️ ובחלוקה זה הסדר הרגיל: הלקוח לוקח, ורק אחר כך הנציג
+  // רושם משקל. ההנחה ש"נמסר" = "סיימנו" הייתה שגויה מהיסוד.
+  //
+  // ⚠️ deliveredAt הוא הסימן, ו-status נשאר כפי שהיה. COMPLETED
+  // ייקבע כשההזמנה באמת נסגרת — בחיוב.
+  //
+  // ⚠️ וגם הביטול לא נוגע בסטטוס: החזרה ל-FINAL_PRICE_SET
+  // דרסה סטטוס שאולי היה אחר לגמרי.
   const data: any = delivered
     ? {
         deliveredAt: new Date(),
         deliveredByAgentId: g.agent.id,
         deliveredNote: note,
-        status: "COMPLETED",
       }
     : {
-        // ביטול סימון - הנציג טעה. מחזירים לסטטוס הקודם ההגיוני:
-        // אם ההזמנה שולמה היא מוכנה לחלוקה, אחרת חוזרת למחיר סופי שנקבע.
         deliveredAt: null,
         deliveredByAgentId: null,
         deliveredNote: null,
-        status: order.paymentStatus === "PAID" ? "READY_FOR_PICKUP" : "FINAL_PRICE_SET",
       };
 
   const updated = await prisma.order.update({

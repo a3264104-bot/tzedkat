@@ -65,6 +65,7 @@ export default async function AdminPendingWeightsPage() {
           saleType: true,
           // §339: מוצר מועדף — לעריכת מחיר מותאם
           isFavorite: true,
+          isActive: true,
           avgWeightPerUnit: true,
         },
       },
@@ -125,7 +126,13 @@ export default async function AdminPendingWeightsPage() {
     saleType: it.product.saleType,
     // §339: לעריכת מחיר מותאם
     isFavorite: it.product.isFavorite,
+    // §342: לא-פעיל משמש בפועל כ"מועדף"
+    isInactive: it.product.isActive === false,
     agentSetPrice: it.agentSetPrice != null ? Number(it.agentSetPrice) : null,
+    // §349: פירוט לפי קרטון — לשחזור המשבצות
+    weightParts: Array.isArray((it as any).weightParts)
+      ? ((it as any).weightParts as number[])
+      : null,
     quantity: Number(it.quantity),
     unitPrice: Number(it.unitPrice),
     estimatedWeight: it.estimatedWeight ? Number(it.estimatedWeight) : null,

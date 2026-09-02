@@ -28,6 +28,8 @@ type Row = {
   /** §339: מוצר מועדף — ניתן לשנות מחיר עד החיוב */
   isFavorite?: boolean;
   agentSetPrice?: number | null;
+  /** §349: פירוט לפי קרטון */
+  weightParts?: number[] | null;
   quantity: number;
   unitPrice: number;
   estimatedWeight: number | null;
@@ -268,9 +270,17 @@ function TableRow({
       : 1;
 
   // ⚠️ בטעינה הכל בראשונה: המסד מחזיק סכום, לא פירוט.
+  // §349: המשבצות משוחזרות מהפירוט — לא מהסכום.
   const [parts, setParts] = useState<string[]>(() => {
     const arr = Array(cartonCount).fill("");
-    if (row.agentEnteredWeight != null) arr[0] = String(row.agentEnteredWeight);
+    const saved = (row as any).weightParts;
+    if (Array.isArray(saved) && saved.length > 0) {
+      saved.forEach((v: number, i: number) => {
+        if (i < cartonCount && v > 0) arr[i] = String(v);
+      });
+    } else if (row.agentEnteredWeight != null) {
+      arr[0] = String(row.agentEnteredWeight);
+    }
     return arr;
   });
 
@@ -318,7 +328,7 @@ function TableRow({
   // המשבצות המפוצלות קראו setWeightVal ואז setTimeout(save, 0).
   // ב-React 18 העדכון לא מובטח בטיק אחד, והשמירה קלטה את הערך
   // הישן — כלומר משבצת שנייה "לא נתפסה".
-  async function saveWeight(override?: string) {
+  async function saveWeight(override?: string, partsOverride?: string[]) {
     const w = parseFloat(override ?? weightVal);
     if (isNaN(w) || w <= 0) {
       // ערך לא תקין - איפוס
@@ -332,7 +342,13 @@ function TableRow({
       const res = await fetch(`/api/admin/weight-review-item/${row.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actualWeight: w }),
+        // §349: הפירוט נשלח עם הסכום — רק במוצר מפוצל.
+        body: JSON.stringify({
+          actualWeight: w,
+          ...(partsOverride && partsOverride.length > 1
+            ? { weightParts: partsOverride.map((x) => Number(x) || 0) }
+            : {}),
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "שגיאה");
@@ -506,7 +522,8 @@ function TableRow({
                     const next = r > 0 ? String(r) : "";
                     setWeightVal(next);
                     // §345: הערך עובר ישירות, בלי תלות בתזמון.
-                    saveWeight(next);
+                    // §349: וגם הפירוט.
+                    saveWeight(next, [...partsRef.current]);
                   }}
                   disabled={saving}
                   placeholder="0.00"

@@ -123,6 +123,8 @@ export async function PATCH(
     if (body.agentEnteredWeight === null) {
       data.agentEnteredWeight = null;
       data.agentEnteredById = null;
+      // §349: מחיקת משקל מנקה גם את הפירוט
+      data.weightParts = null;
       // המשקל והמחיר הנגזרים מתאפסים גם הם - אחרת נשאר מחיר
       // סופי שאין לו בסיס.
       data.actualWeight = null;
@@ -134,6 +136,31 @@ export async function PATCH(
       return NextResponse.json({ error: "משקל לא תקין" }, { status: 400 });
     }
     data.agentEnteredWeight = w;
+
+    // §349: 📦 **פירוט לפי קרטון — נשמר בנפרד מהסכום.**
+    //
+    // הנציג שולח [5.0, 1.0] ואת הסכום 6.0. הסכום נכנס
+    // ל-agentEnteredWeight כרגיל, והמערך ל-weightParts.
+    //
+    // ⚠️ הסכום מאומת מול המערך: קליינט ששלח [5, 1] עם סכום 7
+    // הוא באג, ושמירת שניהם הייתה יוצרת סתירה שאיש לא יבין.
+    //
+    // ⚠️ ובלי מערך — מנקים: משקל שהוזן במשבצת אחת (מוצר עם
+    // קרטון אחד) לא צריך פירוט, ופירוט ישן ממוצר שהיה מפוצל
+    // היה מבלבל.
+    if (Array.isArray(body.weightParts)) {
+      const parts = body.weightParts.map((x: unknown) => Number(x) || 0);
+      const partsSum = Math.round(parts.reduce((a: number, b: number) => a + b, 0) * 100) / 100;
+      if (Math.abs(partsSum - w) > 0.01) {
+        return NextResponse.json(
+          { error: `פירוט המשקל (${partsSum}) אינו תואם לסכום (${w})` },
+          { status: 400 }
+        );
+      }
+      data.weightParts = parts;
+    } else {
+      data.weightParts = null;
+    }
     data.agentEnteredById = g.agent.id;
     // ה-actualWeight מסונכרן אלא אם המנהל עדכן ידנית לפני
     if (item.actualWeight === null || Number(item.actualWeight) === Number(item.agentEnteredWeight || 0)) {
@@ -425,6 +452,8 @@ export async function PATCH(
       // §304: != null — משקל 0 חוזר כ-0, לא כ-null.
       actualWeight:
         updated.actualWeight != null ? Number(updated.actualWeight) : null,
+      // §349: הפירוט חוזר — המסך משחזר את המשבצות ממנו
+      weightParts: (updated as any).weightParts ?? null,
       finalPrice: updated.finalPrice ? Number(updated.finalPrice) : null,
       agentNote: updated.agentNote,
       isCancelled: updated.isCancelled,

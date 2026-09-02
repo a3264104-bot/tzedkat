@@ -85,6 +85,8 @@ type Cell = {
   agentSetPrice?: number | null;
   estimatedWeight: number | null;
   agentEnteredWeight: number | null;
+  /** §349: פירוט לפי קרטון — לשחזור המשבצות אחרי רענון */
+  weightParts?: number[] | null;
 };
 
 type CustomerRow = {
@@ -282,6 +284,8 @@ export function WeightsTable({
             agentSetPrice: (it as any).agentSetPrice ?? null,
             estimatedWeight: it.estimatedWeight,
             agentEnteredWeight: w ?? null,
+            // §349: הפירוט לשחזור המשבצות אחרי רענון
+            weightParts: (it as any).weightParts ?? null,
           });
         }
         return {
@@ -768,9 +772,25 @@ function WeightCell({
 
   // ⚠️ בטעינה הכל במשבצת הראשונה: המסד מחזיק סכום, לא פירוט.
   // הנציג רואה את מה שהזין ויכול לתקן.
+  // §349: 📦 **המשבצות משוחזרות מהפירוט — לא מהסכום.**
+  //
+  // 🐛 מה שהיה: [5.0] [1.0] נשמר כ-6.0, ואחרי רענון הוצג
+  // [6.0] [ ]. הנציג חשב שהשני נמחק, ולא יכול היה לתקן קרטון
+  // ספציפי.
+  //
+  // ⚠️ עכשיו weightParts שומר את המערך, והמשבצות חוזרות
+  // בדיוק כפי שהוקלדו.
+  //
+  // ⚠️ נפילה לסכום: פריט שנשקל לפני §349 (בלי פירוט) מוצג
+  // כמו קודם — הכל בראשונה. אין מה לשחזר.
   const [parts, setParts] = useState<string[]>(() => {
     const arr = Array(cartonCount).fill("");
-    if (cell.agentEnteredWeight !== null) {
+    const saved = cell.weightParts;
+    if (Array.isArray(saved) && saved.length > 0) {
+      saved.forEach((v, i) => {
+        if (i < cartonCount && v > 0) arr[i] = String(v);
+      });
+    } else if (cell.agentEnteredWeight !== null) {
       arr[0] = String(cell.agentEnteredWeight);
     }
     return arr;
@@ -867,7 +887,7 @@ function WeightCell({
   //
   // ⚠️ override מפורש: מי שיודע מה הערך מעביר אותו, ומי שלא
   // נופל ל-state כרגיל. אין הסתמכות על תזמון.
-  async function save(override?: string) {
+  async function save(override?: string, partsOverride?: string[]) {
     const raw = (override ?? val).trim();
 
     // §141: 🐛 מחיקת משקל לא נשמרה.
@@ -927,7 +947,14 @@ function WeightCell({
       const res = await fetch(`/api/agent/order-item/${cell.itemId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentEnteredWeight: w }),
+        // §349: הפירוט נשלח עם הסכום — רק כשיש יותר ממשבצת
+        // אחת. פריט רגיל שולח את הסכום בלבד, כמו קודם.
+        body: JSON.stringify({
+          agentEnteredWeight: w,
+          ...(partsOverride && partsOverride.length > 1
+            ? { weightParts: partsOverride.map((x) => Number(x) || 0) }
+            : {}),
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "שגיאה");
@@ -936,6 +963,9 @@ function WeightCell({
       onItemUpdate(cell.orderId, cell.itemId, {
         agentEnteredWeight: json.item.agentEnteredWeight,
         actualWeight: json.item.actualWeight,
+        // §349: הפירוט חוזר מהשרת — כדי שרענון מקומי יציג
+        // בדיוק את מה שנשמר.
+        weightParts: json.item.weightParts ?? null,
       });
     } catch {
       setError(true);
@@ -1060,7 +1090,8 @@ function WeightCell({
                   setVal(next);
                   // §345: מעבירים את הערך ישירות — בלי להסתמך
                   // על כך ש-setVal יסתיים לפני save().
-                  save(next);
+                  // §349: וגם את הפירוט, לשמירה.
+                  save(next, [...partsRef.current]);
                 }}
                 placeholder={`ק"ג`}
                 className="w-full text-center font-bold text-base md:text-sm rounded py-1.5 md:py-1 border-2 border-zinc-200 focus:border-brand-rust"

@@ -708,6 +708,12 @@ model OrderItem {
   //
   // null = הנציג לא קבע מחיר, ואז חלים כללי העמלה הרגילים.
   agentSetPrice Decimal? @db.Decimal(10, 2)
+
+  /// §349: פירוט משקל לפי קרטון — [5.0, 1.0] עבור 2 קרטונים.
+  ///
+  /// agentEnteredWeight נשאר הסכום, וכל החישובים קוראים אותו.
+  /// זה בנוסף — לתצוגה ולעריכה של קרטון ספציפי.
+  weightParts   Json?
   // §20: שדות של נציג - נעולים לחישוב עמלה (המנהל יכול לתקן finalWeight, אבל agentEnteredWeight נשמר)
   agentEnteredWeight Decimal? @db.Decimal(10, 3) // המשקל שהנציג הזין - נעול לעמלה
   agentEnteredById   String?  // מזהה הנציג שהזין (Customer.id)

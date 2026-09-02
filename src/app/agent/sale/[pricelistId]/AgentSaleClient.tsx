@@ -46,12 +46,17 @@ export type OrderItem = {
   estimatedWeight: number | null;
   actualWeight: number | null;
   agentEnteredWeight: number | null;
+  /** §349: פירוט משקל לפי קרטון — [5.0, 1.0] */
+  weightParts?: number[] | null;
   // §119: מחיר שהנציג קבע במוצר מועדף. null = לא נקבע, וחלים
   // כללי העמלה הרגילים.
   agentSetPrice?: number | null;
 
   /** §339: מוצר מועדף — ניתן לשנות מחיר עד החיוב */
-  isFavorite?: boolean;  agentNote: string | null;
+  isFavorite?: boolean;
+  /** §342: לא-פעיל — משמש בפועל כ"מועדף" */
+  isInactive?: boolean;
+  agentNote: string | null;
   isCancelled: boolean;
   originalProductId: string | null;
   product: Product;
