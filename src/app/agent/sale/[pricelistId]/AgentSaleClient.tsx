@@ -66,6 +66,12 @@ export type Order = {
   id: string;
   orderNumber: number;
   customerName: string;
+  /** §352: רכיבי הסכום — לסה"כ מלא בטבלת המשקלים */
+  deliveryFee?: number;
+  extraCharge?: number;
+  creditAmount?: number;
+  appliedCreditBalance?: number;
+  appliedDebt?: number;
   /**
    * §311: אופן התשלום של הלקוח — CASH / CREDIT.
    *
@@ -162,6 +168,8 @@ export type SaleData = {
     editDeadline: string | null;
     // §65: נדרש לחישוב מחיר בודדים, באותה פונקציה של האתר
     singleSurcharge?: number;
+    /** §352: דמי טיפול — לסה"כ מלא בטבלת המשקלים */
+    orderFee?: number;
   };
   agent: {
     id: string;
@@ -900,6 +908,8 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                 // §322: הרשאות — לבורר אמצעי התשלום בשורה
                 canUpdateCards={data.agent?.canUpdateCards ?? false}
                 canSetCash={(data.agent as any)?.canSetCash ?? false}
+                // §352: דמי טיפול — לסה"כ מלא בטבלה
+                orderFee={data.pricelist.orderFee ?? 0}
               />
             ) : (
               filteredOrders.map((order) => (

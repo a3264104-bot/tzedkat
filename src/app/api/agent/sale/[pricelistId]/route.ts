@@ -262,6 +262,42 @@ export async function GET(
     },
   });
 
+  // §353: 🐛 **מוצרים מיוחדים מחוץ למחירון לא הגיעו לטבלה.**
+  //
+  // availableProducts = pricelistProduct בלבד. מוצר מועדף/לא-פעיל
+  // שאינו במחירון (§169: "specialOutside") לא נכלל — והבורר
+  // המהיר (§350) לא הציג אותו.
+  //
+  // ⚠️ ואלה בדיוק המוצרים שההוספה המהירה נועדה להם: סחורה
+  // שהגיעה שונה ממה שהוזמן.
+  //
+  // ⚠️ אותה שליפה של מסך ההזמנה: מועדף או לא-פעיל, שאינו כבר
+  // במחירון. המחיר הוא cartonPrice של המוצר עצמו.
+  const inPricelistIds = new Set(availableProducts.map((pp) => pp.productId));
+  const specialOutside = await prisma.product.findMany({
+    where: {
+      OR: [{ isFavorite: true }, { isActive: false }],
+      id: { notIn: Array.from(inPricelistIds) },
+    },
+    select: {
+      id: true,
+      name: true,
+      unit: true,
+      categoryId: true,
+      category: { select: { name: true } },
+      cartonPrice: true,
+      singlesMode: true,
+      singleUnitPrice: true,
+      singleSurcharge: true,
+      allowSingles: true,
+      priceType: true,
+      saleType: true,
+      avgWeightPerUnit: true,
+      isActive: true,
+      isFavorite: true,
+    },
+  });
+
   // §211: הרשאת עדכון כרטיסים.
   //
   // ⚠️ שליפה מפורשת ולא הסתמכות על ה-guard: הוא עשוי לא לכלול
@@ -326,6 +362,19 @@ export async function GET(
       customerPaymentPreference: o.customer?.paymentPreference ?? null,
       // §332: אמצעי התשלום **של ההזמנה** — גובר על העדפת הלקוח
       paymentMethod: o.paymentMethod ?? null,
+      // §352: רכיבי הסכום — לסה"כ מלא בטבלת המשקלים.
+      //
+      // הטבלה סיכמה פריטים בלבד, ומסך ההזמנה הראה את הסכום
+      // המלא. הנציג ראה שני מספרים שונים לאותו לקוח.
+      deliveryFee:
+        o.deliveryRequested && o.deliveryFee != null
+          ? Number(o.deliveryFee)
+          : 0,
+      extraCharge: o.extraCharge != null ? Number(o.extraCharge) : 0,
+      creditAmount: o.creditAmount != null ? Number(o.creditAmount) : 0,
+      appliedCreditBalance:
+        o.appliedCreditBalance != null ? Number(o.appliedCreditBalance) : 0,
+      appliedDebt: o.appliedDebt != null ? Number(o.appliedDebt) : 0,
       // §322: לבורר אמצעי התשלום בטבלה
       customerId: o.customerId,
       hasCard: !!o.customer?.paymentToken,
@@ -447,23 +496,39 @@ export async function GET(
       })),
     })),
     productWeightsFromNotes,
-    availableProducts: availableProducts.map((pp) => ({
-      productId: pp.productId,
-      price: Number(pp.price),
-      product: {
-        ...pp.product,
-        cartonPrice: Number(pp.product.cartonPrice),
-        singleUnitPrice: pp.product.singleUnitPrice
-          ? Number(pp.product.singleUnitPrice)
-          : null,
-        singleSurcharge: pp.product.singleSurcharge
-          ? Number(pp.product.singleSurcharge)
-          : null,
-        avgWeightPerUnit: pp.product.avgWeightPerUnit
-          ? Number(pp.product.avgWeightPerUnit)
-          : null,
-      },
-    })),
+    availableProducts: [
+      ...availableProducts.map((pp) => ({
+        productId: pp.productId,
+        price: Number(pp.price),
+        product: {
+          ...pp.product,
+          cartonPrice: Number(pp.product.cartonPrice),
+          singleUnitPrice: pp.product.singleUnitPrice
+            ? Number(pp.product.singleUnitPrice)
+            : null,
+          singleSurcharge: pp.product.singleSurcharge
+            ? Number(pp.product.singleSurcharge)
+            : null,
+          avgWeightPerUnit: pp.product.avgWeightPerUnit
+            ? Number(pp.product.avgWeightPerUnit)
+            : null,
+        },
+      })),
+      // §353: מוצרים מיוחדים מחוץ למחירון — אותו מבנה.
+      ...specialOutside.map((p) => ({
+        productId: p.id,
+        price: Number(p.cartonPrice),
+        product: {
+          ...p,
+          cartonPrice: Number(p.cartonPrice),
+          singleUnitPrice: p.singleUnitPrice ? Number(p.singleUnitPrice) : null,
+          singleSurcharge: p.singleSurcharge ? Number(p.singleSurcharge) : null,
+          avgWeightPerUnit: p.avgWeightPerUnit
+            ? Number(p.avgWeightPerUnit)
+            : null,
+        },
+      })),
+    ],
     // §70: למנהל אין סיכום - מוחזר אובייקט ריק לתצוגה, והמסך
     // לא ינסה לסגור אותו (ה-PATCH ממילא חוסם מנהל).
     isAdminView: g.isAdmin,

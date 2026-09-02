@@ -59,6 +59,8 @@ type Props = {
   /** §322: הרשאות — הבורר מוצג רק למי שיש לו את שתיהן */
   canUpdateCards?: boolean;
   canSetCash?: boolean;
+  /** §352: דמי טיפול לפי המחירון */
+  orderFee?: number;
 };
 
 type Cell = {
@@ -97,6 +99,16 @@ type CustomerRow = {
   /** productId -> תא. לקוח שלא הזמין מוצר מסוים פשוט לא יופיע כאן */
   cells: Cell[];
   total: number;
+  /** §352: פריטים בלבד — לפני התוספות */
+  itemsOnly?: number;
+  extras?: {
+    fee: number;
+    dlv: number;
+    extra: number;
+    credit: number;
+    bal: number;
+    debt: number;
+  };
   missing: number;
   /** §103: מתי הנציג סימן שסיים. null = טרם טופל. */
   agentClosedAt: string | null;
@@ -131,6 +143,8 @@ export function WeightsTable({
   // §322: הרשאות — לבורר אמצעי התשלום בשורה
   canUpdateCards = false,
   canSetCash = false,
+  // §352: דמי טיפול — לסה"כ מלא
+  orderFee = 0,
 }: Props) {
   // ─── עמודות: כל המוצרים שהוזמנו בפועל ───
   // לא כל הקטלוג - רק מה שמישהו הזמין. מוצר שאיש לא הזמין הוא
@@ -291,13 +305,41 @@ export function WeightsTable({
             weightParts: (it as any).weightParts ?? null,
           });
         }
+        // §352: 🧮 **הסכום המלא — לא רק פריטים.**
+        //
+        // הטבלה סיכמה משקל × מחיר. מסך ההזמנה הראה פריטים +
+        // דמי טיפול + משלוח + חיוב נוסף − זיכוי − יתרת זכות.
+        // הנציג ראה שני מספרים לאותו לקוח ולא ידע מי נכון.
+        //
+        // ⚠️ אותה נוסחה של recomputeOrderTotal (§123/§134):
+        // סדר הרכיבים זהה, ואין כאן חישוב "משלנו".
+        //
+        // ⚠️ דמי הטיפול רק כשיש פריטים: הזמנה ריקה לא מחויבת.
+        const itemsOnly = total;
+        const fee = cells.length > 0 ? orderFee : 0;
+        const dlv = (o as any).deliveryFee ?? 0;
+        const extra = (o as any).extraCharge ?? 0;
+        const credit = (o as any).creditAmount ?? 0;
+        const bal = (o as any).appliedCreditBalance ?? 0;
+        const debt = (o as any).appliedDebt ?? 0;
+        const fullTotal = Math.max(
+          0,
+          Math.round(
+            (itemsOnly + fee + dlv + extra + debt - credit - bal) * 100
+          ) / 100
+        );
+
         return {
           orderId: o.id,
           orderNumber: o.orderNumber,
           customerName: o.customerName,
           phone: o.phone,
           cells,
-          total,
+          total: fullTotal,
+          // ⚠️ הפירוט נשמר: הטבלה מציגה רק סה"כ, אבל tooltip
+          // או שורת הסבר יכולים להראות ממה הוא מורכב.
+          itemsOnly,
+          extras: { fee, dlv, extra, credit, bal, debt },
           missing,
           agentClosedAt: (o as any).agentClosedAt ?? null,
           // §314: אופן התשלום — לסינון סימון המזומן
@@ -616,7 +658,37 @@ export function WeightsTable({
                       חסר {r.missing}
                     </span>
                   ) : (
-                    fmt(r.total)
+                    <>
+                      {fmt(r.total)}
+                      {/* §352: הפירוט ב-title — הנציג רואה ממה
+                          הסכום מורכב בלי שהטבלה תתמלא בשורות. */}
+                      {r.extras &&
+                        (r.extras.dlv > 0 ||
+                          r.extras.extra > 0 ||
+                          r.extras.credit > 0 ||
+                          r.extras.bal > 0 ||
+                          r.extras.debt > 0) && (
+                          <span
+                            className="block text-[9px] font-normal text-zinc-400 leading-tight"
+                            title={[
+                              `פריטים ${fmt(r.itemsOnly ?? 0)}`,
+                              r.extras.fee > 0 && `+ טיפול ${fmt(r.extras.fee)}`,
+                              r.extras.dlv > 0 && `+ משלוח ${fmt(r.extras.dlv)}`,
+                              r.extras.extra > 0 && `+ חיוב ${fmt(r.extras.extra)}`,
+                              r.extras.debt > 0 && `+ חוב ${fmt(r.extras.debt)}`,
+                              r.extras.credit > 0 && `− זיכוי ${fmt(r.extras.credit)}`,
+                              r.extras.bal > 0 && `− יתרה ${fmt(r.extras.bal)}`,
+                            ]
+                              .filter(Boolean)
+                              .join("\n")}
+                          >
+                            {r.extras.dlv > 0 && "🚚"}
+                            {r.extras.extra > 0 && "➕"}
+                            {r.extras.credit > 0 && "↩"}
+                            {r.extras.debt > 0 && "💸"}
+                          </span>
+                        )}
+                    </>
                   )}
                 </td>
 
@@ -643,44 +715,63 @@ export function WeightsTable({
                       
                       ⚠️ ומעבר לאשראי דורש כרטיס - בלעדיו
                       הלקוח נתקע בלי אמצעי גבייה. */}
-                  {canUpdateCards && canSetCash ? (
-                    <PayPrefToggle
-                      orderId={r.orderId}
-                      customerName={r.customerName}
-                      // §332: מצב **ההזמנה**, עם נפילה להעדפת
-                      // הלקוח כשלא סומן במפורש.
-                      pref={
-                        r.orderPaymentMethod === "MANUAL" ||
-                        r.orderPaymentMethod === "CASH"
-                          ? "CASH"
-                          : r.orderPaymentMethod
-                            ? "CREDIT"
-                            : r.customerPaymentPreference
-                      }
-                      hasCard={r.hasCard}
-                      readOnly={readOnly}
-                      onDone={onNeedsReload}
-                      onNeedCard={() =>
-                        setCardFor({
-                          customerId: r.customerId ?? "",
-                          name: r.customerName,
-                        })
-                      }
-                    />
-                  ) : r.customerPaymentPreference === "CREDIT" ? (
-                    <span className="text-[10px] text-zinc-300">—</span>
-                  ) : (
-                  <CashCell
-                    orderId={r.orderId}
-                    orderNumber={r.orderNumber}
-                    customerName={r.customerName}
-                    paymentStatus={r.paymentStatus}
-                    finalTotal={r.finalTotal}
-                    missing={r.missing}
-                    readOnly={readOnly}
-                    onDone={onNeedsReload}
-                  />
-                  )}
+                  {/* §351: 🐛 **"שילם" נעלם למי שיש לו שתי הרשאות.**
+                      
+                      התנאי היה: שתי הרשאות → בורר בלבד. אחרת → אשראי
+                      = קו, מזומן = כפתור "שילם". המנהל (שתי הרשאות)
+                      ראה בורר ולא היה לו איפה לסמן שהלקוח שילם.
+                      
+                      ⚠️ אלה שתי פעולות שונות: "איך משלמים" (בורר)
+                      ו"שילם" (כפתור). שתיהן צריכות להופיע, זו
+                      לצד זו, ללקוח מזומן. */}
+                  {(() => {
+                    const effPref =
+                      r.orderPaymentMethod === "MANUAL" ||
+                      r.orderPaymentMethod === "CASH"
+                        ? "CASH"
+                        : r.orderPaymentMethod
+                          ? "CREDIT"
+                          : r.customerPaymentPreference;
+                    const isCashOrder = effPref === "CASH";
+
+                    return (
+                      <div className="flex flex-col items-center gap-1">
+                        {/* הבורר — רק למי שיכול לשני הכיוונים */}
+                        {canUpdateCards && canSetCash && (
+                          <PayPrefToggle
+                            orderId={r.orderId}
+                            customerName={r.customerName}
+                            pref={effPref}
+                            hasCard={r.hasCard}
+                            readOnly={readOnly}
+                            onDone={onNeedsReload}
+                            onNeedCard={() =>
+                              setCardFor({
+                                customerId: r.customerId ?? "",
+                                name: r.customerName,
+                              })
+                            }
+                          />
+                        )}
+                        {/* "שילם" — לכל הזמנת מזומן, בלי קשר להרשאות
+                            (§91: כל נציג רשאי לסמן קבלת מזומן) */}
+                        {isCashOrder ? (
+                          <CashCell
+                            orderId={r.orderId}
+                            orderNumber={r.orderNumber}
+                            customerName={r.customerName}
+                            paymentStatus={r.paymentStatus}
+                            finalTotal={r.finalTotal}
+                            missing={r.missing}
+                            readOnly={readOnly}
+                            onDone={onNeedsReload}
+                          />
+                        ) : !(canUpdateCards && canSetCash) ? (
+                          <span className="text-[10px] text-zinc-300">—</span>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                 </td>
 
                 {/* §323: 📦 סימון מסירה — אותה פעולה של הכרטיסים. */}
