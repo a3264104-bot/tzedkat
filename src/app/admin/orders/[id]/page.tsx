@@ -497,7 +497,25 @@ export default function OrderDetail() {
                       היה חוזר על מה שכבר מולו. */}
                   <select
                     value={chargeInstallments}
-                    onChange={(e) => setChargeInstallments(Number(e.target.value))}
+                    // §354: 🐛 הבורר שינה state מקומי ולא שמר.
+                    //
+                    // המנהל בחר 3, רענן, וחזר ל-2 שבמסד. ובמסך
+                    // התשלומים (§291) הבחירה **כן** נשמרת — שני
+                    // מסכים, שתי התנהגויות.
+                    //
+                    // ⚠️ אותו route של הנציג (§295): שמירה מיידית.
+                    onChange={async (e) => {
+                      const n = Number(e.target.value);
+                      setChargeInstallments(n);
+                      try {
+                        await api(`/api/admin/orders/${id}/installments`, {
+                          method: "PATCH",
+                          body: JSON.stringify({ installments: n }),
+                        });
+                      } catch (err: any) {
+                        alert(err?.message || "שמירת הפריסה נכשלה");
+                      }
+                    }}
                     disabled={saving || charging}
                     className="rounded-lg border-2 border-emerald-300 bg-white px-2 py-1 text-xs font-bold text-emerald-800"
                     title="מספר תשלומים"
@@ -802,7 +820,11 @@ export default function OrderDetail() {
                           : null
                       }
                       quantity={Number(it.quantity)}
-                      isFavorite={!!it.product?.isFavorite}
+                      // §342: מועדף או לא-פעיל
+                      isFavorite={
+                        !!(it.product?.isFavorite ||
+                          it.product?.isActive === false)
+                      }
                       locked={
                         !!order.weightsLockedAt ||
                         order.paymentStatus === "PAID" ||

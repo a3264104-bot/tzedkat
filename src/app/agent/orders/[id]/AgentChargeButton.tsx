@@ -10,13 +10,10 @@
 // "אפשר לפרוס?" לא יכול היה לעשות כלום.
 
 import { useState } from "react";
-import { installmentOptionsFor } from "@/lib/installments-lib";
 import { useRouter } from "next/navigation";
 
 // ⚠️ 1-12 הוא הטווח שנדרים תומכים בו. מעבר לזה החיוב נדחה אצלם
 // עם שגיאה גנרית שקשה לאבחן.
-// §296: מקור אמת יחיד — ראה src/lib/installments-lib.ts
-const INSTALLMENT_OPTIONS = installmentOptionsFor(false);
 
 export default function AgentChargeButton({
   orderId,
@@ -81,9 +78,11 @@ export default function AgentChargeButton({
     }
   }
 
-  const [installments, setInstallments] = useState(
-    Math.min(Math.max(requestedInstallments || 1, 1), 12)
-  );
+  // §354: לא state — מה שנשמר ב-requestedInstallments (§298).
+  //
+  // ⚠️ הבורר בתוך המודל הוסר: שני מקומות לבחור = שני מספרים.
+  // הפאנל "הגדרת תשלומים" הוא המקום היחיד.
+  const installments = Math.max(requestedInstallments || 1, 1);
 
   async function handleCharge() {
     setCharging(true);
@@ -94,7 +93,16 @@ export default function AgentChargeButton({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // §189: מספר התשלומים נשלח במפורש. השרת מאמת 1-12.
-        body: JSON.stringify({ orderId, installments }),
+        // §354: 🐛 **שני מספרים באותו מסך.**
+        //
+        // הפאנל "הגדרת תשלומים" (§298) שומר requestedInstallments
+        // ומציג 3. הכפתור כאן החזיק state מקומי מוגבל ל-1-2
+        // (§295) והציג Math.min(3, 2) = 2. הנציג ראה "3 ייושם"
+        // וכפתור "2 תשלומים" — ולא ידע מי נכון.
+        //
+        // ⚠️ מה שנשמר הוא מה שמחייבים. אין כאן state שיכול
+        // להתפצל.
+        body: JSON.stringify({ orderId, installments: requestedInstallments }),
       });
       const data = await res.json();
       if (res.ok && data.ok) {
@@ -124,49 +132,6 @@ export default function AgentChargeButton({
 
   return (
     <div className="mt-2">
-      {/* §297: 💳 בורר הפריסה **מחוץ למודל החיוב**.
-          
-          🐛 הבעיה: הבורר ישב בתוך {open && (...)}, וכדי להגיע
-          אליו הנציג היה צריך ללחוץ "💳 חייב עכשיו". אבל הכפתור
-          מושבת כשאין מחיר סופי (enabled=false) - כלומר בדיוק
-          בהזמנות שבהן צריך לרשום פריסה **מראש**.
-          
-          לקוח מבקש פריסה בטלפון ימים לפני החיוב, לפעמים לפני
-          שההזמנה נשקלה. הנציג צריך לרשום מיד.
-          
-          ⚠️ מוצג רק כשיש כרטיס: ללקוח מזומן אין מה לפרוס.
-          
-          ⚠️ ונשמר בבחירה, בלי לחייב - שני דברים נפרדים. */}
-      {!!cardLast4 && (
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <label className="text-xs font-bold text-zinc-600">תשלומים:</label>
-          <select
-            value={installments}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              setInstallments(n);
-              saveInstallments(n);
-            }}
-            disabled={savingInst}
-            className="rounded-lg border-2 border-zinc-300 px-2 py-1.5 text-sm font-bold disabled:opacity-50"
-          >
-            {INSTALLMENT_OPTIONS.map((n) => (
-              <option key={n} value={n}>
-                {n === 1 ? "תשלום אחד" : `${n} תשלומים`}
-              </option>
-            ))}
-          </select>
-          {savingInst && (
-            <span className="text-[11px] text-zinc-400">שומר...</span>
-          )}
-          {instSaved && (
-            <span className="text-[11px] font-bold text-emerald-600">
-              ✓ נשמר
-            </span>
-          )}
-        </div>
-      )}
-
       <button
         onClick={() => setOpen(true)}
         disabled={!enabled || charging}
@@ -225,25 +190,14 @@ export default function AgentChargeButton({
             </div>
 
             <div>
-              <label className="text-xs font-bold text-zinc-600 block mb-1.5">
-                מספר תשלומים
-              </label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {INSTALLMENT_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setInstallments(n)}
-                    className={`py-2 rounded-lg border-2 font-bold text-sm transition-colors ${
-                      installments === n
-                        ? "border-emerald-600 bg-emerald-50 text-emerald-800"
-                        : "border-zinc-200 text-zinc-600 hover:border-zinc-400"
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
+              {/* §354: הבורר הוסר — ראה AgentInstallmentsPanel.
+                  התצוגה כאן היא אישור בלבד. */}
+              {installments > 1 && (
+                <div className="text-xs text-zinc-500 mb-1.5">
+                  פריסה: <b>{installments} תשלומים</b>
+                  <span className="text-[10px]"> · לשינוי: "הגדרת תשלומים"</span>
+                </div>
+              )}
 
               {/* ⚠️ הפירוט מוצג רק בפריסה: בתשלום אחד הוא רק רעש,
                   והסכום כבר מופיע למעלה. */}
