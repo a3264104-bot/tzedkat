@@ -79,6 +79,66 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    // §355: ⚠️ **משקל חשוד — אזהרה, לא חסימה.**
+    //
+    // המצב מהשטח: הזמנה 578 נסגרה עם 21 ק"ג על 15 קרטונים שריר
+    // (צפוי ~330), ו-0 על שריר הזרוע. שניהם עברו כי הם לא null.
+    //
+    // ⚠️ 0 הוא ערך תקף (§141: "הלקוח לא קיבל"), ולכן לא חוסמים.
+    // אבל 0 על מוצר שנשקל, או משקל שנמוך מרבע מהצפוי, הוא כמעט
+    // תמיד טעות — והנציג צריך לאשר במפורש.
+    //
+    // ⚠️ confirmSuspicious: הקליינט שולח true אחרי שהנציג אישר.
+    // בלי זה — מחזירים את הרשימה ונותנים לו להחליט.
+    if (!body.confirmSuspicious) {
+      const items = await prisma.orderItem.findMany({
+        where: {
+          orderId: id,
+          isCancelled: false,
+          product: { saleType: { not: "UNIT" } },
+        },
+        select: {
+          productName: true,
+          quantity: true,
+          isSingle: true,
+          agentEnteredWeight: true,
+          product: { select: { avgWeightPerUnit: true, saleType: true } },
+        },
+      });
+
+      const suspicious = items
+        .map((it) => {
+          const w = Number(it.agentEnteredWeight ?? 0);
+          const avg = Number(it.product?.avgWeightPerUnit ?? 0);
+          const qty = Number(it.quantity);
+          // ⚠️ הצפוי: קרטונים × משקל קרטון. בבודדים — הכמות עצמה
+          // (היא כבר בק"ג).
+          const expected =
+            !it.isSingle && it.product?.saleType === "PACKAGE" && avg > 0
+              ? qty * avg
+              : qty;
+          if (w === 0) return { name: it.productName, reason: "משקל 0" };
+          if (expected > 0 && w < expected * 0.25)
+            return {
+              name: it.productName,
+              reason: `${w} ק"ג מתוך ~${Math.round(expected)} צפוי`,
+            };
+          return null;
+        })
+        .filter((x): x is { name: string; reason: string } => x !== null);
+
+      if (suspicious.length > 0) {
+        return NextResponse.json(
+          {
+            code: "SUSPICIOUS_WEIGHTS",
+            suspicious,
+            error: "משקלים חשודים — נדרש אישור",
+          },
+          { status: 409 }
+        );
+      }
+    }
   }
 
   const updated = await prisma.order.update({

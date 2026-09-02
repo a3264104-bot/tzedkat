@@ -1346,13 +1346,40 @@ function CloseOrderCheck({
 
     setSaving(true);
     try {
-      const res = await fetch(`/api/agent/orders/${orderId}/close`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ closed: !closed }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "שגיאה");
+      // §355: ניסיון ראשון — בלי אישור. השרת יחזיר 409 אם יש
+      // משקלים חשודים, ואז שואלים.
+      const send = (confirmSuspicious: boolean) =>
+        fetch(`/api/agent/orders/${orderId}/close`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ closed: !closed, confirmSuspicious }),
+        });
+
+      let res = await send(false);
+      let data = await res.json().catch(() => ({}));
+
+      // §355: ⚠️ **משקלים חשודים — אישור מפורש.**
+      //
+      // הזמנה 578 נסגרה עם 21 ק"ג על 15 קרטונים. השרת מזהה
+      // 0 או פחות מרבע מהצפוי, והנציג חייב לאשר בעיניים
+      // פקוחות — עם רשימה של מה בדיוק חשוד.
+      if (res.status === 409 && data.code === "SUSPICIOUS_WEIGHTS") {
+        const list = (data.suspicious as Array<{ name: string; reason: string }>)
+          .map((x) => `• ${x.name}: ${x.reason}`)
+          .join("\n");
+        if (
+          !window.confirm(
+            `⚠️ משקלים חשודים ב${customerName}:\n\n${list}\n\nלסמן כטופל בכל זאת?`
+          )
+        ) {
+          setSaving(false);
+          return;
+        }
+        res = await send(true);
+        data = await res.json().catch(() => ({}));
+      }
+
+      if (!res.ok) throw new Error(data.error || `שגיאה (${res.status})`);
       onDone();
     } catch (e: any) {
       alert(e.message);
