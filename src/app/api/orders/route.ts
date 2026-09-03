@@ -523,17 +523,31 @@ export async function POST(req: Request) {
       // ומתי לא. חישוב מקביל היה מתפצל ממנה שוב ביום שמישהו
       // ישנה אחת מהן.
       const chargedPrice = agentSetPrice ?? unitPrice;
+      // §358: 🐛 **בודדים במחיר מותאם — הוכפל במשקל הקרטון.**
+      //
+      // הזמנה 703: לשון, 3 ק"ג בודדים, מחיר 108.90 → 4,900.50.
+      // כי smartLineEstimate קיבל saleType=PACKAGE והכפיל ב-15
+      // (משקל הקרטון), בלי לדעת שזה בודדים.
+      //
+      // ⚠️ est למעלה **כן** בודק isSinglesKg — ו-finalEst לא.
+      // שני חישובים לאותו פריט, ורק אחד נכון. הלקוח קיבל מייל
+      // עם ₪4,900 על 3 ק"ג לשון.
+      //
+      // ⚠️ אותה הבחנה בדיוק: בודדים בק"ג = מחיר × כמות, בלי
+      // משקל קרטון. רק קרטונים מוכפלים.
       const finalEst =
         agentSetPrice != null
-          ? smartLineEstimate(
-              chargedPrice,
-              item.quantity,
-              pp.product.saleType,
-              pp.product.priceType,
-              pp.product.avgWeightPerUnit != null
-                ? Number(pp.product.avgWeightPerUnit)
-                : null
-            ) ?? Math.round(chargedPrice * item.quantity * 100) / 100
+          ? isSinglesKg
+            ? Math.round(chargedPrice * item.quantity * 100) / 100
+            : smartLineEstimate(
+                chargedPrice,
+                item.quantity,
+                pp.product.saleType,
+                pp.product.priceType,
+                pp.product.avgWeightPerUnit != null
+                  ? Number(pp.product.avgWeightPerUnit)
+                  : null
+              ) ?? Math.round(chargedPrice * item.quantity * 100) / 100
           : est ?? 0;
       if (agentSetPrice != null) {
         estimatedTotal += finalEst - (est ?? 0);
