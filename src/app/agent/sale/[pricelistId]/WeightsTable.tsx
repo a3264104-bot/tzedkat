@@ -25,6 +25,8 @@
 //     מ"שכחתי למלא", ורק ההבחנה הזו מאפשרת לחסום את השני.
 
 import { useEffect, useMemo, useRef, useState, Fragment } from "react";
+// §359: סיכום חיוב — שליחה או הורדה
+import OrderSummaryModal from "@/components/OrderSummaryModal";
 // §339: עריכת מחיר במוצר מועדף
 import FavoritePriceEditor from "@/components/FavoritePriceEditor";
 // §332: טופס הכרטיס — נפתח מהבורר בטבלה
@@ -170,6 +172,14 @@ export function WeightsTable({
   // ביום אחד כי הוא הוצב ליד הקוד שמשתמש בו.
   // §350: הוספה מהירה — איזו הזמנה פתוחה כרגע.
   const [quickAddFor, setQuickAddFor] = useState<string | null>(null);
+
+  // §359: סיכום חיוב — לאיזו הזמנה פתוח.
+  const [summaryFor, setSummaryFor] = useState<{
+    orderId: string;
+    orderNumber: number;
+    customerName: string;
+    total: number;
+  } | null>(null);
 
   const [cardFor, setCardFor] = useState<{
     customerId: string;
@@ -558,6 +568,47 @@ export function WeightsTable({
                     <span className="text-[10px] text-zinc-400">
                       #{r.orderNumber}
                     </span>
+                    {/* §359: 📞 חיוג ישיר.
+                        
+                        הנציג בחלוקה, הלקוח לא הגיע, והטלפון
+                        מוצג בטקסט. העתקה, מעבר לחייגן, הדבקה —
+                        שלוש פעולות בשביל שיחה.
+                        
+                        ⚠️ tel: פותח את החייגן ישירות בנייד. */}
+                    {r.phone && (
+                      <a
+                        href={`tel:${r.phone.replace(/\D/g, "")}`}
+                        className="text-[11px] hover:scale-110 transition-transform"
+                        title={r.phone}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        📞
+                      </a>
+                    )}
+                    {/* §359: 📄 סיכום חיוב — **רק אחרי V**.
+                        
+                        לקוח מזומן שרוצה לדעת כמה להביא. הנציג
+                        שולח לו מייל או מוריד קובץ — מהטבלה, בלי
+                        לצאת.
+                        
+                        ⚠️ רק אחרי סימון "טופל": לפני כן הסכום
+                        אינו סופי, ושליחה הייתה חוזרת על באג 616. */}
+                    {r.agentClosedAt && r.missing === 0 && (
+                      <button
+                        onClick={() =>
+                          setSummaryFor({
+                            orderId: r.orderId,
+                            orderNumber: r.orderNumber,
+                            customerName: r.customerName,
+                            total: r.total,
+                          })
+                        }
+                        className="text-[11px] hover:scale-110 transition-transform"
+                        title="סיכום חיוב — שליחה או הורדה"
+                      >
+                        📄
+                      </button>
+                    )}
                     {/* §350: ➕ הוספה **במקום** — לא במסך אחר.
                         
                         הקישור הישן שלח למסך ההזמנה: בחירה, חזרה,
@@ -848,6 +899,21 @@ export function WeightsTable({
           
           ⚠️ והכרטיס נשמר **לתמיד** (save-token מציב CREDIT),
           בניגוד לבחירת המזומן שהיא להזמנה בלבד. */}
+      {/* §359: 📄 סיכום חיוב — מודל.
+          
+          שלוש דרכים לשלוח, תוכן אחד. הפירוט זהה למייל (§308)
+          ולאתר (§356) — מה שהלקוח מקבל בקובץ הוא מה שהוא רואה
+          בכל מקום אחר. */}
+      {summaryFor && (
+        <OrderSummaryModal
+          orderId={summaryFor.orderId}
+          orderNumber={summaryFor.orderNumber}
+          customerName={summaryFor.customerName}
+          total={summaryFor.total}
+          onClose={() => setSummaryFor(null)}
+        />
+      )}
+
       {cardFor && (
         <UpdateCardModal
           customerId={cardFor.customerId}

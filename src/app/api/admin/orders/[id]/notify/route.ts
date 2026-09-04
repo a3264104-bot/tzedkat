@@ -18,14 +18,27 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+import { requireAgent } from "@/lib/agent-guard";
 import { sendFinalPriceEmail } from "@/lib/email";
 
 export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const g = await requireAdmin();
-  if (!g.ok) return g.res;
+  // §359: גם נציג — מהסיכום בטבלת המשקלים.
+  //
+  // ⚠️ אבל רק בהזמנות של נקודותיו. שליחת מייל ללקוח של נציג
+  // אחר היא בדיוק סוג הבלבול שההפרדה לנקודות מונעת.
+  const admin = await requireAdmin();
+  let agentPointIds: string[] | null = null;
+  if (!admin.ok) {
+    const agent = await requireAgent();
+    if (!agent.ok) return agent.res;
+    if (!agent.isAdmin && agent.agentPointIds.length === 0) {
+      return NextResponse.json({ error: "אין לך נקודת חלוקה משויכת" }, { status: 403 });
+    }
+    agentPointIds = agent.isAdmin ? null : agent.agentPointIds;
+  }
 
   const { id } = await params;
 
@@ -36,6 +49,14 @@ export async function POST(
 
   if (!order) {
     return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
+  }
+
+  // §359: נציג — רק בנקודותיו
+  if (agentPointIds && !agentPointIds.includes(order.pointId)) {
+    return NextResponse.json(
+      { error: "אין הרשאה - ההזמנה לא באחת מהנקודות שלך" },
+      { status: 403 }
+    );
   }
 
   // ⚠️ בלי מחיר סופי אין מה לשלוח: הלקוח יקבל מייל עם סכום

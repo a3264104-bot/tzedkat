@@ -1,4 +1,6 @@
 import Link from "next/link";
+// §359: סיכום חיוב — שליחה או הורדה
+import SummaryButton from "@/components/SummaryButton";
 // §333: כפתור חזרה — צעד אחד אחורה
 import BackButton from "@/components/BackButton";
 // §315: ביטול פריט — רכיב משותף לשלושת המסכים
@@ -332,7 +334,14 @@ export default async function AgentOrderDetailPage({
               >
                 {order.customerName}
               </a>
-              <div className="text-xs text-zinc-500" dir="ltr">{order.phone}</div>
+              {/* §359: 📞 חיוג ישיר */}
+              <a
+                href={`tel:${(order.phone || "").replace(/\D/g, "")}`}
+                className="text-xs text-zinc-500 hover:text-brand-rust"
+                dir="ltr"
+              >
+                📞 {order.phone}
+              </a>
               <a
                 href={`/agent/customer/${order.customerId}`}
                 className="inline-block mt-1 text-[11px] font-bold text-brand-rust"
@@ -448,7 +457,12 @@ export default async function AgentOrderDetailPage({
                         : null
                     }
                     quantity={Number(it.quantity)}
-                    isFavorite={!!(it as any).product?.isFavorite}
+                    // §342: מועדף או לא-פעיל — שניהם
+                    // "מוצרים שאינם באתר".
+                    isFavorite={
+                      !!((it as any).product?.isFavorite ||
+                        (it as any).product?.isActive === false)
+                    }
                     locked={
                       !!(order as any).weightsLockedAt ||
                       order.paymentStatus === "PAID" ||
@@ -757,6 +771,23 @@ export default async function AgentOrderDetailPage({
               ⚠️ המקום כאן מכוון: **אחרי** הזיכוי והחיוב הנוסף,
               כי הם משנים את הסכום, ו**לפני** המזומן והחיוב, כי
               הם הפעולות הסופיות. */}
+          {/* §359: 📄 סיכום חיוב — גם ממסך ההזמנה.
+              
+              הנציג שפתח הזמנה כדי לבדוק פרטים, והלקוח שואל
+              "כמה?" — מכאן, בלי לחזור לטבלה.
+              
+              ⚠️ רק אחרי V: לפני כן הסכום לא סופי. */}
+          {order.agentClosedAt && finalTotal != null && (
+            <div className="mb-3">
+              <SummaryButton
+                orderId={order.id}
+                orderNumber={order.orderNumber}
+                customerName={order.customerName}
+                total={finalTotal}
+              />
+            </div>
+          )}
+
           <div className="mb-3">
             <AgentInstallmentsPanel
               orderId={order.id}

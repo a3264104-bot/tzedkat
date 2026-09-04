@@ -138,11 +138,19 @@ export default async function AgentCustomersPage() {
         {sorted.map((c) => {
           const isCash = c.paymentPreference === "CASH";
           const hasCard = !!c.paymentToken;
+          // §359: 📞 החיוג מחוץ ל-Link.
+          //
+          // ⚠️ a בתוך a הוא HTML לא חוקי, ו-onClick לא עובד
+          // ב-Server Component. הפתרון: שני קישורים אחים —
+          // הכרטיס והטלפון — ולא מקוננים.
           return (
-            <Link
+            <div
               key={c.id}
+              className="flex items-stretch gap-1"
+            >
+            <Link
               href={`/agent/customer/${c.id}`}
-              className="block bg-white rounded-xl border border-zinc-200 p-3 hover:border-brand-rust transition-colors"
+              className="flex-1 min-w-0 block bg-white rounded-xl border border-zinc-200 p-3 hover:border-brand-rust transition-colors"
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -184,6 +192,16 @@ export default async function AgentCustomersPage() {
                 </div>
               </div>
             </Link>
+            {c.phone && (
+              <a
+                href={`tel:${c.phone.replace(/\D/g, "")}`}
+                className="shrink-0 flex items-center justify-center w-11 rounded-xl border border-zinc-200 bg-white hover:border-emerald-400 hover:bg-emerald-50 text-lg"
+                title={`התקשר ל-${c.phone}`}
+              >
+                📞
+              </a>
+            )}
+            </div>
           );
         })}
       </main>
