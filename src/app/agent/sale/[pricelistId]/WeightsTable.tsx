@@ -132,6 +132,8 @@ type CustomerRow = {
   /** §332: אמצעי התשלום **של ההזמנה** — גובר על העדפת הלקוח */
   orderPaymentMethod?: string | null;
   finalTotal: number | null;
+  /** §360: כמה שולם — ליתרה בתשלום חלקי */
+  amountPaid?: number | null;
 };
 
 export function WeightsTable({
@@ -364,6 +366,8 @@ export function WeightsTable({
           orderPaymentMethod: (o as any).paymentMethod ?? null,
           paymentStatus: (o as any).paymentStatus ?? null,
           finalTotal: (o as any).finalTotal ?? null,
+          // §360: ליתרה בתשלום חלקי
+          amountPaid: (o as any).amountPaid ?? null,
         };
       });
   }, [orders]);
@@ -813,6 +817,7 @@ export function WeightsTable({
                             customerName={r.customerName}
                             paymentStatus={r.paymentStatus}
                             finalTotal={r.finalTotal}
+                            amountPaid={r.amountPaid}
                             missing={r.missing}
                             readOnly={readOnly}
                             onDone={onNeedsReload}
@@ -1496,6 +1501,7 @@ function CashCell({
   customerName,
   paymentStatus,
   finalTotal,
+  amountPaid,
   missing,
   readOnly,
   onDone,
@@ -1505,20 +1511,35 @@ function CashCell({
   customerName: string;
   paymentStatus: string | null;
   finalTotal: number | null;
+  /** §360: כמה כבר שולם — ליתרה */
+  amountPaid?: number | null;
   missing: number;
   readOnly?: boolean;
   onDone: () => void;
 }) {
   const [saving, setSaving] = useState(false);
-  const paid = paymentStatus === "PAID" || paymentStatus === "PARTIALLY_PAID";
 
-  if (paid) {
+  // §360: 🐛 **תשלום חלקי נחשב "שולם".**
+  //
+  // מה שהיה: PARTIALLY_PAID הציג "✓ שולם" והסתיר את הכפתור.
+  // הלקוח נתן 200 מתוך 232, והנציג לא ראה שחסר ולא יכול היה
+  // לגבות את היתרה.
+  //
+  // ⚠️ חלקי = לא שולם. הוא מקבל תצוגה משלו: כמה נותר, וכפתור
+  // לגבות אותו.
+  if (paymentStatus === "PAID") {
     return (
       <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-1 block">
         ✓ שולם
       </span>
     );
   }
+
+  const isPartial = paymentStatus === "PARTIALLY_PAID";
+  const remaining =
+    isPartial && finalTotal != null && amountPaid != null
+      ? Math.round((finalTotal - amountPaid) * 100) / 100
+      : null;
 
   const blocked = missing > 0 || finalTotal == null;
 
@@ -1543,9 +1564,14 @@ function CashCell({
     //
     // ⚠️ והשרת מחליט אם זה PAID או PARTIALLY_PAID (§239), לא
     // המסך.
+    // §360: בתשלום חלקי — מציעים את היתרה, לא את הסכום המלא.
+    // הלקוח כבר שילם 200, ועכשיו מביא את ה-32 שחסרו.
+    const suggest = remaining != null && remaining > 0 ? remaining : finalTotal;
     const entered = window.prompt(
-      `כמה שילם ${customerName} במזומן?\n\nסכום ההזמנה: ${finalTotal} ש"ח`,
-      String(finalTotal)
+      remaining != null && remaining > 0
+        ? `${customerName} שילם כבר ${amountPaid} ש"ח.\n\nכמה מביא עכשיו? (נותר ${remaining} ש"ח)`
+        : `כמה שילם ${customerName} במזומן?\n\nסכום ההזמנה: ${finalTotal} ש"ח`,
+      String(suggest)
     );
     if (entered === null) return;
 
@@ -1556,18 +1582,20 @@ function CashCell({
     }
     // ⚠️ חריגה מעל הסכום נחסמת: תשלום גדול מהחוב הוא טעות
     // הקלדה, ולא מתנה.
-    if (amt > Number(finalTotal) + 0.01) {
+    if (amt + (amountPaid ?? 0) > Number(finalTotal) + 0.01) {
       alert(
         `הסכום גבוה מההזמנה (${finalTotal} ש"ח). יש לוודא שלא נפלה טעות.`
       );
       return;
     }
 
-    const isPartial = amt < Number(finalTotal) - 0.01;
+    // §360: חלקי = המצטבר (מה שכבר שולם + עכשיו) קטן מהסכום.
+    const cumulative = Math.round((amt + (amountPaid ?? 0)) * 100) / 100;
+    const isPartial = cumulative < Number(finalTotal) - 0.01;
     if (
       !window.confirm(
         isPartial
-          ? `${customerName} שילם ${amt} מתוך ${finalTotal} ש"ח.\n\nיישאר חוב של ${(Number(finalTotal) - amt).toFixed(2)} ש"ח.`
+          ? `${customerName} שילם ${amt} ש"ח${amountPaid ? ` (סה"כ ${cumulative})` : ""} מתוך ${finalTotal}.\n\nיישאר חוב של ${(Number(finalTotal) - cumulative).toFixed(2)} ש"ח.`
           : `${customerName} שילם ${amt} ש"ח במזומן?\n\nההזמנה תסומן כשולמה והכרטיס לא יחויב.`
       )
     )
@@ -1578,11 +1606,15 @@ function CashCell({
       const res = await fetch(`/api/admin/orders/${orderId}/cash-payment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // §360: הסכום המצטבר — לא רק התשלום הנוכחי. השרת שומר
+        // amountPaid כערך מוחלט, ולכן מוסיפים למה שכבר שולם.
         body: JSON.stringify({
-          amountPaid: amt,
+          amountPaid: Math.round((amt + (amountPaid ?? 0)) * 100) / 100,
           note: isPartial
             ? `שולם ${amt} מתוך ${finalTotal} במזומן בחלוקה`
-            : "שולם במזומן בחלוקה",
+            : amountPaid
+              ? `השלמת יתרה: ${amt} (סה"כ ${Math.round((amt + amountPaid) * 100) / 100})`
+              : "שולם במזומן בחלוקה",
         }),
       });
       const data = await res.json();
@@ -1608,10 +1640,18 @@ function CashCell({
       className={`w-full text-[10px] font-bold rounded border-2 py-1 transition-colors disabled:opacity-50 ${
         blocked
           ? "border-zinc-200 bg-zinc-50 text-zinc-300 cursor-not-allowed"
-          : "border-amber-400 bg-white text-amber-800 hover:bg-amber-500 hover:text-white"
+          : isPartial
+            ? "border-red-400 bg-red-50 text-red-800 hover:bg-red-500 hover:text-white"
+            : "border-amber-400 bg-white text-amber-800 hover:bg-amber-500 hover:text-white"
       }`}
     >
-      {saving ? "…" : "💵 מזומן"}
+      {/* §360: חלקי — מציג כמה חסר, באדום. הנציג רואה במבט
+          שיש עוד לגבות, ולא "✓ שולם" שמסתיר את זה. */}
+      {saving
+        ? "…"
+        : isPartial && remaining != null
+          ? `💵 חסר ${remaining}`
+          : "💵 מזומן"}
     </button>
   );
 }

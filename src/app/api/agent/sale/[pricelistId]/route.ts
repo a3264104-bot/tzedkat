@@ -375,6 +375,8 @@ export async function GET(
       appliedCreditBalance:
         o.appliedCreditBalance != null ? Number(o.appliedCreditBalance) : 0,
       appliedDebt: o.appliedDebt != null ? Number(o.appliedDebt) : 0,
+      // §360: כמה שולם — ליתרה בתשלום חלקי
+      amountPaid: o.amountPaid != null ? Number(o.amountPaid) : null,
       // §322: לבורר אמצעי התשלום בטבלה
       customerId: o.customerId,
       hasCard: !!o.customer?.paymentToken,

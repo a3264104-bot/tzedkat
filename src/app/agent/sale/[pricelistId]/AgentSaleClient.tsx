@@ -72,6 +72,8 @@ export type Order = {
   creditAmount?: number;
   appliedCreditBalance?: number;
   appliedDebt?: number;
+  /** §360: כמה שולם — ליתרה בתשלום חלקי */
+  amountPaid?: number | null;
   /**
    * §311: אופן התשלום של הלקוח — CASH / CREDIT.
    *
