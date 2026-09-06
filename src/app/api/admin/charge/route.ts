@@ -270,11 +270,25 @@ export async function POST(req: Request) {
     // הוא מקוזז מההזמנה הראשונה בלבד של הלקוח - creditVerificationCharged
     // מסמן אם הקיזוז כבר נוצל (אם true - אין יותר קיזוז, ההזמנה משלמת מלא).
     const finalTotalNum = Number(preOrder.finalTotal);
-    const shouldDeductVerification =
-      !preOrder.customer.creditVerificationCharged && finalTotalNum > 1;
-    const chargeAmount = shouldDeductVerification
-      ? Math.round((finalTotalNum - 1) * 100) / 100
-      : finalTotalNum;
+
+    // §364: 🐛 **השקל קוזז פעמיים.**
+    //
+    // §19/§46 (כאן): החיוב מוריד ₪1 אם creditVerificationCharged
+    // עדיין false.
+    // §247 (save-token): הזנת הכרטיס מוסיפה ₪1 ל-creditBalance,
+    // ו-§124 מקזז אותו ב-finalTotal כבר בשקילה.
+    //
+    // הזמנה 562: finalTotal=1481.04 (אחרי קיזוז §247), החיוב
+    // הוריד עוד ₪1 → 1480.04. הלקוח קיבל ₪2.
+    //
+    // ⚠️ §247 הוא המנגנון: הוא עובד דרך יתרת זכות, מתועד
+    // (appliedCreditBalance), ומופיע בפירוט ללקוח. הקיזוז כאן
+    // הוא שריד — מוסר.
+    //
+    // ⚠️ creditVerificationCharged נשאר: הוא מסמן שהקיזוז נוצל,
+    // ומונע כפילות אם save-token ירוץ שוב (§247 בודק אותו).
+    const chargeAmount = finalTotalNum;
+    const shouldDeductVerification = false;
 
     if (chargeAmount <= 0) {
       return NextResponse.json(

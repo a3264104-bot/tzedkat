@@ -135,6 +135,8 @@ export async function GET(req: Request) {
     estimatedSum: 0,
     finalSum: 0,
     debtSum: 0,
+    /** §366: חוב שנגבה בפועל — מתוך ההזמנות ששולמו */
+    debtPaidSum: 0,
     paidSum: 0,
   };
 
@@ -156,7 +158,18 @@ export async function GET(req: Request) {
     }
     if (o.paymentStatus === "PAID") {
       paymentSummary.paid++;
-      paymentSummary.paidSum += Number(o.amountPaid ?? o.finalTotal ?? 0);
+      // §366: 🐛 **"התקבל בפועל" כלל את החוב.**
+      //
+      // 562: amountPaid=1480, מתוכם 370 חוב ממכירה קודמת.
+      // "התקבל בפועל ₪1,480" — והמנהל השווה למה שנמכר במכירה
+      // הזו ולא הבין למה יש עודף.
+      //
+      // ⚠️ §325 הפריד את finalSum ואת הדוחות האחרים — ופספס
+      // את paidSum. אותו שדה, אותה טעות.
+      const paidRaw = Number(o.amountPaid ?? o.finalTotal ?? 0);
+      const debtInPaid = Number((o as any).appliedDebt ?? 0);
+      paymentSummary.paidSum += Math.max(0, paidRaw - debtInPaid);
+      paymentSummary.debtPaidSum += debtInPaid;
     } else {
       paymentSummary.pending++;
     }
@@ -286,6 +299,7 @@ export async function GET(req: Request) {
   paymentSummary.finalSum = Math.round(paymentSummary.finalSum * 100) / 100;
   // §325: חוב קודם — מעוגל כמו שאר הסכומים.
   paymentSummary.debtSum = Math.round(paymentSummary.debtSum * 100) / 100;
+  paymentSummary.debtPaidSum = Math.round(paymentSummary.debtPaidSum * 100) / 100;
   paymentSummary.paidSum = Math.round(paymentSummary.paidSum * 100) / 100;
 
   return NextResponse.json({

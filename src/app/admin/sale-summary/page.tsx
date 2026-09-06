@@ -58,6 +58,9 @@ type Summary = {
     pending: number;
     estimatedSum: number;
     finalSum: number;
+    /** §366: חוב שנגבה — בנפרד מהכנסות המכירה */
+    debtSum?: number;
+    debtPaidSum?: number;
     paidSum: number;
   };
   products: ProductRow[];
@@ -348,6 +351,12 @@ export default function SaleSummaryPage() {
         <div className="card p-4 text-center">
           <div className="text-2xl font-extrabold text-brand-rust">{fmt(ps.paidSum)}</div>
           <div className="text-xs text-zinc-500">התקבל בפועל</div>
+          {/* §366: החוב בנפרד — הוא כסף שנכנס, אבל לא מהמכירה הזו. */}
+          {(ps.debtPaidSum ?? 0) > 0 && (
+            <div className="text-[10px] text-zinc-400 mt-1">
+              + {fmt(ps.debtPaidSum!)} חוב קודם
+            </div>
+          )}
         </div>
       </div>
 

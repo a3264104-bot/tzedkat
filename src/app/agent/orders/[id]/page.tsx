@@ -245,6 +245,24 @@ export default async function AgentOrderDetailPage({
   ];
 
   const hasToken = !!order.customer.paymentToken;
+
+  // §365: 🔒 **הזמנה ששולמה — נעולה בכל מקום.**
+  //
+  // הבעיה: כל פאנל בדק לבד — חלק PAID, חלק גם PARTIALLY_PAID,
+  // חלק weightsLockedAt, וחלק כלום. אחרי חיוב אמיתי (562) עדיין
+  // היו כפתורים פתוחים.
+  //
+  // ⚠️ משתנה אחד, כל הפאנלים קוראים אותו. הזמנה ששולמה היא
+  // עובדה שנסגרה: הכסף עבר, ושינוי אחריו יוצר פער שאי אפשר
+  // לתקן בלי זיכוי.
+  //
+  // ⚠️ PARTIALLY_PAID גם נעול: חלק מהכסף עבר, ושינוי משקל
+  // מזיז את היתרה בלי שהלקוח יודע.
+  const isLocked =
+    order.paymentStatus === "PAID" ||
+    order.paymentStatus === "PARTIALLY_PAID" ||
+    order.paymentStatus === "CHARGING" ||
+    !!(order as any).weightsLockedAt;
   const finalTotal = order.finalTotal != null ? Number(order.finalTotal) : null;
 
   // §180: 🐛 המשלוח לא הופיע בסה"כ.
@@ -463,17 +481,13 @@ export default async function AgentOrderDetailPage({
                       !!((it as any).product?.isFavorite ||
                         (it as any).product?.isActive === false)
                     }
-                    locked={
-                      !!(order as any).weightsLockedAt ||
-                      order.paymentStatus === "PAID" ||
-                      order.paymentStatus === "PARTIALLY_PAID"
-                    }
+                    locked={isLocked}
                   />
                   <CancelItemButton
                     itemId={it.id}
                     productName={it.productName}
                     isCancelled={it.isCancelled}
-                    locked={!!(order as any).weightsLockedAt}
+                    locked={isLocked}
                   />
                 </div>
               </div>
@@ -575,7 +589,8 @@ export default async function AgentOrderDetailPage({
         {/* §70: הוספת מוצר להזמנה - עם בורר בודדים/קרטון וכמות,
             בדיוק כמו באתר. מוצג רק במכירה פעילה ולפני קביעת מחיר
             סופי - אותן חסימות שיש ב-API. */}
-        {allAddable.length > 0 && (
+        {/* §365: מוסתר אחרי תשלום — הוספת פריט משנה סכום שכבר נגבה. */}
+        {allAddable.length > 0 && !isLocked && (
           <AgentAddItemPanel
             orderId={order.id}
             singleSurcharge={Number(salePricelist?.singleSurcharge ?? 0)}
@@ -719,10 +734,7 @@ export default async function AgentOrderDetailPage({
               address={order.deliveryAddress}
               note={order.deliveryNote}
               deliveredAt={order.deliveredToCustomerAt?.toISOString() ?? null}
-              alreadyPaid={
-                order.paymentStatus === "PAID" ||
-                order.paymentStatus === "PARTIALLY_PAID"
-              }
+              alreadyPaid={isLocked}
             />
           </div>
 
@@ -737,10 +749,7 @@ export default async function AgentOrderDetailPage({
               }
               currentReason={order.creditReason}
               orderTotal={finalTotal ?? estimatedTotal}
-              alreadyPaid={
-                order.paymentStatus === "PAID" ||
-                order.paymentStatus === "PARTIALLY_PAID"
-              }
+              alreadyPaid={isLocked}
             />
           </div>
 
@@ -754,10 +763,7 @@ export default async function AgentOrderDetailPage({
               }
               currentReason={order.extraChargeReason}
               orderTotal={finalTotal ?? estimatedTotal}
-              alreadyPaid={
-                order.paymentStatus === "PAID" ||
-                order.paymentStatus === "PARTIALLY_PAID"
-              }
+              alreadyPaid={isLocked}
               kind="charge"
             />
           </div>
@@ -796,10 +802,7 @@ export default async function AgentOrderDetailPage({
               current={order.requestedInstallments ?? 1}
               orderTotal={finalTotal ?? estimatedTotal}
               hasCard={!!order.customer.cardLast4}
-              alreadyPaid={
-                order.paymentStatus === "PAID" ||
-                order.paymentStatus === "PARTIALLY_PAID"
-              }
+              alreadyPaid={isLocked}
               isAdmin={role === "ADMIN"}
             />
           </div>
@@ -810,6 +813,9 @@ export default async function AgentOrderDetailPage({
 
               ⚠️ בכוונה **מעל** כפתור החיוב: הנציג שקיבל מזומן צריך
               לפגוש קודם את הפעולה הנכונה. */}
+          {/* §365: מוסתר אחרי תשלום מלא — אין מה לסמן. חלקי נשאר
+              פתוח כדי להשלים את היתרה (§360). */}
+          {order.paymentStatus !== "PAID" && (
           <div className="mb-3">
             <AgentCashPanel
               orderId={order.id}
@@ -819,6 +825,7 @@ export default async function AgentOrderDetailPage({
               paymentStatus={order.paymentStatus}
             />
           </div>
+          )}
 
           {/* כפתור חיוב - רק אם יש הרשאה + תנאים מתקיימים */}
           {canCharge && (

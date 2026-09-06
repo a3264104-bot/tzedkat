@@ -754,6 +754,15 @@ export default function OrderDetail() {
       {/* items */}
       <div className="card p-5">
         <h2 className="font-bold text-brand-slatedark mb-3">מוצרים</h2>
+        {/* §365: המנהל **יכול** לערוך אחרי תשלום — הוא זה שמתקן.
+            אבל עם אזהרה: שינוי אחרי חיוב יוצר פער שדורש זיכוי
+            או חיוב נוסף. */}
+        {isPaid && (
+          <div className="rounded-lg bg-amber-50 border border-amber-300 px-3 py-2 mb-3 text-xs text-amber-900">
+            ⚠️ <b>ההזמנה שולמה.</b> שינוי פריטים כאן לא ישנה את מה
+            שנגבה — לתיקון יש להשתמש בזיכוי או בחיוב נוסף.
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="admin">
             <thead>

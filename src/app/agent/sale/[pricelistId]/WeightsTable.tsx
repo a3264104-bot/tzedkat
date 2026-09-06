@@ -798,7 +798,8 @@ export function WeightsTable({
                             customerName={r.customerName}
                             pref={effPref}
                             hasCard={r.hasCard}
-                            readOnly={readOnly}
+                            // §365: נעול אחרי תשלום — לא רק בקריאה בלבד
+                            readOnly={readOnly || !!isOrderLocked?.(r)}
                             onDone={onNeedsReload}
                             onNeedCard={() =>
                               setCardFor({
@@ -849,7 +850,9 @@ export function WeightsTable({
                       orderId={r.orderId}
                       customerName={r.customerName}
                       deliveredAt={r.deliveredAt}
-                      readOnly={readOnly}
+                      // §365: נעול אחרי תשלום — מסירה קורית לפני, ואם לא
+                      // סומנה זו טעות שהמנהל מתקן, לא כפתור פתוח.
+                      readOnly={readOnly || !!isOrderLocked?.(r)}
                       onDone={onNeedsReload}
                     />
                     <CloseOrderCheck
@@ -858,7 +861,8 @@ export function WeightsTable({
                       customerName={r.customerName}
                       missing={r.missing}
                       closedAt={r.agentClosedAt}
-                      readOnly={readOnly}
+                      // §365: נעול אחרי תשלום — לא רק בקריאה בלבד
+                      readOnly={readOnly || !!isOrderLocked?.(r)}
                       onDone={onNeedsReload}
                     />
                   </div>

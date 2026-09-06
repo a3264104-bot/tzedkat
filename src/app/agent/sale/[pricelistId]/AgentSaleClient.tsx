@@ -567,7 +567,15 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
   const isSealed = data.summary.status === "CONFIRMED";
 
   // ⚠️ נעילה אמיתית: רק כשההזמנה **שולמה**. עד אז הנציג מתקן.
-  const isOrderLocked = (o: any) => o.paymentStatus === "PAID";
+  // §365: 🔒 נעילה מלאה — אותו כלל של מסך ההזמנה.
+  //
+  // מה שהיה: רק PAID. תשלום חלקי, חיוב בתהליך, והזמנה שנשלח
+  // לה מייל (§309) — כולם היו פתוחים לעריכה בכרטיסים.
+  const isOrderLocked = (o: any) =>
+    o.paymentStatus === "PAID" ||
+    o.paymentStatus === "PARTIALLY_PAID" ||
+    o.paymentStatus === "CHARGING" ||
+    !!o.weightsLockedAt;
 
   return (
     <div dir="rtl" className="min-h-screen bg-brand-cream pb-32">

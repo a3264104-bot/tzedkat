@@ -365,14 +365,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         { status: 400 }
       );
     }
-    const customerForLink = await prisma.customer.findUnique({
-      where: { id: current.customerId },
-    });
-    const deductOneNow =
-      customerForLink && !customerForLink.creditVerificationCharged && Number(current.finalTotal) > 1;
-    const chargeAmountNow = deductOneNow
-      ? Math.round((Number(current.finalTotal) - 1) * 100) / 100
-      : Number(current.finalTotal);
+    // §364: 🐛 קישור התשלום הוריד ₪1 — כמו החיוב.
+    //
+    // §247 כבר קיזז את השקל דרך יתרת זכות, ו-finalTotal כבר
+    // אחריו. הורדה נוספת כאן = הלקוח משלם ₪2 פחות.
+    //
+    // ⚠️ finalTotal הוא הסכום. נקודה.
+    const chargeAmountNow = Number(current.finalTotal);
 
     data.paymentLink = buildNedarimPaymentLink(id, chargeAmountNow, current.customerName);
     data.paymentStatus = "PAYMENT_PENDING";
@@ -424,10 +423,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         data.finalPriceSetAt = new Date();
         data.finalPriceSetBy = g.session?.user?.email ?? null;
         justSetFinalTotal = true;
-        // קיזוז 1₪ בהזמנה הראשונה (אימות כרטיס שנגבה בהרשמה) - creditVerificationCharged מסמן שכבר קוזז
-        const customerForDeduction = await prisma.customer.findUnique({ where: { id: current.customerId } });
-        const deductOne = customerForDeduction && !customerForDeduction.creditVerificationCharged && newFinalTotal > 1;
-        const chargeAmount = deductOne ? Math.round((newFinalTotal - 1) * 100) / 100 : newFinalTotal;
+        // §364: בלי קיזוז — §247 כבר עשה את זה דרך יתרת זכות.
+        const chargeAmount = newFinalTotal;
         data.paymentLink = buildNedarimPaymentLink(id, chargeAmount, current.customerName);
         data.paymentStatus = "PAYMENT_PENDING";
       }
