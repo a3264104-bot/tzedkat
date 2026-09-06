@@ -768,7 +768,11 @@ async function recomputeOrderTotal(orderId: string): Promise<void> {
   ) {
     const full = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: true, customer: true },
+      include: {
+      // §361: product.saleType — להבחנה יחידות/ק"ג במייל
+      items: { include: { product: { select: { saleType: true, singlesMode: true } } } },
+      customer: true,
+    },
     });
     if (full) {
       // לא חוסם: כשל מייל לא יבטל מחיר שכבר נקבע

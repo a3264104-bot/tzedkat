@@ -105,8 +105,15 @@ function pluralizeHe(u: string, n: number): string {
 // חישוב תצוגת משקל - סופי או משוער
 function weightDisplay(it: OrderItemLike): string {
   const final = it.finalWeight ?? it.actualWeight;
+  // §361: יחידות — "3 יח׳", לא "3.00 ק"ג". מוצר UNIT, או בודדים
+  // במצב UNITS. actualWeight שם הוא הכמות שאושרה (§268).
+  const isUnit =
+    (it as any).product?.saleType === "UNIT" ||
+    (it.isSingle && (it as any).product?.singlesMode === "UNITS");
   if (final != null) {
-    return `<strong>${Number(final).toFixed(2)} ק"ג</strong> (סופי)`;
+    return isUnit
+      ? `<strong>${Math.round(Number(final))} ${escapeHtml(it.unit || "יח׳")}</strong>`
+      : `<strong>${Number(final).toFixed(2)} ק"ג</strong> (סופי)`;
   }
   if (it.estimatedWeight != null) {
     return `~${Number(it.estimatedWeight).toFixed(1)} ק"ג (משוער)`;
@@ -378,6 +385,21 @@ export async function sendFinalPriceEmail(
                  ${order.pointNameSnapshot ? `<br>📍 ${escapeHtml(order.pointNameSnapshot)}` : ""}
                  ${order.deliveryDateSnapshot ? `<br>📦 ${escapeHtml(order.deliveryDateSnapshot)}` : ""}
                </div>
+             </div>
+             <!-- §361: 💵 אפשרויות תשלום — אותו טקסט של הסיכום
+                  להורדה (OrderSummaryModal). מקום אחד לשנות. -->
+             <div style="background:#f8f8f8;border-radius:10px;padding:14px;margin-top:16px;font-size:13px;line-height:1.8;color:#444;">
+               <div style="font-weight:bold;color:#C0461E;margin-bottom:6px;">אפשרויות תשלום</div>
+               • מזומן לנציג<br>
+               • העברה בנקאית<br>
+               &nbsp;&nbsp;בנק מרכנתיל 17 · סניף 621 · חשבון 101811<br>
+               &nbsp;&nbsp;ע"ש "צדקת רבותינו"<br>
+               • באשראי: <a href="https://www.matara.pro/nedarimplus/online/?mosad=7015318" style="color:#1d4ed8;">לחץ כאן</a><br>
+               <div style="margin-top:8px;color:#666;">
+                 יש לשלוח אסמכתא של ביצוע התשלום למייל
+                 <a href="mailto:m5402088@gmail.com" style="color:#1d4ed8;">m5402088@gmail.com</a>
+               </div>
+               <div style="margin-top:6px;">תודה</div>
              </div>
              <p style="color:#888;font-size:12px;margin-top:16px;">
                לאחר התשלום תקבלו אישור נוסף במייל.

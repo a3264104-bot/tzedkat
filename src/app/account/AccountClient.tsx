@@ -25,6 +25,9 @@ type OrderItem = {
   // אופציונליים כי הזמנות ישנות עשויות להגיע בלעדיהם.
   estimatedWeight: number | null;
   actualWeight: number | null;
+  /** §361: להבחנה יחידות/ק"ג בתצוגה */
+  saleType?: string | null;
+  singlesMode?: string | null;
   // §59: פירוט חיוב. כולם snapshot מרגע ההזמנה/השקילה.
   unitPrice: number;
   estimatedPrice: number;
@@ -1178,7 +1181,11 @@ function ItemRow({ it }: { it: OrderItem }) {
             "כ-" - כדי שהלקוח לא יצפה בדיוק לכמות המשוערת. */}
         {it.actualWeight != null ? (
           <div className="text-[11px] text-emerald-700 font-medium">
-            נשקל: {it.actualWeight.toFixed(2)} ק&quot;ג
+            {/* §361: יחידות — לא ק"ג */}
+            {it.saleType === "UNIT" ||
+            (it.isSingle && it.singlesMode === "UNITS")
+              ? `אושר: ${Math.round(it.actualWeight)} ${it.unit || "יח׳"}`
+              : `נשקל: ${it.actualWeight.toFixed(2)} ק"ג`}
           </div>
         ) : it.estimatedWeight != null ? (
           <div className="text-[11px] text-zinc-500">

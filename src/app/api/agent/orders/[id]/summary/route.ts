@@ -40,7 +40,8 @@ export async function GET(
       creditReason: true,
       appliedCreditBalance: true,
       appliedDebt: true,
-      customer: { select: { email: true } },
+      customer: { select: { email: true, paymentPreference: true } },
+      paymentMethod: true,
       pricelist: { select: { orderFee: true } },
       items: {
         where: { isCancelled: false },
@@ -52,6 +53,7 @@ export async function GET(
           actualWeight: true,
           finalPrice: true,
           estimatedPrice: true,
+          product: { select: { saleType: true, singlesMode: true } },
         },
       },
     },
@@ -80,12 +82,22 @@ export async function GET(
 
   const lines = order.items.map((it) => {
     const w = it.actualWeight != null ? Number(it.actualWeight) : null;
+    // §361: מוצר יחידות — "3 יח׳", לא "3.00 ק"ג".
+    // actualWeight שם הוא הכמות שאושרה (§268), לא משקל.
+    // ⚠️ שני מקרים של יחידות: מוצר UNIT (נקניק, כבד ארוז), או
+    // בודדים במצב UNITS (סלמון בחתיכות). שניהם "3 יח׳", לא ק"ג.
+    const isUnit =
+      it.product?.saleType === "UNIT" ||
+      (it.isSingle && it.product?.singlesMode === "UNITS");
+    const qty =
+      w != null
+        ? isUnit
+          ? `${Math.round(w)} ${it.unit || "יח׳"}`
+          : `${w.toFixed(2)} ק"ג`
+        : `${Number(it.quantity)} ${it.unit || ""}`.trim();
     return {
       label: it.productName + (it.isSingle ? " (בודדים)" : ""),
-      qty:
-        w != null
-          ? `${w.toFixed(2)} ק"ג`
-          : `${Number(it.quantity)} ${it.unit || ""}`.trim(),
+      qty,
       price: Number(it.finalPrice ?? it.estimatedPrice ?? 0),
     };
   });
@@ -135,5 +147,10 @@ export async function GET(
     extras,
     total: Math.round(total * 100) / 100,
     email: order.customer?.email || null,
+    // §361: לקוח מזומן — פרטי תשלום בסוף (§147: העדפה או שיטה)
+    isCash:
+      order.customer?.paymentPreference === "CASH" ||
+      order.paymentMethod === "CASH" ||
+      order.paymentMethod === "MANUAL",
   });
 }

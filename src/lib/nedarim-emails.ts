@@ -214,6 +214,7 @@ export async function sendChargeSucceededEmail(params: {
               actualWeight: true,
               finalPrice: true,
               estimatedPrice: true,
+              product: { select: { saleType: true, singlesMode: true } },
             },
           },
         },
@@ -225,9 +226,16 @@ export async function sendChargeSucceededEmail(params: {
             const w =
               it.actualWeight != null ? Number(it.actualWeight) : null;
             const price = Number(it.finalPrice ?? it.estimatedPrice ?? 0);
+            // §361: יחידות — "3 יח׳", לא "3.00 ק"ג". שני מקרים:
+            // מוצר UNIT, או בודדים במצב UNITS.
+            const isUnit =
+              (it as any).product?.saleType === "UNIT" ||
+              (it.isSingle && (it as any).product?.singlesMode === "UNITS");
             const qtyText =
               w != null
-                ? `${w.toFixed(2)} ק"ג`
+                ? isUnit
+                  ? `${Math.round(w)} ${escapeHtml(it.unit || "יח׳")}`
+                  : `${w.toFixed(2)} ק"ג`
                 : `${Number(it.quantity)} ${escapeHtml(it.unit || "")}`;
             return `<tr>
               <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(it.productName)}${it.isSingle ? ' <span style="font-size:11px;color:#b45309;">(בודדים)</span>' : ""}</td>

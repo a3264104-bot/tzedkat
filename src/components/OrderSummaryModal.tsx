@@ -19,6 +19,26 @@
 import { useEffect, useRef, useState } from "react";
 
 type Line = { label: string; qty: string; price: number };
+
+// §361: פרטי תשלום ללקוח מזומן — טקסט אחד לשלושת המסלולים.
+//
+// ⚠️ קבוע ולא הגדרה: שלושה מסלולים (מייל, תמונה, טקסט) חייבים
+// להציג בדיוק אותו דבר. מקום אחד לשנות.
+const CASH_PAYMENT_INFO = [
+  "אפשרויות תשלום",
+  "• מזומן לנציג",
+  "• העברה בנקאית",
+  "  בנק מרכנתיל 17",
+  "  סניף 621",
+  "  חשבון 101811",
+  '  ע"ש "צדקת רבותינו"',
+  "• באשראי:",
+  "  https://www.matara.pro/nedarimplus/online/?mosad=7015318",
+  "",
+  "יש לשלוח אסמכתא של ביצוע התשלום למייל m5402088@gmail.com",
+  "",
+  "תודה",
+];
 type Extra = { label: string; amount: number; negative: boolean };
 
 export default function OrderSummaryModal({
@@ -38,6 +58,8 @@ export default function OrderSummaryModal({
   const [extras, setExtras] = useState<Extra[]>([]);
   const [finalTotal, setFinalTotal] = useState(total);
   const [email, setEmail] = useState<string | null>(null);
+  // §361: לקוח מזומן — פרטי תשלום בסוף
+  const [isCash, setIsCash] = useState(false);
   const [busy, setBusy] = useState<"mail" | "download" | "copy" | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -55,6 +77,7 @@ export default function OrderSummaryModal({
         setExtras(d.extras ?? []);
         setFinalTotal(d.total ?? total);
         setEmail(d.email ?? null);
+        setIsCash(!!d.isCash);
       })
       .catch(() => setLines([]));
   }, [orderId, total]);
@@ -76,6 +99,7 @@ export default function OrderSummaryModal({
       `לתשלום: ${fmt(finalTotal)}`,
       "",
       "צדקת רבותינו",
+      ...(isCash ? ["", ...CASH_PAYMENT_INFO] : []),
     ].join("\n");
   }
 
@@ -91,7 +115,9 @@ export default function OrderSummaryModal({
     const pad = 32;
     const lineH = 30;
     const rows = lines.length + extras.length;
-    const H = pad * 2 + 80 + rows * lineH + 100;
+    // §361: מקום ללוגו למעלה, ולפרטי תשלום למטה (מזומן)
+    const cashH = isCash ? CASH_PAYMENT_INFO.length * 22 + 30 : 0;
+    const H = pad * 2 + 130 + rows * lineH + 100 + cashH;
     c.width = W;
     c.height = H;
     const ctx = c.getContext("2d");
@@ -103,9 +129,25 @@ export default function OrderSummaryModal({
     ctx.textAlign = "right";
 
     let y = pad;
+
+    // §361: 🏷️ הלוגו — טקסט מעוצב.
+    //
+    // ⚠️ טקסט ולא תמונה: תמונה חיצונית דורשת טעינה אסינכרונית
+    // לפני הציור, ו-canvas שמצייר לפני שהיא נטענה מקבל ריבוע
+    // ריק. הלוגו של צדקת רבותינו הוא ממילא טיפוגרפי.
     ctx.fillStyle = "#C0461E";
-    ctx.font = "bold 22px Arial";
-    ctx.fillText(`סיכום חיוב — הזמנה #${orderNumber}`, W - pad, y + 22);
+    ctx.font = "bold 32px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("צדקת רבותינו", W / 2, y + 32);
+    ctx.fillStyle = "#666";
+    ctx.font = "13px Arial";
+    ctx.fillText("עופות · בשר · דגים", W / 2, y + 52);
+    y += 70;
+
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#C0461E";
+    ctx.font = "bold 20px Arial";
+    ctx.fillText(`סיכום חיוב — הזמנה #${orderNumber}`, W - pad, y + 20);
     y += 34;
     ctx.fillStyle = "#333";
     ctx.font = "16px Arial";
@@ -163,10 +205,26 @@ export default function OrderSummaryModal({
     ctx.fillText(fmt(finalTotal), pad, y + 22);
     y += 44;
 
-    ctx.fillStyle = "#999";
-    ctx.font = "12px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("צדקת רבותינו — עופות, בשר ודגים", W / 2, y + 12);
+    // §361: 💵 פרטי תשלום — לקוח מזומן בלבד.
+    if (isCash) {
+      y += 20;
+      ctx.strokeStyle = "#e5e5e5";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pad, y);
+      ctx.lineTo(W - pad, y);
+      ctx.stroke();
+      y += 16;
+      ctx.textAlign = "right";
+      for (const [i, row] of CASH_PAYMENT_INFO.entries()) {
+        const isHeader = i === 0;
+        const isLink = row.includes("http");
+        ctx.fillStyle = isHeader ? "#C0461E" : isLink ? "#1d4ed8" : "#444";
+        ctx.font = isHeader ? "bold 15px Arial" : isLink ? "12px Arial" : "13px Arial";
+        ctx.fillText(row, W - pad, y + 14);
+        y += 22;
+      }
+    }
 
     return c.toDataURL("image/png");
   }

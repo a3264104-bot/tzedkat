@@ -28,7 +28,13 @@ export default async function AccountPage() {
         orderBy: { createdAt: "desc" },
         include: {
           point: { select: { name: true, city: true, address: true, deliveryHours: true } },
-          items: { include: { product: { select: { imageUrl: true } } } },
+          items: {
+            include: {
+              product: {
+                select: { imageUrl: true, saleType: true, singlesMode: true },
+              },
+            },
+          },
           // §59: orderFee נטען מהמחירון לצורך זיהוי שורת "דמי הזמנה"
           // בפירוט החיוב. הוא *לא* snapshot — אם דמי ההזמנה ישתנו אחרי
           // ההזמנה, הערך כאן לא ישקף את מה שנגבה בפועל. לכן הלקוח
@@ -126,6 +132,9 @@ export default async function AccountPage() {
             : null,
       unitPrice: Number(item.unitPrice),
       estimatedPrice: Number(item.estimatedPrice),
+      // §361: להבחנה יחידות/ק"ג — "3 יח׳" ולא "3.00 ק"ג"
+      saleType: (item as any).product?.saleType ?? null,
+      singlesMode: (item as any).product?.singlesMode ?? null,
       finalPrice: item.finalPrice != null ? Number(item.finalPrice) : null,
     })),
     pricelistOrderFee: o.pricelist?.orderFee != null ? Number(o.pricelist.orderFee) : null,

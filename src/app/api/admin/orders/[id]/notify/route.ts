@@ -44,7 +44,11 @@ export async function POST(
 
   const order = await prisma.order.findUnique({
     where: { id },
-    include: { items: true, customer: true },
+    include: {
+      // §361: product.saleType — להבחנה יחידות/ק"ג במייל
+      items: { include: { product: { select: { saleType: true, singlesMode: true } } } },
+      customer: true,
+    },
   });
 
   if (!order) {

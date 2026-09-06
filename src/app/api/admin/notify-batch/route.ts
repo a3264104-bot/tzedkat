@@ -63,7 +63,11 @@ export async function POST(req: Request) {
             : {}),
       },
     },
-    include: { items: true, customer: true },
+    include: {
+      // §361: product.saleType — להבחנה יחידות/ק"ג במייל
+      items: { include: { product: { select: { saleType: true, singlesMode: true } } } },
+      customer: true,
+    },
   });
 
   if (orders.length === 0) {
