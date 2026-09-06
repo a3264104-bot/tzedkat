@@ -171,6 +171,58 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
   }
 
+  // §362: 🚨 **ביטול הזמנה שלא שולמה — מחזיר חוב ויתרה.**
+  //
+  // הבעיה: applyBalanceToOrder (§124/§263) רץ **בשקילה** ומעביר
+  // את החוב והיתרה מהלקוח להזמנה:
+  //   debtBalance 120→0, appliedDebt=120
+  //   creditBalance 5→0, appliedCreditBalance=5
+  //
+  // אם ההזמנה מבוטלת **לפני** חיוב — הכסף לא עבר, אבל הלקוח
+  // כבר בלי חוב ובלי יתרה. החוב "נעלם", והיתרה "נעלמה".
+  //
+  // ⚠️ הביטול למעלה (§272) מטפל רק ב-PAID: מזכה את מה שנגבה.
+  // כאן המקרה ההפוך — לא נגבה כלום, ומחזירים למצב הקודם.
+  //
+  // ⚠️ ⚠️ החזרה ולא מחיקה: appliedDebt/appliedCreditBalance
+  // נשארים על ההזמנה לתיעוד. מה שחוזר הוא הערכים אצל הלקוח.
+  if (
+    b.status === "CANCELLED" &&
+    current.status !== "CANCELLED" &&
+    current.paymentStatus !== "PAID" &&
+    current.paymentStatus !== "PARTIALLY_PAID" &&
+    current.customerId
+  ) {
+    const restoreDebt = Number((current as any).appliedDebt ?? 0);
+    const restoreBal = Number((current as any).appliedCreditBalance ?? 0);
+    if (restoreDebt > 0 || restoreBal > 0) {
+      const stamp = new Date().toLocaleDateString("he-IL", {
+        timeZone: "Asia/Jerusalem",
+      });
+      await prisma.customer.update({
+        where: { id: current.customerId },
+        data: {
+          ...(restoreDebt > 0
+            ? {
+                debtBalance: { increment: restoreDebt },
+                debtNote: `הוחזר מביטול הזמנה #${current.orderNumber} (${stamp})`,
+              }
+            : {}),
+          ...(restoreBal > 0
+            ? {
+                creditBalance: { increment: restoreBal },
+                creditBalanceNote: `הוחזר מביטול הזמנה #${current.orderNumber} (${stamp})`,
+                creditBalanceAt: new Date(),
+              }
+            : {}),
+        },
+      });
+      console.log(
+        `[cancel] order #${current.orderNumber} restored debt=₪${restoreDebt} balance=₪${restoreBal} to customer`
+      );
+    }
+  }
+
   // status: אסור לקבוע PAID דרך ה-PATCH הכללי הזה (זה נעשה רק ע"י cash-payment endpoint או webhook).
   // גם אסור לעבור לסטטוסים שדורשים תשלום (READY_FOR_PICKUP/COMPLETED) אם ההזמנה לא שולמה.
   if ("status" in b) {
