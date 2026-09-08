@@ -99,7 +99,9 @@ export async function applyBalanceToOrder(
   prisma: any,
   orderId: string,
   customerId: string,
-  totalBeforeCredit: number
+  totalBeforeCredit: number,
+  /** §368: מי מבצע — לתנועה בספר החובות. אופציונלי לתאימות. */
+  agentId?: string | null
 ): Promise<{ payable: number; applied: number; debtApplied: number }> {
   const [customer, order] = await Promise.all([
     prisma.customer.findUnique({
@@ -109,9 +111,17 @@ export async function applyBalanceToOrder(
     }),
     prisma.order.findUnique({
       where: { id: orderId },
-      select: { appliedCreditBalance: true, appliedDebt: true },
+      // §368: orderNumber ו-pricelistId — לתנועה בספר
+      select: {
+        appliedCreditBalance: true,
+        appliedDebt: true,
+        orderNumber: true,
+        pricelistId: true,
+      },
     }),
   ]);
+  const orderNum = order?.orderNumber;
+  const pricelistId = order?.pricelistId;
 
   const alreadyApplied = Number(order?.appliedCreditBalance ?? 0);
   // ⚠️ מחזירים את מה שכבר קוזז לפני החישוב מחדש - זו כל
@@ -167,6 +177,27 @@ export async function applyBalanceToOrder(
           appliedDebt: debtApplied > 0 ? debtApplied : null,
         },
       }),
+      // §368: 📒 תנועת גבייה — רק כשהחוב **חדש** בהזמנה הזו.
+      //
+      // ⚠️ אידמפוטנטי: applyBalance רץ בכל שקילה. תנועה נכתבת רק
+      // כש-debtApplied השתנה, אחרת כל שקילה הייתה רושמת "נגבה".
+      ...(debtApplied > 0 && debtApplied !== alreadyDebt
+        ? [
+            prisma.debtLedger.create({
+              data: {
+                customerId,
+                kind: "COLLECT",
+                amount: -debtApplied,
+                balanceAfter: 0,
+                note: `נגבה בהזמנה #${orderNum ?? "?"}`,
+                orderId,
+                pricelistId: pricelistId ?? null,
+                agentId: agentId ?? null,
+                createdBy: agentId ?? "system",
+              },
+            }),
+          ]
+        : []),
     ]);
   }
 

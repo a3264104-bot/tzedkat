@@ -14,6 +14,8 @@
 // אומר שהם רואים מצב שונה של אותו לקוח.
 
 import { useState } from "react";
+// §368: היסטוריית חוב
+import DebtHistory from "./DebtHistory";
 
 export function DebtPanel({
   customerId,
@@ -171,6 +173,8 @@ export function DebtPanel({
           </div>
         </div>
       )}
+      {/* §368: ההיסטוריה — מאיפה החוב, מי רשם, מתי נגבה */}
+      <DebtHistory customerId={customerId} />
     </>
   );
 }

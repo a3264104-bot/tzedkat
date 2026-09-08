@@ -134,6 +134,21 @@ export default function PaymentsPage() {
   // ⚠️ המנהל נכנס למסך התשלומים כדי לחייב, לא כדי לסקור. רשימה
   // של 250 הזמנות שרובן ממתינות לשקילה קוברת את 4 שמוכנות.
   const [filter, setFilter] = useState<string>("chargeable");
+
+  // §369: 📍 חיוב לפי נקודה, עם בחירה פרטנית.
+  //
+  // הצורך: 256 הזמנות בקליק אחד = 25 דקות ו-timeout. ולפעמים
+  // לקוח אחד לא צריך להיות בחבילה — סיכמת איתו מזומן, או שיש
+  // בעיה שצריך לברר.
+  //
+  // ⚠️ ברירת מחדל מסומן: המנהל בא לחייב את כולם, וההסרה היא
+  // החריג. רשימה ריקה שצריך לסמן הייתה 30 לחיצות.
+  const [chargePoint, setChargePoint] = useState<string>("");
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchLog, setBatchLog] = useState<
+    Array<{ name: string; ok: boolean; msg: string }>
+  >([]);
   const [fPricelist, setFPricelist] = useState<string>(ALL);
   const [charging, setCharging] = useState<string | null>(null);
 
@@ -248,6 +263,72 @@ export default function PaymentsPage() {
     fetchOrders();
   }, [fetchOrders]);
 
+  // §369: 🔁 **חיוב רציף — אחד אחרי השני, לא במקביל.**
+  //
+  // ⚠️ סדרתי ולא Promise.all: נדרים פלוס לא ערוך ל-30 בקשות
+  // בו-זמנית, וכישלון של אחת היה מפיל את כולן בלי לדעת מי עבר.
+  //
+  // ⚠️ ולוג חי: כל חיוב מדווח מיד. אם משהו נתקע, המנהל רואה
+  // איפה ולא מנחש.
+  //
+  // ⚠️ ועצירה על כישלון רצוף: שלושה כישלונות ברצף = בעיה
+  // מערכתית (נדרים למטה, טוקן פג), ולא כדאי להמשיך ל-27
+  // הנותרות.
+  async function chargeBatch() {
+    if (batchTargets.length === 0) return;
+    if (
+      !window.confirm(
+        `לחייב ${batchTargets.length} לקוחות בנקודת "${chargePoint}"?\n\n` +
+          `סכום כולל: ${fmtIls(batchSum)}\n\n` +
+          `החיוב יתבצע אחד אחרי השני. אל תסגור את הדף.`
+      )
+    )
+      return;
+
+    setBatchRunning(true);
+    setBatchLog([]);
+    let consecutiveFails = 0;
+
+    for (const o of batchTargets) {
+      try {
+        const res = await fetch("/api/admin/charge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: o.id }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok || d.ok === false) {
+          throw new Error(d.error || `שגיאה (${res.status})`);
+        }
+        consecutiveFails = 0;
+        setBatchLog((l) => [
+          ...l,
+          { name: o.customerName, ok: true, msg: fmtIls(Number(o.finalTotal ?? 0)) },
+        ]);
+      } catch (e: any) {
+        consecutiveFails++;
+        setBatchLog((l) => [
+          ...l,
+          { name: o.customerName, ok: false, msg: e?.message || "שגיאה" },
+        ]);
+        if (consecutiveFails >= 3) {
+          setBatchLog((l) => [
+            ...l,
+            {
+              name: "⏹ נעצר",
+              ok: false,
+              msg: "3 כישלונות ברצף — בדוק את המערכת לפני שתמשיך",
+            },
+          ]);
+          break;
+        }
+      }
+    }
+
+    setBatchRunning(false);
+    fetchOrders();
+  }
+
   async function handleCharge(order: PayOrder) {
     const amount = order.finalTotal;
     if (amount === null) {
@@ -264,8 +345,9 @@ export default function PaymentsPage() {
         ? `\nתשלומים: ${instOf(order)} × ${fmtIls(
             Math.round((amount / instOf(order)) * 100) / 100
           )}`
-        : "") +
-      (order.customer.creditVerificationCharged ? "" : `\n\n(1₪ של האימות יקוזז מהסכום)`);
+        : "");
+    // §364: ההודעה "1₪ יקוזז" הוסרה — השקל כבר בתוך finalTotal
+    // (§247), והחיוב גובה אותו בדיוק.
 
     if (!confirm(confirmMsg)) return;
 
@@ -334,6 +416,32 @@ export default function PaymentsPage() {
   );
   const chargeableSum = chargeable.reduce(
     (sum, o) => sum + Number(o.finalTotal ?? 0),
+    0
+  );
+
+  // §369: הנקודות שיש בהן הזמנות לחיוב, עם מונה וסכום.
+  const pointGroups = (() => {
+    const m = new Map<string, { name: string; count: number; sum: number }>();
+    for (const o of chargeable) {
+      const key = o.pointNameSnapshot || "ללא נקודה";
+      const cur = m.get(key) ?? { name: key, count: 0, sum: 0 };
+      cur.count++;
+      cur.sum += Number(o.finalTotal ?? 0);
+      m.set(key, cur);
+    }
+    return Array.from(m.values()).sort((a, b) => b.count - a.count);
+  })();
+
+  // ⚠️ רק מי שבנקודה שנבחרה **ולא** הוסר ידנית.
+  const batchTargets = chargePoint
+    ? chargeable.filter(
+        (o) =>
+          (o.pointNameSnapshot || "ללא נקודה") === chargePoint &&
+          !excluded.has(o.id)
+      )
+    : [];
+  const batchSum = batchTargets.reduce(
+    (s2, o) => s2 + Number(o.finalTotal ?? 0),
     0
   );
   const currentList = lists?.find((l) => l.id === fPricelist) ?? null;
@@ -432,6 +540,125 @@ export default function PaymentsPage() {
           ⚠️ מוצג תמיד כשיש כאלה, בכל סינון: המנהל שנכנס למסך
           רוצה לדעת קודם כל "כמה עבודה יש לי", ורק אחר כך לצלול
           לרשימה. */}
+      {/* §369: 📍 חיוב לפי נקודה — עם בחירה פרטנית.
+          
+          256 הזמנות בקליק אחד = 25 דקות ו-timeout. נקודה אחת
+          היא 20-30, וזה מה שהמנהל עושה בפועל: מסיים נקודה,
+          מחייב, ממשיך.
+          
+          ⚠️ וההסרה: לפעמים לקוח אחד לא צריך להיות בחבילה —
+          סיכמת מזומן, או שיש בעיה לברר. */}
+      {chargeable.length > 0 && pointGroups.length > 0 && (
+        <div className="rounded-xl border-2 border-brand-rust bg-white p-3 mb-3">
+          <div className="text-sm font-extrabold text-brand-slatedark mb-2">
+            📍 חיוב לפי נקודת חלוקה
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {pointGroups.map((p) => (
+              <button
+                key={p.name}
+                onClick={() => {
+                  setChargePoint(chargePoint === p.name ? "" : p.name);
+                  setExcluded(new Set());
+                  setBatchLog([]);
+                }}
+                disabled={batchRunning}
+                className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border-2 transition-colors ${
+                  chargePoint === p.name
+                    ? "border-brand-rust bg-brand-rust text-white"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:border-brand-rust"
+                }`}
+              >
+                {p.name} · {p.count}
+              </button>
+            ))}
+          </div>
+
+          {chargePoint && (
+            <div className="border-t border-zinc-200 pt-2">
+              <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                <span className="text-xs text-zinc-600">
+                  <b>{batchTargets.length}</b> לחיוב · {fmtIls(batchSum)}
+                  {excluded.size > 0 && (
+                    <span className="text-amber-700"> · {excluded.size} הוסרו</span>
+                  )}
+                </span>
+                <button
+                  onClick={chargeBatch}
+                  disabled={batchRunning || batchTargets.length === 0}
+                  className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-sm font-bold disabled:opacity-40"
+                >
+                  {batchRunning
+                    ? `מחייב... (${batchLog.length}/${batchTargets.length})`
+                    : `💳 חייב ${batchTargets.length}`}
+                </button>
+              </div>
+
+              {/* ⚠️ ברירת מחדל מסומן — ההסרה היא החריג. */}
+              <div className="max-h-48 overflow-y-auto space-y-0.5">
+                {chargeable
+                  .filter(
+                    (o) => (o.pointNameSnapshot || "ללא נקודה") === chargePoint
+                  )
+                  .map((o) => {
+                    const off = excluded.has(o.id);
+                    return (
+                      <label
+                        key={o.id}
+                        className={`flex items-center gap-2 text-xs px-2 py-1 rounded cursor-pointer ${
+                          off ? "opacity-40 line-through" : "hover:bg-zinc-50"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!off}
+                          disabled={batchRunning}
+                          onChange={() =>
+                            setExcluded((prev) => {
+                              const n = new Set(prev);
+                              if (n.has(o.id)) n.delete(o.id);
+                              else n.add(o.id);
+                              return n;
+                            })
+                          }
+                        />
+                        <span className="flex-1 min-w-0 truncate">
+                          {o.customerName}
+                          <span className="text-zinc-400"> #{o.orderNumber}</span>
+                        </span>
+                        <span className="shrink-0 tabular-nums text-zinc-600">
+                          {fmtIls(Number(o.finalTotal ?? 0))}
+                        </span>
+                      </label>
+                    );
+                  })}
+              </div>
+
+              {/* ⚠️ הלוג החי: המנהל רואה איפה זה עומד, ואם נתקע —
+                  איפה בדיוק. */}
+              {batchLog.length > 0 && (
+                <div className="mt-2 border-t border-zinc-200 pt-2 max-h-40 overflow-y-auto space-y-0.5">
+                  {batchLog.map((l, i) => (
+                    <div
+                      key={i}
+                      className={`text-[11px] flex justify-between gap-2 ${
+                        l.ok ? "text-emerald-700" : "text-red-700 font-bold"
+                      }`}
+                    >
+                      <span className="truncate">
+                        {l.ok ? "✓" : "✗"} {l.name}
+                      </span>
+                      <span className="shrink-0">{l.msg}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {chargeable.length > 0 && (
         <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3 mb-3 flex items-center justify-between gap-3 flex-wrap">
           <div>

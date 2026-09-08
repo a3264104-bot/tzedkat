@@ -621,7 +621,8 @@ export function WeightsTable({
                         
                         ⚠️ ובורר ולא מודל: הנציג בוחר מוצר וכמות,
                         והפריט נוצר. שתי לחיצות. */}
-                    {!readOnly && (
+                    {/* §370: מוסתר אחרי V — ההזמנה סומנה כטופלה. */}
+                    {!readOnly && !r.agentClosedAt && (
                       <button
                         onClick={() =>
                           setQuickAddFor(

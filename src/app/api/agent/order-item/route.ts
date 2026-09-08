@@ -54,6 +54,8 @@ export async function POST(req: Request) {
       finalTotal: true,
       // §300: מצב התשלום — הוא הקובע אם מותר להוסיף, לא finalTotal
       paymentStatus: true,
+      // §370: ה-V — נועל את ההזמנה להוספה
+      agentClosedAt: true,
       // §309: נעילה אחרי שליחת המייל
       weightsLockedAt: true,
     },
@@ -84,6 +86,25 @@ export async function POST(req: Request) {
   if (order.status === "COMPLETED" || order.status === "CANCELLED") {
     return NextResponse.json(
       { error: "לא ניתן להוסיף פריט להזמנה שהושלמה או בוטלה" },
+      { status: 400 }
+    );
+  }
+
+  // §370: 🔒 **הזמנה שסומנה "טופל" (V) — נעולה.**
+  //
+  // 🐛 הנציג סימן V, ואז הוסיף מוצר. ה-V אומר "סיימתי עם הלקוח
+  // הזה" — הסכום נבדק, המשקלים אושרו, וההזמנה מוכנה לחיוב.
+  // הוספה אחריו משנה סכום שכבר אושר.
+  //
+  // ⚠️ ולא חסימה סופית: מורידים את ה-V, מוסיפים, ומסמנים שוב.
+  // ההודעה אומרת בדיוק את זה.
+  if ((order as any).agentClosedAt) {
+    return NextResponse.json(
+      {
+        error:
+          "ההזמנה סומנה כטופלה. להוספת פריט יש להסיר את הסימון (V) תחילה.",
+        code: "ORDER_CLOSED",
+      },
       { status: 400 }
     );
   }

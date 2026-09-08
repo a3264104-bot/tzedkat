@@ -235,6 +235,8 @@ model Customer {
 
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+  /// §368: ספר חובות
+  debtLedger DebtLedger[]
 }
 
 model Category {
@@ -746,6 +748,31 @@ model PaymentAuditLog {
   receivedByUserId String  // מי ביצע את הפעולה (חובה - אין רישום אנונימי)
   note            String?
   createdAt       DateTime @default(now())
+}
+
+/// §368: ספר חובות — כל תנועה מתועדת.
+///
+/// debtBalance על הלקוח הוא המספר המהיר. הספר הוא ההיסטוריה:
+/// מאיזו מכירה, מי רשם, מתי נגבה, דרך איזה נציג.
+model DebtLedger {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// ADD = חוב חדש · COLLECT = נגבה · RESTORE = הוחזר מביטול · ADJUST = תיקון ידני
+  kind         String
+  /// חיובי = החוב גדל · שלילי = נגבה
+  amount       Decimal  @db.Decimal(10, 2)
+  balanceAfter Decimal  @db.Decimal(10, 2)
+  note         String?
+  orderId      String?
+  pricelistId  String?
+  agentId      String?
+  createdBy    String
+  createdAt    DateTime @default(now())
+
+  @@index([customerId])
+  @@index([pricelistId])
+  @@index([agentId])
 }
 
 // ═══════════════════════════════════════════════════════════

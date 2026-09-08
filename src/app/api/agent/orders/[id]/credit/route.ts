@@ -98,7 +98,7 @@ export async function POST(
         creditAt: null,
       },
     });
-    await recomputeTotal(id);
+    await recomputeTotal(id, g.agent.id);
     return NextResponse.json({ ok: true, cleared: true });
   }
 
@@ -203,7 +203,7 @@ export async function POST(
     },
   });
 
-  const newTotal = await recomputeTotal(id);
+  const newTotal = await recomputeTotal(id, g.agent.id);
 
   console.log(
     `[credit] order #${order.orderNumber} credited ${amount} by agent=${g.agent.id} reason="${reason}"`
@@ -224,7 +224,11 @@ export async function POST(
  * בכוונה, והזיכוי ייכנס אוטומטית כשהמחיר ייקבע - אותו כלל שכבר
  * קיים בחישוב הראשי.
  */
-async function recomputeTotal(orderId: string): Promise<number | null> {
+async function recomputeTotal(
+  orderId: string,
+  // §368: הנציג — לתנועה בספר החובות
+  agentId?: string | null
+): Promise<number | null> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     select: {
@@ -284,7 +288,8 @@ async function recomputeTotal(orderId: string): Promise<number | null> {
     prisma,
     orderId,
     order.customerId,
-    beforeBalance
+    beforeBalance,
+    agentId
   );
 
   await prisma.order.update({

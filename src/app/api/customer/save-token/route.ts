@@ -218,9 +218,20 @@ export async function POST(req: Request) {
         // היחידה לעבור ממזומן לאשראי - ההחלפה מתרחשת כאן ולא ב-route
         // נפרד, כדי שלא יתקיים מצב ביניים "אשראי בלי טוקן".
         paymentPreference: "CREDIT",
-        // §46: creditVerificationCharged נשאר false בכוונה!
-        // הוא מסמן שהקיזוז *נוצל*, לא שהחיוב בוצע. charge/route
-        // מקזז את השקל בהזמנה הראשונה ורק אז מסמן true.
+        // §367: 🐛 **creditVerificationCharged מסומן כאן — מיד.**
+        //
+        // מה שהיה (§46): נשאר false עד החיוב, כי charge-route היה
+        // צריך אותו כדי לקזז. §364 הסיר את הקיזוז ההוא — ועכשיו
+        // המשמעות היחידה של הדגל היא "השקל נגבה".
+        //
+        // 🐛 והפער: לקוח שהזין כרטיס, לא חויב עדיין, והזין שוב
+        // (כרטיס חדש, טעות) — needsVerificationCharge היה true
+        // שוב, ₪1 נגבה שוב, ו-creditBalance קיבל +1 נוסף.
+        // הזמנות 455 ו-418: קוזז ₪2 במקום ₪1.
+        //
+        // ⚠️ מסומן **רק** כשהגבייה הצליחה (verificationTxnId):
+        // אם נדרים דחו, הלקוח יידרש שוב בפעם הבאה.
+        ...(verificationTxnId ? { creditVerificationCharged: true } : {}),
       },
     });
 

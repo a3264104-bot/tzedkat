@@ -1,11 +1,504 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+// §124: קיזוז יתרת זכות
+import { applyBalanceToOrder } from "@/lib/credit-balance-lib";
+import { requireAdmin } from "@/lib/guard";
+import { STATUSES_REQUIRING_PAYMENT, smartLineEstimate } from "@/lib/pricing";
 import { sendFinalPriceEmail } from "@/lib/email";
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://tzidkat.com";
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const g = await requireAdmin();
+  if (!g.ok) return g.res;
+  const { id } = await params;
+  const order = await prisma.order.findUnique({
+    where: { id },
+    include: {
+      point: true,
+      items: { include: { product: true } },
+      pricelist: true,
+      // 🐛 תוקן: היה חסר customer בכלל! בלעדיו, order.customer?.hasToken
+      // תמיד undefined בצד הלקוח, אז כפתור "חייב עכשיו" אף פעם לא הופיע -
+      // גם ללקוחות שכן יש להם טוקן שמור. במקום זה הוצג רק לינק התשלום הישן.
+      customer: {
+        select: {
+          // §263: חוב מהעבר - להצגה ולרישום בפאנל
+          debtBalance: true,
+          debtNote: true,
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          paymentToken: true, // נשלף כדי לחשב hasToken, לא נחשף כמו שהוא
+          // §183: אופן התשלום - לעריכה מהירה מתוך ההזמנה
+          paymentPreference: true,
+          // §184: הפיצול - לעריכה מתוך ההזמנה
+          firstName: true,
+          lastName: true,
+          cardLast4: true,
+          cardExpiry: true,
+          cardNeedsUpdate: true,
+        },
+      },
+    },
+  });
+  if (!order) {
+    return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
+  }
+  // לא חושפים את הטוקן הגולמי ללקוח - רק boolean + מטא-דאטה בטוחה
+  const { paymentToken, ...safeCustomer } = order.customer ?? {};
+  return NextResponse.json({
+    ...order,
+    customer: order.customer
+      ? { ...safeCustomer, hasToken: !!paymentToken }
+      : null,
+  });
+}
 
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const g = await requireAdmin();
+  if (!g.ok) return g.res;
+  const { id } = await params;
+  const b = await req.json();
+
+  const current = await prisma.order.findUnique({ where: { id } });
+  if (!current) return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
+
+  // update order header fields
+  const data: any = {};
+  for (const k of ["internalNotes", "notes", "customerName", "phone", "phone2", "pointId"]) {
+    if (k in b) data[k] = b[k];
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // §47: סימון מסירה ללקוח
+  // ═══════════════════════════════════════════════════════════════
+  // deliveredAt הוא מקור האמת למסירה - הוא העובדה בשטח (הלקוח לקח),
+  // בעוד status הוא סימון ידני.
+  //
+  // 🐛 הבאג שתוקן: סימון מסירה (ע"י הנציג) לא עדכן את status, ולכן
+  // הדשבורד המשיך לדרוש "סמן מוכן לחלוקה" על הזמנה שכבר נמסרה
+  // ללקוח. עכשיו שני השדות מתעדכנים יחד - COMPLETED הוא הסטטוס
+  // שאחרי מסירה, ואין יותר שני מסלולי מצב שסותרים זה את זה.
+  if ("markDelivered" in b) {
+    if (b.markDelivered) {
+      // מסירה מחייבת תשלום - אחרת נמסרה סחורה בלי שנגבה עליה
+      if (current.paymentStatus !== "PAID") {
+        return NextResponse.json(
+          {
+            error:
+              "לא ניתן לסמן מסירה לפני שההזמנה שולמה. אם הלקוח שילם במזומן, יש לסמן זאת תחילה.",
+          },
+          { status: 400 }
+        );
+      }
+      data.deliveredAt = new Date();
+      data.deliveredNote = b.deliveredNote ? String(b.deliveredNote).slice(0, 500) : null;
+      // הסטטוס נגזר מהמסירה ולא נקבע בנפרד
+      data.status = "COMPLETED";
+    } else {
+      data.deliveredAt = null;
+      data.deliveredNote = null;
+      data.deliveredByAgentId = null;
+      // חוזרים לשלב שלפני המסירה
+      if (current.status === "COMPLETED") data.status = "READY_FOR_PICKUP";
+    }
+  }
+
+  // §47: ביטול הזמנה. שונה ממחיקה - ההזמנה נשמרת לתיעוד ולדוחות.
+  // סיבת הביטול נשמרת בהערות הפנימיות עם חותמת זמן ושם המבטל, כי
+  // בלעדיה אי אפשר לדעת בדיעבד למה הזמנה בוטלה.
+  // §309: 🔓 **המנהל משחרר נעילה.**
+  //
+  // הנעילה חוסמת את הנציג, לא את המנהל: מנהל שגילה טעות אחרי
+  // המייל צריך דרך לתקן. נעילה בלי מפתח היא מלכודת.
+  //
+  // ⚠️ והשחרור מפורש: הוא שולח unlockWeights ומקבל אחריות על
+  // כך שהלקוח יקבל מייל מעודכן.
+  if (b.unlockWeights === true) {
+    data.weightsLockedAt = null;
+    console.log(
+      `[unlock] order ${id} weights unlocked by ${g.session?.user?.email}`
+    );
+  }
+
+  if (b.status === "CANCELLED" && b.cancelReason) {
+    const stamp = new Date().toLocaleString("he-IL");
+    const by = g.session?.user?.email ?? "מנהל";
+    const line = `[${stamp}] בוטלה ע"י ${by}: ${String(b.cancelReason).slice(0, 300)}`;
+    data.internalNotes = current.internalNotes
+      ? `${current.internalNotes}\n${line}`
+      : line;
+  }
+
+  // §272: 💰 **ביטול הזמנה ששולמה יוצר יתרת זכות.**
+  //
+  // 🐛 מה שהיה: האזהרה במסך אמרה "יש לטפל בהחזר מול נדרים
+  // בנפרד" - כלומר המנהל היה צריך לזכור, ידנית, מחוץ למערכת.
+  // בפועל זה לא קורה, והלקוח משלם על סחורה שלא קיבל.
+  //
+  // ⚠️ המודל העסקי כאן הוא **זיכוי להזמנה הבאה**, לא החזר
+  // כספי: הלקוח קונה כל שבוע, והזיכוי מתקזז אוטומטית (§124).
+  // זה גם מה שהתנאים באתר צריכים לומר.
+  //
+  // ⚠️ רק כשבאמת שולם: הזמנה שלא חויבה אין ממה לזכות.
+  if (
+    b.status === "CANCELLED" &&
+    current.status !== "CANCELLED" &&
+    current.paymentStatus === "PAID" &&
+    current.customerId
+  ) {
+    // ⚠️ amountPaid ולא finalTotal: מזכים את מה שבאמת נגבה.
+    // תשלום חלקי מזכה חלקית.
+    const refund = Number(current.amountPaid ?? current.finalTotal ?? 0);
+
+    if (refund > 0) {
+      const stamp = new Date().toLocaleDateString("he-IL", {
+        timeZone: "Asia/Jerusalem",
+      });
+      await prisma.customer.update({
+        where: { id: current.customerId },
+        data: {
+          // ⚠️ increment ולא set: ללקוח עשויה להיות יתרה קיימת,
+          // ודריסה שלה הייתה מוחקת אותה.
+          creditBalance: { increment: refund },
+          creditBalanceNote: `זיכוי על ביטול הזמנה #${current.orderNumber} (${stamp})`,
+          creditBalanceAt: new Date(),
+        },
+      });
+      console.log(
+        `[cancel] order #${current.orderNumber} refunded ₪${refund} as credit`
+      );
+    }
+  }
+
+  // §362: 🚨 **ביטול הזמנה שלא שולמה — מחזיר חוב ויתרה.**
+  //
+  // הבעיה: applyBalanceToOrder (§124/§263) רץ **בשקילה** ומעביר
+  // את החוב והיתרה מהלקוח להזמנה:
+  //   debtBalance 120→0, appliedDebt=120
+  //   creditBalance 5→0, appliedCreditBalance=5
+  //
+  // אם ההזמנה מבוטלת **לפני** חיוב — הכסף לא עבר, אבל הלקוח
+  // כבר בלי חוב ובלי יתרה. החוב "נעלם", והיתרה "נעלמה".
+  //
+  // ⚠️ הביטול למעלה (§272) מטפל רק ב-PAID: מזכה את מה שנגבה.
+  // כאן המקרה ההפוך — לא נגבה כלום, ומחזירים למצב הקודם.
+  //
+  // ⚠️ ⚠️ החזרה ולא מחיקה: appliedDebt/appliedCreditBalance
+  // נשארים על ההזמנה לתיעוד. מה שחוזר הוא הערכים אצל הלקוח.
+  if (
+    b.status === "CANCELLED" &&
+    current.status !== "CANCELLED" &&
+    current.paymentStatus !== "PAID" &&
+    current.paymentStatus !== "PARTIALLY_PAID" &&
+    current.customerId
+  ) {
+    const restoreDebt = Number((current as any).appliedDebt ?? 0);
+    const restoreBal = Number((current as any).appliedCreditBalance ?? 0);
+    if (restoreDebt > 0 || restoreBal > 0) {
+      const stamp = new Date().toLocaleDateString("he-IL", {
+        timeZone: "Asia/Jerusalem",
+      });
+      await prisma.customer.update({
+        where: { id: current.customerId },
+        data: {
+          ...(restoreDebt > 0
+            ? {
+                debtBalance: { increment: restoreDebt },
+                debtNote: `הוחזר מביטול הזמנה #${current.orderNumber} (${stamp})`,
+              }
+            : {}),
+          ...(restoreBal > 0
+            ? {
+                creditBalance: { increment: restoreBal },
+                creditBalanceNote: `הוחזר מביטול הזמנה #${current.orderNumber} (${stamp})`,
+                creditBalanceAt: new Date(),
+              }
+            : {}),
+        },
+      });
+      // §368: 📒 תנועת החזרה בספר
+      if (restoreDebt > 0) {
+        const cust = await prisma.customer.findUnique({
+          where: { id: current.customerId },
+          select: { debtBalance: true },
+        });
+        await prisma.debtLedger.create({
+          data: {
+            customerId: current.customerId,
+            kind: "RESTORE",
+            amount: restoreDebt,
+            balanceAfter: Number(cust?.debtBalance ?? restoreDebt),
+            note: `הוחזר מביטול הזמנה #${current.orderNumber}`,
+            orderId: current.id,
+            pricelistId: current.pricelistId,
+            createdBy: g.session?.user?.email ?? "admin",
+          },
+        });
+      }
+      console.log(
+        `[cancel] order #${current.orderNumber} restored debt=₪${restoreDebt} balance=₪${restoreBal} to customer`
+      );
+    }
+  }
+
+  // status: אסור לקבוע PAID דרך ה-PATCH הכללי הזה (זה נעשה רק ע"י cash-payment endpoint או webhook).
+  // גם אסור לעבור לסטטוסים שדורשים תשלום (READY_FOR_PICKUP/COMPLETED) אם ההזמנה לא שולמה.
+  if ("status" in b) {
+    if (b.status === "PAID") {
+      return NextResponse.json(
+        { error: "לא ניתן לקבוע סטטוס 'שולמה' ישירות. השתמש בסימון תשלום מזומן או המתן לתשלום אונליין." },
+        { status: 400 }
+      );
+    }
+    // הבדיקה מדלגת כשהסטטוס נגזר מסימון מסירה - שם כבר נבדק שההזמנה שולמה
+    if (
+      !("markDelivered" in b) &&
+      STATUSES_REQUIRING_PAYMENT.includes(b.status) &&
+      current.paymentStatus !== "PAID"
+    ) {
+      return NextResponse.json(
+        { error: "לא ניתן לעדכן סטטוס זה לפני שההזמנה שולמה" },
+        { status: 400 }
+      );
+    }
+    // markDelivered קובע את הסטטוס בעצמו - לא נותנים ל-body לדרוס אותו
+    if (!("markDelivered" in b)) data.status = b.status;
+  }
+
+  // update items (final weight / final price / quantity / add / remove)
+  if (Array.isArray(b.items)) {
+    for (const it of b.items) {
+      if (it._delete && it.id) {
+        await prisma.orderItem.delete({ where: { id: it.id } });
+        continue;
+      }
+      if (it.id) {
+        const idata: any = {};
+        // actualWeight הוא השדה הראשי; finalWeight נשמר זהה לתאימות לאחור עם קוד ישן
+        for (const k of ["quantity", "actualWeight", "finalWeight", "finalPrice"]) {
+          if (k in it) idata[k] = it[k];
+        }
+        if ("actualWeight" in it && !("finalWeight" in it)) idata.finalWeight = it.actualWeight;
+        await prisma.orderItem.update({ where: { id: it.id }, data: idata });
+      } else if (it.productId) {
+        const product = await prisma.product.findUnique({ where: { id: it.productId } });
+        if (product) {
+          const qty = Number(it.quantity ?? 1);
+          const isSingle = it.isSingle ?? false;
+          const unitPrice = Number(it.unitPrice ?? product.cartonPrice);
+          const avgWeight =
+            product.avgWeightPerUnit != null
+              ? Number(product.avgWeightPerUnit)
+              : null;
+
+          // 🚨 חישוב נכון לפי סוג המוצר
+          // משתמשים ב-smartLineEstimate שכבר מטפל בכל המקרים:
+          //   - קרטון עם PER_KG: unitPrice × avgWeight × qty
+          //   - יחידה במחיר קבוע: unitPrice × qty
+          //   - בודדים בק"ג: unitPrice × qty (qty הוא כבר ק"ג)
+          let estPrice: number;
+          let estWeight: number | null = null;
+
+          if (isSingle) {
+            // בודדים - מחיר לפי quantity
+            estPrice = Math.round(unitPrice * qty * 100) / 100;
+            // אם בודדים בק"ג, המשקל הוא הכמות
+            if (product.singlesMode !== "UNITS") {
+              estWeight = qty;
+            }
+          } else {
+            // קרטון - חישוב חכם (משתמש בפונקציה קיימת)
+            const smart = smartLineEstimate(
+              unitPrice,
+              qty,
+              product.saleType,
+              product.priceType,
+              avgWeight
+            );
+            // אם smartLineEstimate החזיר null (חסר avgWeight ל-PER_KG), נופלים לחישוב פשוט
+            estPrice = smart ?? Math.round(unitPrice * qty * 100) / 100;
+            // עבור קרטון נשקל - הצמדת estimatedWeight
+            if (avgWeight && (product.saleType === "UNIT" || product.saleType === "PACKAGE") && product.priceType === "PER_KG") {
+              estWeight = Math.round(avgWeight * qty * 1000) / 1000;
+            }
+          }
+
+          await prisma.orderItem.create({
+            data: {
+              orderId: id,
+              productId: product.id,
+              productName: product.name,
+              unit: product.unit,
+              isSingle,
+              quantity: qty,
+              unitPrice,
+              estimatedWeight: estWeight,
+              estimatedPrice: estPrice,
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // §72: הזמנה שנשארה בלי פריטים - מבוטלת אוטומטית.
+  //
+  // 🐛 הפער שהתגלה בדשבורד: מחיקת כל הפריטים השאירה הזמנה "פתוחה"
+  // עם 0 ש"ח. היא תפסה מספר, הופיעה ברשימה כ"ממתינה לשקילה" לנצח -
+  // אבל מסך המשקלים (שסופר *פריטים*) דילג עליה. התוצאה: הדשבורד
+  // אמר 2 והרשימה הראתה 3, והמנהל חיפש הזמנה שאין בה מה לעשות.
+  //
+  // ביטול ולא מחיקה: המספר כבר נתפס, ורשומה מבוטלת משאירה שובל
+  // ברור של מה שקרה במקום חור במספור.
+  if (Array.isArray(b.items)) {
+    const remaining = await prisma.orderItem.count({
+      where: { orderId: id, isCancelled: false },
+    });
+    if (remaining === 0) {
+      await prisma.order.update({
+        where: { id },
+        data: {
+          status: "CANCELLED",
+          // internalNotes - שדה קיים; אין cancelReason בסכמה
+          internalNotes: "בוטלה אוטומטית - נמחקו כל הפריטים",
+        },
+      });
+      const emptied = await prisma.order.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+      return NextResponse.json({ ...emptied, _autoCancelled: true });
+    }
+  }
+
+  // recompute finalTotal from items if any final prices exist
+  let justSetFinalTotal = false;
+
+  // פעולה מפורשת: יצירת/שליחת לינק תשלום להזמנה שכבר יש לה מחיר סופי.
+  // נדרש כשנציג (ללא הרשאת לינק) קבע מחיר, והמנהל משלים את שליחת הלינק.
+  if (b.sendPaymentLink === true) {
+    if (current.finalTotal == null) {
+      return NextResponse.json(
+        { error: "לא ניתן לשלוח לינק — טרם נקבע מחיר סופי" },
+        { status: 400 }
+      );
+    }
+    // §364: 🐛 קישור התשלום הוריד ₪1 — כמו החיוב.
+    //
+    // §247 כבר קיזז את השקל דרך יתרת זכות, ו-finalTotal כבר
+    // אחריו. הורדה נוספת כאן = הלקוח משלם ₪2 פחות.
+    //
+    // ⚠️ finalTotal הוא הסכום. נקודה.
+    const chargeAmountNow = Number(current.finalTotal);
+
+    data.paymentLink = buildNedarimPaymentLink(id, chargeAmountNow, current.customerName);
+    data.paymentStatus = "PAYMENT_PENDING";
+    justSetFinalTotal = true; // מפעיל את שליחת מייל המחיר הסופי עם הלינק
+  }
+  if ("recomputeFinal" in b || Array.isArray(b.items)) {
+    const items = await prisma.orderItem.findMany({ where: { orderId: id } });
+    const hasFinal = items.some((i) => i.finalPrice !== null);
+    // 🚨 חשוב: אם יש פריט אחד שאין לו finalPrice - לא לחשב finalTotal!
+    // הבאג הישן: היה מחשב total גם עם פריטים לא שקולים (לוקח estimatedPrice)
+    // וזה גורם לחיוב שגוי (למשל: מחיר קרטון שלא נשקל).
+    // התיקון: רק אם *כל* הפריטים שקולים - יש לנו finalTotal אמיתי.
+    const allWeighed = items.length > 0 && items.every((i) => i.finalPrice !== null);
+    if (hasFinal && allWeighed) {
+      const total = items.reduce((s, i) => s + Number(i.finalPrice), 0);
+      // 🆕 הוספת דמי הזמנה (תוספת קבועה) לסה"כ הסופי
+      const pricelist = await prisma.pricelist.findUnique({
+        where: { id: current.pricelistId! },
+        select: { orderFee: true },
+      });
+      const orderFee = Number(pricelist?.orderFee || 0);
+      // §123: ניכוי הזיכוי, אם ניתן.
+      //
+      // ⚠️ בלי זה, זיכוי שהנציג נתן היה נמחק ברגע שהמנהל מעדכן
+      // משקל או לוחץ "חישוב מחדש" - החישוב היה דורס את הסכום
+      // ומחזיר אותו למחיר המלא, בלי שאיש ישים לב.
+      const credit = current.creditAmount != null ? Number(current.creditAmount) : 0;
+      // §134: דמי משלוח. בלעדיהם כל "חישוב מחדש" היה מוחק אותם.
+      const delivery =
+        current.deliveryRequested && current.deliveryFee != null
+          ? Number(current.deliveryFee)
+          : 0;
+      // §135: חיוב נוסף
+      const extra = current.extraCharge != null ? Number(current.extraCharge) : 0;
+      const beforeBalance = Math.max(
+        0,
+        Math.round((total + orderFee + delivery + extra - credit) * 100) / 100
+      );
+      // §124: קיזוז יתרת זכות. אידמפוטנטי - ראה applyBalanceToOrder.
+      const { payable: newFinalTotal } = await applyBalanceToOrder(
+        prisma,
+        id,
+        current.customerId,
+        beforeBalance
+      );
+      // אם זו הפעם הראשונה שנקבע finalTotal, נעדכן גם את הסטטוס ל-FINAL_PRICE_SET (אם עדיין PENDING_REVIEW)
+      if (current.finalTotal === null && current.status === "PENDING_REVIEW") {
+        data.status = data.status ?? "FINAL_PRICE_SET";
+        data.finalPriceSetAt = new Date();
+        data.finalPriceSetBy = g.session?.user?.email ?? null;
+        justSetFinalTotal = true;
+        // §364: בלי קיזוז — §247 כבר עשה את זה דרך יתרת זכות.
+        const chargeAmount = newFinalTotal;
+        data.paymentLink = buildNedarimPaymentLink(id, chargeAmount, current.customerName);
+        data.paymentStatus = "PAYMENT_PENDING";
+      }
+      data.finalTotal = newFinalTotal;
+    } else if (hasFinal && !allWeighed) {
+      // יש פריטים שקולים חלקית - לא מחשבים finalTotal, אבל כן מסמנים שיש פריטים מחכים לשקילה
+      // (הסטטוס נשאר PENDING_REVIEW, finalTotal נשאר null)
+    }
+    const est = items.reduce((s, i) => s + Number(i.estimatedPrice), 0);
+    data.estimatedTotal = Math.round(est * 100) / 100;
+  }
+  if ("finalTotal" in b) data.finalTotal = b.finalTotal;
+
+  const order = await prisma.order.update({
+    where: { id },
+    data,
+    include: { point: true, items: true },
+  });
+  // §303: 🐛 **מייל אוטומטי בכל קביעת מחיר סופי.**
+  //
+  // המנהל מתקן משקל, המחיר משתנה, והלקוח מקבל מייל נוסף. אחרי
+  // שלושה תיקונים יש לו שלושה סכומים שונים ואין לו דרך לדעת
+  // מה נכון.
+  //
+  // ⚠️ עכשיו: שליחה **ידנית בלבד**, דרך הכפתור "שלח מייל
+  // ללקוח" שקיים במסך ההזמנה. המנהל שולח כשהוא מוכן.
+  //
+  // ⚠️ הדגל ולא מחיקה: החזרת ההתנהגות היא שינוי של שורה אחת.
+  const AUTO_EMAIL_ON_FINAL_PRICE = false;
+
+  if (AUTO_EMAIL_ON_FINAL_PRICE && justSetFinalTotal) {
+    const fullOrder = await prisma.order.findUnique({
+      where: { id },
+      include: { items: true, customer: true },
+    });
+    if (fullOrder?.customer?.email) {
+      const res = await sendFinalPriceEmail(fullOrder as any, fullOrder.customer.email);
+      await prisma.order.update({
+        where: { id },
+        data: res.ok
+          ? { customerNotifiedAt: new Date() }
+          : { customerNotifyError: res.error },
+      }).catch(() => null);
+    }
+  }
+
+  return NextResponse.json({ ...order, _finalPriceJustSet: justSetFinalTotal });
+}
+
+// יוצר לינק תשלום נעול לנדרים פלוס עבור הזמנה ספציפית.
+// הסכום נעול (AmountLock=1) - הלקוח לא יכול לשנות אותו.
+// ה-webhook של נדרים יפנה ל-/api/webhooks/nedarim עם orderId ב-param1.
+// בהזמנה ראשונה מקזזים 1₪ (אימות כרטיס שנגבה בהרשמה) - creditVerificationCharged מסמן זאת.
 function buildNedarimPaymentLink(orderId: string, amount: number, customerName: string): string {
+  const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://tzidkat.com";
   const params = new URLSearchParams({
     mosad: "7015318",
     ApiValid: "NxhXRWeG5P",
@@ -20,162 +513,10 @@ function buildNedarimPaymentLink(orderId: string, amount: number, customerName: 
   return `https://www.matara.pro/nedarimplus/online/?${params.toString()}`;
 }
 
-// נציג מעדכן משקלים (ואופציונלית מחיר סופי) להזמנה
-export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "יש להתחבר" }, { status: 401 });
-
-  const role = (session.user as any).role;
-  if (role !== "AGENT" && role !== "ADMIN") {
-    return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
-  }
-  const sessionUserId = (session.user as any).id as string;
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const g = await requireAdmin();
+  if (!g.ok) return g.res;
   const { id } = await params;
-  const b = await req.json();
-
-  const order = await prisma.order.findUnique({
-    where: { id },
-    include: { items: true, customer: true },
-  });
-  if (!order) return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
-
-  // אימות הרשאת נציג
-  let canSetFinalPrice = role === "ADMIN";
-  let canSendPaymentLink = role === "ADMIN";
-  if (role === "AGENT") {
-    const agent = await prisma.customer.findUnique({
-      where: { id: sessionUserId },
-      include: { agentPoints: { select: { pointId: true } } },
-    });
-    canSetFinalPrice = agent?.agentCanSetFinalPrice ?? false;
-    canSendPaymentLink = agent?.agentCanSendPaymentLink ?? false;
-    // §60: 🐛 תוקן דפוס ג'. ההגבלה השוותה רק ל-agentPointId הישן,
-    // ולכן נציג רב-נקודתי (agentPoints[] מלא, agentPointId ריק) עבר
-    // *בלי שום בדיקה* ויכול היה לעדכן משקלים ולקבוע מחיר סופי לכל
-    // הזמנה במערכת. נציג בלי נקודות כלל - נחסם.
-    const agentPointIds = new Set(agent?.agentPoints.map((ap) => ap.pointId) ?? []);
-    if (agent?.agentPointId) agentPointIds.add(agent.agentPointId);
-    if (agentPointIds.size === 0) {
-      return NextResponse.json(
-        { error: "אין לך נקודת חלוקה משויכת. פנה למנהל." },
-        { status: 403 }
-      );
-    }
-    if (!agentPointIds.has(order.pointId)) {
-      return NextResponse.json({ error: "אין לך הרשאה להזמנה זו" }, { status: 403 });
-    }
-  }
-
-  // §60: לקוח מזומן - הגבייה במזומן בחלוקה. אין לינק תשלום ואין מייל
-  // "נא להשלים תשלום", גם אם לנציג יש את ההרשאה. המחיר הסופי כן נקבע
-  // כרגיל - הוא נדרש כדי לדעת כמה לגבות בשטח.
-  const isCashCustomer = order.customer.paymentPreference === "CASH";
-  if (isCashCustomer) canSendPaymentLink = false;
-
-  // עדכון משקלים לפריטים (אופציונלי - רק מה שנשלח)
-  if (Array.isArray(b.items)) {
-    for (const item of b.items) {
-      if (!item.id) continue;
-      const data: any = {};
-      if (item.actualWeight != null && item.actualWeight !== "") {
-        data.actualWeight = Number(item.actualWeight);
-        data.finalWeight = Number(item.actualWeight);
-      }
-      if (Object.keys(data).length > 0) {
-        await prisma.orderItem.update({ where: { id: item.id }, data });
-      }
-    }
-  }
-
-  // קביעת מחיר סופי - רק אם הנציג מורשה
-  let finalPriceJustSet = false;
-  if (b.setFinalPrice === true) {
-    if (!canSetFinalPrice) {
-      return NextResponse.json(
-        { error: "אין לך הרשאה לקבוע מחיר סופי" },
-        { status: 403 }
-      );
-    }
-
-    // מחשבים מחדש את המחיר הסופי מהמשקלים.
-    // כולל את המוצר כדי לדעת את בסיס התמחור (PER_KG = חייב משקל בפועל)
-    const freshItems = await prisma.orderItem.findMany({
-      where: { orderId: id },
-      include: { product: { select: { saleType: true, priceType: true } } },
-    });
-
-    // בדיקת בטיחות: מוצר שנשקל (PER_KG) חייב משקל בפועל לפני קביעת מחיר סופי.
-    // בלי הבדיקה: 2 מגשים × מחיר-לק"ג היה מחושב כאילו 2 ק"ג - חיוב שגוי ללקוח!
-    const missingWeight = freshItems.filter(
-      (it) =>
-        (it.product.saleType === "UNIT" || it.product.saleType === "PACKAGE") &&
-        it.product.priceType === "PER_KG" &&
-        it.finalWeight == null
-    );
-    if (missingWeight.length > 0) {
-      return NextResponse.json(
-        {
-          error: `לא ניתן לקבוע מחיר סופי — חסר משקל בפועל עבור: ${missingWeight
-            .map((it) => it.productName)
-            .join(", ")}. יש להזין משקל לכל פריט שנשקל.`,
-        },
-        { status: 400 }
-      );
-    }
-
-    let finalTotal = 0;
-    for (const it of freshItems) {
-      const weight = it.finalWeight != null ? Number(it.finalWeight) : Number(it.quantity);
-      const linePrice = Math.round(Number(it.unitPrice) * weight * 100) / 100;
-      finalTotal += linePrice;
-      await prisma.orderItem.update({
-        where: { id: it.id },
-        data: { finalPrice: linePrice },
-      });
-    }
-    finalTotal = Math.round(finalTotal * 100) / 100;
-
-    // קיזוז 1₪ בהזמנה ראשונה
-    const deductOne = !order.customer.creditVerificationCharged && finalTotal > 1;
-    const chargeAmount = deductOne ? Math.round((finalTotal - 1) * 100) / 100 : finalTotal;
-
-    // בסיס העדכון: מחיר סופי נקבע
-    const updateData: any = {
-      finalTotal,
-      status: "FINAL_PRICE_SET",
-      finalPriceSetAt: new Date(),
-      finalPriceSetBy: (session.user as any).email ?? "agent",
-    };
-    // לינק תשלום נוצר רק אם לנציג יש הרשאה נפרדת לכך.
-    // בלי ההרשאה: המחיר נקבע, אך שליחת הלינק נשארת למנהל (או לנציג מורשה).
-    if (canSendPaymentLink) {
-      updateData.paymentStatus = "PAYMENT_PENDING";
-      updateData.paymentLink = buildNedarimPaymentLink(id, chargeAmount, order.customerName);
-    }
-    await prisma.order.update({ where: { id }, data: updateData });
-    finalPriceJustSet = true;
-
-    // מייל מחיר סופי ללקוח (לא חוסם) - רק אם נוצר לינק תשלום,
-    // אחרת המייל היה יוצא בלי כפתור תשלום ומבלבל את הלקוח
-    if (canSendPaymentLink && order.customer.email) {
-      const fullOrder = await prisma.order.findUnique({
-        where: { id },
-        include: { items: true },
-      });
-      if (fullOrder) {
-        await sendFinalPriceEmail(fullOrder as any, order.customer.email).catch(() => null);
-      }
-    }
-  }
-
-  const updated = await prisma.order.findUnique({
-    where: { id },
-    include: { items: true },
-  });
-  return NextResponse.json({
-    ...updated,
-    _finalPriceJustSet: finalPriceJustSet,
-    // §60: ה-UI מציג "לגבות במזומן בחלוקה" במקום להודיע על לינק שנשלח
-    _isCashCustomer: isCashCustomer,
-  });
+  await prisma.order.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
 }

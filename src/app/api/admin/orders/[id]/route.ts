@@ -217,6 +217,25 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
             : {}),
         },
       });
+      // §368: 📒 תנועת החזרה בספר
+      if (restoreDebt > 0) {
+        const cust = await prisma.customer.findUnique({
+          where: { id: current.customerId },
+          select: { debtBalance: true },
+        });
+        await prisma.debtLedger.create({
+          data: {
+            customerId: current.customerId,
+            kind: "RESTORE",
+            amount: restoreDebt,
+            balanceAfter: Number(cust?.debtBalance ?? restoreDebt),
+            note: `הוחזר מביטול הזמנה #${current.orderNumber}`,
+            orderId: current.id,
+            pricelistId: current.pricelistId,
+            createdBy: g.session?.user?.email ?? "admin",
+          },
+        });
+      }
       console.log(
         `[cancel] order #${current.orderNumber} restored debt=₪${restoreDebt} balance=₪${restoreBal} to customer`
       );
@@ -245,6 +264,37 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     // markDelivered קובע את הסטטוס בעצמו - לא נותנים ל-body לדרוס אותו
     if (!("markDelivered" in b)) data.status = b.status;
+  }
+
+  // §370: 🚨 **הוספת פריט להזמנה ששולמה — נחסמת.**
+  //
+  // 🐛 מה שהיה: המנהל הוסיף מוצר להזמנה 562 ששולמה. §365 נעל
+  // את מסך הנציג ואת הפאנלים, והוסיף אזהרה במסך המנהל — אבל
+  // ה-route עצמו קיבל הכל.
+  //
+  // התוצאה: פריט נוסף להזמנה שכבר נגבתה. finalTotal השתנה,
+  // amountPaid לא, והלקוח "חייב" סכום שאיש לא ביקש ממנו.
+  //
+  // ⚠️ אזהרה במסך אינה חסימה. הכלל של §72 — מה שאסור, אסור
+  // בשרת.
+  //
+  // ⚠️ ולתיקון יש כלים: זיכוי (§133) או חיוב נוסף (§135), שלא
+  // נוגעים בסכום שכבר נגבה.
+  if (Array.isArray(b.items) && b.items.length > 0) {
+    const isPaidOrder =
+      current.paymentStatus === "PAID" ||
+      current.paymentStatus === "PARTIALLY_PAID" ||
+      current.paymentStatus === "CHARGING";
+    const isAdding = b.items.some((it: any) => !it.id && !it._delete);
+    if (isPaidOrder && isAdding) {
+      return NextResponse.json(
+        {
+          error:
+            "ההזמנה כבר שולמה — לא ניתן להוסיף פריטים. לתיקון יש להשתמש בחיוב נוסף או בזיכוי.",
+        },
+        { status: 400 }
+      );
+    }
   }
 
   // update items (final weight / final price / quantity / add / remove)

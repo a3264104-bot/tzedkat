@@ -258,7 +258,10 @@ export default async function AgentOrderDetailPage({
   //
   // ⚠️ PARTIALLY_PAID גם נעול: חלק מהכסף עבר, ושינוי משקל
   // מזיז את היתרה בלי שהלקוח יודע.
+  // §370: ה-V גם נועל — הנציג סימן "סיימתי", והוספה אחריו
+  // משנה סכום שכבר אושר. להסרה: מורידים את ה-V.
   const isLocked =
+    !!(order as any).agentClosedAt ||
     order.paymentStatus === "PAID" ||
     order.paymentStatus === "PARTIALLY_PAID" ||
     order.paymentStatus === "CHARGING" ||

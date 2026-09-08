@@ -100,8 +100,23 @@ export async function PATCH(
     );
   }
 
-  // הזמנות שהושלמו לא ניתנות לעריכה
-  if (item.order.status === "COMPLETED" || item.order.status === "CANCELLED") {
+  // §370: 🐛 **ביטול פריט בהזמנה שהושלמה נחסם — וזה תקע.**
+  //
+  // התרחיש: פריט נוסף בטעות להזמנה 562 ששולמה (§370 חוסם את זה
+  // עכשיו). הניסיון לבטל אותו החזיר 400 — כי COMPLETED חוסם
+  // **כל** עריכה, כולל את התיקון עצמו.
+  //
+  // ⚠️ ביטול הוא היציאה מהבוץ, לא כניסה אליה: הוא רק מוציא פריט
+  // מהחישוב, ומאפשר למנהל לתקן טעות שכבר קרתה.
+  //
+  // ⚠️ שאר העריכות (משקל, מחיר) נשארות חסומות — הן משנות סכום
+  // שכבר נגבה.
+  const onlyCancelling =
+    "isCancelled" in body && Object.keys(body).length === 1;
+  if (
+    !onlyCancelling &&
+    (item.order.status === "COMPLETED" || item.order.status === "CANCELLED")
+  ) {
     return NextResponse.json(
       { error: "לא ניתן לערוך פריט בהזמנה שהושלמה או בוטלה" },
       { status: 400 }
@@ -366,7 +381,7 @@ export async function PATCH(
   // ⚠️ רק כשכל הפריטים נשקלו. חישוב חלקי היה קובע מחיר שאינו
   // משקף את ההזמנה, והחיוב היה יוצא שגוי - הבאג שכבר תוקן פעם
   // בצד המנהל.
-  await recomputeOrderTotal(item.order.id);
+  await recomputeOrderTotal(item.order.id, g.agent.id);
 
   // §343: 🧮 **estimatedTotal מחושב מחדש.**
   //
@@ -640,7 +655,11 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
  * ביום שמישהו משנה אחת מהן, והלקוח היה מחויב בסכום שתלוי במי
  * נגע בהזמנה אחרון.
  */
-async function recomputeOrderTotal(orderId: string): Promise<void> {
+async function recomputeOrderTotal(
+  orderId: string,
+  // §368: הנציג — לתנועה בספר החובות
+  agentId?: string | null
+): Promise<void> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     select: {
@@ -696,7 +715,8 @@ async function recomputeOrderTotal(orderId: string): Promise<void> {
     prisma,
     orderId,
     order.customerId,
-    beforeBalance
+    beforeBalance,
+    agentId
   );
 
   // §147: 🐛 המחיר הסופי נקבע כאן, אבל הלקוח לא ידע.

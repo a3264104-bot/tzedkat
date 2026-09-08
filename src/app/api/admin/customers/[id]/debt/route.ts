@@ -77,17 +77,40 @@ export async function PATCH(
     );
   }
 
-  await prisma.customer.update({
-    where: { id },
-    data: {
-      debtBalance: next,
-      // ⚠️ חוב שאופס - מנקים גם את ההערה. "חוב ₪0 על מכירת פסח"
-      // מבלבל יותר משום דבר.
-      debtNote: next > 0 ? note : null,
-      debtUpdatedAt: new Date(),
-      debtUpdatedBy: session?.user?.email ?? role,
-    },
-  });
+  // §368: 📒 תנועה בספר — לפני העדכון, באותה טרנזקציה.
+  //
+  // ⚠️ ADD כשמוסיפים, ADJUST כשקובעים. ההבדל חשוב לדוח: ADD
+  // הוא חוב ממכירה, ADJUST הוא תיקון של המנהל.
+  const delta = Math.round((next - current) * 100) / 100;
+  const actor = session?.user?.email ?? role;
+  await prisma.$transaction([
+    prisma.customer.update({
+      where: { id },
+      data: {
+        debtBalance: next,
+        // ⚠️ חוב שאופס - מנקים גם את ההערה. "חוב ₪0 על מכירת פסח"
+        // מבלבל יותר משום דבר.
+        debtNote: next > 0 ? note : null,
+        debtUpdatedAt: new Date(),
+        debtUpdatedBy: actor,
+      },
+    }),
+    ...(delta !== 0
+      ? [
+          prisma.debtLedger.create({
+            data: {
+              customerId: id,
+              kind: mode === "add" ? "ADD" : "ADJUST",
+              amount: delta,
+              balanceAfter: next,
+              note: note || null,
+              pricelistId: (body as any).pricelistId ?? null,
+              createdBy: actor,
+            },
+          }),
+        ]
+      : []),
+  ]);
 
   console.log(
     `[debt] ${role} set debt for ${customer.name}: ${current} → ${next} (${note})`
