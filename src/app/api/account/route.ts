@@ -256,6 +256,30 @@ export async function PATCH(req: Request) {
       }
     }
     data.defaultPointId = body.defaultPointId || null;
+
+    // §371: 🚚 הזמנות פתוחות עוברות איתו — כמו במסך המנהל.
+    //
+    // 🐛 הלקוח שינה נקודה באזור האישי, וההזמנה הפתוחה נשארה
+    // בישנה. הוא הגיע לנקודה החדשה, והסחורה הייתה במקום אחר.
+    //
+    // ⚠️ ורק פתוחות: הזמנה שנשקלה או נמסרה כבר עברה את הנקודה.
+    if (data.defaultPointId) {
+      const np = await prisma.deliveryPoint.findUnique({
+        where: { id: data.defaultPointId },
+        select: { name: true },
+      });
+      await prisma.order.updateMany({
+        where: {
+          customerId,
+          pointId: { not: data.defaultPointId },
+          status: { notIn: ["COMPLETED", "CANCELLED"] },
+          paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "CHARGING"] },
+          agentClosedAt: null,
+          deliveredAt: null,
+        },
+        data: { pointId: data.defaultPointId, pointNameSnapshot: np?.name ?? null },
+      });
+    }
   }
 
   const updated = await prisma.customer.update({

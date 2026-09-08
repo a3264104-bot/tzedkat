@@ -243,6 +243,8 @@ export async function PATCH(
   }
 
   const data: any = {};
+  // §371: כמה הזמנות עברו נקודה — לחיווי במסך
+  let movedOrders = 0;
   // §90: אזהרה שמוחזרת למסך - לא שדה במסד. חייבת להיות מחוץ
   // ל-data, אחרת Prisma נופל על שדה לא מוכר.
   let prefWarning: string | null = null;
@@ -308,6 +310,44 @@ export async function PATCH(
       }
     }
     data.defaultPointId = pid;
+
+    // §371: 🚚 **הזמנות פתוחות עוברות איתו.**
+    //
+    // 🐛 מה שהיה: defaultPointId השתנה על הלקוח, וההזמנות
+    // הפתוחות נשארו בנקודה הישנה. הלקוח הגיע לנקודה החדשה,
+    // והסחורה שלו הייתה בישנה.
+    //
+    // ⚠️ ורק פתוחות: הזמנה שנשקלה, נמסרה או חויבה כבר עברה את
+    // הנקודה — שינוי שלה היה משכתב היסטוריה.
+    //
+    // ⚠️ ו-pointNameSnapshot מתעדכן יחד: הוא מה שמוצג במיילים
+    // ובמסכים, ובלעדיו הלקוח היה מקבל את השם הישן.
+    if (pid) {
+      const newPoint = await prisma.deliveryPoint.findUnique({
+        where: { id: pid },
+        select: { name: true, city: true },
+      });
+      const moved = await prisma.order.updateMany({
+        where: {
+          customerId: id,
+          pointId: { not: pid },
+          status: { notIn: ["COMPLETED", "CANCELLED"] },
+          paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "CHARGING"] },
+          agentClosedAt: null,
+          deliveredAt: null,
+        },
+        data: {
+          pointId: pid,
+          pointNameSnapshot: newPoint?.name ?? null,
+        },
+      });
+      if (moved.count > 0) {
+        console.log(
+          `[point-change] customer ${id} → ${newPoint?.name}: ${moved.count} orders moved`
+        );
+        movedOrders = moved.count;
+      }
+    }
   }
 
   // §90: אופן תשלום - מזומן או אשראי, לבחירת המנהל.
@@ -598,14 +638,14 @@ export async function PATCH(
         }
         return tx.customer.findUnique({ where: { id } });
       });
-      return NextResponse.json({ ok: true, customer, warning: prefWarning, generatedCode });
+      return NextResponse.json({ ok: true, customer, warning: prefWarning, generatedCode, movedOrders });
     }
     // עדכון רגיל (בלי שינוי נקודות)
     const customer = await prisma.customer.update({
       where: { id },
       data,
     });
-    return NextResponse.json({ ok: true, customer, warning: prefWarning, generatedCode });
+    return NextResponse.json({ ok: true, customer, warning: prefWarning, generatedCode, movedOrders });
   } catch (e: any) {
     console.error("customer update error:", e);
     return NextResponse.json({ error: e.message || "שגיאה" }, { status: 500 });

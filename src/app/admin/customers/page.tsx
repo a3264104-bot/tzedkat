@@ -543,15 +543,20 @@ export default function AdminCustomersPage() {
         return;
       }
 
-      await api(`/api/admin/customers/${editing.id}`, {
+      const saveRes = await api(`/api/admin/customers/${editing.id}`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       });
 
+      // §371: חיווי על הזמנות שעברו נקודה — המנהל צריך לדעת
+      // שהשינוי נגע גם בהזמנות פתוחות, לא רק בהגדרה.
+      const moved = Number((saveRes as any)?.movedOrders ?? 0);
       setSuccessMsg(
         newPassword
           ? `נשמר! מסור ללקוח את הסיסמה החדשה: ${newPassword}`
-          : "הפרטים עודכנו בהצלחה"
+          : moved > 0
+            ? `הפרטים עודכנו · ${moved} הזמנות פתוחות הועברו לנקודה החדשה`
+            : "הפרטים עודכנו בהצלחה"
       );
       setNewPassword("");
       await reload();
