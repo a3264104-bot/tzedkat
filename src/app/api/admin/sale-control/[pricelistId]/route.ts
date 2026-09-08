@@ -159,7 +159,20 @@ export async function GET(
     if (order.finalTotal != null) {
       // ⚠️ המרה: הסכום למעלה נבנה מהפריטים, ועכשיו מחליפים אותו
       // בסכום המלא של ההזמנה. מחסירים את מה שכבר נספר.
-      totalOrderRevenue += Number(order.finalTotal) - orderItemsSum;
+      // §374: 🐛 **החוב נספר כמכירה ב-orderRevenue.**
+      //
+      // §241 החליף את סכום הפריטים ב-finalTotal — וזה נכון,
+      // אבל finalTotal כולל גם appliedDebt (§263), שהוא כסף
+      // ממכירה קודמת.
+      //
+      // התוצאה: "נמכר" בדשבורד היה גבוה מ-finalSum בסיכום
+      // המכירה (§366 הפחית שם את החוב) — שני מספרים לאותה
+      // שאלה, והמנהל לא יודע במי לבטוח.
+      //
+      // ⚠️ אותה נוסחה של §366: finalTotal פחות החוב.
+      const debtInOrder = Number((order as any).appliedDebt ?? 0);
+      totalOrderRevenue +=
+        Number(order.finalTotal) - debtInOrder - orderItemsSum;
     } else {
       // §244: 🐛 **ספירה כפולה של דמי הטיפול.**
       //
@@ -686,6 +699,11 @@ export async function GET(
     financialSummary: {
       totalRevenue,
       orderRevenue: totalOrderRevenue,
+      // §372: מוני הזמנות — לשורת הכסף בדשבורד.
+      orderCount: orders.length,
+      pendingOrdersCount: orders.filter(
+        (o) => o.paymentStatus !== "PAID" && o.paymentStatus !== "CANCELLED"
+      ).length,
       walkinRevenue,
       walkinCash,
       walkinCardTerminal,

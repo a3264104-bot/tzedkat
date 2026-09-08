@@ -39,6 +39,20 @@ export default function Dashboard() {
   const [lists, setLists] = useState<Pricelist[] | null>(null);
   const [selected, setSelected] = useState<string>("");
   const [data, setData] = useState<any>(null);
+  // §372: 💰 נתוני הכסף — מ-sale-control, מקור האמת (§325).
+  //
+  // ⚠️ ולא חישוב מקומי: sale-control כבר מפריד חוב מהכנסות,
+  // ושכפול הנוסחה כאן היה יוצר שני מספרים שמתפצלים.
+  const [money, setMoney] = useState<{
+    sold: number;
+    collected: number;
+    pending: number;
+    debt: number;
+    orders: number;
+    paidCount: number;
+    pendingCount: number;
+  } | null>(null);
+
   const [pendingW, setPendingW] = useState<{
     ordersCount: number;
     totalMissingItems: number;
@@ -71,6 +85,33 @@ export default function Dashboard() {
         })
       )
       .catch(() => setPendingW(null));
+
+    // §372: 💰 נתוני הכסף — רק כשנבחרה מכירה ספציפית.
+    //
+    // ⚠️ sale-control הוא per-pricelist. ב"כל המכירות" אין
+    // משמעות לסכום אחד, ולכן הבלוק פשוט לא מוצג.
+    if (pricelistId !== ALL) {
+      api(`/api/admin/sale-control/${pricelistId}`)
+        .then((r: any) => {
+          // ⚠️ financialSummary — השם ב-sale-control (§78).
+          const f = r?.financialSummary ?? r?.financial ?? r ?? {};
+          const sold = Number(f.orderRevenue ?? f.totalRevenue ?? 0);
+          const collected = Number(f.totalCollected ?? 0);
+          setMoney({
+            sold,
+            collected,
+            pending: Math.max(0, Math.round((sold - collected) * 100) / 100),
+            debt: Number(f.totalDebtCollected ?? 0),
+            orders: Number(f.orderCount ?? r?.orders?.length ?? 0),
+            paidCount: Number(f.paidOrdersCount ?? 0),
+            pendingCount: Number(f.pendingOrdersCount ?? 0),
+          });
+        })
+        .catch(() => setMoney(null));
+    } else {
+      setMoney(null);
+    }
+
     api(`/api/admin/reports${qs}`)
       .then(setData)
       .catch((e) => setErr(e.message))
@@ -183,24 +224,100 @@ export default function Dashboard() {
 
       {data && (
         <>
-          {/* ─── מספרי מפתח ─── */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Stat label="הזמנות פעילות" value={String(activeTotal)} />
-            <Stat label="סכום משוער" value={fmt(data.estimatedSales)} />
-            <Stat label="סכום סופי" value={fmt(data.finalSales)} />
-            <Stat
-              label="תומחרו"
-              value={`${pricedCount} / ${activeTotal}`}
-              sub={
-                activeTotal === 0
-                  ? undefined
-                  : remaining === 0
-                    ? "כל ההזמנות תומחרו"
-                    : `נותרו ${remaining} לשקילה`
-              }
-              highlight={activeTotal > 0 && remaining > 0}
-            />
-          </div>
+          {/* §373: 🗑️ שורת ה-Stat **מוזגה ל-💰**.
+              
+              "סכום סופי" ו"נמכר" הם אותו מספר בשני שמות, ו"סכום
+              משוער" מיותר אחרי שהכל נשקל.
+              
+              ⚠️ מה שנשאר רלוונטי — "תומחרו X/Y" — עבר לשורת
+              הכסף כשורת התקדמות. */}
+
+          {/* §372: 💰 **שורת הכסף — התמונה שחסרה.**
+              
+              הדשבורד ענה על "מה לעשות" ולא על "איפה הכסף".
+              המנהל עבר בין ארבעה מסכים (בקרת מכירה, סיכום
+              מכירה, תשלומים, חובות נציגים) כדי להרכיב מצב אחד.
+              
+              ⚠️ ארבעה מספרים, ולא דוח: נמכר, נגבה, ממתין, חוב.
+              מי שרוצה פירוט לוחץ ועובר.
+              
+              ⚠️ והחוב **בנפרד** (§325/§366): הוא כסף שנכנס אבל
+              לא מהמכירה הזו, וערבוב שלו שובר את ההצלבה מול
+              תעודות הספק. */}
+          {money && (
+            <div className="card p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-brand-slatedark">💰 הכסף</h2>
+                <a
+                  href={`/admin/sale-control/${selected !== ALL ? selected : ""}`}
+                  className="text-xs font-bold text-brand-rust hover:underline"
+                >
+                  לפירוט מלא ←
+                </a>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <MoneyBox
+                  label="נמכר"
+                  value={money.sold}
+                  sub={`${money.orders} הזמנות`}
+                  tone="slate"
+                />
+                <MoneyBox
+                  label="נגבה"
+                  value={money.collected}
+                  sub={`${money.paidCount} שולמו`}
+                  tone="emerald"
+                />
+                <MoneyBox
+                  label="ממתין לגבייה"
+                  value={money.pending}
+                  sub={`${money.pendingCount} הזמנות`}
+                  tone={money.pending > 0 ? "amber" : "slate"}
+                  href="/admin/payments"
+                />
+                <MoneyBox
+                  label="💸 חוב שנגבה"
+                  value={money.debt}
+                  sub="לא נספר במכירה"
+                  tone="slate"
+                />
+              </div>
+
+              {/* §373: התקדמות השקילה — מה שנשאר משורת ה-Stat.
+                  
+                  ⚠️ פס ולא מספר: "213/256" דורש חישוב בראש, ופס
+                  נקרא במבט. */}
+              {activeTotal > 0 && (
+                <div className="mt-3 pt-3 border-t border-zinc-100">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-bold text-zinc-600">
+                      תומחרו {pricedCount} מתוך {activeTotal}
+                    </span>
+                    <span
+                      className={
+                        remaining === 0
+                          ? "text-emerald-700 font-bold"
+                          : "text-amber-700 font-bold"
+                      }
+                    >
+                      {remaining === 0
+                        ? "✓ הכל תומחר"
+                        : `נותרו ${remaining} לשקילה`}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 transition-all"
+                      style={{
+                        width: `${Math.round((pricedCount / activeTotal) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ─── מה הצעד הבא ─── */}
           <div className="card p-5">
@@ -221,12 +338,16 @@ export default function Dashboard() {
                 href="/admin/pending-weights"
                 cta="להזנת משקלים"
               />
-              <NextAction
-                count={awaitingFinalPrice}
-                label="הזמנות שנשקלו — ממתינות לקביעת מחיר סופי"
-                href="/admin/orders"
-                cta="לרשימת ההזמנות"
-              />
+              {/* §372: 🗑️ "נשקלו — ממתינות למחיר סופי" **הוסרה**.
+                  
+                  🐛 היא לא הייתה מצב אמיתי אלא הפרש בין שני
+                  מספרים (waitingWeigh − realWeighOrders), ותיארה
+                  שלב שכלל לא קיים: §266 קובע finalTotal ומסמן
+                  READY_TO_CHARGE **באותה שקילה**.
+                  
+                  ⚠️ המנהל ראה שורה שאומרת "יש משהו לעשות" בלי
+                  שיהיה מה לעשות — וזה בדיוק מה שהופך דשבורד
+                  לרעש. */}
               <NextAction
                 count={readyToCharge}
                 label="הזמנות מוכנות לחיוב"
@@ -304,7 +425,20 @@ export default function Dashboard() {
           {/* ─── פילוח ─── */}
           <div className="grid lg:grid-cols-2 gap-4">
             <div className="card p-5">
-              <h2 className="font-bold text-brand-slatedark mb-3">הזמנות לפי נקודת חלוקה</h2>
+              {/* §373: כותרת עם קישור — הנקודה היא גם יחידת
+                  החיוב (§369), והמנהל שרואה "34 בברכפלד" רוצה
+                  לחייב אותן. */}
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-brand-slatedark">
+                  הזמנות לפי נקודת חלוקה
+                </h2>
+                <a
+                  href="/admin/payments"
+                  className="text-xs font-bold text-brand-rust hover:underline"
+                >
+                  לחיוב לפי נקודה ←
+                </a>
+              </div>
               <div className="space-y-2">
                 {data.byPoint.length === 0 && (
                   <p className="text-zinc-400 text-sm">אין הזמנות במכירה הזו</p>
@@ -347,28 +481,15 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* ─── מצב ההזמנות (בלי מבוטלות) ─── */}
-          <div className="card p-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-              <h2 className="font-bold text-brand-slatedark">מצב ההזמנות</h2>
-              {cancelled > 0 && (
-                <span className="text-xs text-brand-slate/50">
-                  בנוסף: {cancelled} הזמנות בוטלו (לא נכללות בסכומים)
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {activeStatusEntries.length === 0 && (
-                <p className="text-zinc-400 text-sm">אין הזמנות פעילות במכירה הזו</p>
-              )}
-              {activeStatusEntries.map(([status, count]) => (
-                <span key={status} className="badge bg-brand-slate/10 text-brand-slatedark py-1">
-                  {STATUS_LABELS[status] ?? status}:{" "}
-                  <strong className="mr-1">{count as number}</strong>
-                </span>
-              ))}
-            </div>
-          </div>
+          {/* §373: 🗑️ "מצב ההזמנות" **הוסר**.
+
+              🐛 הוא הציג את אותם סטטוסים ש"מה הצעד הבא" כבר
+              מתרגם לפעולות. המנהל ראה "READY_TO_CHARGE: 256"
+              למעלה, ו"256 מוכנות לחיוב → למסך תשלומים" למטה —
+              אותו מספר, פעמיים, ורק אחד מהם אומר מה לעשות.
+
+              ⚠️ תגיות סטטוס הן שפה של המערכת. הדשבורד מדבר
+              בשפה של המנהל. */}
         </>
       )}
     </div>
@@ -405,40 +526,47 @@ function NextAction({
 
 // Stat: צבעים מפורשים (hex) ולא utility של המותג, כדי שהכרטיס לעולם
 // לא ייצא "טקסט לבן על רקע לבן" אם class כלשהו לא נטען.
-function Stat({
+
+// §372: 💰 קוביית כסף — מספר אחד, בלי דוח.
+//
+// ⚠️ ארבע קוביות ולא טבלה: המנהל סורק אותן בשנייה, ולוחץ רק
+// על מה שדורש פעולה.
+function MoneyBox({
   label,
   value,
   sub,
-  highlight,
+  tone,
+  href,
 }: {
   label: string;
-  value: string;
+  value: number;
   sub?: string;
-  highlight?: boolean;
+  tone: "slate" | "emerald" | "amber";
+  href?: string;
 }) {
-  return (
-    <div
-      className="card p-4"
-      style={
-        highlight
-          ? { backgroundColor: "#c0461e", borderColor: "#c0461e", color: "#ffffff" }
-          : undefined
-      }
-    >
-      <div className="text-sm" style={{ color: highlight ? "rgba(255,255,255,0.85)" : "#71717a" }}>
-        {label}
+  const tones = {
+    slate: "border-zinc-200 bg-white text-brand-slatedark",
+    emerald: "border-emerald-300 bg-emerald-50 text-emerald-900",
+    amber: "border-amber-300 bg-amber-50 text-amber-900",
+  };
+  const body = (
+    <div className={`rounded-xl border-2 p-3 ${tones[tone]}`}>
+      <div className="text-[11px] font-bold opacity-70">{label}</div>
+      <div className="text-lg font-extrabold tabular-nums mt-0.5">
+        ₪
+        {value.toLocaleString("he-IL", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        })}
       </div>
-      <div className="text-xl font-extrabold mt-1" style={{ color: highlight ? "#ffffff" : "inherit" }}>
-        {value}
-      </div>
-      {sub && (
-        <div
-          className="text-[11px] mt-1"
-          style={{ color: highlight ? "rgba(255,255,255,0.8)" : "#a1a1aa" }}
-        >
-          {sub}
-        </div>
-      )}
+      {sub && <div className="text-[10px] opacity-60 mt-0.5">{sub}</div>}
     </div>
+  );
+  return href ? (
+    <a href={href} className="block hover:opacity-80 transition-opacity">
+      {body}
+    </a>
+  ) : (
+    body
   );
 }
