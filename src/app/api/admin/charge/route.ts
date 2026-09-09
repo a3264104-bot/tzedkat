@@ -287,12 +287,34 @@ export async function POST(req: Request) {
     //
     // ⚠️ creditVerificationCharged נשאר: הוא מסמן שהקיזוז נוצל,
     // ומונע כפילות אם save-token ירוץ שוב (§247 בודק אותו).
-    const chargeAmount = finalTotalNum;
+    // §384: 🚨 **חיוב אחרי תשלום חלקי — רק היתרה.**
+    //
+    // 🐛 לקוח שילם 200 מזומן (PARTIALLY_PAID), ואז המנהל לחץ
+    // "חייב". הכרטיס חויב ב-finalTotal המלא — 232.04. הלקוח שילם
+    // 432 על 232.
+    //
+    // ⚠️ amountPaid הוא מה שכבר שולם. היתרה = finalTotal פחות זה.
+    // ואם היתרה אפס או שלילית — אין מה לחייב.
+    const alreadyPaid = Number(preOrder.amountPaid ?? 0);
+    const chargeAmount = Math.round((finalTotalNum - alreadyPaid) * 100) / 100;
     const shouldDeductVerification = false;
 
+    if (alreadyPaid > 0) {
+      console.log(
+        `[charge-route] order ${orderId}: partial payment ${alreadyPaid} already received, charging remaining ${chargeAmount}`
+      );
+    }
+
     if (chargeAmount <= 0) {
+      // §384: היתרה אפס = כבר שולם הכל במזומן. הסטטוס פשוט לא
+      // עודכן ל-PAID — מתקנים אותו במקום לחייב.
       return NextResponse.json(
-        { error: `invalid charge amount ${chargeAmount}` },
+        {
+          error:
+            alreadyPaid > 0
+              ? `ההזמנה כבר שולמה במלואה (${alreadyPaid} ש"ח במזומן). אין יתרה לחיוב.`
+              : `סכום לא תקין לחיוב: ${chargeAmount}`,
+        },
         { status: 400 }
       );
     }
@@ -396,7 +418,8 @@ export async function POST(req: Request) {
               paymentMethod: "ONLINE",
               paymentProvider: "nedarim_plus",
               paymentTransactionId: successfulTransactionId,
-              amountPaid: chargeAmount,
+              // §384: מצטבר — מה שכבר שולם + מה שנגבה עכשיו
+              amountPaid: Math.round((alreadyPaid + chargeAmount) * 100) / 100,
               paidAt: new Date(),
               lastChargeError: null,
             },

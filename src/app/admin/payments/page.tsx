@@ -46,6 +46,8 @@ type PayOrder = {
     cardVerifiedAt: string | null;
     cardNeedsUpdate: boolean;
     creditVerificationCharged: boolean;
+    /** §383: לסינון מזומן */
+    paymentPreference?: string | null;
   };
 };
 
@@ -65,6 +67,8 @@ const FILTER_OPTIONS: { value: string; label: string }[] = [
   // ⚠️ "ניתן לחייב עכשיו" מסנן לפי **מחיר סופי**, בדיוק כמו
   // הכפתור. מה שהבורר מבטיח הוא מה שהוא נותן.
   { value: "chargeable", label: "💳 ניתן לחייב עכשיו" },
+  // §383: לקוחות מזומן — לסימון תשלום בחלוקה
+  { value: "cash", label: "💵 לקוחות מזומן" },
   { value: "default", label: "פעולות פתוחות" },
   { value: "all", label: "כל הסטטוסים" },
   { value: "FAILED", label: "חיוב נכשל בלבד" },
@@ -825,6 +829,7 @@ export default function PaymentsPage() {
               key={o.id}
               order={o}
               onCharge={() => handleCharge(o)}
+              onDone={fetchOrders}
               isCharging={charging === o.id}
               // §260: הפריסה שנבחרה לשורה זו
               currentInstallments={instOf(o)}
@@ -843,17 +848,25 @@ export default function PaymentsPage() {
 function OrderCard({
   order,
   onCharge,
+  onDone,
   isCharging,
   currentInstallments,
   onInstallmentsChange,
 }: {
   order: PayOrder;
   onCharge: () => void;
+  /** §383: רענון אחרי סימון מזומן */
+  onDone?: () => void;
   isCharging: boolean;
   /** §260: מספר התשלומים שנבחר לשורה הזו */
   currentInstallments: number;
   onInstallmentsChange: (n: number) => void;
 }) {
+  // §383: לקוח מזומן — העדפה או שיטת ההזמנה (§332)
+  const isCashOrder =
+    order.customer?.paymentPreference === "CASH" ||
+    order.paymentMethod === "CASH" ||
+    order.paymentMethod === "MANUAL";
   const statusLabel = payStatusLabel(order.paymentStatus);
   const statusColor = payStatusColor(order.paymentStatus);
   const showCharge = canCharge(order.paymentStatus, order.finalTotal, order.paymentStatus);
@@ -1017,8 +1030,23 @@ function OrderCard({
               </span>
             )}
           </div>
+          {/* §383: 💵 סימון מזומן — ללקוח מזומן, במסך התשלומים.
+              
+              המנהל שגובה מזומן בחלוקה או מקבל העברה — מסמן כאן,
+              בלי לצאת לטבלת המשקלים. אותו prompt של §347/§360:
+              שואל כמה, מטפל בחלקי, מציג יתרה. */}
+          {isCashOrder && hasFinalTotal && order.paymentStatus !== "PAID" && (
+            <CashMarkButton
+              orderId={order.id}
+              customerName={order.customerName}
+              finalTotal={Number(order.finalTotal)}
+              amountPaid={order.amountPaid ?? null}
+              paymentStatus={order.paymentStatus}
+              onDone={onDone}
+            />
+          )}
           {/* §267: הכפתור לבדו מותנה — הבורר מוצג תמיד. */}
-          {showCharge && (
+          {showCharge && !isCashOrder && (
           <button
             onClick={onCharge}
             disabled={isCharging || cardBlocked || !hasFinalTotal || !order.customer.hasToken}
@@ -1041,5 +1069,108 @@ function OrderCard({
         </div>
       )}
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// §383: סימון מזומן — במסך התשלומים
+// ═══════════════════════════════════════════════════════════════
+// אותה לוגיקה של CashCell בטבלת המשקלים (§347/§360): שואל כמה,
+// מטפל בחלקי, מציג יתרה. המנהל שמקבל העברה או מזומן מסמן כאן.
+//
+// ⚠️ לא ייבוא מ-WeightsTable: הרכיב שם קשור לטבלה (missing,
+// orderNumber). כאן צריך גרסה עצמאית — 60 שורות, ולא תלות
+// במסך אחר.
+function CashMarkButton({
+  orderId,
+  customerName,
+  finalTotal,
+  amountPaid,
+  paymentStatus,
+  onDone,
+}: {
+  orderId: string;
+  customerName: string;
+  finalTotal: number;
+  amountPaid: number | null;
+  paymentStatus: string;
+  onDone?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const isPartial = paymentStatus === "PARTIALLY_PAID";
+  const remaining =
+    isPartial && amountPaid != null
+      ? Math.round((finalTotal - amountPaid) * 100) / 100
+      : null;
+
+  async function mark() {
+    const suggest = remaining != null && remaining > 0 ? remaining : finalTotal;
+    const entered = window.prompt(
+      remaining != null && remaining > 0
+        ? `${customerName} שילם כבר ${amountPaid} ש"ח.\n\nכמה מביא עכשיו? (נותר ${remaining} ש"ח)`
+        : `כמה שילם ${customerName} במזומן?\n\nסכום ההזמנה: ${finalTotal} ש"ח`,
+      String(suggest)
+    );
+    if (entered === null) return;
+    const amt = Number(entered.trim());
+    if (!Number.isFinite(amt) || amt <= 0) {
+      alert("סכום לא תקין");
+      return;
+    }
+    const cumulative = Math.round((amt + (amountPaid ?? 0)) * 100) / 100;
+    if (cumulative > finalTotal + 0.01) {
+      alert(`הסכום גבוה מההזמנה (${finalTotal} ש"ח). יש לוודא שלא נפלה טעות.`);
+      return;
+    }
+    const partial = cumulative < finalTotal - 0.01;
+    if (
+      !window.confirm(
+        partial
+          ? `${customerName} שילם ${amt} ש"ח${amountPaid ? ` (סה"כ ${cumulative})` : ""} מתוך ${finalTotal}.\n\nיישאר חוב של ${(finalTotal - cumulative).toFixed(2)} ש"ח.`
+          : `${customerName} שילם ${amt} ש"ח במזומן?\n\nההזמנה תסומן כשולמה.`
+      )
+    )
+      return;
+
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/cash-payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amountPaid: cumulative,
+          note: partial
+            ? `שולם ${amt} מתוך ${finalTotal} במזומן`
+            : amountPaid
+              ? `השלמת יתרה: ${amt} (סה"כ ${cumulative})`
+              : "שולם במזומן",
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `שגיאה (${res.status})`);
+      onDone?.();
+    } catch (e: any) {
+      alert(e?.message || "שגיאה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={mark}
+      disabled={busy}
+      className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-40 ${
+        isPartial
+          ? "bg-red-600 text-white hover:bg-red-700"
+          : "bg-amber-500 text-white hover:bg-amber-600"
+      }`}
+    >
+      {busy
+        ? "..."
+        : isPartial && remaining != null
+          ? `💵 חסר ${remaining.toFixed(2)} — השלם`
+          : "💵 שילם במזומן"}
+    </button>
   );
 }

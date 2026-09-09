@@ -73,6 +73,8 @@ export async function GET(req: NextRequest) {
       // §258: לסינון "ניתן לחייב עכשיו"
       // §270: הטיפוס לפי מה ש-Prisma מקבל בפועל.
       finalTotal?: { gt: number };
+      // §383: סינון מזומן — העדפת לקוח או שיטת הזמנה
+      OR?: Array<Record<string, unknown>>;
       pricelistId?: string;
     } = {};
     if (statusParam === "all") {
@@ -92,6 +94,19 @@ export async function GET(req: NextRequest) {
         whereClause.paymentStatus = {
           notIn: ["PAID", "CHARGING", "PAYMENT_PENDING"],
         };
+      } else if (statusParam === "cash") {
+        // §383: 💵 לקוחות מזומן — לסימון תשלום בחלוקה.
+        //
+        // ⚠️ שני מסלולים למזומן (§332): העדפת הלקוח, או שיטת
+        // ההזמנה (הבורר בטבלה). מספיק שאחד מהם.
+        //
+        // ⚠️ ולא רק "לא שולם": גם PARTIALLY_PAID — צריך להשלים.
+        whereClause.finalTotal = { gt: 0 };
+        whereClause.paymentStatus = { notIn: ["PAID", "CANCELLED"] };
+        whereClause.OR = [
+          { customer: { paymentPreference: "CASH" } },
+          { paymentMethod: { in: ["CASH", "MANUAL"] } },
+        ];
       } else {
         whereClause.paymentStatus = statusParam;
       }
@@ -160,6 +175,8 @@ export async function GET(req: NextRequest) {
             cardVerifiedAt: true,
             cardNeedsUpdate: true,
             creditVerificationCharged: true,
+            // §383: לסינון מזומן במסך התשלומים
+            paymentPreference: true,
           },
         },
       },
@@ -207,6 +224,8 @@ export async function GET(req: NextRequest) {
         cardVerifiedAt: o.customer.cardVerifiedAt ? o.customer.cardVerifiedAt.toISOString() : null,
         cardNeedsUpdate: o.customer.cardNeedsUpdate,
         creditVerificationCharged: o.customer.creditVerificationCharged,
+        // §383: מזומן — העדפת הלקוח או שיטת ההזמנה (§332)
+        paymentPreference: o.customer.paymentPreference,
       },
     }));
 
