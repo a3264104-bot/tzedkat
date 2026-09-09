@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
         // בדיוק הרצוי: הזמנה עם finalTotal=0 אין מה לחייב בה.
         whereClause.finalTotal = { gt: 0 };
         whereClause.paymentStatus = {
-          notIn: ["PAID", "CHARGING", "PAYMENT_PENDING"],
+          notIn: ["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED"],
         };
       } else if (statusParam === "cash") {
         // §383: 💵 לקוחות מזומן — לסימון תשלום בחלוקה.
@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
         //
         // ⚠️ ולא רק "לא שולם": גם PARTIALLY_PAID — צריך להשלים.
         whereClause.finalTotal = { gt: 0 };
-        whereClause.paymentStatus = { notIn: ["PAID", "CANCELLED"] };
+        whereClause.paymentStatus = { notIn: ["PAID", "CANCELLED", "DEBT_CARRIED"] };
         whereClause.OR = [
           { customer: { paymentPreference: "CASH" } },
           { paymentMethod: { in: ["CASH", "MANUAL"] } },

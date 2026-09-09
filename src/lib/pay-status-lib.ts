@@ -36,6 +36,8 @@ export const PAY_STATUS_LABELS: Record<string, string> = {
   PAID: "שולם",
   FAILED: "חיוב נכשל",
   CARD_UPDATE_NEEDED: "נדרש עדכון כרטיס",
+  // §385: היתרה הועברה לחוב בסגירת המכירה — תיגבה בהבאה
+  DEBT_CARRIED: "הועבר לחוב",
   // legacy
   PAYMENT_PENDING: "ממתין לתשלום",
   PARTIALLY_PAID: "תשלום חלקי",
@@ -53,6 +55,7 @@ export const PAY_STATUS_COLORS: Record<string, string> = {
   PAID: "bg-emerald-100 text-emerald-700",
   FAILED: "bg-red-100 text-red-700",
   CARD_UPDATE_NEEDED: "bg-orange-100 text-orange-700",
+  DEBT_CARRIED: "bg-purple-100 text-purple-700",
   // legacy
   PAYMENT_PENDING: "bg-yellow-100 text-yellow-800",
   PARTIALLY_PAID: "bg-yellow-100 text-yellow-800",

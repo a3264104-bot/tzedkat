@@ -415,7 +415,7 @@ export default function PaymentsPage() {
   const chargeable = orders.filter(
     (o) =>
       o.finalTotal != null &&
-      !["PAID", "CHARGING", "PAYMENT_PENDING"].includes(o.paymentStatus)
+      !["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED"].includes(o.paymentStatus)
   );
   const chargeableSum = chargeable.reduce(
     (sum, o) => sum + Number(o.finalTotal ?? 0),

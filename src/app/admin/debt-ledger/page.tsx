@@ -90,7 +90,7 @@ export default function DebtLedgerPage() {
         const list = (d.orders ?? []).filter(
           (o: any) =>
             o.finalTotal != null &&
-            !["PAID", "CHARGING", "PAYMENT_PENDING"].includes(o.paymentStatus)
+            !["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED"].includes(o.paymentStatus)
         );
         setUnpaid({
           count: list.length,

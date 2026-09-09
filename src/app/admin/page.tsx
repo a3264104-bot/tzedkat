@@ -230,12 +230,23 @@ export default function Dashboard() {
             <div className="card p-5">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-bold text-brand-slatedark">💰 הכסף</h2>
-                <a
-                  href={`/admin/sale-control/${selected !== ALL ? selected : ""}`}
-                  className="text-xs font-bold text-brand-rust hover:underline"
-                >
-                  לפירוט מלא ←
-                </a>
+                <div className="flex gap-3">
+                  <a
+                    href={`/admin/sale-control/${selected !== ALL ? selected : ""}`}
+                    className="text-xs font-bold text-brand-rust hover:underline"
+                  >
+                    לפירוט ←
+                  </a>
+                  {/* §385: סגירת מכירה — השער */}
+                  {selected !== ALL && (
+                    <a
+                      href={`/admin/sale-close/${selected}`}
+                      className="text-xs font-bold text-zinc-600 hover:text-brand-rust hover:underline"
+                    >
+                      🔒 סגירה ←
+                    </a>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

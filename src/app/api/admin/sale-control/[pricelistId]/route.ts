@@ -476,6 +476,8 @@ export async function GET(
   let paidOrdersCount = 0;
   // §325: חוב קודם שנגבה — נספר בנפרד מהכנסות המכירה
   let collectedDebt = 0;
+  // §385: יתרות שהועברו לחוב בסגירה — לא נגבו, ייגבו בהבאה
+  let carriedToDebt = 0;
 
   for (const o of orders) {
     const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
@@ -501,7 +503,12 @@ export async function GET(
       // ⚠️ CASH **או** MANUAL: "סימון תשלום מזומן" של הנציג
       // (§130) שומר MANUAL, וספירה שלו כאשראי הייתה מנפחת את
       // מה שכביכול כבר אצלנו.
-      if (o.paymentMethod === "CASH" || o.paymentMethod === "MANUAL") {
+      // §385: DEBT_CARRIED — היתרה הועברה לחוב בסגירת המכירה.
+      // הכסף **לא נכנס**, הוא ייגבה במכירה הבאה. לא אשראי, לא
+      // מזומן — ולא נספר כאן כלל.
+      if (o.paymentStatus === "DEBT_CARRIED" || o.paymentMethod === "DEBT_CARRIED") {
+        carriedToDebt += Number(o.finalTotal ?? 0) - actual;
+      } else if (o.paymentMethod === "CASH" || o.paymentMethod === "MANUAL") {
         collectedCash += saleActual;
       } else {
         collectedCard += saleActual;
@@ -702,7 +709,10 @@ export async function GET(
       // §372: מוני הזמנות — לשורת הכסף בדשבורד.
       orderCount: orders.length,
       pendingOrdersCount: orders.filter(
-        (o) => o.paymentStatus !== "PAID" && o.paymentStatus !== "CANCELLED"
+        (o) =>
+          o.paymentStatus !== "PAID" &&
+          o.paymentStatus !== "CANCELLED" &&
+          o.paymentStatus !== "DEBT_CARRIED"
       ).length,
       walkinRevenue,
       walkinCash,
@@ -720,6 +730,8 @@ export async function GET(
       totalCollected,
       // §325: חוב קודם שנגבה — מוצג בנפרד
       totalDebtCollected,
+      // §385: הועבר לחוב בסגירה — ייגבה במכירה הבאה
+      carriedToDebt: r2(carriedToDebt),
       // §240: פירוט המזומן - אצל הנציגים מול מה שכבר הועבר
       cashWithAgents,
       cashReceivedFromAgents,
