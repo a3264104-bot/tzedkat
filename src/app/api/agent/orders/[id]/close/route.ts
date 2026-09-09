@@ -27,6 +27,25 @@ export async function POST(
   const body = await req.json().catch(() => ({}));
   const closed = body.closed !== false;
 
+  // §382: 🔒 **הורדת V אחרי תשלום — חסומה.**
+  //
+  // V הוא "סיימתי לשקול". אחרי תשלום, הורדתו פותחת את המשקלים
+  // לעריכה על סכום שכבר נגבה. אין סיבה לגיטימית לזה — לתיקון
+  // יש זיכוי וחיוב נוסף.
+  if (!closed) {
+    const cur = await prisma.order.findUnique({
+      where: { id },
+      select: { paymentStatus: true },
+    });
+    const ps = cur?.paymentStatus;
+    if (ps === "PAID" || ps === "PARTIALLY_PAID" || ps === "CHARGING") {
+      return NextResponse.json(
+        { error: "ההזמנה כבר שולמה — לא ניתן להסיר את הסימון." },
+        { status: 400 }
+      );
+    }
+  }
+
   const order = await prisma.order.findUnique({
     where: { id },
     select: { id: true, pointId: true, status: true, orderNumber: true },

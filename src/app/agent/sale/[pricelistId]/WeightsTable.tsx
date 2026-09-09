@@ -54,6 +54,8 @@ type Props = {
    * לגיטימי. אחרי החיוב הוא יוצר פער בין מה שנגבה למה שרשום.
    */
   isOrderLocked?: (order: any) => boolean;
+  /** §379: נעול **או** מסומן V — לכל התאים חוץ מה-V עצמו */
+  isClosedOrLocked?: (order: any) => boolean;
   onItemUpdate: (orderId: string, itemId: string, updates: Partial<OrderItem>) => void;
   onNeedsReload: () => void;
   /** §81: דיווח על מספר המשקלים החסרים - לחסימת סגירת המכירה */
@@ -141,6 +143,7 @@ export function WeightsTable({
   availableProducts,
   readOnly,
   isOrderLocked,
+  isClosedOrLocked,
   onItemUpdate,
   onNeedsReload,
   onMissingCountChange,
@@ -677,7 +680,7 @@ export function WeightsTable({
                             cellId={`w-${cell.itemId}`}
                             cell={cell}
                             // §262: נעול רק אם **ההזמנה הזו** שולמה
-                            readOnly={readOnly || !!isOrderLocked?.(r)}
+                            readOnly={readOnly || !!(isClosedOrLocked ?? isOrderLocked)?.(r)}
                             onItemUpdate={onItemUpdate}
                             onNeedsReload={onNeedsReload}
                           />
@@ -692,7 +695,7 @@ export function WeightsTable({
                                 <WeightCell
                                   cellId={`w-${c.itemId}`}
                                   cell={c}
-                                  readOnly={readOnly || !!isOrderLocked?.(r)}
+                                  readOnly={readOnly || !!(isClosedOrLocked ?? isOrderLocked)?.(r)}
                                   onItemUpdate={onItemUpdate}
                                   onNeedsReload={onNeedsReload}
                                 />
@@ -800,7 +803,7 @@ export function WeightsTable({
                             pref={effPref}
                             hasCard={r.hasCard}
                             // §365: נעול אחרי תשלום — לא רק בקריאה בלבד
-                            readOnly={readOnly || !!isOrderLocked?.(r)}
+                            readOnly={readOnly || !!(isClosedOrLocked ?? isOrderLocked)?.(r)}
                             onDone={onNeedsReload}
                             onNeedCard={() =>
                               setCardFor({
@@ -853,7 +856,15 @@ export function WeightsTable({
                       deliveredAt={r.deliveredAt}
                       // §365: נעול אחרי תשלום — מסירה קורית לפני, ואם לא
                       // סומנה זו טעות שהמנהל מתקן, לא כפתור פתוח.
-                      readOnly={readOnly || !!isOrderLocked?.(r)}
+                      // §381: מסירה **פתוחה תמיד** — גם אחרי V, גם אחרי תשלום.
+                      //
+                      // הזרימה הרגילה: שוקל → V → נמסר → שילם. אבל גם ההפך:
+                      // שילם → נמסר. אם PAID נועל מסירה, הנציג שסימן "שילם" לפני
+                      // שהלקוח לקח — לא יוכל לסמן שמסר.
+                      //
+                      // ⚠️ מסירה היא עובדה פיזית, לא כספית. שום מצב כספי לא
+                      // אמור לחסום אותה. רק readOnly (מכירה סגורה).
+                      readOnly={readOnly}
                       onDone={onNeedsReload}
                     />
                     <CloseOrderCheck

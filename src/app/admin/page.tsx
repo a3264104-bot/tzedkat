@@ -12,18 +12,14 @@
 //    מול "הזמנות פעילות" (5). מבוטלות מוצגות עכשיו בנפרד, מחוץ לפילוח.
 
 import { useEffect, useState, useCallback } from "react";
+// §380: בורר מכירה מרכזי
+import { useSelectedPricelist, ALL_SALES, PricelistSelector } from "@/components/useSelectedPricelist";
 import Link from "next/link";
 import { api } from "@/lib/client";
-import { fmt, STATUS_LABELS } from "@/lib/pricing";
+import { fmt } from "@/lib/pricing";
 
-type Pricelist = {
-  id: string;
-  name: string;
-  status: string;
-  _count?: { orders: number };
-};
-
-const ALL = "__all__";
+// §380: ALL מיובא מה-hook
+const ALL = ALL_SALES;
 
 // ריבוי בעברית עם טיפול באות סופית: "קרטון"+"ים" נותן "קרטוןים"
 // שהוא שגוי, ולכן ן->נ לפני הסיומת.
@@ -36,8 +32,8 @@ function pluralizeUnit(u: string, n: number): string {
 }
 
 export default function Dashboard() {
-  const [lists, setLists] = useState<Pricelist[] | null>(null);
-  const [selected, setSelected] = useState<string>("");
+  // §380: בורר מרכזי — הבחירה נשמרת ומשותפת לכל המסכים.
+  const { lists, selected, setSelected } = useSelectedPricelist({ allowAll: true });
   const [data, setData] = useState<any>(null);
   // §372: 💰 נתוני הכסף — מ-sale-control, מקור האמת (§325).
   //
@@ -61,13 +57,7 @@ export default function Dashboard() {
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    api("/api/admin/pricelists")
-      .then((res: Pricelist[]) => {
-        setLists(res);
-        const active = res.find((l) => l.status === "ACTIVE");
-        setSelected(active?.id ?? res[0]?.id ?? ALL);
-      })
-      .catch((e) => setErr(e.message));
+    // §380: הרשימה והבחירה מגיעות מ-useSelectedPricelist.
   }, []);
 
   const load = useCallback((pricelistId: string) => {
@@ -201,22 +191,14 @@ export default function Dashboard() {
           <label htmlFor="sale-picker" className="text-sm font-bold text-brand-slatedark">
             מכירה
           </label>
-          <select
-            id="sale-picker"
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            disabled={!lists}
+          {/* §380: רכיב אחד לכל המסכים — הבחירה נשמרת. */}
+          <PricelistSelector
+            lists={lists}
+            selected={selected}
+            onChange={setSelected}
+            allowAll
             className="input py-2 px-3 text-sm w-56"
-          >
-            {!lists && <option>טוען...</option>}
-            {lists?.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-                {l.status === "ACTIVE" ? " • פעילה" : ""}
-              </option>
-            ))}
-            <option value={ALL}>— כל המכירות —</option>
-          </select>
+          />
         </div>
       </div>
 
@@ -270,17 +252,18 @@ export default function Dashboard() {
                   tone="emerald"
                 />
                 <MoneyBox
-                  label="ממתין לגבייה"
+                  label="💳 ממתין לחיוב"
                   value={money.pending}
-                  sub={`${money.pendingCount} הזמנות`}
+                  sub={`${money.pendingCount} הזמנות · במכירה הזו`}
                   tone={money.pending > 0 ? "amber" : "slate"}
                   href="/admin/payments"
                 />
                 <MoneyBox
-                  label="💸 חוב שנגבה"
+                  label="💸 חוב קודם שנגבה"
                   value={money.debt}
-                  sub="לא נספר במכירה"
+                  sub="ממכירות קודמות · לא נספר כאן"
                   tone="slate"
+                  href="/admin/debt-ledger"
                 />
               </div>
 

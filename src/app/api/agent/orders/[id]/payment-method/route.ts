@@ -46,6 +46,7 @@ export async function PATCH(
       status: true,
       paymentStatus: true,
       weightsLockedAt: true,
+      agentClosedAt: true,
       customer: { select: { paymentToken: true, name: true } },
     },
   });
@@ -84,6 +85,14 @@ export async function PATCH(
 
   // §309: הזמנה נעולה אחרי שליחת המייל — הלקוח מחזיק סכום ואופן
   // תשלום, ושינוי אחריו יוצר פער.
+  // §379: V נועל את הבורר — אמצעי התשלום הוא חלק ממה שאושר.
+  if ((order as any).agentClosedAt) {
+    return NextResponse.json(
+      { error: "ההזמנה סומנה כטופלה (V). לשינוי יש להסיר את הסימון תחילה.", code: "ORDER_CLOSED" },
+      { status: 400 }
+    );
+  }
+
   if (order.weightsLockedAt) {
     return NextResponse.json(
       {

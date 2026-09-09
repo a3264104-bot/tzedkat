@@ -6,6 +6,8 @@
 //    חסרת משמעות. ברירת המחדל היא המכירה הפעילה.
 
 import { useEffect, useState } from "react";
+// §380: בורר מכירה מרכזי
+import { useSelectedPricelist, ALL_SALES, PricelistSelector } from "@/components/useSelectedPricelist";
 import Link from "next/link";
 import { api, download } from "@/lib/client";
 import { STATUS_LABELS, STATUS_ORDER, fmt } from "@/lib/pricing";
@@ -78,14 +80,15 @@ const SOURCE_COLORS: Record<string, string> = {
   ADMIN: "bg-zinc-200 text-zinc-700",
 };
 
-const ALL = "__all__";
+const ALL = ALL_SALES;
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [points, setPoints] = useState<any[]>([]);
-  const [lists, setLists] = useState<Pricelist[] | null>(null);
+  // §380: בורר מרכזי
+  const { lists, selected: fPricelist, setSelected: setFPricelist } =
+    useSelectedPricelist({ allowAll: true });
   const [loading, setLoading] = useState(true);
-  const [fPricelist, setFPricelist] = useState("");
   const [fPoint, setFPoint] = useState("");
   const [fStatus, setFStatus] = useState("");
   // §39: חיפוש חופשי וסינון תשלום. שניהם מסוננים בצד הלקוח על הרשימה
@@ -98,18 +101,8 @@ export default function OrdersPage() {
   const [bulkBusy, setBulkBusy] = useState(false);
 
   // טעינת רשימת המכירות + ברירת מחדל (המכירה הפעילה)
-  useEffect(() => {
-    api("/api/admin/pricelists")
-      .then((res: Pricelist[]) => {
-        setLists(res);
-        const active = res.find((l) => l.status === "ACTIVE");
-        setFPricelist(active?.id ?? res[0]?.id ?? ALL);
-      })
-      .catch(() => {
-        setLists([]);
-        setFPricelist(ALL);
-      });
-  }, []);
+  // §380: הרשימה והבחירה מגיעות מ-useSelectedPricelist — אין
+  // טעינה נפרדת כאן.
 
   useEffect(() => {
     if (!fPricelist) return; // ממתינים לבחירת המכירה לפני הטעינה הראשונה
@@ -318,22 +311,14 @@ export default function OrdersPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         {/* פילטר מכירה - הפילטר הראשי */}
-        <select
+        {/* §380: רכיב אחד — הבחירה נשמרת בין המסכים. */}
+        <PricelistSelector
+          lists={lists}
+          selected={fPricelist}
+          onChange={setFPricelist}
+          allowAll
           className="input max-w-[240px]"
-          value={fPricelist}
-          onChange={(e) => setFPricelist(e.target.value)}
-          disabled={!lists}
-          aria-label="סינון לפי מכירה"
-        >
-          {!lists && <option>טוען מכירות...</option>}
-          {lists?.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-              {l.status === "ACTIVE" ? " • פעילה" : ""}
-            </option>
-          ))}
-          {lists && <option value={ALL}>— כל המכירות —</option>}
-        </select>
+        />
 
         <select
           className="input max-w-[180px]"

@@ -18,6 +18,8 @@ type Props = {
   productWeightsFromNotes: Record<string, number>; // כמה יש מכל מוצר בתעודות
   productWeightsUsed: Record<string, number>;      // כמה כבר חולק מכל מוצר
   readOnly?: boolean;
+  /** §381: המכירה סגורה — נועל גם מסירה. readOnly (תשלום) לא. */
+  saleClosed?: boolean;
   onItemUpdate: (itemId: string, updates: Partial<OrderItem>) => void;
   onNeedsReload: () => void;
 };
@@ -45,6 +47,7 @@ export function OrderRow({
   productWeightsFromNotes,
   productWeightsUsed,
   readOnly,
+  saleClosed = false,
   onItemUpdate,
   onNeedsReload,
 }: Props) {
@@ -322,7 +325,9 @@ export function OrderRow({
           )}
 
           {/* §21: סימון מסירה - הפעולה שהנציג עושה כשהלקוח מגיע ולוקח */}
-          {!readOnly && (
+          {/* §381: מסירה פתוחה גם אחרי תשלום — היא עובדה פיזית,
+              לא כספית. רק מכירה סגורה נועלת אותה. */}
+          {!saleClosed && (
             <div className="p-3 border-t border-zinc-100">
               <button
                 onClick={toggleDelivered}
@@ -506,7 +511,11 @@ function ItemRow({
                   : null
               }
               quantity={Number(item.quantity)}
-              isFavorite={!!(item as any).isFavorite}
+              // §342: מועדף או לא-פעיל
+              isFavorite={
+                !!((item as any).isFavorite ||
+                  (item as any).product?.isActive === false)
+              }
               // ⚠️ readOnly לבדו: ההורה כבר מחשב אותו מהסטטוס
               // (§262 — נעילה לפי חיוב), ו-ItemRow אינו מקבל
               // את ההזמנה עצמה.

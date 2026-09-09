@@ -464,13 +464,30 @@ if (loading) {
                 עכשיו מוצגת שרשרת מלאה: הכנסות ← ספק ← עמלות ←
                 רווח נקי. */}
             {/* §124: זיכויים - כסף שלא נכנס לקופה */}
-            {!!(fin.totalCredits || fin.totalBalanceApplied) && (
+            {/* §378: 🔀 **זיכויים ויתרות — בנפרד.**
+                
+                🐛 "זיכויים ויתרות −335" — מספר אחד לשני דברים:
+                  • זיכוי (creditAmount): הנציג הוריד מחיר בחלוקה.
+                    זה כסף שלא נגבה — הפסד למכירה.
+                  • יתרת זכות (appliedCreditBalance): הלקוח שילם
+                    יותר בעבר, ועכשיו קיזז. זה כסף שכבר נכנס
+                    בעבר — לא הפסד.
+                
+                המנהל השווה ל-/admin/credits, ראה מספר אחר, ולא
+                הבין — כי שם מסכמים רק זיכויים, על כל המכירות.
+                
+                ⚠️ שתי קוביות, שתי משמעויות. */}
+            {!!fin.totalCredits && (
               <FinancialCard
-                label="זיכויים ויתרות"
-                amount={-((fin.totalCredits ?? 0) + (fin.totalBalanceApplied ?? 0))}
-                // ⚠️ FinancialCard מקבל "emerald" | "red" בלבד.
-                // אדום נכון כאן: זיכויים מקטינים הכנסה, בדיוק
-                // כמו עלות הספק שמוצגת באותו צבע.
+                label="זיכויים (הנחות בחלוקה)"
+                amount={-(fin.totalCredits ?? 0)}
+                color="red"
+              />
+            )}
+            {!!fin.totalBalanceApplied && (
+              <FinancialCard
+                label="יתרות זכות שקוזזו"
+                amount={-(fin.totalBalanceApplied ?? 0)}
                 color="red"
               />
             )}

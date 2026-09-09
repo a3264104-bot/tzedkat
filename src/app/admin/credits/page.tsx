@@ -12,6 +12,8 @@
 // מי, כמה ולמה. ולא הייתה שום דרך לדעת לאיזה לקוח יש יתרה פתוחה.
 
 import { useEffect, useState } from "react";
+// §380: בורר מכירה מרכזי
+import { useSelectedPricelist, ALL_SALES, PricelistSelector } from "@/components/useSelectedPricelist";
 // §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
 import { fmtDate } from "@/lib/date-lib";
 import { api } from "@/lib/client";
@@ -70,16 +72,12 @@ type Data = {
 
 export default function CreditsPage() {
   const [data, setData] = useState<Data | null>(null);
-  const [lists, setLists] = useState<{ id: string; name: string }[]>([]);
-  const [pricelistId, setPricelistId] = useState("");
+  // §380: בורר מרכזי. ALL_SALES → "" לשאילתה.
+  const { lists, selected: selRaw, setSelected: setPricelistId } =
+    useSelectedPricelist({ allowAll: true });
+  const pricelistId = selRaw === ALL_SALES ? "" : selRaw;
   const [tab, setTab] = useState<"credits" | "balances" | "deliveries">("credits");
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api("/api/admin/pricelists")
-      .then((d) => setLists(Array.isArray(d) ? d : []))
-      .catch(() => setLists([]));
-  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -106,18 +104,14 @@ export default function CreditsPage() {
         </p>
       </div>
 
-      <select
+      {/* §380: רכיב אחד — הבחירה נשמרת בין המסכים. */}
+      <PricelistSelector
+        lists={lists}
+        selected={selRaw}
+        onChange={setPricelistId}
+        allowAll
         className="input w-full sm:w-80"
-        value={pricelistId}
-        onChange={(e) => setPricelistId(e.target.value)}
-      >
-        <option value="">— כל המכירות —</option>
-        {lists.map((l) => (
-          <option key={l.id} value={l.id}>
-            {l.name}
-          </option>
-        ))}
-      </select>
+      />
 
       {/* ─── מספרי מפתח ─── */}
       <div className="grid grid-cols-2 gap-3">
@@ -126,7 +120,12 @@ export default function CreditsPage() {
           <div className="text-2xl font-extrabold text-amber-700">
             {fmt(t.totalCredited)}
           </div>
-          <div className="text-[11px] text-zinc-500">{t.creditCount} זיכויים</div>
+          <div className="text-[11px] text-zinc-500">
+            {t.creditCount} זיכויים
+            {/* §378: הסבר — בבקרת המכירה זה מוצג בנפרד מיתרות
+                זכות. אותו מספר, שם אחר. */}
+            <span className="text-zinc-400"> · "זיכויים" בבקרת המכירה</span>
+          </div>
         </div>
         {/* ⚠️ יתרה פתוחה היא **התחייבות** - כסף שהעמותה חייבת
             ללקוחות ויקוזז בהזמנות הבאות. חשוב שהמנהל יראה את

@@ -7,6 +7,8 @@
 //    לתפוס, ופילטר שמסתיר אותם כברירת מחדל היה מסתיר כסף שממתין לגבייה.
 
 import { useEffect, useState, useCallback } from "react";
+// §380: בורר מכירה מרכזי
+import { useSelectedPricelist, ALL_SALES, PricelistSelector } from "@/components/useSelectedPricelist";
 // §296: מקור אמת יחיד לפריסה
 import { INSTALLMENT_OPTIONS } from "@/lib/installments-lib";
 import { payStatusLabel, payStatusColor, payStatusNeedsAttention } from "@/lib/pay-status-lib";
@@ -50,7 +52,7 @@ type PayOrder = {
 type Message = { text: string; type: "success" | "error" };
 type Pricelist = { id: string; name: string; status: string };
 
-const ALL = "__all__";
+const ALL = ALL_SALES;
 
 // אפשרויות סינון סטטוס
 const FILTER_OPTIONS: { value: string; label: string }[] = [
@@ -127,7 +129,9 @@ function fmtDate(iso: string | null): string {
 
 export default function PaymentsPage() {
   const [orders, setOrders] = useState<PayOrder[]>([]);
-  const [lists, setLists] = useState<Pricelist[] | null>(null);
+  // §380: בורר מרכזי — משותף לכל המסכים.
+  const { lists, selected: fPricelist, setSelected: setFPricelist } =
+    useSelectedPricelist({ allowAll: true });
   const [loading, setLoading] = useState(true);
   // §258: ברירת המחדל היא **מה שניתן לחייב**.
   //
@@ -149,7 +153,6 @@ export default function PaymentsPage() {
   const [batchLog, setBatchLog] = useState<
     Array<{ name: string; ok: boolean; msg: string }>
   >([]);
-  const [fPricelist, setFPricelist] = useState<string>(ALL);
   const [charging, setCharging] = useState<string | null>(null);
 
   // §260: 💳 **פריסה לתשלומים ברגע החיוב.**
@@ -225,15 +228,11 @@ export default function PaymentsPage() {
     }
   }
 
-  // טעינת רשימת המכירות לבורר (ברירת המחדל נשארת "כל המכירות")
-  useEffect(() => {
-    fetch("/api/admin/pricelists", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((res: Pricelist[]) => setLists(Array.isArray(res) ? res : []))
-      .catch(() => setLists([]));
-  }, []);
+  // §380: הרשימה מגיעה מ-useSelectedPricelist.
 
   const fetchOrders = useCallback(async () => {
+    // §380: ממתינים לבחירה — לא טוענים "הכל" ואז שוב את הנבחרת.
+    if (!fPricelist) return;
     setLoading(true);
     setFetchError(null);
     try {
@@ -495,21 +494,14 @@ export default function PaymentsPage() {
       {/* פילטרים */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         {/* מכירה - ברירת מחדל "כל המכירות" בכוונה */}
-        <select
-          value={fPricelist}
-          onChange={(e) => setFPricelist(e.target.value)}
-          disabled={!lists}
-          aria-label="סינון לפי מכירה"
+        {/* §380: רכיב אחד — הבחירה נשמרת בין המסכים. */}
+        <PricelistSelector
+          lists={lists}
+          selected={fPricelist}
+          onChange={setFPricelist}
+          allowAll
           className="px-3 py-2 bg-white border border-zinc-300 rounded-lg text-sm max-w-[240px]"
-        >
-          <option value={ALL}>כל המכירות</option>
-          {lists?.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-              {l.status === "ACTIVE" ? " • פעילה" : ""}
-            </option>
-          ))}
-        </select>
+        />
 
         {/* §261: 🔍 חיפוש — **ראשון בשורה**.
             

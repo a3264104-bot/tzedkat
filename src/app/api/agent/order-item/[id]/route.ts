@@ -40,6 +40,8 @@ export async function PATCH(
           paymentStatus: true,
           // §309: נעילה אחרי שליחת המייל
           weightsLockedAt: true,
+          // §379: V — נועל עריכה
+          agentClosedAt: true,
         },
       },
       product: {
@@ -113,6 +115,51 @@ export async function PATCH(
   // שכבר נגבה.
   const onlyCancelling =
     "isCancelled" in body && Object.keys(body).length === 1;
+
+  // §379: 🔒 **V נועל עריכה — לא רק הוספה.**
+  //
+  // §370 חסם הוספת פריט אחרי V. אבל שינוי משקל, שינוי מחיר
+  // מותאם — גם הם משנים סכום שהנציג כבר אישר ב-V.
+  //
+  // ⚠️ ביטול פריט נשאר פתוח: הוא היציאה מהבוץ (§370).
+  //
+  // ⚠️ ואת ה-V עצמו משנים דרך /close, לא כאן.
+  if (!onlyCancelling && (item.order as any).agentClosedAt) {
+    return NextResponse.json(
+      {
+        error:
+          "ההזמנה סומנה כטופלה (V). לעריכה יש להסיר את הסימון תחילה.",
+        code: "ORDER_CLOSED",
+      },
+      { status: 400 }
+    );
+  }
+  // §382: 🚨 **PAID חוסם עריכה — לא רק COMPLETED.**
+  //
+  // 🐛 הגנת COMPLETED (§72) הסתמכה על כך שהחיוב מציב את הסטטוס
+  // הזה. §348 ביטל את ההצבה במסירה — ואף אחד אחר לא מציב אותו.
+  // הזמנה ששולמה נשארה FINAL_PRICE_SET, וה-guard לא תפס אותה.
+  //
+  // התוצאה: שינוי משקל על הזמנה שכבר נגבתה. finalTotal השתנה,
+  // amountPaid לא, והלקוח "חייב" או "זכאי" בלי שאיש התכוון.
+  //
+  // ⚠️ ביטול פריט נשאר פתוח — היציאה מהבוץ (§370).
+  const paidStatus = (item.order as any).paymentStatus;
+  const isPaidOrder =
+    paidStatus === "PAID" ||
+    paidStatus === "PARTIALLY_PAID" ||
+    paidStatus === "CHARGING";
+  if (!onlyCancelling && isPaidOrder) {
+    return NextResponse.json(
+      {
+        error:
+          "ההזמנה כבר שולמה — לא ניתן לשנות משקל או מחיר. לתיקון יש להשתמש בזיכוי או בחיוב נוסף.",
+        code: "ORDER_PAID",
+      },
+      { status: 400 }
+    );
+  }
+
   if (
     !onlyCancelling &&
     (item.order.status === "COMPLETED" || item.order.status === "CANCELLED")

@@ -41,6 +41,7 @@ export async function POST(
       paymentStatus: true,
       // §309: נעילה אחרי שליחת המייל
       weightsLockedAt: true,
+      agentClosedAt: true,
       creditAmount: true,
       pricelistId: true,
     },
@@ -75,6 +76,14 @@ export async function POST(
   // את מה שמגיע לו.
 
   // §309: 🔒 זיכוי אחרי המייל משנה את הסכום שהלקוח מחזיק.
+  // §379: V נועל זיכוי — הזיכוי משנה סכום שכבר אושר.
+  if ((order as any).agentClosedAt) {
+    return NextResponse.json(
+      { error: "ההזמנה סומנה כטופלה (V). לזיכוי יש להסיר את הסימון תחילה.", code: "ORDER_CLOSED" },
+      { status: 400 }
+    );
+  }
+
   if ((order as any).weightsLockedAt) {
     return NextResponse.json(
       {

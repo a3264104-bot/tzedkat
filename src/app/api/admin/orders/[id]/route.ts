@@ -285,12 +285,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       current.paymentStatus === "PAID" ||
       current.paymentStatus === "PARTIALLY_PAID" ||
       current.paymentStatus === "CHARGING";
-    const isAdding = b.items.some((it: any) => !it.id && !it._delete);
-    if (isPaidOrder && isAdding) {
+    // §382: גם עריכת פריט קיים (משקל, כמות, מחיר) — לא רק
+    // הוספה. ביטול (_delete / isCancelled) נשאר פתוח.
+    const isEditingOrAdding = b.items.some(
+      (it: any) =>
+        !it._delete &&
+        !("isCancelled" in it && Object.keys(it).length <= 2) &&
+        (!it.id ||
+          "actualWeight" in it ||
+          "quantity" in it ||
+          "unitPrice" in it ||
+          "finalPrice" in it)
+    );
+    if (isPaidOrder && isEditingOrAdding) {
       return NextResponse.json(
         {
           error:
-            "ההזמנה כבר שולמה — לא ניתן להוסיף פריטים. לתיקון יש להשתמש בחיוב נוסף או בזיכוי.",
+            "ההזמנה כבר שולמה — לא ניתן לשנות פריטים. לתיקון יש להשתמש בחיוב נוסף או בזיכוי.",
         },
         { status: 400 }
       );

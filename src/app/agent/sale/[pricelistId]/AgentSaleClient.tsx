@@ -577,6 +577,13 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
     o.paymentStatus === "CHARGING" ||
     !!o.weightsLockedAt;
 
+  // §379: 🔒 V נועל — משקלים, תשלום, מחיר, הוספה.
+  //
+  // ⚠️ נפרד מ-isOrderLocked: ה-V עצמו חייב להישאר לחיץ (כדי
+  // להסיר אותו), ו-CloseOrderCheck מקבל isOrderLocked בלבד.
+  // שאר התאים מקבלים את שניהם.
+  const isClosedOrLocked = (o: any) => isOrderLocked(o) || !!o.agentClosedAt;
+
   return (
     <div dir="rtl" className="min-h-screen bg-brand-cream pb-32">
       {/* Header */}
@@ -913,6 +920,8 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                 // נועלת את עצמה לפי מצב התשלום שלה.
                 readOnly={false}
                 isOrderLocked={isOrderLocked}
+                // §379: V נועל את התאים — לא את ה-V עצמו
+                isClosedOrLocked={isClosedOrLocked}
                 onItemUpdate={updateOrderItem}
                 onNeedsReload={load}
                 // §322: הרשאות — לבורר אמצעי התשלום בשורה
@@ -933,6 +942,8 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                   // §262: נעילה לפי **ההזמנה** ולא לפי המכירה.
                   // הזמנה ששולמה נעולה; השאר פתוחות לתיקון.
                   readOnly={isOrderLocked(order)}
+                  // §381: מסירה נעולה רק כשהמכירה סגורה — לא אחרי תשלום
+                  saleClosed={isSealed}
                   onItemUpdate={(itemId, updates) =>
                     updateOrderItem(order.id, itemId, updates)
                   }

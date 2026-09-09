@@ -757,6 +757,13 @@ export default function OrderDetail() {
         {/* §365: המנהל **יכול** לערוך אחרי תשלום — הוא זה שמתקן.
             אבל עם אזהרה: שינוי אחרי חיוב יוצר פער שדורש זיכוי
             או חיוב נוסף. */}
+        {/* §379: V — אזהרה למנהל, לא חסימה. הוא זה שמתקן. */}
+        {!isPaid && (order as any).agentClosedAt && (
+          <div className="rounded-lg bg-blue-50 border border-blue-300 px-3 py-2 mb-3 text-xs text-blue-900">
+            ✓ <b>הנציג סימן שההזמנה טופלה.</b> שינוי כאן ישנה סכום
+            שהוא כבר אישר — כדאי לתאם איתו.
+          </div>
+        )}
         {isPaid && (
           <div className="rounded-lg bg-amber-50 border border-amber-300 px-3 py-2 mb-3 text-xs text-amber-900">
             ⚠️ <b>ההזמנה שולמה.</b> שינוי פריטים כאן לא ישנה את מה
@@ -792,6 +799,8 @@ export default function OrderDetail() {
                       className="w-16 rounded-lg border border-zinc-200 px-2 py-1"
                       value={it.quantity}
                       onChange={(e) => updateItem(it.id, "quantity", e.target.value)}
+                      // §382: נעול אחרי תשלום — השרת חוסם, והשדה מסמן.
+                      disabled={isPaid}
                     />
                   </td>
                   <td>{fmt(it.unitPrice)}</td>
@@ -802,6 +811,8 @@ export default function OrderDetail() {
                       placeholder="—"
                       value={it.actualWeight ?? it.finalWeight ?? ""}
                       onChange={(e) => updateItem(it.id, "actualWeight", e.target.value)}
+                      // §382: נעול אחרי תשלום — השרת חוסם, והשדה מסמן.
+                      disabled={isPaid}
                     />
                   </td>
                   <td>
