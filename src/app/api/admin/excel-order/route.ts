@@ -564,7 +564,15 @@ export async function PUT(req: Request) {
   const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.order.findFirst({
       where: { customerId, pricelistId, status: { notIn: ["CANCELLED"] } },
-      select: { id: true, orderNumber: true, paymentStatus: true },
+      // §375: החוב והיתרה — להחזרה לפני המחיקה
+      select: {
+        id: true,
+        orderNumber: true,
+        paymentStatus: true,
+        customerId: true,
+        appliedDebt: true,
+        appliedCreditBalance: true,
+      },
     });
 
     // הזמנה ששולמה כבר לא נמחקת - החלפתה הייתה מוחקת רישום כספי
@@ -575,6 +583,25 @@ export async function PUT(req: Request) {
     }
 
     if (existing) {
+      // §375: 💸 החוב והיתרה חוזרים ללקוח לפני המחיקה.
+      //
+      // 🐛 הזמנה שהוחלפה מקובץ מחקה את appliedDebt ואת
+      // appliedCreditBalance איתה — הלקוח כבר בלי חוב, וההזמנה
+      // שגבתה אותו לא קיימת. הכסף נעלם מהספרים.
+      //
+      // ⚠️ ההזמנה החדשה תקזז אותם מחדש בשקילה (§124/§263), ולכן
+      // ההחזרה כאן היא נכונה ולא כפילות.
+      const d = Number((existing as any).appliedDebt ?? 0);
+      const b = Number((existing as any).appliedCreditBalance ?? 0);
+      if ((d > 0 || b > 0) && existing.customerId) {
+        await tx.customer.update({
+          where: { id: existing.customerId },
+          data: {
+            ...(d > 0 ? { debtBalance: { increment: d } } : {}),
+            ...(b > 0 ? { creditBalance: { increment: b } } : {}),
+          },
+        });
+      }
       await tx.orderItem.deleteMany({ where: { orderId: existing.id } });
       await tx.order.delete({ where: { id: existing.id } });
     }

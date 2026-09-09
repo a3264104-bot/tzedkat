@@ -544,10 +544,101 @@ function buildNedarimPaymentLink(orderId: string, amount: number, customerName: 
   return `https://www.matara.pro/nedarimplus/online/?${params.toString()}`;
 }
 
+// §375: 🗑️ **מחיקת הזמנה — עם הגנות.**
+//
+// 🐛 מה שהיה: prisma.order.delete בלי שום בדיקה.
+//
+// שלוש בעיות:
+//   1. הזמנה ששולמה נמחקה — הכסף נגבה, והרישום נעלם. אין דרך
+//      לדעת על מה הלקוח חויב.
+//   2. החוב שנגבה (appliedDebt) נמחק איתה — הלקוח כבר בלי חוב,
+//      וההזמנה שגבתה אותו לא קיימת. הכסף התאדה מהספרים.
+//   3. יתרת הזכות שקוזזה — אותו דבר.
+//
+// ⚠️ ביטול ולא מחיקה: הזמנה מבוטלת נשארת לתיעוד, והחוב חוזר
+// (§362). מחיקה נשמרת למקרים שבהם באמת אין מה לשמור.
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const g = await requireAdmin();
   if (!g.ok) return g.res;
   const { id } = await params;
+
+  const order = await prisma.order.findUnique({
+    where: { id },
+    select: {
+      orderNumber: true,
+      customerId: true,
+      paymentStatus: true,
+      appliedDebt: true,
+      appliedCreditBalance: true,
+      amountPaid: true,
+    },
+  });
+  if (!order) {
+    return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
+  }
+
+  // ⚠️ הזמנה ששולמה — לא נמחקת. הכסף נגבה, והרישום הוא ההוכחה.
+  if (
+    order.paymentStatus === "PAID" ||
+    order.paymentStatus === "PARTIALLY_PAID" ||
+    Number(order.amountPaid ?? 0) > 0
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "לא ניתן למחוק הזמנה ששולמה. לביטול יש לשנות את הסטטוס ל\"מבוטלת\" — כך הרישום נשמר.",
+      },
+      { status: 400 }
+    );
+  }
+
+  // ⚠️ החוב והיתרה חוזרים ללקוח — אחרת הם נעלמים מהספרים.
+  const debt = Number(order.appliedDebt ?? 0);
+  const bal = Number(order.appliedCreditBalance ?? 0);
+  if (order.customerId && (debt > 0 || bal > 0)) {
+    const stamp = new Date().toLocaleDateString("he-IL", {
+      timeZone: "Asia/Jerusalem",
+    });
+    await prisma.customer.update({
+      where: { id: order.customerId },
+      data: {
+        ...(debt > 0
+          ? {
+              debtBalance: { increment: debt },
+              debtNote: `הוחזר ממחיקת הזמנה #${order.orderNumber} (${stamp})`,
+            }
+          : {}),
+        ...(bal > 0
+          ? {
+              creditBalance: { increment: bal },
+              creditBalanceNote: `הוחזר ממחיקת הזמנה #${order.orderNumber} (${stamp})`,
+              creditBalanceAt: new Date(),
+            }
+          : {}),
+      },
+    });
+    // §368: תנועה בספר
+    if (debt > 0) {
+      const c = await prisma.customer.findUnique({
+        where: { id: order.customerId },
+        select: { debtBalance: true },
+      });
+      await prisma.debtLedger.create({
+        data: {
+          customerId: order.customerId,
+          kind: "RESTORE",
+          amount: debt,
+          balanceAfter: Number(c?.debtBalance ?? debt),
+          note: `הוחזר ממחיקת הזמנה #${order.orderNumber}`,
+          createdBy: g.session?.user?.email ?? "admin",
+        },
+      });
+    }
+    console.log(
+      `[delete-order] #${order.orderNumber} restored debt=₪${debt} balance=₪${bal}`
+    );
+  }
+
   await prisma.order.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, restoredDebt: debt, restoredBalance: bal });
 }
