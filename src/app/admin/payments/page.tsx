@@ -49,6 +49,8 @@ type PayOrder = {
     /** §383: לסינון מזומן */
     paymentPreference?: string | null;
   };
+  /** §388: פריטים פעילים — הזמנה ריקה לא ניתנת לחיוב */
+  activeItemsCount?: number;
 };
 
 type Message = { text: string; type: "success" | "error" };
@@ -69,6 +71,8 @@ const FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: "chargeable", label: "💳 ניתן לחייב עכשיו" },
   // §383: לקוחות מזומן — לסימון תשלום בחלוקה
   { value: "cash", label: "💵 לקוחות מזומן" },
+  // §389: תשלום חלקי — מי שנותרה לו יתרה, מכל שיטה
+  { value: "PARTIALLY_PAID", label: "⚠️ תשלום חלקי — נותרה יתרה" },
   { value: "default", label: "פעולות פתוחות" },
   { value: "all", label: "כל הסטטוסים" },
   { value: "FAILED", label: "חיוב נכשל בלבד" },
@@ -332,7 +336,40 @@ export default function PaymentsPage() {
     fetchOrders();
   }
 
-  async function handleCharge(order: PayOrder) {
+  // §390: 💳 חיוב סכום חלקי — "תחייב 500, השאר מזומן".
+  async function handleChargePartial(order: PayOrder) {
+    const total = Number(order.finalTotal ?? 0);
+    const paid = Number(order.amountPaid ?? 0);
+    const remaining = Math.round((total - paid) * 100) / 100;
+    const entered = window.prompt(
+      `כמה לחייב בכרטיס של ${order.customerName}?\n\n` +
+        `יתרה לתשלום: ${remaining.toFixed(2)} ש"ח\n` +
+        `(השאר יישאר לתשלום במזומן)`,
+      String(remaining)
+    );
+    if (entered === null) return;
+    const amt = Number(entered.trim());
+    if (!Number.isFinite(amt) || amt <= 0) {
+      alert("סכום לא תקין");
+      return;
+    }
+    if (amt > remaining + 0.01) {
+      alert(`הסכום גבוה מהיתרה (${remaining.toFixed(2)} ש"ח).`);
+      return;
+    }
+    const rest = Math.round((remaining - amt) * 100) / 100;
+    if (
+      !window.confirm(
+        rest > 0.01
+          ? `לחייב ${amt} ש"ח בכרטיס?\n\nיישארו ${rest.toFixed(2)} ש"ח לתשלום במזומן.`
+          : `לחייב ${amt} ש"ח בכרטיס? (התשלום המלא)`
+      )
+    )
+      return;
+    await handleCharge(order, amt);
+  }
+
+  async function handleCharge(order: PayOrder, chargeOverride?: number) {
     const amount = order.finalTotal;
     if (amount === null) {
       setMessage({ text: "אין מחיר סופי - לא ניתן לחייב", type: "error" });
@@ -365,6 +402,8 @@ export default function PaymentsPage() {
           // §260: הפריסה שנבחרה. השרת מקבל overrideInstallments
           // וגובר על מה ששמור בהזמנה.
           installments: instOf(order),
+          // §390: amount — חיוב חלקי. בלעדיו נגבית היתרה המלאה.
+          ...(chargeOverride != null ? { amount: chargeOverride } : {}),
         }),
       });
       const data = await res.json();
@@ -412,11 +451,53 @@ export default function PaymentsPage() {
           return words.every((w) => hay.includes(w.toLowerCase()));
         });
 
-  const chargeable = orders.filter(
-    (o) =>
-      o.finalTotal != null &&
-      !["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED"].includes(o.paymentStatus)
-  );
+  // §388: 🚨 **"ניתן לחייב" — רק מי שבאמת ניתן לחייב.**
+  //
+  // 🐛 שתי בעיות בשטח:
+  //   1. לקוחות מזומן נכנסו לרשימה. אין להם כרטיס, כל חיוב
+  //      נכשל, ואחרי 3 ברצף החיוב הקבוצתי (§369) עצר — למרות
+  //      שלא הייתה שום תקלה.
+  //   2. הזמנה שכל פריטיה בוטלו: finalTotal = 2 (דמי טיפול
+  //      פחות שקל האימות). הלקוח לא קיבל כלום, ומחויב ₪2.
+  //
+  // ⚠️ מזומן מטופל בסינון נפרד (§383) עם כפתור "שילם".
+  //
+  // ⚠️ וסף של ₪5: הזמנה אמיתית לעולם לא מסתכמת בפחות — דמי
+  // הטיפול לבדם הם 3. מתחת לזה, אין סחורה.
+  const chargeable = orders.filter((o) => {
+    if (o.finalTotal == null) return false;
+    if (
+      ["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED"].includes(
+        o.paymentStatus
+      )
+    )
+      return false;
+    // §389: 💵+💳 **תשלום מעורב — מזומן ואז אשראי.**
+    //
+    // התרחיש: הלקוח נותן 200 במזומן בחלוקה, והיתרה על הכרטיס.
+    //
+    // §388 הוציא **כל** לקוח מזומן מרשימת החיוב — וזה נכון למי
+    // שלא שילם כלום (אין לו כרטיס, החיוב ייכשל). אבל מי שכבר
+    // שילם חלקית ויש לו כרטיס — היתרה שלו כן ניתנת לחיוב.
+    //
+    // ⚠️ §384 כבר גובה את היתרה בלבד. כאן רק פותחים את הגישה.
+    const isCash =
+      o.customer?.paymentPreference === "CASH" ||
+      o.paymentMethod === "CASH" ||
+      o.paymentMethod === "MANUAL";
+    const partiallyPaidWithCard =
+      Number(o.amountPaid ?? 0) > 0 && !!o.customer?.hasToken;
+    if (isCash && !partiallyPaidWithCard) return false;
+    // ⚠️ בלי כרטיס — החיוב ייכשל בוודאות
+    if (!o.customer?.hasToken) return false;
+    // ⚠️ הזמנה ריקה — כל הפריטים בוטלו, ונשארו דמי הטיפול.
+    //
+    // ⚠️ לפי פריטים ולא לפי סכום: סף של ₪5 היה חותך גם הזמנה
+    // אמיתית קטנה (פריט ב-2 + טיפול 3 − שקל = 4). מה שקובע
+    // הוא אם יש סחורה, לא כמה היא עולה.
+    if ((o.activeItemsCount ?? 1) === 0) return false;
+    return true;
+  });
   const chargeableSum = chargeable.reduce(
     (sum, o) => sum + Number(o.finalTotal ?? 0),
     0
@@ -830,6 +911,7 @@ export default function PaymentsPage() {
               order={o}
               onCharge={() => handleCharge(o)}
               onDone={fetchOrders}
+              onChargePartial={() => handleChargePartial(o)}
               isCharging={charging === o.id}
               // §260: הפריסה שנבחרה לשורה זו
               currentInstallments={instOf(o)}
@@ -849,6 +931,7 @@ function OrderCard({
   order,
   onCharge,
   onDone,
+  onChargePartial,
   isCharging,
   currentInstallments,
   onInstallmentsChange,
@@ -857,6 +940,8 @@ function OrderCard({
   onCharge: () => void;
   /** §383: רענון אחרי סימון מזומן */
   onDone?: () => void;
+  /** §390: חיוב סכום חלקי */
+  onChargePartial?: () => void;
   isCharging: boolean;
   /** §260: מספר התשלומים שנבחר לשורה הזו */
   currentInstallments: number;
@@ -911,8 +996,27 @@ function OrderCard({
               <div className="font-medium text-brand-slatedark">
                 סופי: {fmtIls(order.finalTotal)}
               </div>
+              {/* §389: 💵+💳 פירוק — כמה שולם, כמה נותר.
+                  
+                  בתשלום מעורב "שולם: 200" לבדו מטעה: הלקוח חושב
+                  שסיים, והמנהל לא רואה שנותרו 32. */}
               {order.amountPaid !== null && (
-                <div className="text-xs text-emerald-700">שולם: {fmtIls(order.amountPaid)}</div>
+                <div className="text-xs">
+                  <span className="text-emerald-700">
+                    שולם: {fmtIls(order.amountPaid)}
+                  </span>
+                  {hasFinalTotal &&
+                    Number(order.finalTotal) - Number(order.amountPaid) > 0.01 && (
+                      <span className="text-red-700 font-bold">
+                        {" · נותר "}
+                        {fmtIls(
+                          Math.round(
+                            (Number(order.finalTotal) - Number(order.amountPaid)) * 100
+                          ) / 100
+                        )}
+                      </span>
+                    )}
+                </div>
               )}
             </div>
           ) : (
@@ -1054,6 +1158,17 @@ function OrderCard({
           >
             {isCharging ? "מחייב..." : "💳 חייב עכשיו"}
           </button>
+          )}
+          {/* §390: 💳 חלקי — "תחייב 500, השאר מזומן". */}
+          {showCharge && !isCashOrder && onChargePartial && (
+            <button
+              onClick={onChargePartial}
+              disabled={isCharging || cardBlocked || !hasFinalTotal || !order.customer.hasToken}
+              className="px-3 py-2 border-2 border-brand-rust text-brand-rust rounded-lg text-xs font-bold hover:bg-brand-rust/5 disabled:opacity-40"
+              title="חיוב סכום חלקי — היתרה תישאר לתשלום"
+            >
+              סכום אחר
+            </button>
           )}
           {cardBlocked && (
             <div className="flex items-center gap-2 flex-wrap">

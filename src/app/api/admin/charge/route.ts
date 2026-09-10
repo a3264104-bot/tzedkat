@@ -296,7 +296,38 @@ export async function POST(req: Request) {
     // ⚠️ amountPaid הוא מה שכבר שולם. היתרה = finalTotal פחות זה.
     // ואם היתרה אפס או שלילית — אין מה לחייב.
     const alreadyPaid = Number(preOrder.amountPaid ?? 0);
-    const chargeAmount = Math.round((finalTotalNum - alreadyPaid) * 100) / 100;
+    const remaining = Math.round((finalTotalNum - alreadyPaid) * 100) / 100;
+
+    // §390: 💳 **חיוב סכום חלקי — הלקוח מבקש לפצל.**
+    //
+    // התרחיש ההפוך של §389: "תחייב 500 בכרטיס, את השאר אביא
+    // מזומן". עד היום החיוב גבה תמיד את המלא, ולא הייתה דרך
+    // לבקש פחות.
+    //
+    // ⚠️ ולא יותר מהיתרה: חיוב מעבר לחוב הוא טעות הקלדה, לא
+    // מתנה. וגם לא אפס או שלילי.
+    //
+    // ⚠️ ברירת מחדל = היתרה המלאה. מי שלא שולח amount מקבל את
+    // ההתנהגות הישנה בדיוק.
+    let chargeAmount = remaining;
+    if (body.amount != null && body.amount !== "") {
+      const req = Number(body.amount);
+      if (!Number.isFinite(req) || req <= 0) {
+        return NextResponse.json(
+          { error: "סכום החיוב חייב להיות מספר חיובי" },
+          { status: 400 }
+        );
+      }
+      if (req > remaining + 0.01) {
+        return NextResponse.json(
+          {
+            error: `הסכום (${req}) גבוה מהיתרה לתשלום (${remaining.toFixed(2)} ש"ח).`,
+          },
+          { status: 400 }
+        );
+      }
+      chargeAmount = Math.round(req * 100) / 100;
+    }
     const shouldDeductVerification = false;
 
     if (alreadyPaid > 0) {
@@ -414,7 +445,17 @@ export async function POST(req: Request) {
           prisma.order.update({
             where: { id: orderId },
             data: {
-              paymentStatus: "PAID",
+              // §390: 🐛 **PAID תמיד — גם בחיוב חלקי.**
+              //
+              // חיוב של 500 מתוך 800 סימן PAID, וההזמנה נעלמה
+              // מכל רשימה. ה-300 שנותרו — איש לא ידע עליהם.
+              //
+              // ⚠️ הסטטוס לפי המצטבר, לא לפי מה שנגבה עכשיו.
+              paymentStatus:
+                Math.round((alreadyPaid + chargeAmount) * 100) / 100 <
+                finalTotalNum - 0.01
+                  ? "PARTIALLY_PAID"
+                  : "PAID",
               paymentMethod: "ONLINE",
               paymentProvider: "nedarim_plus",
               paymentTransactionId: successfulTransactionId,
@@ -472,7 +513,12 @@ export async function POST(req: Request) {
       }
 
       // DB update הצליח - שולחים מייל (לא חוסם)
-      if (preOrder.customer.email) {
+      // §390: מייל רק בתשלום מלא — "התשלום בוצע" על חיוב חלקי
+      // היה משדר ללקוח שסיים, בזמן שנותרה יתרה.
+      const fullyPaid =
+        Math.round((alreadyPaid + chargeAmount) * 100) / 100 >=
+        finalTotalNum - 0.01;
+      if (preOrder.customer.email && fullyPaid) {
         const mailResult = await sendChargeSucceededEmail({
           to: preOrder.customer.email,
           customerName: preOrder.customer.name,

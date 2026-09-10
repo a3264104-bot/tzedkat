@@ -75,6 +75,10 @@ export async function GET(req: NextRequest) {
       finalTotal?: { gt: number };
       // §383: סינון מזומן — העדפת לקוח או שיטת הזמנה
       OR?: Array<Record<string, unknown>>;
+      // §388: סינון מזומן/ללא-כרטיס מרשימת החיוב
+
+      customer?: Record<string, unknown>;
+      items?: Record<string, unknown>;
       pricelistId?: string;
     } = {};
     if (statusParam === "all") {
@@ -90,10 +94,32 @@ export async function GET(req: NextRequest) {
         //
         // ⚠️ `gt: 0` על שדה nullable מסנן גם NULL וגם אפס - וזה
         // בדיוק הרצוי: הזמנה עם finalTotal=0 אין מה לחייב בה.
+        // §388: 🚨 סף ₪5 — הזמנה שכל פריטיה בוטלו מסתכמת בדמי
+        // טיפול בלבד (₪2-3). הלקוח לא קיבל סחורה, ואין מה לחייב.
+        //
+        // ⚠️ וללא מזומן וללא כרטיס: שניהם ייכשלו בוודאות, ו-3
+        // כישלונות ברצף עוצרים את החיוב הקבוצתי (§369).
+        // ⚠️ gt: 0 ולא סף שרירותי — הזמנה ריקה מסוננת לפי
+        // פריטים (items.some), לא לפי סכום.
         whereClause.finalTotal = { gt: 0 };
         whereClause.paymentStatus = {
           notIn: ["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED"],
         };
+        // §389: מזומן מסונן — **חוץ ממי ששילם חלקית ויש לו
+        // כרטיס**. היתרה שלו ניתנת לחיוב (§384 גובה רק אותה).
+        whereClause.customer = { paymentToken: { not: null } };
+        whereClause.OR = [
+          // אשראי רגיל
+          {
+            paymentMethod: { notIn: ["CASH", "MANUAL"] },
+            customer: { NOT: { paymentPreference: "CASH" } },
+          },
+          // מזומן שכבר שילם חלקית — היתרה על הכרטיס
+          { amountPaid: { gt: 0 } },
+        ];
+        // ⚠️ חייב פריט פעיל אחד לפחות — הזמנה שכל פריטיה בוטלו
+        // מסתכמת בדמי טיפול, והלקוח לא קיבל דבר.
+        whereClause.items = { some: { isCancelled: false } };
       } else if (statusParam === "cash") {
         // §383: 💵 לקוחות מזומן — לסימון תשלום בחלוקה.
         //
@@ -144,6 +170,8 @@ export async function GET(req: NextRequest) {
         orderNumber: true,
         customerName: true,
         phone: true,
+        // §388: פריטים פעילים — הזמנה ריקה לא ניתנת לחיוב
+        items: { select: { isCancelled: true } },
         paymentStatus: true,
         paymentMethod: true,
         estimatedTotal: true,
@@ -204,6 +232,8 @@ export async function GET(req: NextRequest) {
       estimatedTotal: o.estimatedTotal ? Number(o.estimatedTotal) : null,
       finalTotal: o.finalTotal ? Number(o.finalTotal) : null,
       amountPaid: o.amountPaid ? Number(o.amountPaid) : null,
+      // §388: פריטים פעילים — הזמנה ריקה לא ניתנת לחיוב
+      activeItemsCount: o.items?.filter((i: any) => !i.isCancelled).length ?? 0,
       paidAt: o.paidAt ? o.paidAt.toISOString() : null,
       paymentTransactionId: o.paymentTransactionId,
       chargeAttempts: o.chargeAttempts,
