@@ -266,6 +266,20 @@ export default async function AgentOrderDetailPage({
     order.paymentStatus === "PARTIALLY_PAID" ||
     order.paymentStatus === "CHARGING" ||
     !!(order as any).weightsLockedAt;
+
+  // §386: 🔓 **נעילה כספית בלבד — לפעולות שמתקנות חיוב שנכשל.**
+  //
+  // 🐛 חיוב שנכשל: ההזמנה סומנה V, נשלח מייל, נוסה חיוב — וכל
+  // אלה נועלים דרך isLocked. הנציג לא יכול לשנות תשלומים ("3
+  // במקום 1"), לא לעבור למזומן, לא לתקן. ההזמנה תקועה.
+  //
+  // ⚠️ ההבחנה: isLocked = הסכום אושר, אין לשנות אותו. isPaidLocked
+  // = הכסף עבר, אין לשנות **איך** גובים. אחרי כישלון — הסכום
+  // אושר אבל הכסף לא עבר, ולכן "איך גובים" חייב להישאר פתוח.
+  const isPaidLocked =
+    order.paymentStatus === "PAID" ||
+    order.paymentStatus === "PARTIALLY_PAID" ||
+    order.paymentStatus === "CHARGING";
   const finalTotal = order.finalTotal != null ? Number(order.finalTotal) : null;
 
   // §180: 🐛 המשלוח לא הופיע בסה"כ.
@@ -805,7 +819,8 @@ export default async function AgentOrderDetailPage({
               current={order.requestedInstallments ?? 1}
               orderTotal={finalTotal ?? estimatedTotal}
               hasCard={!!order.customer.cardLast4}
-              alreadyPaid={isLocked}
+              // §386: פתוח אחרי כישלון — אולי 3 תשלומים יעברו
+              alreadyPaid={isPaidLocked}
               isAdmin={role === "ADMIN"}
             />
           </div>

@@ -1056,9 +1056,24 @@ function OrderCard({
           </button>
           )}
           {cardBlocked && (
-            <span className="text-xs text-orange-700">
-              הכרטיס מסומן כדורש עדכון - לא ניתן לחייב עד שהלקוח יזין כרטיס חדש
-            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-orange-700">
+                הכרטיס נדחה — לא ניתן לחייב עד שהלקוח יזין כרטיס חדש
+              </span>
+              {/* §387: 📧 שליחה מחדש.
+                  
+                  המייל נשלח אוטומטית בכישלון (§19), אבל: לא ראה,
+                  ספאם, או שעברו יומיים. המנהל שולח שוב מכאן. */}
+              {/* ⚠️ רק כשההזמנה **הזו** נכשלה — לקוח עם כרטיס פג
+                  עשוי להיות גם בהזמנה שטרם נוסתה. */}
+              {["FAILED", "CARD_UPDATE_NEEDED"].includes(order.paymentStatus) && (
+                <ResendCardFailedButton
+                  orderId={order.id}
+                  customerName={order.customerName}
+                  hasEmail={!!order.customer?.email}
+                />
+              )}
+            </div>
           )}
           {!hasFinalTotal && (
             <span className="text-xs text-amber-700">יש לקבוע מחיר סופי לפני חיוב</span>
@@ -1171,6 +1186,54 @@ function CashMarkButton({
         : isPartial && remaining != null
           ? `💵 חסר ${remaining.toFixed(2)} — השלם`
           : "💵 שילם במזומן"}
+    </button>
+  );
+}
+
+
+// §387: כפתור שליחה מחדש — "הכרטיס נדחה, עדכן"
+function ResendCardFailedButton({
+  orderId,
+  customerName,
+  hasEmail,
+}: {
+  orderId: string;
+  customerName: string;
+  hasEmail: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  async function send() {
+    if (!window.confirm(`לשלוח ל${customerName} תזכורת לעדכן כרטיס?`)) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/notify-card-failed`, {
+        method: "POST",
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `שגיאה (${res.status})`);
+      setSent(true);
+    } catch (e: any) {
+      alert(e?.message || "שגיאה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!hasEmail) {
+    return <span className="text-[10px] text-zinc-400">(אין מייל)</span>;
+  }
+  if (sent) {
+    return <span className="text-xs text-emerald-700 font-bold">✓ נשלח</span>;
+  }
+  return (
+    <button
+      onClick={send}
+      disabled={busy}
+      className="text-xs font-bold text-orange-800 bg-orange-100 hover:bg-orange-200 px-2 py-1 rounded-lg disabled:opacity-40"
+    >
+      {busy ? "..." : "📧 שלח תזכורת"}
     </button>
   );
 }
