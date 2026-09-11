@@ -318,13 +318,16 @@ export default function PaymentsPage() {
           ...l,
           { name: o.customerName, ok: false, msg: e?.message || "שגיאה" },
         ]);
-        if (consecutiveFails >= 3) {
+        // §391: 6 ולא 3 — אחרי §388 הכישלונות הם אמיתיים
+        // (כרטיס פג, סירוב בנק), לא מזומן שנסתנן פנימה. שישה
+        // ברצף עדיין מעידים על תקלה מערכתית.
+        if (consecutiveFails >= 6) {
           setBatchLog((l) => [
             ...l,
             {
               name: "⏹ נעצר",
               ok: false,
-              msg: "3 כישלונות ברצף — בדוק את המערכת לפני שתמשיך",
+              msg: "6 כישלונות ברצף — בדוק את המערכת לפני שתמשיך",
             },
           ]);
           break;
@@ -335,6 +338,13 @@ export default function PaymentsPage() {
     setBatchRunning(false);
     fetchOrders();
   }
+
+  // §391: 📋 **סיכום אחרי חיוב קבוצתי.**
+  //
+  // הלוג החי מתגלגל ונעלם. מה שהמנהל צריך בסוף הוא רשימה אחת:
+  // מי לא עבר, ולמה — כדי לטפל בהם.
+  const batchFailed = batchLog.filter((l) => !l.ok && l.name !== "⏹ נעצר");
+  const batchOk = batchLog.filter((l) => l.ok);
 
   // §390: 💳 חיוב סכום חלקי — "תחייב 500, השאר מזומן".
   async function handleChargePartial(order: PayOrder) {
@@ -714,7 +724,64 @@ export default function PaymentsPage() {
 
               {/* ⚠️ הלוג החי: המנהל רואה איפה זה עומד, ואם נתקע —
                   איפה בדיוק. */}
-              {batchLog.length > 0 && (
+              {/* §391: 📋 הסיכום — אחרי שהריצה נגמרה.
+                  
+                  הלוג החי מתגלגל. בסוף המנהל צריך רשימה אחת: מי
+                  לא עבר ולמה, עם כפתור לסינון אליהם. */}
+              {!batchRunning && batchLog.length > 0 && (
+                <div className="mt-3 rounded-xl border-2 border-zinc-300 bg-zinc-50 p-3">
+                  <div className="font-extrabold text-sm text-brand-slatedark mb-2">
+                    📋 סיכום
+                  </div>
+                  <div className="flex gap-4 text-sm mb-2">
+                    <span className="text-emerald-700 font-bold">
+                      ✓ {batchOk.length} עברו
+                    </span>
+                    {batchFailed.length > 0 && (
+                      <span className="text-red-700 font-bold">
+                        ✗ {batchFailed.length} נכשלו
+                      </span>
+                    )}
+                  </div>
+
+                  {batchFailed.length > 0 && (
+                    <>
+                      <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                        {batchFailed.map((l, i) => (
+                          <div key={i} className="text-xs flex justify-between gap-2">
+                            <span className="font-bold text-red-800 truncate">
+                              {l.name}
+                            </span>
+                            <span className="text-zinc-600 shrink-0 text-[11px]">
+                              {l.msg}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2 mt-2 pt-2 border-t border-zinc-200">
+                        <button
+                          onClick={() => {
+                            setFilter("CARD_UPDATE_NEEDED");
+                            setChargePoint("");
+                            setBatchLog([]);
+                          }}
+                          className="text-xs font-bold text-orange-800 bg-orange-100 hover:bg-orange-200 px-3 py-1.5 rounded-lg"
+                        >
+                          ⚠️ לטיפול בכרטיסים שנדחו
+                        </button>
+                        <button
+                          onClick={() => setBatchLog([])}
+                          className="text-xs text-zinc-500 underline"
+                        >
+                          סגור
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {batchRunning && batchLog.length > 0 && (
                 <div className="mt-2 border-t border-zinc-200 pt-2 max-h-40 overflow-y-auto space-y-0.5">
                   {batchLog.map((l, i) => (
                     <div
