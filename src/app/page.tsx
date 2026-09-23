@@ -68,6 +68,8 @@ export default async function Home() {
             pricelistId: active.id,
             status: { notIn: ["CANCELLED"] },
           },
+          // §392: ייתכנו כמה הזמנות במכירה (נוספת אחרי תשלום) — מציגים את האחרונה
+          orderBy: { createdAt: "desc" },
           select: {
             id: true,
             orderNumber: true,

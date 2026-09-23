@@ -590,7 +590,9 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
 
   let totalCartonWeight = 0;
   let totalSinglesWeight = 0;
-  let customersWithData = 0;
+  // §392: לקוחות *ייחודיים* — ללקוח יכולות להיות כמה הזמנות באותה
+  // מכירה (הזמנה נוספת אחרי תשלום), והוא נספר פעם אחת.
+  const customersWithDataSet = new Set<string>();
   // §119: עמלת מוצרים מועדפים שתומחרו ע"י הנציג.
   //
   // ⚠️ **זו הפונקציה שכותבת את totalCommission למסד**, וממנה
@@ -635,8 +637,9 @@ async function recalculateAgentSummary(pricelistId: string, agentId: string) {
         }
       }
     }
-    if (hasData) customersWithData++;
+    if (hasData) customersWithDataSet.add(order.customerId);
   }
+  const customersWithData = customersWithDataSet.size;
 
   // מזדמנים
   const walkins = await prisma.walkinOrder.findMany({

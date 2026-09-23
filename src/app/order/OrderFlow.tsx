@@ -852,6 +852,17 @@ export function OrderFlow({
       const data = await res.json();
       // 🚨 חסימת הזמנה כפולה - השרת מזהה שיש כבר הזמנה
       if (!res.ok && data.code === "DUPLICATE_ORDER" && data.existingOrderId) {
+        // §392: נציג/מנהל — ההזמנה הקיימת טרם שולמה. מפנים אותו אליה
+        // כדי להוסיף בה את המוצרים (הזמנה נוספת נפתחת רק אחרי תשלום).
+        if (onBehalfOfCustomerId) {
+          alert(
+            `ללקוח יש הזמנה פתוחה שטרם שולמה במכירה זו (הזמנה #${data.existingOrderNumber}).\n\n` +
+            `יש להוסיף את המוצרים להזמנה הקיימת. הזמנה נוספת אפשרית רק אחרי שהקודמת שולמה.\n\n` +
+            `נעביר אותך להזמנה הקיימת.`
+          );
+          window.location.href = `/agent/orders/${data.existingOrderId}`;
+          return;
+        }
         alert(
           `יש לך כבר הזמנה במכירה זו (הזמנה #${data.existingOrderNumber}).\n\n` +
           `לא ניתן ליצור הזמנה נוספת - ניתן רק לערוך את הקיימת.\n\n` +

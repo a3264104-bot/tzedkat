@@ -421,6 +421,8 @@ async function handle(req: Request): Promise<Response> {
             status: { notIn: ["CANCELLED"] },
             deliveredAt: null,
           },
+          // §392: ייתכנו כמה הזמנות במכירה — האחרונה היא הרלוונטית
+          orderBy: { createdAt: "desc" },
           select: {
             id: true,
             orderNumber: true,

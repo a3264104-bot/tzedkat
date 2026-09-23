@@ -174,6 +174,8 @@ export default async function OrderPage({
         pricelistId: catalogSource.id,
         status: { notIn: ["CANCELLED"] },
       },
+      // §392: ייתכנו כמה הזמנות (נוספת שפתח נציג אחרי תשלום) — מפנים לאחרונה
+      orderBy: { createdAt: "desc" },
       select: { id: true, orderNumber: true },
     });
     if (existingOrder) {

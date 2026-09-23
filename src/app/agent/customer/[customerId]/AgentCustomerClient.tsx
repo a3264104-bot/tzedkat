@@ -604,11 +604,20 @@ export function AgentCustomerClient({
             </div>
 
             {activeSales.map((sl) => {
+              // §392: רק הזמנה שטרם שולמה נחשבת "פתוחה". הזמנה ששולמה
+              // (או הועברה לחוב) סגורה — ונפתחת לצדה הזמנה נוספת.
+              const SETTLED = ["PAID", "PARTIALLY_PAID", "DEBT_CARRIED"];
               const existing = orders.find(
                 (o) =>
                   o.pricelistId === sl.id &&
                   o.status !== "CANCELLED" &&
-                  o.status !== "COMPLETED"
+                  !SETTLED.includes(o.paymentStatus)
+              );
+              const paidInSale = orders.filter(
+                (o) =>
+                  o.pricelistId === sl.id &&
+                  o.status !== "CANCELLED" &&
+                  SETTLED.includes(o.paymentStatus)
               );
               return (
                 <div
@@ -639,8 +648,8 @@ export function AgentCustomerClient({
                         ⚠️ ללקוח כבר יש הזמנה פתוחה כאן — #{existing.orderNumber}
                       </div>
                       <div className="text-[11px] text-orange-700 leading-relaxed mb-2">
-                        פתיחת הזמנה נוספת תיצור כפילות. עדיף להוסיף מוצרים
-                        להזמנה הקיימת.
+                        ההזמנה טרם שולמה — יש להוסיף את המוצרים אליה. הזמנה
+                        נוספת תיפתח רק אחרי שהקודמת תשולם.
                       </div>
                       <div className="flex gap-2 items-center">
                         <button
@@ -652,21 +661,24 @@ export function AgentCustomerClient({
                         >
                           פתח את ההזמנה הקיימת
                         </button>
-                        <Link
-                          href={`/agent/order/${customerId}?sale=${sl.id}`}
-                          className="text-xs text-zinc-500 underline py-2 px-1 shrink-0"
-                        >
-                          בכל זאת חדשה
-                        </Link>
+
                       </div>
                     </div>
                   ) : (
-                    <Link
-                      href={`/agent/order/${customerId}?sale=${sl.id}`}
-                      className="block text-center text-sm font-bold bg-brand-rust text-white rounded-lg py-2.5"
-                    >
-                      פתח הזמנה חדשה ←
-                    </Link>
+                    <>
+                      {paidInSale.length > 0 && (
+                        <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5 mb-2 leading-relaxed">
+                          ✓ ללקוח {paidInSale.length === 1 ? "הזמנה ששולמה" : `${paidInSale.length} הזמנות ששולמו`} במכירה זו
+                          ({paidInSale.map((o) => `#${o.orderNumber}`).join(", ")}) — תיפתח הזמנה נוספת.
+                        </div>
+                      )}
+                      <Link
+                        href={`/agent/order/${customerId}?sale=${sl.id}`}
+                        className="block text-center text-sm font-bold bg-brand-rust text-white rounded-lg py-2.5"
+                      >
+                        {paidInSale.length > 0 ? "פתח הזמנה נוספת ←" : "פתח הזמנה חדשה ←"}
+                      </Link>
+                    </>
                   )}
                 </div>
               );

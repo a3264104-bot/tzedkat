@@ -76,6 +76,9 @@ export async function GET(req: Request) {
       orders: {
         where: {
           status: { notIn: ["CANCELLED", "COMPLETED"] },
+          // §392: הזמנה ששולמה אינה "פעילה" — הכפתור מוביל למסך
+          // הלקוח, שם נפתחת הזמנה נוספת באותה מכירה.
+          paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "DEBT_CARRIED"] },
           pricelist: { status: "ACTIVE" },
         },
         // ⚠️ **הזמנות**, לא לקוחות: כאן שולפים את ההזמנה האחרונה

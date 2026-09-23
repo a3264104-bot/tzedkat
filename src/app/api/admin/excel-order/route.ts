@@ -89,8 +89,17 @@ export async function GET(req: Request) {
 
   // כמויות מהזמנה קיימת - הקובץ משמש גם לעדכון, והלקוח רואה מה
   // כבר הזמין במקום למלא הכל מחדש
+  //
+  // §392: רק הזמנה פתוחה (טרם שולמה). אחרי תשלום נפתחת הזמנה נוספת,
+  // והקובץ מתחיל ריק — לא מציגים כמויות של הזמנה שכבר נסגרה.
   const existing = await prisma.order.findFirst({
-    where: { customerId, pricelistId, status: { notIn: ["CANCELLED"] } },
+    where: {
+      customerId,
+      pricelistId,
+      status: { notIn: ["CANCELLED"] },
+      paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "DEBT_CARRIED"] },
+    },
+    orderBy: { createdAt: "desc" },
     select: { items: { where: { isCancelled: false }, select: { productId: true, isSingle: true, quantity: true } } },
   });
   const existingMap = new Map<string, number>();
@@ -562,8 +571,17 @@ export async function PUT(req: Request) {
   // הטרנזקציה חיונית - בלעדיה כשל באמצע היה משאיר את הלקוח בלי
   // הזמנה בכלל, אחרי שהישנה כבר נמחקה.
   const result = await prisma.$transaction(async (tx) => {
+    // §392: מחליפים רק הזמנה פתוחה (טרם שולמה). אם כל ההזמנות של
+    // הלקוח במכירה כבר שולמו / הועברו לחוב — נוצרת הזמנה נוספת לצדן,
+    // וההזמנות הסגורות לא נוגעות.
     const existing = await tx.order.findFirst({
-      where: { customerId, pricelistId, status: { notIn: ["CANCELLED"] } },
+      where: {
+        customerId,
+        pricelistId,
+        status: { notIn: ["CANCELLED"] },
+        paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "DEBT_CARRIED"] },
+      },
+      orderBy: { createdAt: "desc" },
       // §375: החוב והיתרה — להחזרה לפני המחיקה
       select: {
         id: true,
@@ -576,7 +594,8 @@ export async function PUT(req: Request) {
     });
 
     // הזמנה ששולמה כבר לא נמחקת - החלפתה הייתה מוחקת רישום כספי
-    if (existing && (existing.paymentStatus === "PAID" || existing.paymentStatus === "PARTIALLY_PAID")) {
+    // §392: + CHARGING — חיוב באמצע; מחיקה עכשיו הייתה מאבדת את תוצאתו
+    if (existing && (existing.paymentStatus === "PAID" || existing.paymentStatus === "PARTIALLY_PAID" || existing.paymentStatus === "CHARGING")) {
       throw new Error(
         `להזמנה #${existing.orderNumber} כבר בוצע תשלום ולכן לא ניתן להחליפה מקובץ. יש לערוך אותה ידנית.`
       );

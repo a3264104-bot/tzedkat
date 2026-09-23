@@ -148,15 +148,34 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🚨 חסימת הזמנה כפולה - לא ניתן ליצור 2 הזמנות באותה מכירה
+    // 🚨 חסימת הזמנה כפולה - לא ניתן ליצור 2 הזמנות פתוחות באותה מכירה
     // אם יש כבר הזמנה פעילה של הלקוח במכירה זו, מחזירים 409
     // הלקוח יכול לערוך את הקיימת אבל לא ליצור חדשה
+    //
+    // §392: 💳 הזמנה ששולמה אינה חוסמת הזמנה נוספת — כשנציג/מנהל פותח.
+    //
+    // 🐛 לקוח ששילם ואחר כך לקח עוד מוצר לא יכול היה לקבל הזמנה
+    // נוספת ("יש לו הזמנה בראש השנה"), וההזמנה ששולמה נעולה לעריכה
+    // (§382) — הנציג נתקע בלי דרך לחייב אותו על התוספת.
+    //
+    // ✅ עכשיו: רק הזמנה *פתוחה* (לא שולמה) חוסמת. הזמנה ששולמה,
+    // ששולמה חלקית (נעולה ממילא) או שהועברה לחוב — סגורה, ונפתחת
+    // לצדה הזמנה חדשה. כך אפשר 2, 3 ויותר הזמנות באותה מכירה, כל
+    // אחת אחרי שהקודמת שולמה.
+    //
+    // ⚠️ לקוח שמזמין בעצמו — ללא שינוי: נחסם כמו קודם, כדי שלא
+    // ייפתחו הזמנות כפולות בטעות מהאתר.
+    const isStaffOrder = !!placedByAgentId;
     const existingOrder = await prisma.order.findFirst({
       where: {
         customerId,
         pricelistId: data.pricelistId,
         status: { notIn: ["CANCELLED"] },
+        ...(isStaffOrder
+          ? { paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "DEBT_CARRIED"] as any } }
+          : {}),
       },
+      orderBy: { createdAt: "desc" },
       select: {
         id: true,
         orderNumber: true,
@@ -165,7 +184,9 @@ export async function POST(req: Request) {
     if (existingOrder) {
       return NextResponse.json(
         {
-          error: `יש לך כבר הזמנה במכירה זו (הזמנה #${existingOrder.orderNumber}). ניתן לערוך אותה במקום ליצור חדשה.`,
+          error: isStaffOrder
+            ? `ללקוח יש הזמנה פתוחה שטרם שולמה במכירה זו (הזמנה #${existingOrder.orderNumber}). יש להוסיף את המוצרים אליה — הזמנה נוספת נפתחת רק אחרי שהקודמת שולמה.`
+            : `יש לך כבר הזמנה במכירה זו (הזמנה #${existingOrder.orderNumber}). ניתן לערוך אותה במקום ליצור חדשה.`,
           code: "DUPLICATE_ORDER",
           existingOrderId: existingOrder.id,
           existingOrderNumber: existingOrder.orderNumber,
