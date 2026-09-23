@@ -6,6 +6,7 @@ import { QuickCustomerEdit } from "@/components/QuickCustomerEdit";
 // §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
 import { fmtDate } from "@/lib/date-lib";
 import Link from "next/link";
+import { ChargeStatusBadge } from "@/components/ChargeStatusBadge";
 import { STATUS_LABELS, fmt } from "@/lib/pricing";
 import { formatItemQty } from "@/lib/order-display";
 import { UpdateCardModal } from "@/components/UpdateCardButton";
@@ -39,6 +40,9 @@ type Order = {
   createdAt: string;
   estimatedTotal: number;
   finalTotal: number | null;
+  /** §393 */
+  amountPaid?: number | null;
+  lastChargeError?: string | null;
   items: Item[];
 };
 
@@ -440,6 +444,16 @@ export function AgentCustomerClient({
                   <span className="badge bg-zinc-100 text-zinc-600">
                     {STATUS_LABELS[o.status] ?? o.status}
                   </span>
+                  {/* §393: 💳 מצב החיוב — כישלון בולט באדום */}
+                  <div className="mt-1">
+                    <ChargeStatusBadge
+                      paymentStatus={o.paymentStatus}
+                      lastChargeError={o.lastChargeError}
+                      finalTotal={o.finalTotal}
+                      amountPaid={o.amountPaid}
+                      compact
+                    />
+                  </div>
                   <div className="text-sm font-bold text-brand-rust mt-1">
                     {o.finalTotal != null ? fmt(o.finalTotal) : `~${fmt(o.estimatedTotal)}`}
                   </div>

@@ -403,6 +403,9 @@ export async function GET(
       agentReply: o.agentReply,
       agentReplyAt: o.agentReplyAt?.toISOString() ?? null,
       paymentStatus: o.paymentStatus,
+      // §393: הנציג צריך לדעת שהאשראי לא עבר — ולמה
+      lastChargeError: o.lastChargeError ?? null,
+      lastChargeAt: o.lastChargeAt?.toISOString() ?? null,
       finalTotal: o.finalTotal ? Number(o.finalTotal) : null,
       items: o.items.map((it) => ({
         id: it.id,

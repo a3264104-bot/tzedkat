@@ -126,6 +126,9 @@ export default async function AgentCustomerPage({
     createdAt: o.createdAt.toISOString(),
     estimatedTotal: Number(o.estimatedTotal),
     finalTotal: o.finalTotal != null ? Number(o.finalTotal) : null,
+    // §393: מצב החיוב בכרטיס ההזמנה — "✗ אשראי לא עבר"
+    amountPaid: o.amountPaid != null ? Number(o.amountPaid) : null,
+    lastChargeError: o.lastChargeError ?? null,
     items: o.items.map((it) => ({
       id: it.id,
       productName: it.productName,

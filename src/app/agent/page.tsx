@@ -104,6 +104,32 @@ export default async function AgentIndexPage() {
           _count: { _all: true },
         })
       : [];
+  // §393: 💳✗ כמה לקוחות שהאשראי שלהם לא עבר — בכל מכירה פעילה.
+  //
+  // 🐛 הנציג לא ידע שהחיוב נכשל, ולכן לא רדף אחרי הלקוח. הספירה
+  // כאן, בדף הבית, כדי שיראה את זה **בלי להיכנס** למכירה.
+  //
+  // ⚠️ אותו סינון נקודות כמו _count.orders למעלה: מנהל — הכל,
+  // נציג — רק הנקודות שלו (ובלי נקודות — כלום).
+  const failedByPricelist = new Map<string, number>();
+  if (activeIds.size > 0) {
+    const failedRows = await prisma.order.groupBy({
+      by: ["pricelistId"],
+      where: {
+        pricelistId: { in: Array.from(activeIds) },
+        status: { notIn: ["CANCELLED"] },
+        paymentStatus: { in: ["FAILED", "CARD_UPDATE_NEEDED"] },
+        ...(role === "ADMIN"
+          ? {}
+          : { pointId: { in: hasPoints ? myPointIds : ["__none__"] } }),
+      },
+      _count: { _all: true },
+    });
+    for (const row of failedRows) {
+      if (row.pricelistId) failedByPricelist.set(row.pricelistId, row._count._all);
+    }
+  }
+
   const countsByPricelist = new Map<string, { name: string; count: number }[]>();
   for (const row of perPointCounts) {
     // pricelistId ו-pointId ניתנים ל-null בסכמה, ולכן נדרשת בדיקה
@@ -497,6 +523,12 @@ export default async function AgentIndexPage() {
                           {myPoints.length === 1 && ` בנקודה שלי`}
                           {myPoints.length > 1 && ` בכל הנקודות שלי`}
                         </div>
+                        {/* §393: התראה — אשראי לא עבר */}
+                        {(failedByPricelist.get(pl.id) ?? 0) > 0 && (
+                          <div className="inline-block text-[11px] font-bold text-white bg-red-600 rounded-lg px-2 py-0.5 mt-1.5">
+                            ✗ {failedByPricelist.get(pl.id)} לקוחות — אשראי לא עבר
+                          </div>
+                        )}
                         {perPoint.length > 0 && (
                           <div className="flex flex-wrap gap-1.5 mt-1.5">
                             {perPoint.map((p) => (

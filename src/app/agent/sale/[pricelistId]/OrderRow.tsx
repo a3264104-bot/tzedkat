@@ -9,6 +9,7 @@ import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
 import { AddOrderItem } from "@/components/AddOrderItem";
 // §91: סימון תשלום מזומן - מונע חיוב כפול
 import { CashPaymentButton } from "@/components/CashPaymentButton";
+import { ChargeStatusBadge } from "@/components/ChargeStatusBadge";
 
 type Props = {
   order: Order;
@@ -180,6 +181,14 @@ export function OrderRow({
               {order.customerName}
             </span>
             <span className="text-xs text-zinc-400">#{order.orderNumber}</span>
+            {/* §393: 💳 מצב החיוב — "✗ אשראי לא עבר" בולט בכרטיס */}
+            <ChargeStatusBadge
+              paymentStatus={order.paymentStatus}
+              lastChargeError={order.lastChargeError}
+              finalTotal={order.finalTotal}
+              amountPaid={order.amountPaid}
+              compact
+            />
             {isDelivered && (
               <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-bold">
                 ✓ נמסר

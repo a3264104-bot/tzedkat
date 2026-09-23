@@ -14,6 +14,7 @@ import { CustomerNotesPanel } from "./CustomerNotesPanel";
 // §211: לקוחות שתקועים בלי אמצעי תשלום
 import { StuckCustomersPanel } from "./StuckCustomersPanel";
 import { AgentAddCustomerButton } from "@/components/AgentAddCustomerButton";
+import { isChargeFailed } from "@/components/ChargeStatusBadge";
 
 type Product = {
   id: string;
@@ -101,6 +102,9 @@ export type Order = {
   agentReply?: string | null;
   agentReplyAt?: string | null;
   paymentStatus?: string;
+  /** §393: סיבת כישלון החיוב האחרון — לנציג שרודף אחרי הלקוח */
+  lastChargeError?: string | null;
+  lastChargeAt?: string | null;
   finalTotal: number | null;
   point: { id: string; name: string; city: string | null } | null;
   items: OrderItem[];
@@ -276,7 +280,7 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   // סינון: הכל / רק ממתינים / רק מוזנים
-  const [filterMode, setFilterMode] = useState<"all" | "pending" | "done">("all");
+  const [filterMode, setFilterMode] = useState<"all" | "pending" | "done" | "failed">("all");
   // §42: סינון לפי נקודת חלוקה. נציג יכול להיות משויך לכמה נקודות,
   // וביום החלוקה הוא עובד בנקודה אחת בכל פעם - רשימה מעורבבת של שתי
   // נקודות אינה שמישה בשטח.
@@ -435,6 +439,9 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
           (i) => i.agentEnteredWeight === null || i.agentEnteredWeight === 0
         );
       });
+    } else if (filterMode === "failed") {
+      // §393: אשראי לא עבר — הלקוחות שהנציג צריך לרדוף אחריהם
+      list = list.filter((o) => isChargeFailed(o.paymentStatus));
     } else if (filterMode === "done") {
       list = list.filter((o) => {
         const active = o.items.filter((i) => !i.isCancelled);
@@ -492,10 +499,13 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
 
   // סטטיסטיקות לתגי הסינון
   const orderStats = useMemo(() => {
-    if (!data) return { pending: 0, done: 0 };
+    if (!data) return { pending: 0, done: 0, failed: 0 };
     let pending = 0;
     let done = 0;
+    // §393: נספר לפני הדילוג על הזמנות ריקות — כישלון חיוב רלוונטי תמיד
+    let failed = 0;
     for (const o of data.orders) {
+      if (isChargeFailed(o.paymentStatus)) failed++;
       const active = o.items.filter((i) => !i.isCancelled);
       if (active.length === 0) continue;
       const allEntered = active.every(
@@ -504,7 +514,7 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
       if (allEntered) done++;
       else pending++;
     }
-    return { pending, done };
+    return { pending, done, failed };
   }, [data]);
 
   const updateOrderItem = useCallback(
@@ -874,6 +884,21 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                   ✓ הושלמו · {orderStats.done}
                 </FilterChip>
               </div>
+
+              {/* §393: 💳✗ אשראי לא עבר — מוצג רק כשיש כאלה, כדי שיבלוט */}
+              {(orderStats.failed > 0 || filterMode === "failed") && (
+                <div className="flex gap-1.5 mt-1.5">
+                  <FilterChip
+                    active={filterMode === "failed"}
+                    onClick={() =>
+                      setFilterMode(filterMode === "failed" ? "all" : "failed")
+                    }
+                    color="red"
+                  >
+                    ✗ אשראי לא עבר · {orderStats.failed} — יש ליצור קשר עם הלקוח
+                  </FilterChip>
+                </div>
+              )}
             </div>
 
             {/* §21: התקדמות המסירה בפועל - כמה לקוחות כבר הגיעו ולקחו */}
@@ -1054,7 +1079,7 @@ function FilterChip({
 }: {
   active: boolean;
   onClick: () => void;
-  color: "slate" | "amber" | "emerald" | "rust";
+  color: "slate" | "amber" | "emerald" | "rust" | "red";
   children: React.ReactNode;
 }) {
   const activeColors = {
@@ -1062,14 +1087,20 @@ function FilterChip({
     amber: "bg-amber-500 text-white",
     emerald: "bg-emerald-600 text-white",
     rust: "bg-brand-rust text-white",
+    red: "bg-red-600 text-white",
   }[color];
+  // §393: אדום בולט גם כשאינו פעיל — זו התראה, לא עוד סינון
+  const idleColors =
+    color === "red"
+      ? "bg-red-50 text-red-700 border border-red-300 hover:bg-red-100"
+      : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200";
   return (
     <button
       onClick={onClick}
       className={`flex-1 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
         active
           ? activeColors + " shadow-sm"
-          : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
+          : idleColors
       }`}
     >
       {children}

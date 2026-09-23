@@ -37,6 +37,16 @@ import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
 import { fmt } from "@/lib/pricing";
 // §128: תצוגת יחידות - מקור אחד לכל המערכת
 import { formatItemQty } from "@/lib/order-display";
+// §393: מצב החיוב ללקוחות אשראי
+import { ChargeStatusBadge } from "@/components/ChargeStatusBadge";
+const CHARGE_BADGE_STATUSES = [
+  "PAID",
+  "PARTIALLY_PAID",
+  "CHARGING",
+  "FAILED",
+  "CARD_UPDATE_NEEDED",
+  "DEBT_CARRIED",
+];
 
 type Props = {
   orders: Order[];
@@ -118,6 +128,8 @@ type CustomerRow = {
   agentClosedAt: string | null;
   // §130: מצב התשלום - לסימון מזומן מהטבלה
   paymentStatus: string | null;
+  /** §393: סיבת כישלון החיוב — מוצגת לנציג בתג */
+  lastChargeError?: string | null;
   /**
    * §314: אופן התשלום של הלקוח — CASH / CREDIT.
    *
@@ -368,6 +380,8 @@ export function WeightsTable({
           // §332: אמצעי התשלום של ההזמנה
           orderPaymentMethod: (o as any).paymentMethod ?? null,
           paymentStatus: (o as any).paymentStatus ?? null,
+          // §393
+          lastChargeError: (o as any).lastChargeError ?? null,
           finalTotal: (o as any).finalTotal ?? null,
           // §360: ליתרה בתשלום חלקי
           amountPaid: (o as any).amountPaid ?? null,
@@ -826,6 +840,17 @@ export function WeightsTable({
                             missing={r.missing}
                             readOnly={readOnly}
                             onDone={onNeedsReload}
+                          />
+                        ) : r.paymentStatus &&
+                          CHARGE_BADGE_STATUSES.includes(r.paymentStatus) ? (
+                          // §393: 💳 מצב החיוב של לקוח אשראי — בעיקר
+                          // "✗ אשראי לא עבר", כדי שהנציג ירדוף אחריו.
+                          <ChargeStatusBadge
+                            paymentStatus={r.paymentStatus}
+                            lastChargeError={r.lastChargeError}
+                            finalTotal={r.finalTotal}
+                            amountPaid={r.amountPaid}
+                            compact
                           />
                         ) : !(canUpdateCards && canSetCash) ? (
                           <span className="text-[10px] text-zinc-300">—</span>
