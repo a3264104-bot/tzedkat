@@ -203,3 +203,72 @@ export async function applyBalanceToOrder(
 
   return { payable, applied, debtApplied };
 }
+
+/**
+ * §395: 💸 **יתרה חדשה מתקזזת עכשיו — לא "בהזמנה הבאה".**
+ *
+ * 🐛 הבעיה מהשטח: לקוח החליף 4 כרטיסים (החיוב נכשל — מסגרת
+ * תפוסה), וכל אימות גבה ₪1 והוסיף ₪1 ליתרה. אבל ההזמנה שלו כבר
+ * נשקלה, והמחיר הסופי שלה נקבע **לפני** שהיתרה גדלה. היתרה
+ * מתקזזת רק בחישוב מחדש של ההזמנה — שלא קרה — ולכן החיוב
+ * האחרון קיזז ₪1 בלבד. ₪3 נשארו תקועים.
+ *
+ * ✅ עכשיו: מי שמגדיל יתרה (אימות כרטיס, זיכוי) קורא לזה, וכל
+ * הזמנה פתוחה של הלקוח שכבר יש לה מחיר סופי מחושבת מחדש מיד.
+ *
+ * ⚠️ בלי לגעת בפריטים: הסכום לפני הקיזוז משוחזר מהמחיר הסופי —
+ *   finalTotal = לפני + חוב − זכות  ⇒  לפני = finalTotal + זכות − חוב.
+ * זו אותה נוסחה של applyBalanceToOrder בכיוון ההפוך, ולכן אין
+ * כאן נוסחת חישוב חמישית שיכולה להתפצל מהשאר.
+ *
+ * ⚠️ רק הזמנות שטרם שולמו ושאינן בחיוב. הזמנה בלי מחיר סופי
+ * תקבל את הקיזוז בשקילה, כמו תמיד.
+ */
+export async function reapplyBalanceToOpenOrders(
+  prisma: any,
+  customerId: string,
+  agentId?: string | null
+): Promise<Array<{ id: string; orderNumber: number; before: number; after: number }>> {
+  const orders = await prisma.order.findMany({
+    where: {
+      customerId,
+      status: { notIn: ["CANCELLED"] },
+      finalTotal: { not: null },
+      paymentStatus: {
+        notIn: ["PAID", "PARTIALLY_PAID", "CHARGING", "DEBT_CARRIED"],
+      },
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      orderNumber: true,
+      finalTotal: true,
+      appliedCreditBalance: true,
+      appliedDebt: true,
+    },
+  });
+
+  const changed: Array<{ id: string; orderNumber: number; before: number; after: number }> = [];
+  for (const o of orders) {
+    const ft = Number(o.finalTotal ?? 0);
+    const credit = Number(o.appliedCreditBalance ?? 0);
+    const debt = Number(o.appliedDebt ?? 0);
+    const beforeBalance = Math.max(0, Math.round((ft + credit - debt) * 100) / 100);
+
+    const { payable } = await applyBalanceToOrder(
+      prisma,
+      o.id,
+      customerId,
+      beforeBalance,
+      agentId
+    );
+    if (Math.abs(payable - ft) > 0.001) {
+      await prisma.order.update({
+        where: { id: o.id },
+        data: { finalTotal: payable },
+      });
+      changed.push({ id: o.id, orderNumber: o.orderNumber, before: ft, after: payable });
+    }
+  }
+  return changed;
+}

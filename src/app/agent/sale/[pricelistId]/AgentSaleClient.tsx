@@ -289,6 +289,44 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
   // מצב תצוגה: כרטיסים או טבלה מהירה (Excel-like)
   const [viewMode, setViewMode] = useState<"cards" | "table">("table");
 
+  // §395: ⚖️ **קיצור דרך ממסך "ההזמנה נשלחה" — ישר לעדכון משקלים.**
+  //
+  // הצורך מהשטח: הנציג מכניס הזמנה ללקוח שכבר לקח סחורה, רק כדי
+  // לעדכן משקלים. אחרי השליחה הוא היה חוזר אחורה, מחפש את המכירה,
+  // נכנס לטבלה ומחפש את הלקוח — על כל לקוח.
+  //
+  // ✅ ?order=<מספר הזמנה> — הטבלה נפתחת על ההזמנה הזו בלבד, ובלחיצה
+  // "הצג הכל" חוזרים לכל המכירה.
+  //
+  // ⚠️ התאמה מדויקת ולא החיפוש הרגיל: החיפוש הוא includes, ו-"12"
+  // היה מציג גם את 412 ו-120.
+  //
+  // ⚠️ window.location ולא useSearchParams: האחרון מחייב Suspense
+  // סביב הקומפוננטה ב-Next 15, ושבירה שלו מפילה את כל המסך.
+  const [focusOrderNumber, setFocusOrderNumber] = useState<number | null>(null);
+  useEffect(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get("order");
+      const n = v ? Number(v) : NaN;
+      if (Number.isFinite(n) && n > 0) {
+        setFocusOrderNumber(n);
+        setViewMode("table");
+      }
+    } catch {
+      // כתובת לא תקינה — מתעלמים, המסך נטען כרגיל
+    }
+  }, []);
+  function clearFocusOrder() {
+    setFocusOrderNumber(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("order");
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // לא קריטי
+    }
+  }
+
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/agent/sale/${pricelistId}`, {
@@ -427,6 +465,11 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
     if (!data) return [];
     let list = data.orders;
 
+    // §395: הזמנה אחת ממסך "ההזמנה נשלחה" — גובר על כל סינון אחר
+    if (focusOrderNumber != null) {
+      return list.filter((o) => o.orderNumber === focusOrderNumber);
+    }
+
     // סינון לפי נקודה - ראשון, כדי שהמונים של השאר ישקפו את הנקודה
     if (filterPoint) {
       list = list.filter((o) => o.point?.id === filterPoint);
@@ -467,7 +510,7 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
     }
 
     return list;
-  }, [data, filter, filterMode, filterPoint]);
+  }, [data, filter, filterMode, filterPoint, focusOrderNumber]);
 
   // הנקודות שיש להן הזמנות במכירה זו. נגזר מההזמנות עצמן ולא משדה
   // agent.point, שהוא השדה הישן ומחזיק נקודה אחת בלבד.
@@ -797,6 +840,25 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
               onFixed={load}
             />
             <CustomerNotesPanel orders={data.orders} />
+            {/* §395: מגיעים מ"ההזמנה נשלחה" — מוצגת רק ההזמנה החדשה */}
+            {focusOrderNumber != null && (
+              <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 flex items-center justify-between gap-2">
+                <div className="text-sm font-bold text-amber-900">
+                  ⚖️ עדכון משקלים — הזמנה #{focusOrderNumber}
+                  {filteredOrders.length === 0 && (
+                    <span className="block text-xs font-normal text-amber-800 mt-0.5">
+                      ההזמנה לא נמצאה במכירה הזו או בנקודות שלך.
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={clearFocusOrder}
+                  className="text-xs font-bold bg-white border border-amber-400 text-amber-900 rounded-lg px-3 py-1.5 shrink-0"
+                >
+                  הצג את כל ההזמנות
+                </button>
+              </div>
+            )}
             {/* חיפוש + סינון + מצב תצוגה */}
             <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-3 space-y-2">
               <div className="flex gap-2 items-stretch">

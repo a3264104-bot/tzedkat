@@ -35,10 +35,14 @@ export const dynamic = "force-dynamic";
 // נתיב: /agent/orders/[id]
 export default async function AgentOrderDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  // §395: ?new=1 — הגענו ישר משליחת הזמנה (OrderFlow)
+  searchParams?: Promise<{ new?: string }>;
 }) {
   const { id } = await params;
+  const justCreated = (await searchParams)?.new === "1";
   const session = await auth();
   if (!session?.user) redirect("/login?callbackUrl=/agent");
 
@@ -351,6 +355,28 @@ export default async function AgentOrderDetailPage({
       </div>
 
       <div className="mx-auto max-w-2xl px-4 pt-4 space-y-4">
+        {/* §395: ⚖️ עדכון משקלים — ישר לטבלה, על ההזמנה הזו בלבד.
+            
+            מוצג רק כשיש מה לשקול: הזמנה שטרם שולמה ולא סומנה V.
+            אחרי V/תשלום הטבלה נעולה ממילא, והכפתור היה מבלבל. */}
+        {justCreated && (
+          <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-3 text-center">
+            <div className="font-extrabold text-emerald-800">
+              ✓ ההזמנה נשלחה — #{order.orderNumber}
+            </div>
+            <div className="text-xs text-emerald-700 mt-0.5">
+              הסיכום המשוער למטה. לקוח שכבר לקח — עוברים ישר לעדכון משקלים.
+            </div>
+          </div>
+        )}
+        {order.pricelistId && !isLocked && (
+          <a
+            href={`/agent/sale/${order.pricelistId}?order=${order.orderNumber}`}
+            className="block text-center bg-amber-500 hover:bg-amber-600 text-white font-extrabold rounded-2xl py-3 shadow-sm"
+          >
+            ⚖️ עבור לעדכון משקלים
+          </a>
+        )}
         {/* לקוח + סטטוס */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-4">
           <div className="flex items-center justify-between gap-2 flex-wrap mb-3">

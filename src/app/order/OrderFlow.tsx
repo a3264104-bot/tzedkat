@@ -882,6 +882,14 @@ export function OrderFlow({
       }
       // מעבר לעמוד ההצלחה העצמאי (עמיד לרפרש + ניתן לשיתוף)
       const orderId = data.id || data.orderId;
+      // §395: ⚖️ נציג/מנהל — למסך ההזמנה של הנציג, ולא לעמוד ההצלחה
+      // של הלקוח. שם יש את הסיכום המשוער **וכפתור "עבור לעדכון
+      // משקלים"** — הנציג שמכניס הזמנה ללקוח שכבר לקח סחורה עובר
+      // לשקילה בלחיצה אחת, במקום לחזור אחורה ולחפש את המכירה.
+      if (orderId && onBehalfOfCustomerId) {
+        window.location.href = `/agent/orders/${orderId}?new=1`;
+        return;
+      }
       if (orderId) {
         window.location.href = `/order/success/${orderId}`;
         return;

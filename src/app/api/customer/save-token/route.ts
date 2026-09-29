@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth";
 import { chargeToken } from "@/lib/nedarim-lib";
 // §114: הפקת קוד כניסה אוטומטית בהקמת לקוח
 import { ensureLoginCode } from "@/lib/login-code";
+// §395: השקל שנזקף — מתקזז מיד בהזמנה פתוחה
+import { reapplyBalanceToOpenOrders } from "@/lib/credit-balance-lib";
 
 // POST /api/customer/save-token
 //
@@ -234,6 +236,27 @@ export async function POST(req: Request) {
         ...(verificationTxnId ? { creditVerificationCharged: true } : {}),
       },
     });
+
+    // §395: 💸 השקל שנזקף עכשיו — מקוזז **מיד** מהזמנה פתוחה שכבר
+    // נשקלה. בלי זה הוא חיכה ל"הזמנה הבאה", והחיוב שמגיע תוך דקות
+    // (כרטיס חדש = ניסיון חיוב חוזר) גבה אותו.
+    if (verificationTxnId) {
+      try {
+        const changed = await reapplyBalanceToOpenOrders(
+          prisma,
+          targetCustomerId,
+          role === "ADMIN" || role === "AGENT" ? sessionUserId : null
+        );
+        for (const c of changed) {
+          console.log(
+            `[save-token] verification ₪1 applied to order #${c.orderNumber}: ${c.before} → ${c.after}`
+          );
+        }
+      } catch (e) {
+        // ⚠️ לא חוסם: הטוקן כבר נשמר. היתרה נשארת ותתקזז בחישוב הבא.
+        console.error("[save-token] reapply balance failed:", e);
+      }
+    }
 
     // קידום הזמנות שממתינות לטוקן (כולל FAILED - כרטיס חדש = הזדמנות חדשה)
     const pendingOrders = await prisma.order.findMany({
