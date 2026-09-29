@@ -186,7 +186,19 @@ export async function PATCH(
       data.agentEnteredWeight = null;
       data.agentEnteredById = null;
       // §349: מחיקת משקל מנקה גם את הפירוט
-      data.weightParts = null;
+      // §394: ...אלא אם נשלח פירוט **חלקי** — חלק מהקרטונים מולאו
+      // וחלק לא. הפריט נשאר חסר (null), והפירוט נשמר כדי שהמשבצות
+      // שכבר הוקלדו לא יתרוקנו ברענון.
+      if (
+        Array.isArray(body.weightParts) &&
+        body.weightParts.some((x: unknown) => x !== null && x !== "")
+      ) {
+        data.weightParts = body.weightParts.map((x: unknown) =>
+          x === null || x === "" ? null : Number(x) || 0
+        );
+      } else {
+        data.weightParts = null;
+      }
       // המשקל והמחיר הנגזרים מתאפסים גם הם - אחרת נשאר מחיר
       // סופי שאין לו בסיס.
       data.actualWeight = null;
@@ -211,6 +223,20 @@ export async function PATCH(
     // קרטון אחד) לא צריך פירוט, ופירוט ישן ממוצר שהיה מפוצל
     // היה מבלבל.
     if (Array.isArray(body.weightParts)) {
+      // §394: 🚨 משקל מלא עם קרטון ריק — נדחה.
+      //
+      // הקליינט שולח null למשבצת ריקה. סכום עם "חור" פירושו
+      // שקרטון נשכח, ושמירה כאן הייתה מסמנת את הפריט כשקול.
+      if (body.weightParts.some((x: unknown) => x === null || x === "")) {
+        return NextResponse.json(
+          {
+            error:
+              "לא מולא משקל לכל הקרטונים. יש למלא כל קרטון — ומי שלא קיבל: 0.",
+            code: "CARTON_MISSING",
+          },
+          { status: 400 }
+        );
+      }
       const parts = body.weightParts.map((x: unknown) => Number(x) || 0);
       const partsSum = Math.round(parts.reduce((a: number, b: number) => a + b, 0) * 100) / 100;
       if (Math.abs(partsSum - w) > 0.01) {
@@ -727,7 +753,33 @@ async function recomputeOrderTotal(
   if (!order || order.items.length === 0) return;
 
   // כל הפריטים חייבים להיות שקולים. אחרת המחיר אינו סופי.
-  if (!order.items.every((i) => i.finalPrice !== null)) return;
+  //
+  // §394: 🐛 **finalTotal ישן נשאר אחרי שמשקל נמחק.**
+  //
+  // הזמנה נשקלה במלואה (finalTotal נקבע), ואז הנציג רוקן משקל —
+  // או קרטון אחד מתוך שניים. הפריט חזר ל"חסר", אבל finalTotal
+  // נשאר על הסכום הקודם, והחיוב היה גובה אותו.
+  //
+  // ✅ עכשיו: לא הכל שקול → finalTotal מתאפס, וההזמנה לא ניתנת
+  // לחיוב עד שהשקילה תושלם.
+  //
+  // ⚠️ רק בהזמנה שטרם שולמה. בהזמנה ששולמה/בחיוב לא נוגעים
+  // בסכום (ממילא עריכת משקל חסומה שם — רק ביטול פריט עובר).
+  if (!order.items.every((i) => i.finalPrice !== null)) {
+    await prisma.order.updateMany({
+      where: {
+        id: orderId,
+        finalTotal: { not: null },
+        paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "CHARGING", "DEBT_CARRIED"] },
+      },
+      data: { finalTotal: null },
+    });
+    await prisma.order.updateMany({
+      where: { id: orderId, paymentStatus: "READY_TO_CHARGE" },
+      data: { paymentStatus: "PENDING" },
+    });
+    return;
+  }
 
   const itemsSum = order.items.reduce((s, i) => s + Number(i.finalPrice), 0);
   const pl = order.pricelistId

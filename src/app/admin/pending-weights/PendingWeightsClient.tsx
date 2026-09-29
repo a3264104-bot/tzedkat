@@ -275,8 +275,9 @@ function TableRow({
     const arr = Array(cartonCount).fill("");
     const saved = (row as any).weightParts;
     if (Array.isArray(saved) && saved.length > 0) {
-      saved.forEach((v: number, i: number) => {
-        if (i < cartonCount && v > 0) arr[i] = String(v);
+      // §394: גם 0 משוחזר — הוא ערך שהוזן, לא ריק
+      saved.forEach((v: number | null, i: number) => {
+        if (i < cartonCount && v != null) arr[i] = String(v);
       });
     } else if (row.agentEnteredWeight != null) {
       arr[0] = String(row.agentEnteredWeight);
@@ -512,6 +513,14 @@ function TableRow({
                     setParts(next);
                   }}
                   onBlur={() => {
+                    // §394: 🐛 קרטון ריק עבר כ"נשקל". עכשיו — לא
+                    // שומרים עד שכל קרטון קיבל ערך (לא קיבל = 0).
+                    // השורה נשארת ברשימה, והמשבצת הריקה אדומה.
+                    //
+                    // ⚠️ זהה לטבלת המשקלים של הנציג (WeightsTable).
+                    const cur = partsRef.current;
+                    const filledCount = cur.filter((x) => x.trim() !== "").length;
+                    if (filledCount > 0 && filledCount < cur.length) return;
                     // ⚠️ הסכום נשמר — הפריט מחזיק משקל אחד.
                     // §346: מה-ref — הערך שהוקלד ברגע זה.
                     const sum = partsRef.current.reduce(
@@ -526,11 +535,28 @@ function TableRow({
                     saveWeight(next, [...partsRef.current]);
                   }}
                   disabled={saving}
-                  placeholder="0.00"
-                  className="w-full px-2 py-1.5 border-2 border-zinc-300 rounded-md text-center font-bold focus:outline-none focus:ring-2 focus:ring-brand-rust"
+                  placeholder={`קרטון ${i + 1}`}
+                  // §394: משבצת ריקה אדומה כשאחרת כבר מולאה
+                  className={`w-full px-2 py-1.5 border-2 rounded-md text-center font-bold focus:outline-none focus:ring-2 focus:ring-brand-rust ${
+                    p.trim() === "" && parts.some((x) => x.trim() !== "")
+                      ? "border-red-500 bg-red-50"
+                      : "border-zinc-300"
+                  }`}
                 />
               </div>
             ))}
+            {/* §394: איזה קרטון חסר */}
+            {parts.some((x) => x.trim() !== "") &&
+              parts.some((x) => x.trim() === "") && (
+                <div className="text-[10px] font-bold text-red-600">
+                  חסר קרטון{" "}
+                  {parts
+                    .map((x, i) => (x.trim() === "" ? i + 1 : null))
+                    .filter((x) => x != null)
+                    .join(", ")}{" "}
+                  · לא קיבל = 0
+                </div>
+              )}
             {/* ⚠️ הסכום מוצג: השוקל רואה מה יישמר בלי לחבר. */}
             {parts.some((x) => x !== "") && (
               <div className="text-[11px] font-bold text-emerald-700">

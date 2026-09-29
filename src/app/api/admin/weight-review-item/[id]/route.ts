@@ -81,6 +81,17 @@ export async function PATCH(
       // ⚠️ בלי מערך — מנקים: משקל שהוזן במשבצת אחת לא צריך
       // פירוט, ופירוט ישן היה מבלבל.
       if (Array.isArray(body.weightParts)) {
+        // §394: קרטון ריק — נדחה. זהה ל-agent-order-item.
+        if (body.weightParts.some((x: unknown) => x === null || x === "")) {
+          return NextResponse.json(
+            {
+              error:
+                "לא מולא משקל לכל הקרטונים. יש למלא כל קרטון — ומי שלא קיבל: 0.",
+              code: "CARTON_MISSING",
+            },
+            { status: 400 }
+          );
+        }
         const parts = body.weightParts.map((x: unknown) => Number(x) || 0);
         const partsSum =
           Math.round(parts.reduce((a: number, b: number) => a + b, 0) * 100) /

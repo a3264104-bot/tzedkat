@@ -129,6 +129,10 @@ export function CreditPanel({
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "שגיאה");
+      // §394: השרת אומר **מה קרה בפועל** — קוזז מהזמנה פתוחה,
+      // נכנס להזמנה הזו, או נשמר כיתרה כי אין הזמנה פתוחה. הנציג
+      // חייב לדעת, אחרת הוא לא יודע אם לגבות עכשיו.
+      if (!clear && data.message) alert(data.message);
       if (clear) {
         setAmount("");
         setReason("");
@@ -155,14 +159,14 @@ export function CreditPanel({
               <div className={`text-xs ${L.text} mt-0.5`}>{currentReason}</div>
             )}
             <div className="text-[11px] text-emerald-600 mt-1">
-              {alreadyPaid
-                ? isCharge
-                  ? "ההזמנה שולמה — יש לגבות במזומן."
-                  : "ההזמנה שולמה — הסכום נזקף כיתרת זכות ויקוזז מההזמנה הבאה."
+              {alreadyPaid && isCharge
+                ? "נוסף ליתרה לתשלום — יש לחייב את היתרה או לסמן מזומן."
                 : L.hint}
             </div>
           </div>
-          {!alreadyPaid && (
+          {/* §394: חיוב נוסף ניתן לשינוי גם אחרי תשלום — הוא חלק
+              מהיתרה שטרם נגבתה. */}
+          {(!alreadyPaid || isCharge) && (
             <button
               onClick={() => setOpen(true)}
               className={`text-xs ${L.text} underline shrink-0`}
@@ -187,9 +191,10 @@ export function CreditPanel({
             זכות שתקוזז בהזמנה הבאה. */}
         {alreadyPaid && (
           <span className="block text-[10px] font-normal text-zinc-500">
+            {/* §394: מתממש עכשיו — לא "בפעם הבאה" */}
             {isCharge
-              ? "ההזמנה שולמה — חיוב נוסף לא ייגבה בכרטיס"
-              : "ההזמנה שולמה — הזיכוי ייזקף כיתרה להזמנה הבאה"}
+              ? "ההזמנה שולמה — החיוב ייווסף כיתרה ויגבה מיד בלחיצה על \"חייב\""
+              : "ההזמנה שולמה — הזיכוי יקוזז מיד מההזמנה הפתוחה של הלקוח"}
           </span>
         )}
       </button>

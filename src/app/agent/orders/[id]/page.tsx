@@ -766,7 +766,12 @@ export default async function AgentOrderDetailPage({
               }
               currentReason={order.creditReason}
               orderTotal={finalTotal ?? estimatedTotal}
-              alreadyPaid={isLocked}
+              // §394: "שולם" אמיתי בלבד. isLocked כולל גם V, והפאנל
+              // הציג "ייזקף להזמנה הבאה" על הזמנה שלא שולמה כלל.
+              alreadyPaid={
+                order.paymentStatus === "PAID" ||
+                order.paymentStatus === "PARTIALLY_PAID"
+              }
             />
           </div>
 
@@ -780,7 +785,11 @@ export default async function AgentOrderDetailPage({
               }
               currentReason={order.extraChargeReason}
               orderTotal={finalTotal ?? estimatedTotal}
-              alreadyPaid={isLocked}
+              // §394: ראה למעלה
+              alreadyPaid={
+                order.paymentStatus === "PAID" ||
+                order.paymentStatus === "PARTIALLY_PAID"
+              }
               kind="charge"
             />
           </div>
@@ -851,7 +860,18 @@ export default async function AgentOrderDetailPage({
               orderId={order.id}
               orderNumber={order.orderNumber}
               customerName={order.customerName}
-              amount={finalTotal ?? 0}
+              // §394: היתרה בלבד — אחרי חיוב נוסף על הזמנה ששולמה
+              // נגבית רק התוספת (§384), והכפתור מציג את מה שייגבה.
+              amount={
+                finalTotal != null
+                  ? Math.max(
+                      0,
+                      Math.round(
+                        (finalTotal - Number((order as any).amountPaid ?? 0)) * 100
+                      ) / 100
+                    )
+                  : 0
+              }
               // §189: מה שהלקוח ביקש - ברירת מחדל בבורר
               requestedInstallments={order.requestedInstallments ?? 1}
               cardLast4={order.customer.cardLast4}

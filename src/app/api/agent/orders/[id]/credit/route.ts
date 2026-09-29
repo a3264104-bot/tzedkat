@@ -44,6 +44,8 @@ export async function POST(
       agentClosedAt: true,
       creditAmount: true,
       pricelistId: true,
+      // §394: לזיכוי על הזמנה ששולמה חלקית
+      amountPaid: true,
     },
   });
   if (!order) {
@@ -77,14 +79,22 @@ export async function POST(
 
   // §309: 🔒 זיכוי אחרי המייל משנה את הסכום שהלקוח מחזיק.
   // §379: V נועל זיכוי — הזיכוי משנה סכום שכבר אושר.
-  if ((order as any).agentClosedAt) {
+  // §394: נעילת V / מייל — רק להזמנה שטרם שולמה.
+  //
+  // 🐛 הזמנה ששולמה כמעט תמיד מסומנת V, ואת ה-V אי אפשר להסיר
+  // אחרי תשלום (§382). כלומר זיכוי על הזמנה ששולמה היה חסום
+  // לגמרי — מבוי סתום. אחרי תשלום הזיכוי לא משנה את הסכום
+  // שאושר, אלא הולך ליתרה/להזמנה הפתוחה, ולכן הנעילה לא רלוונטית.
+  const paidOrPartial =
+    order.paymentStatus === "PAID" || order.paymentStatus === "PARTIALLY_PAID";
+  if (!paidOrPartial && (order as any).agentClosedAt) {
     return NextResponse.json(
       { error: "ההזמנה סומנה כטופלה (V). לזיכוי יש להסיר את הסימון תחילה.", code: "ORDER_CLOSED" },
       { status: 400 }
     );
   }
 
-  if ((order as any).weightsLockedAt) {
+  if (!paidOrPartial && (order as any).weightsLockedAt) {
     return NextResponse.json(
       {
         error: "ההזמנה נעולה — נשלח ללקוח מייל עם הסכום הסופי.",
@@ -93,8 +103,41 @@ export async function POST(
       { status: 423 }
     );
   }
+  // §394: חיוב באמצע — לא משנים סכום שנשלח עכשיו לסליקה.
+  if (order.paymentStatus === "CHARGING") {
+    return NextResponse.json(
+      { error: "ההזמנה נמצאת כרגע בחיוב. יש לנסות שוב בעוד רגע." },
+      { status: 409 }
+    );
+  }
+
+  // §394: 💸 **זיכוי מתממש עכשיו — לא "בפעם הבאה".**
+  //
+  // 🐛 מה שהיה: כל זיכוי על הזמנה ששולמה (גם חלקית) נזקף כיתרה
+  // "להזמנה הבאה". בפועל: הנציג פתח ללקוח הזמנה נוספת, נתן זיכוי,
+  // והחיוב גבה את הסכום המלא — היתרה חיכתה להזמנה שעוד לא קיימת.
+  //
+  // ✅ עכשיו:
+  //   • שולמה חלקית והזיכוי ≤ היתרה → מקוזז מההזמנה עצמה, מיד.
+  //   • שולמה (או הזיכוי גדול מהיתרה) → יתרת זכות, **ומיד** מקוזזת
+  //     מהזמנה פתוחה של הלקוח אם יש (ראה applyToOpenOrder).
+  //   • רק אם אין שום הזמנה פתוחה — היתרה נשארת לפעם הבאה, והנציג
+  //     מקבל על כך הודעה מפורשת.
+  const paidSoFar = Number((order as any).amountPaid ?? 0);
+  const orderFinal = order.finalTotal != null ? Number(order.finalTotal) : null;
+  const partialRemaining =
+    order.paymentStatus === "PARTIALLY_PAID" && orderFinal != null
+      ? Math.round((orderFinal - paidSoFar) * 100) / 100
+      : 0;
+  const requestedAmount = Number(b.amount);
+  const creditFitsPartial =
+    order.paymentStatus === "PARTIALLY_PAID" &&
+    Number.isFinite(requestedAmount) &&
+    requestedAmount > 0 &&
+    requestedAmount <= partialRemaining + 0.01;
   const alreadyPaid =
-    order.paymentStatus === "PAID" || order.paymentStatus === "PARTIALLY_PAID";
+    order.paymentStatus === "PAID" ||
+    (order.paymentStatus === "PARTIALLY_PAID" && !creditFitsPartial);
 
   // ─── ביטול זיכוי ───
   if (b.amount === null || b.amount === undefined || b.amount === "") {
@@ -156,29 +199,35 @@ export async function POST(
     const prev = Number(cust?.creditBalance ?? 0);
     const newBalance = Math.round((prev + amount) * 100) / 100;
 
-    await prisma.$transaction([
-      prisma.customer.update({
-        where: { id: order.customerId },
-        data: {
-          creditBalance: newBalance,
-          creditBalanceNote: reason,
-          creditBalanceAt: new Date(),
-        },
-      }),
-      // נשמר גם על ההזמנה - לתיעוד ולתצוגה בכרטיס
-      prisma.order.update({
-        where: { id },
-        data: {
-          creditAmount: amount,
-          creditReason: reason,
-          creditById: g.agent.id,
-          creditAt: new Date(),
-        },
-      }),
-    ]);
+    // §394: ⚠️ **לא** נרשם כ-creditAmount על ההזמנה ששולמה.
+    //
+    // 🐛 creditAmount יורד מהסכום בכל חישוב מחדש. זיכוי שנרשם גם
+    // כיתרה וגם על ההזמנה היה מקוזז **פעמיים** — פעם מהיתרה בהזמנה
+    // הפתוחה, ופעם בהזמנה הזו אם היא מחושבת מחדש (ביטול פריט, חיוב
+    // נוסף). התיעוד נשמר ב-creditBalanceNote וב-appliedCreditBalance
+    // של ההזמנה שממנה קוזז.
+    await prisma.customer.update({
+      where: { id: order.customerId },
+      data: {
+        creditBalance: newBalance,
+        creditBalanceNote: `${reason} (זיכוי על הזמנה #${order.orderNumber})`,
+        creditBalanceAt: new Date(),
+      },
+    });
+
+    console.log(
+      `[credit] order #${order.orderNumber} PAID -> balance ${prev} + ${amount} = ${newBalance}`
+    );
+
+    // §394: מקזזים **עכשיו** מהזמנה פתוחה של הלקוח, אם יש.
+    const appliedTo = await applyToOpenOrder(order.customerId, id, g.agent.id);
 
     // מייל ללקוח. לא חוסם - כשל שליחה לא יבטל זיכוי שכבר נרשם.
-    if (cust?.email) {
+    //
+    // §394: רק כשהזיכוי **נשאר כיתרה**. המייל אומר "תקוזז מההזמנה
+    // הבאה" — וכשהוא כבר קוזז מההזמנה הפתוחה זה פשוט לא נכון. שם
+    // הלקוח רואה את הקיזוז בפירוט ההזמנה עצמה.
+    if (cust?.email && !appliedTo) {
       sendCreditBalanceEmail({
         customerName: cust.name,
         email: cust.email,
@@ -189,16 +238,17 @@ export async function POST(
       }).catch((e) => console.error("[credit] email failed:", e));
     }
 
-    console.log(
-      `[credit] order #${order.orderNumber} PAID -> balance ${prev} + ${amount} = ${newBalance}`
-    );
-
     return NextResponse.json({
       ok: true,
-      asBalance: true,
+      asBalance: !appliedTo,
       creditAmount: amount,
       creditReason: reason,
       newBalance,
+      appliedToOrderId: appliedTo?.id ?? null,
+      appliedToOrderNumber: appliedTo?.orderNumber ?? null,
+      message: appliedTo
+        ? `הזיכוי קוזז מיד מהזמנה #${appliedTo.orderNumber} (סכום חדש לתשלום: ${appliedTo.finalTotal?.toFixed(2) ?? "ייקבע בשקילה"} ש"ח).`
+        : `אין ללקוח הזמנה פתוחה — הזיכוי נשמר כיתרת זכות ויקוזז אוטומטית בהזמנה הבאה. החזר לכרטיס על הזמנה ששולמה נעשה ידנית בנדרים.`,
     });
   }
 
@@ -223,7 +273,47 @@ export async function POST(
     creditAmount: amount,
     creditReason: reason,
     finalTotal: newTotal,
+    message:
+      newTotal != null
+        ? `הזיכוי נכנס להזמנה. סכום לתשלום: ${newTotal.toFixed(2)} ש"ח.`
+        : `הזיכוי נשמר בהזמנה ויקוזז ברגע שכל המשקלים יוזנו.`,
   });
+}
+
+/**
+ * §394: קיזוז יתרת זכות **מיד** בהזמנה פתוחה של הלקוח.
+ *
+ * "פתוחה" = טרם שולמה, לא בחיוב, לא בוטלה, לא הועברה לחוב.
+ * האחרונה שנוצרה — זו שהנציג עובד עליה עכשיו.
+ *
+ * ⚠️ recomputeTotal קורא ל-applyBalanceToOrder, שמושך את היתרה
+ * המעודכנת של הלקוח — זה כל הקיזוז. אם ההזמנה טרם נשקלה במלואה,
+ * הקיזוז יקרה אוטומטית בשקילה (כמו תמיד), ומחזירים אותה בכל זאת
+ * כדי שהנציג ידע לאן הזיכוי ילך.
+ */
+async function applyToOpenOrder(
+  customerId: string,
+  excludeOrderId: string,
+  agentId: string
+): Promise<{ id: string; orderNumber: number; finalTotal: number | null } | null> {
+  const open = await prisma.order.findFirst({
+    where: {
+      customerId,
+      id: { not: excludeOrderId },
+      status: { notIn: ["CANCELLED"] },
+      paymentStatus: {
+        notIn: ["PAID", "PARTIALLY_PAID", "CHARGING", "DEBT_CARRIED"],
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, orderNumber: true },
+  });
+  if (!open) return null;
+  const newTotal = await recomputeTotal(open.id, agentId);
+  console.log(
+    `[credit] balance applied now to open order #${open.orderNumber} -> ${newTotal}`
+  );
+  return { id: open.id, orderNumber: open.orderNumber, finalTotal: newTotal };
 }
 
 /**
@@ -257,6 +347,8 @@ async function recomputeTotal(
       // אותו, וההנחה שהשדה קיים גם כאן היא בדיוק סוג הטעות
       // שחוזרת: שתי שליפות לאותו אובייקט עם select שונה.
       paymentStatus: true,
+      // §394: זיכוי על הזמנה ששולמה חלקית — אולי עכשיו היא מכוסה
+      amountPaid: true,
       items: { where: { isCancelled: false }, select: { finalPrice: true } },
     },
   });
@@ -313,6 +405,11 @@ async function recomputeTotal(
         order.paymentStatus ?? "PENDING"
       )
         ? { paymentStatus: "READY_TO_CHARGE" }
+        : {}),
+      // §394: שולם חלקית, והזיכוי סגר את הפער → שולם.
+      ...(order.paymentStatus === "PARTIALLY_PAID" &&
+      Number(order.amountPaid ?? 0) >= payable - 0.01
+        ? { paymentStatus: "PAID" }
         : {}),
     },
   });

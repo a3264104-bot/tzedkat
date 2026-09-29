@@ -13,6 +13,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
+// §394: קיזוז יתרה/חוב — אותה פונקציה של כל נקודות החישוב
+import { applyBalanceToOrder } from "@/lib/credit-balance-lib";
 
 export async function POST(
   req: Request,
@@ -82,7 +84,7 @@ export async function POST(
         deliverySetAt: null,
       },
     });
-    await recomputeTotal(id);
+    await recomputeTotal(id, g.agent.id);
     return NextResponse.json({ ok: true, cleared: true });
   }
 
@@ -134,7 +136,7 @@ export async function POST(
     },
   });
 
-  const newTotal = await recomputeTotal(id);
+  const newTotal = await recomputeTotal(id, g.agent.id);
 
   console.log(
     `[delivery] order #${order.orderNumber} fee=${fee ?? 0} by agent=${g.agent.id}`
@@ -157,7 +159,11 @@ export async function POST(
  *
  * הסדר: פריטים + דמי טיפול + משלוח − זיכוי − יתרת זכות.
  */
-async function recomputeTotal(orderId: string): Promise<number | null> {
+async function recomputeTotal(
+  orderId: string,
+  // §368: הנציג — לתנועה בספר החובות (דרך applyBalanceToOrder)
+  agentId?: string | null
+): Promise<number | null> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     select: {
@@ -168,6 +174,11 @@ async function recomputeTotal(orderId: string): Promise<number | null> {
       deliveryRequested: true,
       customerId: true,
       appliedCreditBalance: true,
+      // §394: החוב שכבר נגבה בהזמנה — היה חסר כאן
+      appliedDebt: true,
+      paymentStatus: true,
+      amountPaid: true,
+      finalTotal: true,
       items: { where: { isCancelled: false }, select: { finalPrice: true } },
     },
   });
@@ -189,21 +200,74 @@ async function recomputeTotal(orderId: string): Promise<number | null> {
       : 0;
   // §135: חיוב נוסף
   const extra = order.extraCharge != null ? Number(order.extraCharge) : 0;
-  const balance =
-    order.appliedCreditBalance != null ? Number(order.appliedCreditBalance) : 0;
 
-  const total = Math.max(
+  const beforeBalance = Math.max(
     0,
     Math.round(
-      (itemsSum + Number(pl?.orderFee ?? 0) + delivery + extra - credit - balance) * 100
+      (itemsSum + Number(pl?.orderFee ?? 0) + delivery + extra - credit) * 100
     ) / 100
   );
 
+  // §394: 🐛 **החוב נמחק מהסכום בכל חיוב נוסף / משלוח.**
+  //
+  // הנוסחה כאן הורידה את יתרת הזכות אבל לא הוסיפה את appliedDebt.
+  // לקוח עם חוב ₪200 שקיבל חיוב נוסף של ₪10 — ה-200 נעלמו מהסכום,
+  // בזמן שבכרטיס הלקוח החוב כבר אופס. הכסף יצא מהספרים.
+  //
+  // ✅ הזמנה פתוחה: אותו applyBalanceToOrder של כל שאר החישובים.
+  // ✅ הזמנה ששולמה: לא מושכים יתרות חדשות — רק מה שכבר קוזז בה.
+  const settled =
+    order.paymentStatus === "PAID" || order.paymentStatus === "PARTIALLY_PAID";
+
+  let payable: number;
+  if (settled) {
+    const debt = order.appliedDebt != null ? Number(order.appliedDebt) : 0;
+    const bal =
+      order.appliedCreditBalance != null ? Number(order.appliedCreditBalance) : 0;
+    payable = Math.max(0, Math.round((beforeBalance + debt - bal) * 100) / 100);
+  } else {
+    ({ payable } = await applyBalanceToOrder(
+      prisma,
+      orderId,
+      order.customerId,
+      beforeBalance,
+      agentId
+    ));
+  }
+
+  // §394: מצב התשלום אחרי השינוי.
+  //
+  // ⚠️ הזמנה ששולמה + חיוב נוסף → PARTIALLY_PAID. החיוב (§384)
+  // גובה רק finalTotal − amountPaid, כלומר בדיוק את התוספת.
+  //
+  // ⚠️ amountPaid ריק בהזמנות ששולמו לפני §384: הסכום ששולם אז
+  // הוא finalTotal הקודם. בלי זה היתרה הייתה כל ההזמנה — חיוב כפול.
+  let statusPatch: any = {};
+  if (settled) {
+    const paid =
+      order.amountPaid != null
+        ? Number(order.amountPaid)
+        : order.paymentStatus === "PAID"
+          ? Number(order.finalTotal ?? 0)
+          : 0;
+    statusPatch = {
+      ...(order.amountPaid == null ? { amountPaid: paid } : {}),
+      paymentStatus: paid >= payable - 0.01 ? "PAID" : "PARTIALLY_PAID",
+    };
+  } else if (
+    payable > 0 &&
+    ["PENDING", "AWAITING_WEIGHING", "TOKEN_CREATED"].includes(
+      order.paymentStatus ?? "PENDING"
+    )
+  ) {
+    statusPatch = { paymentStatus: "READY_TO_CHARGE" };
+  }
+
   await prisma.order.update({
     where: { id: orderId },
-    data: { finalTotal: total },
+    data: { finalTotal: payable, ...statusPatch },
   });
-  return total;
+  return payable;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -310,6 +374,7 @@ export async function PUT(
       orderNumber: true,
       pointId: true,
       paymentStatus: true,
+      finalTotal: true,
     },
   });
   if (!order) {
@@ -331,17 +396,30 @@ export async function PUT(
     }
   }
 
-  // ⚠️ הזמנה ששולמה - החיוב לא ייגבה, כי הכרטיס כבר חויב.
-  // אותו נימוק כמו במשלוח: עדיף לחסום מאשר להציג סכום שלא נגבה.
-  if (order.paymentStatus === "PAID" || order.paymentStatus === "PARTIALLY_PAID") {
+  // §394: 💳 **חיוב נוסף על הזמנה ששולמה — נגבה עכשיו, לא נחסם.**
+  //
+  // 🐛 מה שהיה: חסימה ("יש לגבות במזומן או לפנות למנהל"). הנציג
+  // נאלץ לפתוח הזמנה חדשה — והלקוח שילם עוד ₪3 דמי הזמנה על טעות
+  // שלנו.
+  //
+  // ✅ עכשיו: החיוב נוסף להזמנה, והיא הופכת ל"שולם חלקית". כפתור
+  // החיוב גובה רק את היתרה (§384) — כלומר בדיוק את התוספת.
+  //
+  // ⚠️ חיוב באמצע / הועבר לחוב — עדיין חסום.
+  if (order.paymentStatus === "CHARGING") {
     return NextResponse.json(
-      {
-        error:
-          "ההזמנה כבר שולמה. חיוב נוסף לא ייגבה בכרטיס - יש לגבות במזומן או לפנות למנהל.",
-      },
+      { error: "ההזמנה נמצאת כרגע בחיוב. יש לנסות שוב בעוד רגע." },
+      { status: 409 }
+    );
+  }
+  if (order.paymentStatus === "DEBT_CARRIED") {
+    return NextResponse.json(
+      { error: "ההזמנה הועברה לחוב בסגירת המכירה. יש לרשום חוב על הלקוח במקום." },
       { status: 400 }
     );
   }
+  const wasPaid =
+    order.paymentStatus === "PAID" || order.paymentStatus === "PARTIALLY_PAID";
 
   // ─── ביטול ───
   if (b.amount === null || b.amount === undefined || b.amount === "") {
@@ -354,7 +432,7 @@ export async function PUT(
         extraChargeAt: null,
       },
     });
-    await recomputeTotal(id);
+    await recomputeTotal(id, g.agent.id);
     return NextResponse.json({ ok: true, cleared: true });
   }
 
@@ -390,11 +468,20 @@ export async function PUT(
     },
   });
 
-  const newTotal = await recomputeTotal(id);
+  const newTotal = await recomputeTotal(id, g.agent.id);
 
   console.log(
-    `[extra-charge] order #${order.orderNumber} +${amount} by=${g.agent.id} reason="${reason}"`
+    `[extra-charge] order #${order.orderNumber} +${amount} by=${g.agent.id} reason="${reason}"${wasPaid ? " (on paid order)" : ""}`
   );
 
-  return NextResponse.json({ ok: true, extraCharge: amount, finalTotal: newTotal });
+  return NextResponse.json({
+    ok: true,
+    extraCharge: amount,
+    finalTotal: newTotal,
+    message: wasPaid
+      ? `החיוב הנוסף נרשם. ההזמנה סומנה "שולם חלקית" — יש ללחוץ "חייב" כדי לגבות את היתרה (או לסמן מזומן).`
+      : newTotal != null
+        ? `החיוב הנוסף נכנס להזמנה. סכום לתשלום: ${newTotal.toFixed(2)} ש"ח.`
+        : `החיוב הנוסף נשמר ויתווסף ברגע שכל המשקלים יוזנו.`,
+  });
 }

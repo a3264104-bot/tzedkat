@@ -48,7 +48,8 @@ export type OrderItem = {
   actualWeight: number | null;
   agentEnteredWeight: number | null;
   /** §349: פירוט משקל לפי קרטון — [5.0, 1.0] */
-  weightParts?: number[] | null;
+  /** §394: null במקום = קרטון שטרם מולא */
+  weightParts?: (number | null)[] | null;
   // §119: מחיר שהנציג קבע במוצר מועדף. null = לא נקבע, וחלים
   // כללי העמלה הרגילים.
   agentSetPrice?: number | null;

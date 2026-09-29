@@ -102,7 +102,8 @@ type Cell = {
   estimatedWeight: number | null;
   agentEnteredWeight: number | null;
   /** §349: פירוט לפי קרטון — לשחזור המשבצות אחרי רענון */
-  weightParts?: number[] | null;
+  /** §394: null במקום = משבצת קרטון שטרם מולאה */
+  weightParts?: (number | null)[] | null;
 };
 
 type CustomerRow = {
@@ -1004,8 +1005,8 @@ function WeightCell({
   // ⚠️ הסכום הוא מה שנשמר: הפריט מחזיק משקל אחד, ופיצול שלו
   // במסד היה דורש מיגרציה ושינוי בכל מי שקורא אותו.
   //
-  // ⚠️ ומי שכן שקל ביחד יכול למלא הכל במשבצת אחת ולהשאיר את
-  // השנייה ריקה - הסכום זהה.
+  // §394: ⚠️ מי ששקל ביחד ממלא את הסכום בראשונה **ו-0 בשאר**.
+  // משבצת ריקה = הפריט חסר (שכחה), ולא "הסכום זהה".
   //
   // ⚠️ רק קרטונים: בודדים לפי ק"ג הם שקילה אחת ("3 ק"ג פרגית"),
   // ופיצול היה מבלבל.
@@ -1031,8 +1032,10 @@ function WeightCell({
     const arr = Array(cartonCount).fill("");
     const saved = cell.weightParts;
     if (Array.isArray(saved) && saved.length > 0) {
+      // §394: גם 0 משוחזר — "0" הוא ערך שהוזן ("לא קיבל"), לא ריק.
+      // null = משבצת שטרם מולאה.
       saved.forEach((v, i) => {
-        if (i < cartonCount && v > 0) arr[i] = String(v);
+        if (i < cartonCount && v != null) arr[i] = String(v);
       });
     } else if (cell.agentEnteredWeight !== null) {
       arr[0] = String(cell.agentEnteredWeight);
@@ -1131,6 +1134,36 @@ function WeightCell({
   //
   // ⚠️ override מפורש: מי שיודע מה הערך מעביר אותו, ומי שלא
   // נופל ל-state כרגיל. אין הסתמכות על תזמון.
+  // §394: שמירת פירוט חלקי — חלק מהקרטונים מולאו, חלק ריקים.
+  //
+  // ⚠️ המשקל נשלח null: הפריט **לא שקול** עד שכל קרטון קיבל ערך.
+  // הפירוט נשמר כדי שמה שהנציג כבר הקליד לא ייעלם ברענון.
+  async function savePartial(cur: string[]) {
+    const partsPayload = cur.map((x) => (x.trim() === "" ? null : Number(x) || 0));
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/agent/order-item/${cell.itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentEnteredWeight: null, weightParts: partsPayload }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "שגיאה");
+      onItemUpdate(cell.orderId, cell.itemId, {
+        agentEnteredWeight: null,
+        actualWeight: json.item?.actualWeight ?? null,
+        weightParts: json.item?.weightParts ?? partsPayload,
+      });
+    } catch (e: any) {
+      setError(true);
+      setTimeout(() => setError(false), 2000);
+      alert(e?.message || "שמירת המשקל נכשלה");
+      onNeedsReload();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function save(override?: string, partsOverride?: string[]) {
     const raw = (override ?? val).trim();
 
@@ -1146,7 +1179,12 @@ function WeightCell({
     // ⚠️ ההבחנה בין null ל-0 נשמרת: null = "טרם נשקל" (תא אדום),
     // 0 = "לא קיבל" (ערך תקף). מחיקה מחזירה ל-null.
     if (raw === "") {
-      if (cell.agentEnteredWeight === null) return; // כבר ריק
+      // §394: גם פירוט חלקי שמור נחשב "לא ריק" — מחיקת כל המשבצות
+      // צריכה לנקות אותו מהשרת.
+      const hasSavedParts =
+        Array.isArray(cell.weightParts) &&
+        cell.weightParts.some((x) => x != null);
+      if (cell.agentEnteredWeight === null && !hasSavedParts) return; // כבר ריק
       setSaving(true);
       try {
         const res = await fetch(`/api/agent/order-item/${cell.itemId}`, {
@@ -1166,6 +1204,7 @@ function WeightCell({
         onItemUpdate(cell.orderId, cell.itemId, {
           agentEnteredWeight: null,
           actualWeight: json.item?.actualWeight ?? null,
+          weightParts: null,
         });
       } catch {
         setError(true);
@@ -1184,7 +1223,14 @@ function WeightCell({
       setTimeout(() => setError(false), 1500);
       return;
     }
-    if (w === cell.agentEnteredWeight) return;
+    // §394: עם פירוט — שומרים גם כשהסכום זהה. [12, 0] → [6, 6]
+    // הוא אותו סכום אבל פירוט אחר, וגם מעבר מ"חלקי" לשלם.
+    const partsChanged =
+      !!partsOverride &&
+      partsOverride.length > 1 &&
+      JSON.stringify(partsOverride.map((x) => Number(x) || 0)) !==
+        JSON.stringify((cell.weightParts ?? []).map((x) => Number(x ?? -1)));
+    if (w === cell.agentEnteredWeight && !partsChanged) return;
 
     setSaving(true);
     try {
@@ -1325,23 +1371,67 @@ function WeightCell({
                   //
                   // §346: מה-ref ולא מה-state — הוא מכיל את מה
                   // שהוקלד ברגע זה, ולא את הצילום מהרינדור.
-                  const sum = partsRef.current.reduce(
-                    (a, x) => a + (Number(x) || 0),
-                    0
-                  );
+                  const cur = [...partsRef.current];
+                  const filled = cur.filter((x) => x.trim() !== "");
+
+                  // כל המשבצות ריקות — מחיקה, כמו קודם
+                  if (filled.length === 0) {
+                    setVal("");
+                    save("", cur);
+                    return;
+                  }
+
+                  // §394: 🐛 **קרטון שני שלא מולא — עבר כ"הושלם".**
+                  //
+                  // לקוח לקח 2 קרטונים, הנציג מילא רק את הראשון,
+                  // והפריט נחשב שקול: V עבר, והלקוח חויב על קרטון
+                  // אחד. השני נשכח.
+                  //
+                  // ✅ עכשיו: משבצת ריקה = הפריט **חסר**. הפירוט
+                  // נשמר (כדי שמה שהוקלד לא ייעלם), אבל המשקל
+                  // נשאר null — התא אדום, "חסר" נספר, V חסום.
+                  //
+                  // ⚠️ מי ששקל את כל הקרטונים יחד: מזין את הסכום
+                  // בראשונה ו-0 בשאר. 0 הוא החלטה מפורשת, ריק
+                  // הוא שכחה.
+                  if (filled.length < cur.length) {
+                    setVal("");
+                    savePartial(cur);
+                    return;
+                  }
+
+                  const sum = cur.reduce((a, x) => a + (Number(x) || 0), 0);
                   const rounded = Math.round(sum * 100) / 100;
-                  const next = rounded > 0 ? String(rounded) : "";
+                  // ⚠️ "0" נשמר כ-0 ולא כריק: כל הקרטונים 0 = לא קיבל.
+                  const next = String(rounded);
                   setVal(next);
                   // §345: מעבירים את הערך ישירות — בלי להסתמך
                   // על כך ש-setVal יסתיים לפני save().
                   // §349: וגם את הפירוט, לשמירה.
-                  save(next, [...partsRef.current]);
+                  save(next, cur);
                 }}
-                placeholder={`ק"ג`}
-                className="w-full text-center font-bold text-base md:text-sm rounded py-1.5 md:py-1 border-2 border-zinc-200 focus:border-brand-rust"
+                placeholder={`קרטון ${i + 1}`}
+                // §394: משבצת ריקה אדומה — כל קרטון חייב ערך (גם 0)
+                className={`w-full text-center font-bold text-base md:text-sm rounded py-1.5 md:py-1 border-2 focus:border-brand-rust ${
+                  p.trim() === ""
+                    ? "border-red-500 bg-red-100 text-red-900 placeholder-red-400"
+                    : "border-emerald-400 bg-emerald-50 text-emerald-900"
+                } ${readOnly ? "opacity-60" : ""}`}
               />
             </div>
           ))}
+          {/* §394: אזהרה מפורשת — איזה קרטון חסר */}
+          {parts.some((p) => p.trim() !== "") &&
+            parts.some((p) => p.trim() === "") && (
+              <div className="text-[9px] text-center font-bold text-red-600 leading-tight">
+                חסר קרטון{" "}
+                {parts
+                  .map((p, i) => (p.trim() === "" ? i + 1 : null))
+                  .filter((x) => x != null)
+                  .join(", ")}{" "}
+                · לא קיבל = 0
+              </div>
+            )}
           {/* ⚠️ הסכום מוצג: הנציג רואה מה יישמר בלי לחבר בראש. */}
           {parts.some((p) => p !== "") && (
             <div className="text-[10px] text-center font-bold text-brand-rust">
