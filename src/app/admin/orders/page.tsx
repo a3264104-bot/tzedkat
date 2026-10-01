@@ -7,7 +7,14 @@
 
 import { useEffect, useState } from "react";
 // §380: בורר מכירה מרכזי
-import { useSelectedPricelist, ALL_SALES, PricelistSelector } from "@/components/useSelectedPricelist";
+import {
+  useSelectedPricelist,
+  PricelistSelector,
+  // §396: צבירה לפי סוג (רגילות / שבועיות)
+  applySaleSelection,
+  isAggregateSelection,
+  saleSelectionLabel,
+} from "@/components/useSelectedPricelist";
 import Link from "next/link";
 import { api, download } from "@/lib/client";
 import { STATUS_LABELS, STATUS_ORDER, fmt } from "@/lib/pricing";
@@ -72,15 +79,17 @@ const SOURCE_LABELS: Record<string, string> = {
   EXCEL: "אקסל",
   AGENT: "נציג",
   ADMIN: "מנהל",
+  // §398: מזדמן שהומר ללקוח
+  WALKIN: "מזדמן",
 };
 const SOURCE_COLORS: Record<string, string> = {
   PHONE: "bg-indigo-100 text-indigo-700",
   EXCEL: "bg-green-100 text-green-700",
   AGENT: "bg-teal-100 text-teal-700",
   ADMIN: "bg-zinc-200 text-zinc-700",
+  WALKIN: "bg-violet-100 text-violet-700",
 };
 
-const ALL = ALL_SALES;
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -111,7 +120,7 @@ export default function OrdersPage() {
     async function load() {
       setLoading(true);
       const q = new URLSearchParams();
-      if (fPricelist !== ALL) q.set("pricelistId", fPricelist);
+      applySaleSelection(q, fPricelist); // §396
       if (fPoint) q.set("pointId", fPoint);
       if (fStatus) q.set("status", fStatus);
       try {
@@ -167,7 +176,7 @@ export default function OrdersPage() {
       alert(msg);
       setSel(new Set());
       const qp = new URLSearchParams();
-      if (fPricelist !== ALL) qp.set("pricelistId", fPricelist);
+      applySaleSelection(qp, fPricelist); // §396
       if (fPoint) qp.set("pointId", fPoint);
       if (fStatus) qp.set("status", fStatus);
       setOrders(await api(`/api/orders?${qp.toString()}`));
@@ -180,7 +189,7 @@ export default function OrdersPage() {
 
   const exportUrl = () => {
     const q = new URLSearchParams({ type: "orders" });
-    if (fPricelist && fPricelist !== ALL) q.set("pricelistId", fPricelist);
+    applySaleSelection(q, fPricelist); // §396
     if (fPoint) q.set("pointId", fPoint);
     return `/api/admin/export?${q.toString()}`;
   };
@@ -258,8 +267,8 @@ export default function OrdersPage() {
         <div>
           <h1 className="text-2xl font-extrabold text-brand-slatedark">הזמנות</h1>
           <p className="text-sm text-brand-slate/60 mt-0.5">
-            {fPricelist === ALL
-              ? "מציג הזמנות מכל המכירות"
+            {isAggregateSelection(fPricelist)
+              ? `מציג הזמנות: ${saleSelectionLabel(fPricelist, lists)}`
               : currentList
                 ? `מציג את המכירה: ${currentList.name}`
                 : "בחר מכירה"}

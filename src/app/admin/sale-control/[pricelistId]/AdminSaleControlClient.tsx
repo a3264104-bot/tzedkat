@@ -4,6 +4,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+// §397: ניווט בין מסכי הסיכום
+import { ReportsNav, SaleLink, rememberSale } from "@/components/ReportsNav";
 
 type Data = {
   pricelist: {
@@ -161,6 +163,11 @@ export default function AdminSaleControlClient({
     }
   }, [pricelistId]);
 
+  // §397: המכירה הזו הופכת לנבחרת גם בבורר המרכזי
+  useEffect(() => {
+    rememberSale(pricelistId);
+  }, [pricelistId]);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -196,7 +203,7 @@ if (loading) {
           </Link>
           <div className="text-right">
             <h1 className="font-extrabold text-brand-slatedark">
-              📊 בקרת מכירה
+              📊 בקרת מכירה — מה קרה בפועל
             </h1>
             <div className="text-xs text-brand-slate mt-0.5">
               {data.pricelist.name}
@@ -207,6 +214,27 @@ if (loading) {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-5 space-y-5">
+        {/* §397: 🧭 שלושת מסכי הסיכום */}
+        <ReportsNav current="control" pricelistId={pricelistId} />
+        {/* §397: מכאן לרשימות עצמן — על אותה מכירה */}
+        <div className="flex flex-wrap gap-2 text-xs">
+          <span className="text-zinc-500 self-center">לפירוט השורות:</span>
+          <SaleLink href="/admin/orders" pricelistId={pricelistId} className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 font-bold hover:border-brand-rust">
+            🧾 הזמנות המכירה
+          </SaleLink>
+          <SaleLink href="/admin/payments" pricelistId={pricelistId} className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 font-bold hover:border-brand-rust">
+            💳 תשלומים — מי שילם ומי לא
+          </SaleLink>
+          <SaleLink href="/admin/credits" pricelistId={pricelistId} className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 font-bold hover:border-brand-rust">
+            ↩️ זיכויים ומשלוחים
+          </SaleLink>
+          <Link href="/admin/agent-debts" className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 font-bold hover:border-brand-rust">
+            🧮 חשבון הנציגים (עם פירוט)
+          </Link>
+          <Link href={`/admin/sale-close/${pricelistId}`} className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 font-bold hover:border-brand-rust">
+            🔒 סגירת המכירה
+          </Link>
+        </div>
         {/* Quick Actions */}
         <div className="flex flex-wrap gap-2">
           <a
@@ -735,6 +763,13 @@ if (loading) {
           {fin.walkinRevenue > 0 && (
           <div className="mt-4 pt-4 border-t border-zinc-100">
             <div className="text-xs font-bold text-zinc-500 mb-2">פירוט הכנסות</div>
+            {/* §398: מזדמנים ישנים — להמרה ללקוחות */}
+            <Link
+              href="/admin/walkins"
+              className="inline-block mb-2 text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded px-2 py-1 hover:bg-violet-100"
+            >
+              👤 להפוך את המזדמנים ללקוחות רשומים ←
+            </Link>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <SubStat label="הזמנות מהאתר" value={`${money(fin.orderRevenue)}`} />
               <SubStat label="מזדמנים - סה״כ" value={`${money(fin.walkinRevenue)}`} />

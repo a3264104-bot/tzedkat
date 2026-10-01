@@ -183,7 +183,9 @@ export async function POST(
           where: { id: h.id },
           data: {
             paymentStatus: "DEBT_CARRIED",
-            paymentMethod: "DEBT_CARRIED",
+            // §398: paymentMethod **לא** נדרס. הסטטוס כבר אומר שהיתרה
+            // עברה לחוב, ודריסת האמצעי גרמה למזומן חלקי שהנציג קיבל
+            // להיספר כאשראי — ולהיעלם מחשבון הנציג.
             manualPaymentNote: `היתרה (${h.remaining.toFixed(2)}) הועברה לחוב הלקוח בסגירת המכירה`,
           },
         });

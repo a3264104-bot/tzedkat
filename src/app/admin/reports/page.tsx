@@ -12,6 +12,8 @@ import { useEffect, useState } from "react";
 // §231: קישור לסיכום המכירה במקום הכפילות
 import Link from "next/link";
 import { api, download } from "@/lib/client";
+// §397: ניווט בין מסכי הסיכום
+import { ReportsNav, rememberSale, recallSale } from "@/components/ReportsNav";
 import { STATUS_LABELS, fmt } from "@/lib/pricing";
 
 type Tab = "summary" | "products" | "bypoint" | "customers" | "financial";
@@ -27,7 +29,23 @@ const TABS: { id: Tab; label: string }[] = [
 export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("summary");
   const [pricelists, setPricelists] = useState<any[]>([]);
-  const [pricelistId, setPricelistId] = useState("");
+  const [pricelistId, setPricelistIdState] = useState("");
+  // §397: המכירה עוברת בין מסכי הסיכום (כתובת / בחירה אחרונה)
+  const [saleReady, setSaleReady] = useState(false);
+  useEffect(() => {
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get("pricelistId");
+      const initial = fromUrl ?? recallSale();
+      if (initial) setPricelistIdState(initial);
+    } catch {
+      // ברירת מחדל — כל המכירות
+    }
+    setSaleReady(true);
+  }, []);
+  const setPricelistId = (id: string) => {
+    setPricelistIdState(id);
+    if (id) rememberSale(id);
+  };
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -44,9 +62,10 @@ export default function ReportsPage() {
     setLoading(false);
   }
   useEffect(() => {
+    if (!saleReady) return; // §397
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pricelistId]);
+  }, [pricelistId, saleReady]);
 
   function exportUrl(type: string) {
     const q = new URLSearchParams({ type });
@@ -56,8 +75,15 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-5">
+      {/* §397: 🧭 שלושת מסכי הסיכום */}
+      <ReportsNav current="reports" pricelistId={pricelistId} />
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-extrabold text-brand-slatedark">דוחות</h1>
+        <div>
+          <h1 className="text-2xl font-extrabold text-brand-slatedark">📈 דוחות ויצוא</h1>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            רשימות וקבצים: לקוחות, סטטוסים, מקורות הזמנה, דוח כספי ויצוא לאקסל.
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <select
             className="input max-w-[220px]"
@@ -100,6 +126,18 @@ export default function ReportsPage() {
       ) : (
         <>
           {tab === "summary" && <SummaryReport data={data} />}
+          {/* §397: הלשוניות האלה הן תקציר. הגרסה המלאה — בסיכום מכירה */}
+          {(tab === "products" || tab === "bypoint") && (
+            <div className="no-print rounded-xl border-2 border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              זה תקציר לייצוא מהיר. לכמויות המלאות לכל מוצר ונקודה, כולל קובץ לספק —{" "}
+              <a
+                href={`/admin/sale-summary${pricelistId ? `?pricelistId=${pricelistId}` : ""}`}
+                className="font-bold underline"
+              >
+                📦 סיכום מכירה ←
+              </a>
+            </div>
+          )}
           {tab === "products" && (
             <ProductsReport data={data} onExport={() => download(exportUrl("products"))} />
           )}
@@ -225,7 +263,9 @@ function SummaryReport({ data }: { data: any }) {
                         ? "נציג"
                         : src === "ADMIN"
                           ? "מנהל"
-                          : "האתר"}
+                          : src === "WALKIN"
+                            ? "מזדמן בחלוקה"
+                            : "האתר"}
                   </span>
                   <span className="font-semibold">
                     <bdi>{n}</bdi>

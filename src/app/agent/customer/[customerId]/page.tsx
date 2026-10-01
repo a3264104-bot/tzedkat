@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+// §396: מכירות שבועיות
+import { ensureWeeklySales, resolveCustomerSaleId } from "@/lib/weekly-sales";
 import { auth } from "@/lib/auth";
 import { AgentCustomerClient } from "./AgentCustomerClient";
 
@@ -75,22 +77,52 @@ export default async function AgentCustomerPage({
   //
   // הנציג רואה כאן את כולן ובוחר באיזו לפתוח הזמנה. הלקוח לא
   // מגיע למסך הזה בכלל, ולכן אין חשש שהוא ייחשף למכירה המהירה.
+  //
+  // §396: 🔁 שבוע של סדרה שבועית — רק אם הנקודה של הלקוח בשבוע.
+  // שבוע של נקודה אחרת לא רלוונטי ללקוח הזה, ופתיחת הזמנה בו
+  // הייתה שולחת את הסחורה לנקודה שאין לו קשר אליה.
+  await ensureWeeklySales();
   const activeSales = await prisma.pricelist.findMany({
-    where: { status: "ACTIVE" },
+    where: {
+      status: "ACTIVE",
+      OR: [
+        { weeklySeriesId: null },
+        ...(customer.defaultPointId
+          ? [{ points: { some: { pointId: customer.defaultPointId } } }]
+          : []),
+      ],
+    },
     // רגילות קודם, כדי שברירת המחדל תהיה תמיד המכירה הראשית
-    orderBy: [{ agentOnly: "asc" }, { createdAt: "desc" }],
+    // §396: ושבועות אחרי הרגילות
+    orderBy: [
+      { agentOnly: "asc" },
+      { weeklySeriesId: { sort: "asc", nulls: "first" } },
+      { createdAt: "desc" },
+    ],
     select: {
       id: true,
       name: true,
       agentOnly: true,
       singleSurcharge: true,
       deliveryDateText: true,
+      weeklySeriesId: true,
     },
   });
 
   // המכירה הרגילה היא ברירת המחדל לתצוגה ולהוספת מוצרים
+  // §396: אחריה — השבוע של הנקודה של הלקוח
+  //
+  // §398: 🐛 ברירת המחדל לפי אותו כלל של הלקוח (resolveCustomerSaleId):
+  // הרגילה **רק אם היא מגיעה לנקודה שלו**. לקוח של נקודה שבועית שאינה
+  // ברגילה קיבל את הרגילה — "הוסף מוצר" הופיע רק בהזמנות שלה, והמוצרים
+  // נלקחו ממחירון שאינו שלו.
+  const preferredId = await resolveCustomerSaleId(customer.defaultPointId);
   const activePricelist =
-    activeSales.find((p) => !p.agentOnly) ?? activeSales[0] ?? null;
+    activeSales.find((p) => p.id === preferredId) ??
+    activeSales.find((p) => !p.agentOnly && !p.weeklySeriesId) ??
+    activeSales.find((p) => !!p.weeklySeriesId) ??
+    activeSales[0] ??
+    null;
 
   const availableProducts = activePricelist
     ? await prisma.pricelistProduct.findMany({
@@ -174,6 +206,8 @@ export default async function AgentCustomerPage({
         name: sl.name,
         agentOnly: sl.agentOnly,
         deliveryDateText: sl.deliveryDateText,
+        // §396: 🔁 תג "שבועית" בבורר
+        weekly: !!sl.weeklySeriesId,
       }))}
       singleSurcharge={Number(activePricelist?.singleSurcharge ?? 0)}
       availableProducts={availableProducts.map((pp) => ({

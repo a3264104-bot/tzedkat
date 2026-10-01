@@ -114,6 +114,9 @@ export async function POST(req: Request) {
       singleSurcharge: true,
       excelSentAt: true,
       excelSentCount: true,
+      // §396: שבוע — נשלח רק ללקוחות של נקודות השבוע
+      weeklySeriesId: true,
+      points: { select: { pointId: true } },
       products: {
         include: {
           product: {
@@ -178,6 +181,11 @@ export async function POST(req: Request) {
       // NULL וגם מחרוזת ריקה.
       email: { not: "" },
       defaultPointId: { not: "" },
+      // §396: 🔁 שבוע של סדרה שבועית — רק ללקוחות של הנקודות שלו.
+      // לקוח מנקודה אחרת לא רואה את השבוע ולא יכול להזמין בו.
+      ...(pricelist.weeklySeriesId
+        ? { defaultPointId: { in: pricelist.points.map((p) => p.pointId) } }
+        : {}),
     },
     select: {
       id: true,

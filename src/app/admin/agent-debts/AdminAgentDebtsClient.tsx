@@ -57,6 +57,11 @@ type AgentData = {
      */
     cashFromOrders?: number;
     cashOrders?: number;
+    /** §397: מזומן שהמנהל קיבל ישירות מלקוחות הנקודה */
+    cashToAdmin?: number;
+    cashToAdminOrders?: number;
+    /** §397: כמה מזדמנים שילמו מזומן */
+    walkinCashCount?: number;
     pendingCollection?: number;
     pendingOrders?: number;
     totalCommission: number;
@@ -67,6 +72,14 @@ type AgentData = {
     debtDirection: "OWED_TO_AGENT" | "OWED_BY_AGENT" | "SETTLED";
   };
 };
+
+// §397: פורמט אחיד לכל הסכומים במסך
+const money = (n: number | undefined | null) =>
+  "₪" +
+  Number(n ?? 0).toLocaleString("he-IL", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 export default function AdminAgentDebtsClient() {
   const [data, setData] = useState<AgentData[]>([]);
@@ -236,6 +249,10 @@ function AgentCard({
   onReload: () => void;
 }) {
   const { agent, totals, summaries, payments } = data;
+  // §397: 🔍 איזה פירוט פתוח (null = אף אחד)
+  const [detail, setDetail] = useState<DetailKind | null>(null);
+  const toggleDetail = (k: DetailKind) => setDetail(detail === k ? null : k);
+  const cashHeld = (totals.totalCashCollected ?? 0) + (totals.cashFromOrders ?? 0);
 
   const balanceLabel =
     totals.debtDirection === "OWED_TO_AGENT"
@@ -303,7 +320,10 @@ function AgentCard({
           המערכת כן יודעת: כל הזמנה משויכת לנקודה, וכל חיוב
           מוצלח יודע כמה נגבה. */}
       {(totals.cardCollected ?? 0) > 0 ||
-      (totals.pendingCollection ?? 0) > 0 ? (
+      (totals.pendingCollection ?? 0) > 0 ||
+      // §397: גם כשיש רק מזומן (למשל רק מזדמנים) — אחרת ה-260 לא מוסבר
+      cashHeld > 0 ||
+      (totals.cashToAdmin ?? 0) > 0 ? (
         <div className="mt-3 rounded-xl border-2 border-blue-200 bg-blue-50 p-3">
           <div className="text-xs font-bold text-blue-900 mb-2">
             💳 גבייה מהנקודות של הנציג
@@ -315,9 +335,13 @@ function AgentCard({
             )}
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <button
+              type="button"
+              onClick={() => toggleDetail("CARD")}
+              className="text-right rounded-lg hover:bg-blue-100 p-1 -m-1"
+            >
               <div className="text-[10px] text-blue-700">
-                נגבה באשראי
+                נגבה באשראי · <span className="underline">פירוט</span>
               </div>
               <div className="text-lg font-extrabold text-blue-900 tabular-nums">
                 ₪{(totals.cardCollected ?? 0).toLocaleString("he-IL", {
@@ -328,12 +352,16 @@ function AgentCard({
               <div className="text-[10px] text-blue-700">
                 {totals.cardOrders ?? 0} הזמנות
               </div>
-            </div>
+            </button>
         {/* ⚠️ כתום לממתין: זה מה שעדיין לא נכנס, וזו
                 השורה שאומרת למנהל שהנקודה לא סגורה. */}
-            <div>
+            <button
+              type="button"
+              onClick={() => toggleDetail("PENDING")}
+              className="text-right rounded-lg hover:bg-amber-50 p-1 -m-1"
+            >
               <div className="text-[10px] text-amber-800">
-                ⏳ טרם נגבה
+                ⏳ טרם נגבה · <span className="underline">פירוט</span>
               </div>
               <div className="text-lg font-extrabold text-amber-800 tabular-nums">
                 ₪{(totals.pendingCollection ?? 0).toLocaleString("he-IL", {
@@ -344,26 +372,34 @@ function AgentCard({
               <div className="text-[10px] text-amber-800">
                 {totals.pendingOrders ?? 0} הזמנות
               </div>
-            </div>
+            </button>
           </div>
           {/* §294: 💵 מזומן מלקוחות רגילים.
               
               הפער: "מזומן שאסף" סופר רק מזדמנים. נציג שגבה
               מזומן מלקוח שהזמין מראש (§130) - הכסף אצלו, ולא
               הופיע בשום מקום. */}
-          {(totals.cashFromOrders ?? 0) > 0 && (
-            <div className="mt-2 pt-2 border-t border-blue-200 flex items-center justify-between text-xs">
-              <span className="text-blue-900">
-                💵 מזומן שגבה מלקוחות ({totals.cashOrders ?? 0})
-              </span>
-              <span className="font-bold text-blue-900 tabular-nums">
-                ₪{(totals.cashFromOrders ?? 0).toLocaleString("he-IL", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-          )}
+          {/* §397: כל מקור מזומן בשורה משלו, וכל שורה נפתחת לפירוט */}
+          <div className="mt-2 pt-2 border-t border-blue-200 space-y-1 text-xs">
+            <DetailLine
+              label={`💵 מזומן שגבה מלקוחות שהזמינו (${totals.cashOrders ?? 0} הזמנות)`}
+              value={money(totals.cashFromOrders)}
+              onClick={() => toggleDetail("CASH_AGENT")}
+            />
+            <DetailLine
+              label={`🚶 מזומן ממזדמנים — לקוחות שלא הזמינו מראש (${totals.walkinCashCount ?? 0})`}
+              value={money(totals.totalCashCollected)}
+              onClick={() => toggleDetail("WALKINS")}
+            />
+            {(totals.cashToAdmin ?? 0) > 0 && (
+              <DetailLine
+                label={`🏦 מזומן שהמנהל קיבל ישירות (${totals.cashToAdminOrders ?? 0}) — לא אצל הנציג`}
+                value={money(totals.cashToAdmin)}
+                onClick={() => toggleDetail("CASH_ADMIN")}
+                muted
+              />
+            )}
+          </div>
 
           {/* §294: 🧮 שורת ההצלבה — "כמה כסף אצלו עכשיו".
               
@@ -372,6 +408,9 @@ function AgentCard({
           <div className="mt-2 pt-2 border-t-2 border-blue-300 flex items-center justify-between">
             <span className="text-xs font-bold text-blue-900">
               💰 מזומן שאמור להיות אצלו
+              <span className="block font-normal text-[10px] text-blue-800">
+                {money(totals.cashFromOrders)} מלקוחות + {money(totals.totalCashCollected)} ממזדמנים − {money(totals.totalCollected)} שהעביר
+              </span>
             </span>
             <span
               className={`text-base font-extrabold tabular-nums ${
@@ -398,34 +437,78 @@ function AgentCard({
 
           <p className="text-[10px] text-blue-800 mt-2 leading-relaxed">
             הסכומים לפי ההזמנות בנקודות של הנציג. חברת האשראי מעבירה
-            הכל יחד, וזה הפירוק לפי נקודה.
+            הכל יחד, וזה הפירוק לפי נקודה. <b>לחיצה על כל סכום פותחת את
+            השורות שהוא בנוי מהן.</b>
           </p>
         </div>
       ) : null}
+
+      {/* §397: 🔍 הפירוט — נטען רק כשנפתח */}
+      {detail && (
+        <BreakdownPanel
+          agentId={agent.id}
+          kind={detail}
+          totals={totals}
+          summaries={summaries}
+          onClose={() => setDetail(null)}
+        />
+      )}
 
       {expanded && (
         <div className="border-t border-zinc-100">
           {/* פירוט חשבון */}
           <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3 bg-zinc-50">
             <StatItem
-              label="סה״כ עמלה שהצטברה"
-              value={`₪${totals.totalCommission.toFixed(2)}`}
+              label="סה״כ עמלה שהצטברה · פירוט"
+              value={money(totals.totalCommission)}
+              onClick={() => toggleDetail("COMMISSION")}
             />
             <StatItem
-              label="שולם עד כה"
-              value={`₪${totals.totalPaid.toFixed(2)}`}
+              label="המנהל שילם לו · פירוט"
+              value={money(totals.totalPaid)}
               color="red"
+              onClick={() => toggleDetail("PAYMENTS")}
             />
             <StatItem
-              label="מזומן שאסף (מזדמנים)"
-              value={`₪${totals.totalCashCollected.toFixed(2)}`}
+              label="מזומן אצלו (לקוחות + מזדמנים) · פירוט"
+              value={money(cashHeld)}
               color="amber"
+              onClick={() => toggleDetail("CASH_ALL")}
             />
             <StatItem
-              label="העביר למנהל"
-              value={`₪${totals.totalCollected.toFixed(2)}`}
+              label="העביר למנהל · פירוט"
+              value={money(totals.totalCollected)}
               color="emerald"
+              onClick={() => toggleDetail("PAYMENTS")}
             />
+          </div>
+
+          {/* §397: 🧮 הנוסחה — במפורש. "המנהל חייב 182.90" בלי חשבון
+              הוא מספר שאי אפשר לבדוק. */}
+          <div className="px-4 py-3 bg-white border-t border-zinc-100 text-xs text-zinc-700 leading-relaxed">
+            <div className="font-bold text-brand-slatedark mb-1">איך מחושבת היתרה</div>
+            <div className="tabular-nums">
+              עמלה {money(totals.totalCommission)} − שולם לו {money(totals.totalPaid)} − (מזומן
+              אצלו {money(cashHeld)} − העביר {money(totals.totalCollected)}) ={" "}
+              <b
+                className={
+                  totals.balance > 0
+                    ? "text-red-700"
+                    : totals.balance < 0
+                      ? "text-emerald-700"
+                      : ""
+                }
+              >
+                {totals.balance > 0
+                  ? `המנהל חייב לו ${money(totals.balance)}`
+                  : totals.balance < 0
+                    ? `הנציג חייב למנהל ${money(Math.abs(totals.balance))}`
+                    : "מאוזן"}
+              </b>
+            </div>
+            <div className="text-[10px] text-zinc-500 mt-1">
+              המזומן שאצל הנציג מתקזז מהעמלה שמגיעה לו: הוא כבר מחזיק כסף של המכירה.
+            </div>
           </div>
 
 
@@ -522,10 +605,13 @@ function StatItem({
   label,
   value,
   color,
+  onClick,
 }: {
   label: string;
   value: string;
   color?: "red" | "amber" | "emerald";
+  /** §397: לחיצה פותחת פירוט */
+  onClick?: () => void;
 }) {
   const colorMap = {
     red: "text-red-700",
@@ -534,10 +620,15 @@ function StatItem({
   };
   const c = color ? colorMap[color] : "text-brand-slatedark";
   return (
-    <div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className="text-right rounded-lg p-1 -m-1 hover:bg-white disabled:hover:bg-transparent"
+    >
       <div className="text-[10px] font-bold text-zinc-500">{label}</div>
       <div className={`font-extrabold text-sm mt-0.5 ${c}`}>{value}</div>
-    </div>
+    </button>
   );
 }
 
@@ -756,3 +847,366 @@ function PaymentForm({
     </div>
   );
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// §397: 🔍 פירוט — ממה בנוי כל סכום
+// ═══════════════════════════════════════════════════════════════
+
+type DetailKind =
+  | "CARD"
+  | "PENDING"
+  | "CASH_AGENT"
+  | "CASH_ADMIN"
+  | "WALKINS"
+  | "CASH_ALL"
+  | "COMMISSION"
+  | "PAYMENTS";
+
+type Breakdown = {
+  orders: Array<{
+    id: string;
+    orderNumber: number;
+    customerName: string;
+    pointName: string;
+    pricelistId: string | null;
+    pricelistName: string;
+    paymentStatus: string | null;
+    paymentMethod: string | null;
+    receivedBy: string | null;
+    paidAt: string | null;
+    total: number;
+    weighed: boolean;
+    debtPart: number;
+    collected: number;
+    pending: number;
+    collectedBucket: "CARD" | "CASH_AGENT" | "CASH_ADMIN" | null;
+    bucket: string;
+    /** §398: הסכומים שנספרים בכרטיס — לפי מי שמחזיק בכסף */
+    status?: string;
+    inPoints?: boolean;
+    cardRev?: number;
+    adminCashRev?: number;
+    agentCash?: number;
+  }>;
+  walkins: Array<{
+    id: string;
+    walkinNumber: number;
+    customerName: string;
+    customerPhone: string | null;
+    paymentMethod: string;
+    paymentReceived: boolean;
+    paymentNote: string | null;
+    totalAmount: number;
+    createdAt: string;
+    pricelistId: string;
+    pricelistName: string;
+    pointName: string;
+    countsAsCashHeld: boolean;
+  }>;
+  sales: Array<{
+    pricelistId: string;
+    pricelistName: string;
+    cartonKg: number;
+    singlesKg: number;
+    cartonCommission: number;
+    singlesCommission: number;
+    customCommission: number;
+    totalCommission: number;
+    status: string;
+  }>;
+};
+
+const DETAIL_TITLES: Record<DetailKind, { title: string; hint: string }> = {
+  CARD: {
+    title: "💳 נגבה באשראי",
+    hint: "הזמנות בנקודות של הנציג ששולמו בכרטיס או בהעברה. הכסף אצל העסק — לא אצל הנציג. בהזמנה ששולמה חלק במזומן וחלק באשראי, מוצג כאן רק החלק שבאשראי.",
+  },
+  PENDING: {
+    title: "⏳ טרם נגבה",
+    hint: "הזמנות שעוד לא שולמו, או ששולמו חלקית (מוצגת היתרה בלבד).",
+  },
+  CASH_AGENT: {
+    title: "💵 מזומן שהנציג גבה מלקוחות",
+    hint: "מזומן שהנציג הזה סימן שקיבל — בכל נקודה, כולל הזמנה שבוטלה אחרי התשלום. הכסף אצלו עד שיעביר למנהל.",
+  },
+  CASH_ADMIN: {
+    title: "🏦 מזומן שהמנהל קיבל ישירות",
+    hint: "הזמנות שהמנהל סימן כשולמו במזומן. לא נספר כמזומן אצל הנציג.",
+  },
+  WALKINS: {
+    title: "🚶 מזדמנים",
+    hint: "לקוחות מזדמנים שקנו בחלוקה בלי הזמנה מראש. הם לא מופיעים ברשימת ההזמנות — רק כאן ובמסך המכירה של הנציג (לשונית מזדמנים). רק מזומן שהתקבל נספר כמזומן אצלו.",
+  },
+  CASH_ALL: {
+    title: "💰 כל המזומן שאצל הנציג",
+    hint: "מזומן מלקוחות שהזמינו + מזומן ממזדמנים.",
+  },
+  COMMISSION: {
+    title: "🧾 עמלה לפי מכירה",
+    hint: "העמלה מחושבת לפי הק\"ג שהנציג שקל: קרטונים × תעריף קרטון, בודדים × תעריף בודדים, ועמלה על מחירים מותאמים.",
+  },
+  PAYMENTS: {
+    title: "🔁 תשלומים והעברות",
+    hint: "כל מה שהמנהל שילם לנציג, וכל מה שהנציג העביר למנהל.",
+  },
+};
+
+function DetailLine({
+  label,
+  value,
+  onClick,
+  muted,
+}: {
+  label: string;
+  value: string;
+  onClick: () => void;
+  muted?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full flex items-center justify-between gap-2 rounded px-1 py-0.5 hover:bg-blue-100 text-right ${
+        muted ? "text-zinc-600" : "text-blue-900"
+      }`}
+    >
+      <span>
+        {label} · <span className="underline">פירוט</span>
+      </span>
+      <span className="font-bold tabular-nums shrink-0">{value}</span>
+    </button>
+  );
+}
+
+function BreakdownPanel({
+  agentId,
+  kind,
+  totals,
+  summaries,
+  onClose,
+}: {
+  agentId: string;
+  kind: DetailKind;
+  totals: AgentData["totals"];
+  summaries: AgentData["summaries"];
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<Breakdown | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (kind === "PAYMENTS") return; // ההיסטוריה כבר בכרטיס
+    let cancelled = false;
+    setError("");
+    fetch(`/api/admin/agent-breakdown?agentId=${encodeURIComponent(agentId)}`, {
+      cache: "no-store",
+    })
+      .then(async (r) => {
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "שגיאה בטעינת הפירוט");
+        if (!cancelled) setData(j);
+      })
+      .catch((e) => !cancelled && setError(e.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, kind]);
+
+  const t = DETAIL_TITLES[kind];
+
+  // §398: הסכום של כל שורה **בדיוק** כפי שנספר בכרטיס. הזמנה אחת
+  // יכולה להופיע גם ב"אשראי" וגם ב"מזומן אצל הנציג" — כל חלק במקומו.
+  const amountOf = (o: Breakdown["orders"][number]): number => {
+    if (kind === "CARD") return o.cardRev ?? 0;
+    if (kind === "CASH_AGENT" || kind === "CASH_ALL") return o.agentCash ?? 0;
+    if (kind === "CASH_ADMIN") return o.adminCashRev ?? 0;
+    if (kind === "PENDING") return o.pending;
+    return 0;
+  };
+  const orderRows = data?.orders.filter((o) => amountOf(o) > 0) ?? [];
+  const walkinRows =
+    kind === "WALKINS"
+      ? data?.walkins ?? []
+      : kind === "CASH_ALL"
+        ? (data?.walkins ?? []).filter((w) => w.countsAsCashHeld)
+        : [];
+
+  const orderSum = orderRows.reduce(
+    (s, o) => s + amountOf(o),
+    0
+  );
+  const walkinSum = walkinRows
+    .filter((w) => w.countsAsCashHeld)
+    .reduce((s, w) => s + w.totalAmount, 0);
+
+  return (
+    <div className="mt-3 rounded-xl border-2 border-zinc-300 bg-white p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="font-extrabold text-brand-slatedark text-sm">{t.title}</div>
+          <div className="text-[11px] text-zinc-600 mt-0.5 leading-relaxed">{t.hint}</div>
+        </div>
+        <button onClick={onClose} className="text-zinc-400 text-lg leading-none px-1" title="סגירה">
+          ×
+        </button>
+      </div>
+
+      {error && <p className="text-xs text-red-700 mt-2">{error}</p>}
+      {!data && kind !== "PAYMENTS" && !error && (
+        <p className="text-xs text-zinc-500 mt-2">טוען פירוט…</p>
+      )}
+
+      {/* הזמנות */}
+      {orderRows.length > 0 && (
+        <div className="mt-2 max-h-80 overflow-y-auto border rounded-lg divide-y">
+          {orderRows.map((o) => (
+            <a
+              key={o.id}
+              href={`/admin/orders/${o.id}`}
+              target="_blank"
+              className="flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-zinc-50"
+            >
+              <span className="font-bold text-brand-rust shrink-0">#{o.orderNumber}</span>
+              <span className="flex-1 min-w-0 truncate">
+                {o.customerName}
+                <span className="text-zinc-500">
+                  {" · "}
+                  {o.pricelistName}
+                  {o.pointName ? ` · ${o.pointName}` : ""}
+                  {kind === "PENDING" && o.collected > 0
+                    ? ` · שולם ${money(o.collected)} מתוך ${money(o.total - o.debtPart)}`
+                    : ""}
+                  {kind === "PENDING" && !o.weighed ? " · טרם נשקל (משוער)" : ""}
+                  {o.debtPart > 0
+                    ? kind === "CASH_AGENT" || kind === "CASH_ALL"
+                      ? ` · כולל חוב קודם ${money(o.debtPart)} שגבה (הכסף אצלו)`
+                      : ` · כולל חוב קודם ${money(o.debtPart)} (לא נספר)`
+                    : ""}
+                  {o.status === "CANCELLED" ? " · ⚠️ ההזמנה בוטלה — המזומן עדיין אצלו" : ""}
+                  {(kind === "CASH_AGENT" || kind === "CASH_ALL") && o.inPoints === false && o.status !== "CANCELLED"
+                    ? " · בנקודה שאינה שלו"
+                    : ""}
+                  {(kind === "CASH_AGENT" || kind === "CASH_ADMIN" || kind === "CASH_ALL") && o.receivedBy
+                    ? ` · סימן: ${o.receivedBy}`
+                    : ""}
+                </span>
+              </span>
+              <span className="font-bold tabular-nums shrink-0">
+                {money(amountOf(o))}
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {/* מזדמנים */}
+      {walkinRows.length > 0 && (
+        <div className="mt-2">
+          {kind === "CASH_ALL" && (
+            <div className="text-[11px] font-bold text-zinc-600 mb-1">ממזדמנים:</div>
+          )}
+          {/* §398: מזדמן = קונה שלא נרשם. הופכים אותו ללקוח, והשורה
+              עוברת ל"מזומן מלקוחות" — אותו סכום, עם שם והזמנה. */}
+          <Link
+            href="/admin/walkins"
+            className="block mb-1.5 text-[11px] font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded px-2 py-1 hover:bg-violet-100"
+          >
+            👤 להפוך את המזדמנים ללקוחות רשומים — הסכום לא משתנה, רק עובר לשם הלקוח ←
+          </Link>
+          <div className="max-h-80 overflow-y-auto border rounded-lg divide-y">
+            {walkinRows.map((w) => (
+              <a
+                key={w.id}
+                href={`/agent/sale/${w.pricelistId}`}
+                target="_blank"
+                className={`flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-zinc-50 ${
+                  w.countsAsCashHeld ? "" : "opacity-60"
+                }`}
+              >
+                <span className="font-bold text-violet-700 shrink-0">מזדמן {w.walkinNumber}</span>
+                <span className="flex-1 min-w-0 truncate">
+                  {w.customerName}
+                  <span className="text-zinc-500">
+                    {" · "}
+                    {w.pricelistName}
+                    {w.pointName ? ` · ${w.pointName}` : ""}
+                    {" · "}
+                    {WALKIN_METHOD[w.paymentMethod] ?? w.paymentMethod}
+                    {!w.paymentReceived ? " · טרם התקבל" : ""}
+                    {" · "}
+                    {new Date(w.createdAt).toLocaleDateString("he-IL", { timeZone: "Asia/Jerusalem" })}
+                  </span>
+                </span>
+                <span className="font-bold tabular-nums shrink-0">{money(w.totalAmount)}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* עמלה */}
+      {kind === "COMMISSION" && (
+        <div className="mt-2 border rounded-lg divide-y">
+          {(data?.sales ?? []).map((sl) => (
+            <a
+              key={sl.pricelistId}
+              href={`/admin/agents/${agentId}/sale-detail?pricelistId=${sl.pricelistId}`}
+              target="_blank"
+              className="block px-2 py-1.5 text-xs hover:bg-zinc-50"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-brand-slatedark">{sl.pricelistName}</span>
+                <span className="font-bold tabular-nums">{money(sl.totalCommission)}</span>
+              </div>
+              <div className="text-[11px] text-zinc-500 tabular-nums">
+                קרטונים {sl.cartonKg.toFixed(2)} ק״ג → {money(sl.cartonCommission)} · בודדים{" "}
+                {sl.singlesKg.toFixed(2)} ק״ג → {money(sl.singlesCommission)}
+                {sl.customCommission > 0 ? ` · מחירים מותאמים ${money(sl.customCommission)}` : ""}
+                {sl.status === "CONFIRMED" ? " · ✓ נסגר" : " · פתוח"}
+              </div>
+            </a>
+          ))}
+          {data && data.sales.length === 0 && (
+            <p className="text-xs text-zinc-500 p-2">אין עדיין סיכומי מכירה לנציג.</p>
+          )}
+        </div>
+      )}
+
+      {kind === "PAYMENTS" && (
+        <p className="text-xs text-zinc-600 mt-2">
+          הרשימה המלאה מופיעה למטה תחת "היסטוריית תשלומים" — כל רשומה עם תאריך,
+          אמצעי ומכירה. סה״כ שולם לנציג {money(totals.totalPaid)}, סה״כ העביר למנהל{" "}
+          {money(totals.totalCollected)}.
+        </p>
+      )}
+
+      {/* שורת סיכום — חייבת להיות שווה לסכום בכרטיס */}
+      {data && kind !== "COMMISSION" && kind !== "PAYMENTS" && (
+        <div className="mt-2 flex items-center justify-between text-xs font-bold border-t pt-2">
+          <span>
+            סה״כ {orderRows.length > 0 ? `${orderRows.length} הזמנות` : ""}
+            {orderRows.length > 0 && walkinRows.length > 0 ? " + " : ""}
+            {walkinRows.length > 0 ? `${walkinRows.filter((w) => w.countsAsCashHeld).length} מזדמנים במזומן` : ""}
+            {orderRows.length === 0 && walkinRows.length === 0 ? "אין שורות" : ""}
+          </span>
+          <span className="tabular-nums">{money(orderSum + walkinSum)}</span>
+        </div>
+      )}
+      {kind === "COMMISSION" && (
+        <div className="mt-2 flex items-center justify-between text-xs font-bold border-t pt-2">
+          <span>סה״כ {summaries.length} מכירות</span>
+          <span className="tabular-nums">{money(totals.totalCommission)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const WALKIN_METHOD: Record<string, string> = {
+  CASH: "מזומן",
+  CARD_TERMINAL: "אשראי במסוף",
+  TRANSFER: "העברה",
+  ONLINE: "אונליין",
+  CARD_ONLINE: "אשראי אונליין",
+};

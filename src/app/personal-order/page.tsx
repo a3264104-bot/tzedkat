@@ -1,4 +1,7 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+// §396: נקודה שבועית — אין הזמנה אישית
+import { isWeeklyPoint } from "@/lib/weekly-sales";
 import { auth } from "@/lib/auth";
 import { PersonalOrderClient } from "./PersonalOrderClient";
 import { redirect } from "next/navigation";
@@ -38,6 +41,8 @@ export default async function PersonalOrderPage() {
         paymentToken: true,
         paymentPreference: true,
         cardExpiry: true,
+        // §396: נקודה שבועית — אין הזמנה אישית
+        defaultPointId: true,
       },
     }),
     prisma.personalRequest.findMany({
@@ -49,6 +54,31 @@ export default async function PersonalOrderPage() {
       },
     }),
   ]);
+
+  // §396: 🔁 נקודה שבועית — במקום הטופס, הפניה למכירה השבועית.
+  if (customer && (await isWeeklyPoint(customer.defaultPointId))) {
+    return (
+      <main dir="rtl" className="min-h-screen bg-brand-cream flex items-center justify-center p-6">
+        <div className="card p-8 text-center max-w-md">
+          <div className="text-4xl mb-2">🔁</div>
+          <p className="text-lg font-bold text-brand-slatedark">
+            בנקודה שלך יש מכירה שבועית קבועה
+          </p>
+          <p className="text-sm text-zinc-600 mt-2">
+            אין צורך בהזמנה אישית — אפשר להזמין כל שבוע במכירה הקבועה של הנקודה.
+          </p>
+          <div className="flex flex-wrap gap-2 justify-center mt-5">
+            <Link href="/order" className="btn-primary">
+              להזמנה השבועית ←
+            </Link>
+            <Link href="/" className="btn-ghost">
+              חזרה
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <PersonalOrderClient

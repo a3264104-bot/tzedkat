@@ -5,6 +5,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
+// §398: סיכום הנציג — מקור אחד
+import { recalculateAgentSummary } from "@/lib/agent-summary-lib";
 
 export async function PATCH(
   req: Request,
@@ -91,103 +93,7 @@ export async function DELETE(
   await prisma.walkinOrder.delete({ where: { id } });
 
   // עדכון סיכום הנציג
-  const agent = await prisma.customer.findUnique({
-    where: { id: walkin.agentId },
-    select: {
-      agentPointId: true,
-      commissionRateCarton: true,
-      commissionRateSingles: true,
-    },
-  });
-  if (agent) {
-    await recalculateAgentSummary(walkin.pricelistId, walkin.agentId);
-  }
+  await recalculateAgentSummary(walkin.pricelistId, walkin.agentId);
 
   return NextResponse.json({ ok: true });
-}
-
-async function recalculateAgentSummary(pricelistId: string, agentId: string) {
-  const agent = await prisma.customer.findUnique({
-    where: { id: agentId },
-    select: {
-      agentPointId: true,
-      commissionRateCarton: true,
-      commissionRateSingles: true,
-    },
-  });
-  if (!agent) return;
-
-  const rateCarton = Number(agent.commissionRateCarton);
-  const rateSingles = Number(agent.commissionRateSingles);
-
-  const whereOrders: any = { pricelistId, status: { notIn: ["CANCELLED"] } };
-  if (agent.agentPointId) whereOrders.pointId = agent.agentPointId;
-
-  const orders = await prisma.order.findMany({
-    where: whereOrders,
-    include: { items: { where: { isCancelled: false } } },
-  });
-
-  let totalCartonWeight = 0;
-  let totalSinglesWeight = 0;
-  let customersWithData = 0;
-  for (const order of orders) {
-    let hasData = false;
-    for (const it of order.items) {
-      const w = it.agentEnteredWeight ? Number(it.agentEnteredWeight) : 0;
-      if (w > 0) {
-        hasData = true;
-        if (it.isSingle) totalSinglesWeight += w;
-        else totalCartonWeight += w;
-      }
-    }
-    if (hasData) customersWithData++;
-  }
-
-  const walkins = await prisma.walkinOrder.findMany({
-    where: { pricelistId, agentId },
-    include: { items: true },
-  });
-  let totalWalkinWeight = 0;
-  let totalWalkinCarton = 0;
-  let totalWalkinSingles = 0;
-  for (const w of walkins) {
-    for (const it of w.items) {
-      const wt = Number(it.weight);
-      totalWalkinWeight += wt;
-      if (it.isSingle) totalWalkinSingles += wt;
-      else totalWalkinCarton += wt;
-    }
-  }
-
-  const cartonCommission = (totalCartonWeight + totalWalkinCarton) * rateCarton;
-  const singlesCommission = (totalSinglesWeight + totalWalkinSingles) * rateSingles;
-  const totalCommission = cartonCommission + singlesCommission;
-
-  await prisma.agentSaleSummary.upsert({
-    where: { pricelistId_agentId: { pricelistId, agentId } },
-    create: {
-      pricelistId,
-      agentId,
-      status: "DRAFT",
-      totalCartonWeight,
-      totalSinglesWeight,
-      totalWalkinWeight,
-      totalCustomers: customersWithData,
-      totalWalkins: walkins.length,
-      cartonCommission,
-      singlesCommission,
-      totalCommission,
-    },
-    update: {
-      totalCartonWeight,
-      totalSinglesWeight,
-      totalWalkinWeight,
-      totalCustomers: customersWithData,
-      totalWalkins: walkins.length,
-      cartonCommission,
-      singlesCommission,
-      totalCommission,
-    },
-  });
 }

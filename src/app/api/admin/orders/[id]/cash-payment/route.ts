@@ -28,6 +28,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const admin = await requireAdmin();
   let actorLabel: string;
   let agentPointIds: string[] | null = null;
+  // §398: מי קיבל את הכסף ביד — נציג (ואיזה) או המנהל
+  let agentActorId: string | null = null;
 
   if (admin.ok) {
     actorLabel =
@@ -43,19 +45,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     actorLabel = `נציג: ${agent.agent.name}`;
     agentPointIds = agent.isAdmin ? null : agent.agentPointIds;
+    agentActorId = agent.isAdmin ? null : agent.agent.id;
   }
 
-  const b = await req.json();
-  const amountPaid = Number(b.amountPaid);
+  const b = await req.json().catch(() => ({}));
   const note: string | null = b.note ?? null;
   const receivedByUserId = actorLabel;
 
+  const order = await prisma.order.findUnique({ where: { id } });
+  if (!order) return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
+
+  // §398: "שילם את כל היתרה" — השרת מחשב, לא המסך. סימון מרוכז
+  // שלח את הסכום שנטען בדף; אם ההזמנה נשקלה מחדש בינתיים, נרשם
+  // סכום ישן (חלקי מוסתר, או יותר ממה שמגיע).
+  const amountPaid =
+    b.payRemaining === true && order.finalTotal != null
+      ? Number(order.finalTotal)
+      : Number(b.amountPaid);
   if (!amountPaid || amountPaid <= 0) {
     return NextResponse.json({ error: "יש להזין סכום תקין שהתקבל" }, { status: 400 });
   }
-
-  const order = await prisma.order.findUnique({ where: { id } });
-  if (!order) return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
 
   // §91: נציג - רק הזמנות של נקודותיו
   if (agentPointIds && !agentPointIds.includes(order.pointId)) {
@@ -78,6 +87,72 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (order.paymentStatus === "PAID") {
     return NextResponse.json({ error: "ההזמנה כבר מסומנת כשולמה" }, { status: 400 });
   }
+  // §398: חיוב אשראי באמצע / הזמנה שהוחזרה — סימון מזומן עכשיו היה
+  // גובה פעמיים (החיוב עלול להצליח שנייה אחרי).
+  if (order.paymentStatus === "CHARGING") {
+    return NextResponse.json(
+      { error: "ההזמנה נמצאת כרגע בחיוב אשראי. המתן לתוצאה לפני סימון מזומן." },
+      { status: 409 }
+    );
+  }
+  if (order.paymentStatus === "REFUNDED") {
+    return NextResponse.json({ error: "ההזמנה זוכתה — לא ניתן לסמן עליה תשלום" }, { status: 400 });
+  }
+  // §398: הזמנה שבוטלה, או שהיתרה שלה כבר הועברה לחוב הלקוח — סימון
+  // כאן היה גובה את אותו כסף פעמיים (החוב נשאר ונגבה שוב בהבאה).
+  if (order.status === "CANCELLED") {
+    return NextResponse.json({ error: "ההזמנה בוטלה — לא ניתן לסמן עליה תשלום" }, { status: 400 });
+  }
+  if (order.paymentStatus === "DEBT_CARRIED") {
+    return NextResponse.json(
+      {
+        error:
+          "היתרה של ההזמנה הזו כבר הועברה לחוב הלקוח בסגירת המכירה. את התשלום רושמים במסך חובות הלקוחות.",
+      },
+      { status: 400 }
+    );
+  }
+  // §398: 🐛 המסך מחשב "מצטבר = מה שמוצג + מה שהביא עכשיו". אם מישהו
+  // סימן תשלום בינתיים, המצטבר שנשלח קטן מהאמת — וחלק מהמזומן שהנציג
+  // קיבל היה נעלם. המסך שולח מה הוא ראה, ואם זה השתנה — 409.
+  if (b.expectedPrevPaid !== undefined && b.expectedPrevPaid !== null) {
+    const seen = Math.round(Number(b.expectedPrevPaid) * 100) / 100;
+    const now = Math.round(Number(order.amountPaid ?? 0) * 100) / 100;
+    if (Math.abs(seen - now) > 0.005) {
+      return NextResponse.json(
+        {
+          error: `בינתיים נרשם תשלום נוסף בהזמנה (שולם עד כה ${now.toFixed(2)} ש"ח). רענן את המסך והזן שוב.`,
+        },
+        { status: 409 }
+      );
+    }
+  }
+
+  // §398: 💵 כמה מזומן נכנס **עכשיו** (amountPaid הוא מצטבר).
+  const prevPaid = Number(order.amountPaid ?? 0);
+  const increment = Math.round((amountPaid - prevPaid) * 100) / 100;
+  if (increment <= 0) {
+    return NextResponse.json(
+      {
+        error: `כבר נרשם תשלום של ${prevPaid.toFixed(2)} ש"ח בהזמנה. הסכום שמזינים הוא הסה"כ ששולם — כולל מה שכבר שולם.`,
+      },
+      { status: 400 }
+    );
+  }
+  // ⚠️ מזומן של נציג אחר כבר בהזמנה — לא מערבבים שני נציגים
+  // בשדה אחד (הכסף של הראשון היה עובר לחשבון של השני).
+  const prevAgentCash = Number(order.agentCashAmount ?? 0);
+  if (
+    agentActorId &&
+    prevAgentCash > 0 &&
+    order.agentCashById &&
+    order.agentCashById !== agentActorId
+  ) {
+    return NextResponse.json(
+      { error: "חלק מהתשלום בהזמנה נגבה ע\"י נציג אחר. פנה למנהל לסימון היתרה." },
+      { status: 409 }
+    );
+  }
 
   const finalTotal = Number(order.finalTotal);
   const resolved = resolvePaymentStatusFromAmount(amountPaid, finalTotal);
@@ -92,8 +167,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     );
   }
 
-  const updated = await prisma.order.update({
-    where: { id },
+  // §398: עדכון מותנה — שתי לחיצות במקביל (או סימון מרוכז + סימון
+  // בודד) לא ירשמו את אותו מזומן פעמיים. אם ההזמנה השתנתה מאז
+  // שקראנו אותה — נכשלים, והמשתמש מרענן.
+  const res = await prisma.order.updateMany({
+    where: {
+      id,
+      paymentStatus: order.paymentStatus,
+      amountPaid: order.amountPaid,
+    },
     data: {
       paymentStatus,
       paymentMethod: "CASH",
@@ -101,8 +183,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       paidAt: new Date(),
       receivedByUserId,
       manualPaymentNote: note,
+      // §398: הכסף אצל מי שקיבל אותו
+      ...(agentActorId
+        ? {
+            agentCashAmount: Math.round((prevAgentCash + increment) * 100) / 100,
+            agentCashById: agentActorId,
+          }
+        : {
+            adminCashAmount:
+              Math.round((Number(order.adminCashAmount ?? 0) + increment) * 100) / 100,
+          }),
     },
   });
+  if (res.count === 0) {
+    return NextResponse.json(
+      { error: "ההזמנה עודכנה בינתיים (אולי סומנה כבר). רענן את המסך ובדוק." },
+      { status: 409 }
+    );
+  }
+  const updated = await prisma.order.findUnique({ where: { id } });
 
   await prisma.paymentAuditLog.create({
     data: {

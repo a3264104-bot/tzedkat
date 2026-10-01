@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
+import { computeAgentCashAccount } from "@/lib/agent-money-lib";
 
 export async function GET() {
   const g = await requireAgent();
@@ -46,22 +47,19 @@ export async function GET() {
     .filter((p) => p.type === "COLLECTED")
     .reduce((s, p) => s + Number(p.amount), 0);
 
-  const cashFromWalkins = await summaries.reduce(async (accP, x) => {
-    const acc = await accP;
-    const cash = await prisma.walkinOrder.aggregate({
-      where: {
-        pricelistId: x.pricelistId,
-        agentId,
-        paymentMethod: "CASH",
-        paymentReceived: true,
-      },
-      _sum: { totalAmount: true },
-    });
-    return acc + Number(cash._sum.totalAmount || 0);
-  }, Promise.resolve(0));
+  // §398: 🧮 אותו חשבון בדיוק כמו במסך המנהל (computeAgentCashAccount).
+  //
+  // 🐛 קודם נספר כאן רק מזומן ממזדמנים — ומזומן שקיבלת מלקוחות
+  // רגילים לא ירד מהיתרה. המנהל ראה "הנציג חייב", ואתה ראית "מגיע
+  // לך". ואחרי שמזדמן הופך ללקוח, המזומן שלו עובר להזמנה — וכאן
+  // היה פשוט נעלם.
+  const acct = await computeAgentCashAccount(agentId);
+  const cashFromWalkins = acct.walkinCash;
 
   const balance =
-    totalCommission - totalPaid - (cashFromWalkins - totalCollected);
+    Math.round(
+      (totalCommission - totalPaid - (acct.cashHeld - totalCollected)) * 100
+    ) / 100;
 
   return NextResponse.json({
     agent: {
@@ -99,6 +97,10 @@ export async function GET() {
       totalPaid,
       totalCollected,
       totalCashCollected: cashFromWalkins,
+      // §398: מזומן מלקוחות רגילים שקיבלת ביד, וכל המזומן שאצלך
+      cashFromOrders: acct.cashFromOrders,
+      cashOrders: acct.cashOrders,
+      cashHeld: acct.cashHeld,
       balance,
       debtDirection:
         balance > 0

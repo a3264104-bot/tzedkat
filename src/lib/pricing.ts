@@ -54,6 +54,8 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   CASH: "שולם במזומן",
   BANK_TRANSFER: "העברה בנקאית",
   MANUAL: "סומן ידנית",
+  // §398: מזדמן ששילם באשראי במסוף בחלוקה (הומר ללקוח)
+  CARD_TERMINAL: "אשראי במסוף",
 };
 
 export const PRICELIST_STATUS: Record<string, string> = {

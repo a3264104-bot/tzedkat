@@ -13,13 +13,20 @@
 
 import { useEffect, useState, useCallback } from "react";
 // §380: בורר מכירה מרכזי
-import { useSelectedPricelist, ALL_SALES, PricelistSelector } from "@/components/useSelectedPricelist";
+import {
+  useSelectedPricelist,
+  PricelistSelector,
+  // §396: צבירה לפי סוג (רגילות / שבועיות)
+  applySaleSelection,
+  isAggregateSelection,
+  saleSelectionLabel,
+} from "@/components/useSelectedPricelist";
+// §397: ניווט בין מסכי הסיכום
+import { ReportsNav } from "@/components/ReportsNav";
 import Link from "next/link";
 import { api } from "@/lib/client";
 import { fmt } from "@/lib/pricing";
 
-// §380: ALL מיובא מה-hook
-const ALL = ALL_SALES;
 
 // ריבוי בעברית עם טיפול באות סופית: "קרטון"+"ים" נותן "קרטוןים"
 // שהוא שגוי, ולכן ן->נ לפני הסיומת.
@@ -64,7 +71,10 @@ export default function Dashboard() {
     if (!pricelistId) return;
     setLoading(true);
     setErr("");
-    const qs = pricelistId === ALL ? "" : `?pricelistId=${encodeURIComponent(pricelistId)}`;
+    // §396: "כל הרגילות" / "כל השבועיות" נשלחים כ-saleKind
+    const sp = new URLSearchParams();
+    applySaleSelection(sp, pricelistId);
+    const qs = sp.toString() ? `?${sp.toString()}` : "";
     // טוענים גם את מקור האמת של המשקלים הממתינים - כדי שהדשבורד יציג
     // בדיוק את אותו מספר שמסך "משקלים ממתינים" מציג, ולא ניחוש מהסטטוס.
     api(`/api/admin/pending-weights${qs}`)
@@ -80,7 +90,7 @@ export default function Dashboard() {
     //
     // ⚠️ sale-control הוא per-pricelist. ב"כל המכירות" אין
     // משמעות לסכום אחד, ולכן הבלוק פשוט לא מוצג.
-    if (pricelistId !== ALL) {
+    if (!isAggregateSelection(pricelistId)) {
       api(`/api/admin/sale-control/${pricelistId}`)
         .then((r: any) => {
           // ⚠️ financialSummary — השם ב-sale-control (§78).
@@ -179,8 +189,8 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-extrabold text-brand-slatedark">דשבורד</h1>
           <p className="text-sm text-brand-slate/60 mt-0.5">
-            {selected === ALL
-              ? "מציג נתונים מכל המכירות"
+            {isAggregateSelection(selected)
+              ? `מציג נתונים: ${saleSelectionLabel(selected, lists)}`
               : currentList
                 ? `מציג את המכירה: ${currentList.name}`
                 : "בחר מכירה"}
@@ -226,19 +236,24 @@ export default function Dashboard() {
               ⚠️ והחוב **בנפרד** (§325/§366): הוא כסף שנכנס אבל
               לא מהמכירה הזו, וערבוב שלו שובר את ההצלבה מול
               תעודות הספק. */}
+          {/* §397: 🧭 לאן הולכים מכאן — שלושת מסכי הסיכום, עם הסבר */}
+          <ReportsNav
+            current={null}
+            pricelistId={isAggregateSelection(selected) ? "" : selected}
+          />
           {money && (
             <div className="card p-5">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-bold text-brand-slatedark">💰 הכסף</h2>
                 <div className="flex gap-3">
                   <a
-                    href={`/admin/sale-control/${selected !== ALL ? selected : ""}`}
+                    href={`/admin/sale-control/${!isAggregateSelection(selected) ? selected : ""}`}
                     className="text-xs font-bold text-brand-rust hover:underline"
                   >
                     לפירוט ←
                   </a>
                   {/* §385: סגירת מכירה — השער */}
-                  {selected !== ALL && (
+                  {!isAggregateSelection(selected) && (
                     <a
                       href={`/admin/sale-close/${selected}`}
                       className="text-xs font-bold text-zinc-600 hover:text-brand-rust hover:underline"

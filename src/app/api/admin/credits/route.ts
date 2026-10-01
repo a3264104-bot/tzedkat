@@ -12,6 +12,8 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+// §396: סינון לפי סוג מכירה (רגילה / שבועית)
+import { parseSaleKind, orderKindWhere } from "@/lib/weekly-sales";
 import { requireAdmin } from "@/lib/guard";
 
 export async function GET(req: Request) {
@@ -20,6 +22,8 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const pricelistId = url.searchParams.get("pricelistId") || undefined;
+  // §396: "כל הרגילות" / "כל השבועיות"
+  const kindWhere = orderKindWhere(parseSaleKind(url.searchParams.get("saleKind")));
 
   // ⚠️ מקבילות: השאילתות עצמאיות, ועם המסד באירלנד כל אחת היא
   // נסיעה חוצת-אוקיינוס. הרצה בטור מוסיפה שניות לטעינת המסך.
@@ -30,6 +34,7 @@ export async function GET(req: Request) {
         // §270: `{ not: null }` אינו חוקי — gt: 0 מסנן גם NULL.
         creditAmount: { gt: 0 },
         ...(pricelistId ? { pricelistId } : {}),
+        ...kindWhere,
       },
       orderBy: { creditAt: "desc" },
       select: {
@@ -77,6 +82,7 @@ export async function GET(req: Request) {
         deliveryRequested: true,
         status: { not: "CANCELLED" },
         ...(pricelistId ? { pricelistId } : {}),
+        ...kindWhere,
       },
       orderBy: { deliverySetAt: "desc" },
       select: {

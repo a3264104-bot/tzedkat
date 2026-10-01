@@ -5,6 +5,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+// §398: פיצול הנגבה לפי מי שמחזיק בכסף — אותו כלל של חשבון הנציג
+import { splitPaid } from "@/lib/agent-money-lib";
 
 export async function GET(
   _req: Request,
@@ -482,6 +484,13 @@ export async function GET(
   for (const o of orders) {
     const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
     const paid = Number(o.amountPaid ?? 0);
+    // §398: 🐛 הועברה לחוב בלי שום תשלום — נספרה כ"ממתין לגבייה" ולא
+    // כ"הועבר לחוב". ועם תשלום חלקי — היתרה נספרה **בשתיהן**.
+    const isCarried =
+      o.paymentStatus === "DEBT_CARRIED" || o.paymentMethod === "DEBT_CARRIED";
+    if (isCarried) {
+      carriedToDebt += Math.max(0, Number(o.finalTotal ?? 0) - paid);
+    }
 
     if (o.paymentStatus === "PAID" || paid > 0) {
       // ⚠️ הסכום שבאמת נכנס. אם amountPaid ריק אבל הסטטוס PAID
@@ -506,17 +515,23 @@ export async function GET(
       // §385: DEBT_CARRIED — היתרה הועברה לחוב בסגירת המכירה.
       // הכסף **לא נכנס**, הוא ייגבה במכירה הבאה. לא אשראי, לא
       // מזומן — ולא נספר כאן כלל.
-      if (o.paymentStatus === "DEBT_CARRIED" || o.paymentMethod === "DEBT_CARRIED") {
-        carriedToDebt += Number(o.finalTotal ?? 0) - actual;
-      } else if (o.paymentMethod === "CASH" || o.paymentMethod === "MANUAL") {
-        collectedCash += saleActual;
-      } else {
-        collectedCard += saleActual;
+      // §398: 🐛 הזמנה שהועברה לחוב אחרי תשלום חלקי — החלק ששולם
+      // לא נספר בשום מקום (לא מזומן, לא אשראי). עכשיו: היתרה לחוב,
+      // והחלק ששולם לפי מי שמחזיק בו. וגם בהזמנה רגילה: מזומן+אשראי
+      // באותה הזמנה מתפצלים, ולא הכל לפי אמצעי התשלום האחרון.
+      if (saleActual > 0) {
+        const sp = splitPaid({ ...o, amountPaid: actual });
+        const cashPart = sp.agentCash + sp.adminCash;
+        // החוב הקודם יורד קודם מהאשראי (כמו בחשבון הנציג)
+        const cardPart = Math.max(0, sp.card - debtPart);
+        const cashRev = Math.max(0, saleActual - cardPart);
+        collectedCash += Math.min(cashRev, cashPart);
+        collectedCard += saleActual - Math.min(cashRev, cashPart);
       }
       if (o.paymentStatus === "PAID") paidOrdersCount++;
-      // ⚠️ יתרה בתשלום חלקי עדיין ממתינה
-      if (actual < due) pendingCollection += due - actual;
-    } else {
+      // ⚠️ יתרה בתשלום חלקי עדיין ממתינה (אלא אם הועברה לחוב)
+      if (!isCarried && actual < due) pendingCollection += due - actual;
+    } else if (!isCarried) {
       pendingCollection += due;
     }
   }
@@ -658,9 +673,13 @@ export async function GET(
 
       const paid = Number(o.amountPaid ?? 0);
       const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
-      if (o.paymentStatus === "PAID") {
+      // §398: גם תשלום חלקי — החלק ששולם נגבה, והיתרה ממתינה. קודם
+      // הזמנה ששולמו בה 1,000 מתוך 1,008 נספרה כולה "ממתין" בנקודה.
+      const carried = o.paymentStatus === "DEBT_CARRIED";
+      if (o.paymentStatus === "PAID" || paid > 0) {
         const actual = paid > 0 ? paid : due;
         e.collected += actual;
+        if (!carried && actual < due) e.pending += due - actual;
         // §293: הפרדה בין אשראי למזומן — כמו ב-§239 וב-§292.
         //
         // ⚠️ למה זה חשוב דווקא כאן: המנהל מסתכל על הנקודה כדי
@@ -669,12 +688,11 @@ export async function GET(
         //
         // ⚠️ CASH **וגם** MANUAL: סימון הנציג (§130) שומר
         // MANUAL, וספירה שלו כאשראי הייתה אותה טעות בדיוק.
-        if (o.paymentMethod === "CASH" || o.paymentMethod === "MANUAL") {
-          e.cash += actual;
-        } else {
-          e.card += actual;
-        }
-      } else {
+        // §398: לפי מי שמחזיק בכסף (מזומן+אשראי באותה הזמנה מתפצלים)
+        const sp = splitPaid({ ...o, amountPaid: actual });
+        e.cash += sp.agentCash + sp.adminCash;
+        e.card += sp.card;
+      } else if (!carried) {
         e.pending += due;
       }
       return map;

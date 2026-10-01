@@ -10,6 +10,8 @@
 // כאן זו פעולה אחת, עם דיווח מפורש על מה נכשל ולמה.
 
 import { NextResponse } from "next/server";
+// §396: מסירה מרוכזת עשויה לסיים שבוע
+import { ensureWeeklySales } from "@/lib/weekly-sales";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 
@@ -103,6 +105,9 @@ export async function POST(req: Request) {
         },
       });
       updated = r.count;
+      // §396: 🔁 אם זו הייתה המסירה האחרונה בשבוע שהסתיים — השבוע
+      // הבא נפתח עכשיו. ensureWeeklySales בודק בעצמו אם יש מה לעשות.
+      if (r.count > 0) await ensureWeeklySales(true);
     } else if (action === "UNDO_READY") {
       const r = await prisma.order.updateMany({
         where: { id: { in: eligible } },

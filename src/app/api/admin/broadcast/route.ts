@@ -18,6 +18,8 @@
 import { NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/prisma";
+// §396: הודעה קולית למכירה שהמתקשר שומע (רגילה/שבועית)
+import { resolveCustomerSaleId } from "@/lib/weekly-sales";
 import { requireAdmin } from "@/lib/guard";
 import { sendBroadcastEmail } from "@/lib/email";
 import {
@@ -112,33 +114,54 @@ export async function POST(req: Request) {
   // (למשל מייל שיווקי כללי).
   let announcementCreated = false;
   if (body?.alsoPhone) {
-    const activeSale = await prisma.pricelist.findFirst({
-      where: { status: "ACTIVE" },
+    // §396: 🔁 ההודעה הקולית נקשרת **למכירה שהמתקשר שומע**.
+    //
+    // ה-IVR שולף הודעות לפי המכירה של הלקוח. לקוח של נקודה שבועית
+    // (כשאין רגילה שכוללת אותה) שומע את השבוע — והודעה שנקשרה רק
+    // לרגילה לא הייתה מגיעה אליו.
+    //
+    // ⚠️ לפי נקודה: המכירה של אותה נקודה. גלובלית: הרגילה + כל
+    // שבוע פעיל, כדי שכולם ישמעו.
+    const regular = await prisma.pricelist.findFirst({
+      where: { status: "ACTIVE", weeklySeriesId: null, agentOnly: false },
       orderBy: { createdAt: "desc" },
       select: { id: true, deliveryDate: true },
     });
-    if (activeSale) {
-      // בברודקסט לפי נקודות - הודעה נפרדת לכל נקודה, כדי שהסינון
-      // בשיחה יעבוד. בשאר המצבים הודעה אחת גלובלית.
-      const targets =
-        mode === "point" && pointIds.length > 0 ? pointIds : [null];
-      for (const pt of targets) {
-        const res = await createPhoneAnnouncement({
-          pricelistId: activeSale.id,
-          pointId: pt,
-          // הכותרת והתוכן יחד, כי בטלפון אין "נושא" נפרד
-          text: `${subject}. ${message}`,
-          // §36: התפוגה נקבעת ע"י המנהל בטופס ולא לפי תאריך החלוקה.
-          // הודעה כללית ("החלוקה נדחתה לשעה 18:00") לא קשורה בהכרח
-          // ליום החלוקה, ולכן ברירת מחדל לפיו הייתה משאירה אותה
-          // באוויר ימים אחרי שכבר לא רלוונטית.
-          expiresAt: body?.phoneExpiry
-            ? new Date(body.phoneExpiry)
-            : expiryForDelivery(activeSale.deliveryDate),
-          createdBy: g.session?.user?.email ?? null,
-        });
-        if (res.ok) announcementCreated = true;
+    const targets: { pricelistId: string; pointId: string | null; deliveryDate: Date | null }[] = [];
+    if (mode === "point" && pointIds.length > 0) {
+      for (const pt of pointIds) {
+        const saleId = await resolveCustomerSaleId(pt);
+        if (!saleId) continue;
+        const sale =
+          saleId === regular?.id
+            ? regular
+            : await prisma.pricelist.findUnique({
+                where: { id: saleId },
+                select: { id: true, deliveryDate: true },
+              });
+        if (sale) targets.push({ pricelistId: sale.id, pointId: pt, deliveryDate: sale.deliveryDate });
       }
+    } else {
+      if (regular) targets.push({ pricelistId: regular.id, pointId: null, deliveryDate: regular.deliveryDate });
+      const weeks = await prisma.pricelist.findMany({
+        where: { status: "ACTIVE", weeklySeriesId: { not: null } },
+        select: { id: true, deliveryDate: true },
+      });
+      for (const w of weeks) targets.push({ pricelistId: w.id, pointId: null, deliveryDate: w.deliveryDate });
+    }
+    for (const t of targets) {
+      const res = await createPhoneAnnouncement({
+        pricelistId: t.pricelistId,
+        pointId: t.pointId,
+        // הכותרת והתוכן יחד, כי בטלפון אין "נושא" נפרד
+        text: `${subject}. ${message}`,
+        // §36: התפוגה נקבעת ע"י המנהל בטופס ולא לפי תאריך החלוקה.
+        expiresAt: body?.phoneExpiry
+          ? new Date(body.phoneExpiry)
+          : expiryForDelivery(t.deliveryDate),
+        createdBy: g.session?.user?.email ?? null,
+      });
+      if (res.ok) announcementCreated = true;
     }
   }
 

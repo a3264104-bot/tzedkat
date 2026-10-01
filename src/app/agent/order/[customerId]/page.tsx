@@ -5,6 +5,8 @@ import BackButton from "@/components/BackButton";
 import { canChargeCard, expiryMessage } from "@/lib/card-expiry-lib";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+// §396: מכירה ברירת מחדל לפי הנקודה של הלקוח
+import { resolveCustomerSaleId } from "@/lib/weekly-sales";
 import { auth } from "@/lib/auth";
 import { OrderFlow } from "@/app/order/OrderFlow";
 import { AgentPaymentGate } from "@/components/AgentPaymentGate";
@@ -170,10 +172,20 @@ export default async function AgentOrderPage({
   // עם ?sale=<id> נפתחת המכירה שנבחרה, בין רגילה ובין מהירה.
   // אין כאן חור: המכירה חייבת להיות ACTIVE, והרשאת הנקודה
   // נבדקת בהמשך כרגיל.
+  // §396: 🔁 בלי ?sale= — אותה מכירה שהלקוח עצמו היה רואה:
+  // הרגילה אם היא כוללת את הנקודה שלו, אחרת השבוע של הנקודה.
+  //
+  // 🐛 בלעדיו: נציג של נקודה שבועית בלבד (שאינה ברגילה) לחץ
+  // "הזמנה" ונפתחה לו המכירה הרגילה — שהנקודה שלו לא בה.
+  const defaultSaleId = requestedSaleId
+    ? null
+    : await resolveCustomerSaleId(targetCustomer?.defaultPointId ?? null);
   const pricelist = await prisma.pricelist.findFirst({
     where: requestedSaleId
       ? { id: requestedSaleId, status: "ACTIVE" }
-      : { status: "ACTIVE", agentOnly: false },
+      : defaultSaleId
+        ? { id: defaultSaleId, status: "ACTIVE" }
+        : { status: "ACTIVE", agentOnly: false, weeklySeriesId: null },
     orderBy: { createdAt: "desc" },
     include: {
       points: { include: { point: true } },

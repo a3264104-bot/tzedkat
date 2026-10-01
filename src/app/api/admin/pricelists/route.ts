@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+import { ensureWeeklySales } from "@/lib/weekly-sales";
 
 export async function GET() {
   const g = await requireAdmin();
   if (!g.ok) return g.res;
+  // §396: השבועות מעודכנים לפני שמציגים את הרשימה
+  await ensureWeeklySales();
   const lists = await prisma.pricelist.findMany({
     include: {
       _count: { select: { orders: true, products: true, points: true } },
+      // §396: שם הסדרה — לתג 🔁 ולסינון בבוררי המכירות
+      weeklySeries: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: "desc" },
   });

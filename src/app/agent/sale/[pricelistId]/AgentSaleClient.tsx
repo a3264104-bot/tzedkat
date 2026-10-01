@@ -15,6 +15,8 @@ import { CustomerNotesPanel } from "./CustomerNotesPanel";
 import { StuckCustomersPanel } from "./StuckCustomersPanel";
 import { AgentAddCustomerButton } from "@/components/AgentAddCustomerButton";
 import { isChargeFailed } from "@/components/ChargeStatusBadge";
+// §396: סגירת שבוע
+import { CloseWeekButton } from "@/components/CloseWeekButton";
 
 type Product = {
   id: string;
@@ -177,6 +179,10 @@ export type SaleData = {
     singleSurcharge?: number;
     /** §352: דמי טיפול — לסה"כ מלא בטבלת המשקלים */
     orderFee?: number;
+    /** §396: 🔁 שבוע מתוך סדרה שבועית */
+    weeklySeriesId?: string | null;
+    weekEnd?: string | null;
+    weekClosedAt?: string | null;
   };
   agent: {
     id: string;
@@ -749,7 +755,7 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
                 active={tab === "walkins"}
                 onClick={() => setTab("walkins")}
               >
-                מזדמנים ({data.walkins.length})
+                🚶 מזדמנים להמרה ({data.walkins.length})
               </TabBtn>
             )}
             <TabBtn active={tab === "summary"} onClick={() => setTab("summary")}>
@@ -840,6 +846,56 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
               onFixed={load}
             />
             <CustomerNotesPanel orders={data.orders} />
+            {/* §396: 🔁 שבוע — מתי מתחלף, ואם הסתיים: כמה טרם נמסרו */}
+            {data.pricelist.weeklySeriesId && (() => {
+              const ended =
+                !!data.pricelist.weekEnd &&
+                Date.now() >= new Date(data.pricelist.weekEnd).getTime();
+              const pending = data.orders.filter(
+                (o) => o.status !== "CANCELLED" && !o.deliveredAt
+              ).length;
+              const endLabel = data.pricelist.weekEnd
+                ? new Date(data.pricelist.weekEnd).toLocaleString("he-IL", {
+                    timeZone: "Asia/Jerusalem",
+                    weekday: "long",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "";
+              if (data.pricelist.status === "ACTIVE" && ended && !data.pricelist.weekClosedAt) {
+                return (
+                  <div className="bg-orange-50 border-2 border-orange-300 rounded-xl p-3 space-y-2">
+                    <div className="text-sm font-extrabold text-orange-900">
+                      ⏳ השבוע הסתיים
+                      {pending > 0
+                        ? ` — ${pending} הזמנות טרם סומנו כנמסרו`
+                        : " — כל ההזמנות שלך נמסרו"}
+                    </div>
+                    <div className="text-xs text-orange-800 leading-relaxed">
+                      השבוע הבא ייפתח ברגע שכל ההזמנות יסומנו "נמסר". לקוח שלא הגיע
+                      לאסוף — אפשר לסגור את השבוע, וההזמנה שלו תישאר כאן לשקילה,
+                      חיוב או ביטול.
+                    </div>
+                    <CloseWeekButton
+                      pricelistId={data.pricelist.id}
+                      weekName={data.pricelist.name}
+                      undelivered={pending}
+                    />
+                  </div>
+                );
+              }
+              return (
+                <div className="bg-violet-50 border border-violet-200 rounded-xl px-3 py-2 text-xs text-violet-900">
+                  🔁 מכירה שבועית
+                  {data.pricelist.status === "ACTIVE" && endLabel
+                    ? ` · מתחלפת ב${endLabel} (אחרי שכל ההזמנות נמסרו)`
+                    : data.pricelist.status !== "ACTIVE"
+                      ? " · שבוע שנסגר — אפשר להמשיך לשקול ולחייב"
+                      : ""}
+                </div>
+              );
+            })()}
+
             {/* §395: מגיעים מ"ההזמנה נשלחה" — מוצגת רק ההזמנה החדשה */}
             {focusOrderNumber != null && (
               <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 flex items-center justify-between gap-2">
@@ -1050,10 +1106,9 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
             במקום, ואם יש סחורה אפשר למכור. */}
         {tab === "walkins" && (
           <WalkinList
-            pricelistId={pricelistId}
             walkins={data.walkins}
-            availableProducts={data.availableProducts}
             // §307: אי אפשר להוסיף מזדמן חדש — רק לצפות בקיימים.
+            // §398: ...ולהפוך אותם ללקוחות.
             readOnly={true}
             onChange={load}
           />

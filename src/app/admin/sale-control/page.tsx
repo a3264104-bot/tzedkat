@@ -1,5 +1,6 @@
 // §20: עמוד רשימת מכירות לבחירת בקרת מכירה
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -9,26 +10,51 @@ export default async function SaleControlIndexPage() {
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const pricelists = await prisma.pricelist.findMany({
-    where: {
-      OR: [
-        { status: { in: ["ACTIVE", "CLOSED"] } },
-        {
-          status: "DONE",
-          deliveryDate: { gte: thirtyDaysAgo },
-        },
-      ],
-    },
-    orderBy: [{ deliveryDate: "desc" }, { createdAt: "desc" }],
-    include: {
-      _count: {
-        select: {
-          orders: { where: { status: { notIn: ["CANCELLED"] } } },
-        },
+  const baseWhere = {
+    OR: [
+      { status: { in: ["ACTIVE", "CLOSED"] } },
+      {
+        status: "DONE",
+        deliveryDate: { gte: thirtyDaysAgo },
+      },
+    ],
+  };
+  const include = {
+    _count: {
+      select: {
+        orders: { where: { status: { notIn: ["CANCELLED"] } } },
       },
     },
-    take: 30,
-  });
+  } satisfies Prisma.PricelistInclude;
+
+  // §396: 🔁 רגילות ושבועיות בנפרד. שבוע נפתח כל שבוע, ובלי ההפרדה
+  // הרשימה הייתה טובעת בשבועות והמכירה הגדולה נדחקת למטה.
+  //
+  // §398: 🐛 ההפרדה הייתה **אחרי** take: 30 — אחרי כמה חודשים 30
+  // השורות היו כולן שבועות סגורים, והמכירה החודשית נעלמה מהרשימה.
+  // עכשיו שתי שאילתות, וכל אחת עם מכסה משלה.
+  const [regular, weekly] = await Promise.all([
+    prisma.pricelist.findMany({
+      where: { ...baseWhere, weeklySeriesId: null },
+      orderBy: [{ deliveryDate: "desc" }, { createdAt: "desc" }],
+      include,
+      take: 30,
+    }),
+    prisma.pricelist.findMany({
+      where: {
+        weeklySeriesId: { not: null },
+        // ⚠️ CLOSED בכל גיל (כמו ברגילות) — שבוע שלא הוסדר לא נעלם
+        // מהרשימה אחרי חודש. DONE — רק מהחודש האחרון.
+        OR: [
+          { status: { in: ["ACTIVE", "CLOSED"] } },
+          { status: "DONE", deliveryDate: { gte: thirtyDaysAgo } },
+        ],
+      },
+      orderBy: [{ deliveryDate: "desc" }, { createdAt: "desc" }],
+      include,
+      take: 20,
+    }),
+  ]);
 
   return (
     <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
@@ -48,7 +74,7 @@ export default async function SaleControlIndexPage() {
           <strong>בחר מכירה</strong> כדי לראות דו״ח מלא: פערי משקלים בין תעודות למה שחולק, נציגים, כספים, חובות והתראות.
         </div>
 
-        {pricelists.length === 0 ? (
+        {regular.length + weekly.length === 0 ? (
           <div className="bg-white rounded-2xl border border-zinc-200 p-8 text-center">
             <p className="text-brand-slatedark font-semibold">אין מכירות זמינות</p>
             <p className="text-xs text-zinc-500 mt-1">
@@ -57,7 +83,15 @@ export default async function SaleControlIndexPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {pricelists.map((p) => (
+            {[
+              { title: "מכירות רגילות", rows: regular },
+              { title: "🔁 מכירות שבועיות", rows: weekly },
+            ].filter((g) => g.rows.length > 0).map((g) => (
+              <section key={g.title} className="space-y-3">
+                {regular.length > 0 && weekly.length > 0 && (
+                  <h2 className="font-bold text-brand-slatedark pt-2">{g.title}</h2>
+                )}
+            {g.rows.map((p) => (
               <Link
                 key={p.id}
                 href={`/admin/sale-control/${p.id}`}
@@ -70,6 +104,11 @@ export default async function SaleControlIndexPage() {
                         {p.name}
                       </span>
                       <StatusBadge status={p.status} />
+                      {p.weeklySeriesId && (
+                        <span className="text-[10px] bg-violet-100 text-violet-800 px-2 py-0.5 rounded-full font-bold">
+                          🔁 שבועית
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-zinc-500 flex items-center gap-3 flex-wrap">
                       {p.deliveryDate && (
@@ -91,6 +130,8 @@ export default async function SaleControlIndexPage() {
                   </svg>
                 </div>
               </Link>
+            ))}
+              </section>
             ))}
           </div>
         )}

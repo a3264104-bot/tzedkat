@@ -300,6 +300,8 @@ model Product {
   sortOrder     Int      @default(0)
   orderItems    OrderItem[]
   pricelists    PricelistProduct[]
+  // §396: תבניות מכירה שבועית
+  weeklySeries  WeeklySeriesProduct[]
   // §20: מודול נציגים
   deliveryNoteItems DeliveryNoteItem[]
   walkinOrderItems  WalkinOrderItem[]
@@ -354,6 +356,8 @@ model DeliveryPoint {
   sortOrder    Int      @default(0)
   orders       Order[]
   pricelists   PricelistPoint[]
+  // §396: הסדרה השבועית שהנקודה שייכת אליה (לכל היותר אחת)
+  weeklySeries WeeklySeriesPoint[]
   customers    Customer[] // לקוחות שבחרו נקודה זו כברירת מחדל
   agents       Customer[] @relation("AgentPoint") // 🔴 DEPRECATED: נציגים המוגבלים לנקודה זו (single). נשאר לתאימות.
   // 🆕 קשר many-to-many: כל הנציגים המשויכים לנקודה דרך AgentPoint
@@ -431,6 +435,71 @@ model Pricelist {
   phoneAnnouncements PhoneAnnouncement[]
   createdAt     DateTime @default(now())
   supplierPlans SupplierOrderPlan[]
+
+  // §396: 🔁 מכירה שבועית — שבוע אחד מתוך סדרה קבועה.
+  //
+  // null = מכירה רגילה (חודשית/חג). מלא = שבוע שנפתח אוטומטית מתוך
+  // WeeklySeries. כל השאר זהה למכירה רגילה: שקילה, V, חיוב, סגירה.
+  //
+  // ⚠️ weekEnd ולא closeDate: closeDate חוסם לקוחות, והשבוע הישן
+  // נשאר פתוח עד שהנציג מסר את כל ההזמנות. weekEnd הוא רק "מתי
+  // מותר להחליף".
+  weeklySeriesId String?
+  weeklySeries   WeeklySeries? @relation(fields: [weeklySeriesId], references: [id], onDelete: SetNull)
+  weekStart      DateTime?
+  weekEnd        DateTime?
+  // מתי השבוע נסגר בכפתור "סגור שבוע" (גם אם לא הכל נמסר) ומי סגר
+  weekClosedAt   DateTime?
+  weekClosedBy   String?
+
+  // ⚠️ מונע שני שבועות זהים כששתי בקשות מגיעות באותה שנייה
+  @@unique([weeklySeriesId, weekStart])
+  @@index([weeklySeriesId])
+}
+
+// §396: 🔁 סדרה שבועית — ההגדרה הקבועה שממנה נפתח כל שבוע.
+//
+// המנהל מגדיר פעם אחת: נקודות (אחת או כמה), תבנית מוצרים ומחירים,
+// ויום+שעה של ההחלפה. מכאן המערכת פותחת שבוע חדש בכל פעם שהקודם
+// הסתיים **והנציג מסר את כל ההזמנות**.
+model WeeklySeries {
+  id              String   @id @default(cuid())
+  name            String
+  isActive        Boolean  @default(true)
+  // 0=ראשון ... 6=שבת · שעון ישראל
+  switchDay       Int      @default(0)
+  // דקות מחצות (0 = 00:00, 1200 = 20:00) · שעון ישראל
+  switchMinute    Int      @default(0)
+  orderFee        Decimal  @default(3) @db.Decimal(10, 2)
+  singleSurcharge Decimal  @default(3) @db.Decimal(10, 2)
+  // טקסט החלוקה שהלקוח רואה, למשל "בכל יום בשבוע 16:00–19:00"
+  deliveryNote    String?
+  points          WeeklySeriesPoint[]
+  products        WeeklySeriesProduct[]
+  pricelists      Pricelist[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model WeeklySeriesPoint {
+  id       String        @id @default(cuid())
+  seriesId String
+  series   WeeklySeries  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  pointId  String
+  point    DeliveryPoint @relation(fields: [pointId], references: [id], onDelete: Cascade)
+  // ⚠️ נקודה בסדרה אחת בלבד — אחרת לא ברור איזה שבוע הלקוח רואה
+  @@unique([pointId])
+}
+
+model WeeklySeriesProduct {
+  id        String       @id @default(cuid())
+  seriesId  String
+  series    WeeklySeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // null = מחיר המוצר הרגיל, כמו ב-PricelistProduct
+  price     Decimal?     @db.Decimal(10, 2)
+  @@unique([seriesId, productId])
 }
 
 model PricelistPoint {
@@ -658,6 +727,22 @@ model Order {
   receivedByUserId     String?   // מזהה/מייל המנהל-נציג שקיבל את הכסף בפועל
   manualPaymentNote    String?
 
+  /// §398: 💵 **פיצול הכסף לפי מי שמחזיק בו.**
+  ///
+  /// amountPaid הוא המצטבר — אבל לא אומר *איפה* הכסף. הזמנה אחת
+  /// יכולה לקבל 500 מזומן לנציג ואחר כך 300 באשראי. עד עכשיו כל
+  /// ה-800 נזקפו לאמצעי האחרון, וה-500 נעלמו מחשבון הנציג.
+  ///
+  /// agentCashAmount  — מזומן שהנציג קיבל ביד (מצטבר, כולל חוב קודם)
+  /// agentCashById    — **איזה** נציג (Customer.id). לא לפי נקודה:
+  ///                    בנקודה יכולים להיות כמה נציגים, ונציג שעבר
+  ///                    נקודה עדיין מחזיק את הכסף.
+  /// adminCashAmount  — מזומן שהמנהל קיבל ישירות
+  /// היתרה (amountPaid − השניים) = אשראי/העברה — כסף שכבר אצל העסק.
+  agentCashAmount      Decimal?  @db.Decimal(10, 2)
+  agentCashById        String?
+  adminCashAmount      Decimal?  @db.Decimal(10, 2)
+
   // מתי אישרו אדמין/נציג מחיר סופי, ומי
   finalPriceSetAt DateTime?
   finalPriceSetBy String?
@@ -673,6 +758,8 @@ model Order {
   items           OrderItem[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@index([agentCashById])
 }
 
 model OrderItem {

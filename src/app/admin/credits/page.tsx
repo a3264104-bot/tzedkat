@@ -13,7 +13,12 @@
 
 import { useEffect, useState } from "react";
 // §380: בורר מכירה מרכזי
-import { useSelectedPricelist, ALL_SALES, PricelistSelector } from "@/components/useSelectedPricelist";
+import {
+  useSelectedPricelist,
+  PricelistSelector,
+  // §396: צבירה לפי סוג (רגילות / שבועיות)
+  applySaleSelection,
+} from "@/components/useSelectedPricelist";
 // §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
 import { fmtDate } from "@/lib/date-lib";
 import { api } from "@/lib/client";
@@ -72,21 +77,25 @@ type Data = {
 
 export default function CreditsPage() {
   const [data, setData] = useState<Data | null>(null);
-  // §380: בורר מרכזי. ALL_SALES → "" לשאילתה.
+  // §380: בורר מרכזי. §396: הבחירה → שאילתה דרך applySaleSelection.
   const { lists, selected: selRaw, setSelected: setPricelistId } =
     useSelectedPricelist({ allowAll: true });
-  const pricelistId = selRaw === ALL_SALES ? "" : selRaw;
+  // §396: "כל הרגילות" / "כל השבועיות" → saleKind
+  const saleQs = (() => {
+    const sp = new URLSearchParams();
+    applySaleSelection(sp, selRaw);
+    return sp.toString() ? `?${sp.toString()}` : "";
+  })();
   const [tab, setTab] = useState<"credits" | "balances" | "deliveries">("credits");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    const qs = pricelistId ? `?pricelistId=${pricelistId}` : "";
-    api(`/api/admin/credits${qs}`)
+    api(`/api/admin/credits${saleQs}`)
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [pricelistId]);
+  }, [saleQs]);
 
   if (loading && !data) return <main className="p-6 text-zinc-500">טוען…</main>;
   if (!data) return <main className="p-6 text-red-600">שגיאה בטעינה</main>;

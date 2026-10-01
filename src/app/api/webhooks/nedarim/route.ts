@@ -315,7 +315,11 @@ export async function POST(req: Request) {
           data: {
             paymentStatus: "PAID",
             paymentMethod: "ONLINE",
-            amountPaid: amount,
+            // §398: מצטבר — כמו בחיוב (§384) ובמזומן. דריסה ב-amount
+            // הייתה מוחקת מזומן חלקי שכבר נגבה, ומשבשת את הפיצול
+            // אשראי/מזומן בחשבון הנציג.
+            amountPaid:
+              Math.round((Number(order.amountPaid ?? 0) + Number(amount || 0)) * 100) / 100,
             paidAt: new Date(),
             paymentTransactionId: transactionId || null,
             paymentProvider: "nedarim_plus",

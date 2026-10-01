@@ -58,7 +58,11 @@ export default function ExcelOrderPage() {
           (x: any) => x.status === "ACTIVE"
         );
         setLists(active);
+        // §396: עם שבוע פתוח יש תמיד יותר ממכירה פעילה אחת —
+        // ברירת המחדל היא הרגילה (אם יש אחת כזו בדיוק).
+        const regularActive = active.filter((x: any) => !x.weeklySeriesId);
         if (active.length === 1) setPricelistId(active[0].id);
+        else if (regularActive.length === 1) setPricelistId(regularActive[0].id);
       } catch {
         /* מוצג בשגיאה בפעולה הבאה */
       }

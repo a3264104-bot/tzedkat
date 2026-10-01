@@ -35,6 +35,8 @@ const NAV_GROUPS: NavGroup[] = [
     hint: "פתיחת מכירה חדשה",
     items: [
       { href: "/admin/pricelists", label: "מחירונים / מכירות", icon: "💵" },
+      // §396: סדרות שבועיות — נפתחות לבד כל שבוע
+      { href: "/admin/weekly-series", label: "מכירות שבועיות", icon: "🔁" },
       { href: "/admin/points", label: "נקודות חלוקה", icon: "📍" },
     ],
   },
@@ -57,7 +59,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/pending-weights", label: "משקלים ממתינים", icon: "⚖️" },
       // בקרת מכירה משווה תעודות משלוח מול מה שחולק בפועל - ולכן היא
       // שייכת לשלב הזה. בשלב ② היא ריקה כי עוד לא הגיעה סחורה.
-      { href: "/admin/sale-control", label: "בקרת מכירה", icon: "📊" },
+      { href: "/admin/sale-control", label: "בקרת מכירה — מה קרה בפועל", icon: "📊" },
     ],
   },
   {
@@ -83,8 +85,8 @@ const NAV_GROUPS: NavGroup[] = [
     step: 5,
     hint: "סגירת המכירה",
     items: [
-      { href: "/admin/sale-summary", label: "סיכום מכירה", icon: "📑" },
-      { href: "/admin/reports", label: "דוחות", icon: "📈" },
+      { href: "/admin/sale-summary", label: "סיכום מכירה — מה הוזמן", icon: "📦" },
+      { href: "/admin/reports", label: "דוחות ויצוא", icon: "📈" },
     ],
   },
   {

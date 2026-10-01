@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
+// §396: סינון לפי סוג מכירה (רגילה / שבועית)
+import { parseSaleKind, orderKindWhere } from "@/lib/weekly-sales";
 import { requireAdmin } from "@/lib/guard";
 import { STATUS_LABELS } from "@/lib/pricing";
 
@@ -14,6 +16,8 @@ export async function GET(req: Request) {
 
   const where: any = {};
   if (pricelistId) where.pricelistId = pricelistId;
+  // §396: "כל הרגילות" / "כל השבועיות"
+  Object.assign(where, orderKindWhere(parseSaleKind(searchParams.get("saleKind"))));
   if (pointId) where.pointId = pointId;
 
   const orders = await prisma.order.findMany({
@@ -42,7 +46,7 @@ export async function GET(req: Request) {
       "טלפון נוסף": o.phone2 ?? "",
       "נקודת חלוקה": o.point?.name ?? o.pointNameSnapshot ?? "",
       // §24: מקור ההזמנה - מאפשר לנתח כמה הזמנות מגיעות מכל ערוץ
-      "מקור": o.source === "PHONE" ? "טלפון" : o.source === "AGENT" ? "נציג" : o.source === "ADMIN" ? "מנהל" : "אתר",
+      "מקור": o.source === "PHONE" ? "טלפון" : o.source === "AGENT" ? "נציג" : o.source === "ADMIN" ? "מנהל" : o.source === "WALKIN" ? "מזדמן" : "אתר",
       "סטטוס": STATUS_LABELS[o.status] ?? o.status,
       "סה\"כ משוער": Number(o.estimatedTotal),
       "סה\"כ סופי": o.finalTotal ? Number(o.finalTotal) : "",

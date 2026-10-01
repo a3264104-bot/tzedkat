@@ -8,7 +8,14 @@
 
 import { useEffect, useState, useCallback } from "react";
 // §380: בורר מכירה מרכזי
-import { useSelectedPricelist, ALL_SALES, PricelistSelector } from "@/components/useSelectedPricelist";
+import {
+  useSelectedPricelist,
+  PricelistSelector,
+  // §396: צבירה לפי סוג (רגילות / שבועיות)
+  applySaleSelection,
+  isAggregateSelection,
+  saleSelectionLabel,
+} from "@/components/useSelectedPricelist";
 // §296: מקור אמת יחיד לפריסה
 import { INSTALLMENT_OPTIONS } from "@/lib/installments-lib";
 import { payStatusLabel, payStatusColor, payStatusNeedsAttention } from "@/lib/pay-status-lib";
@@ -56,7 +63,6 @@ type PayOrder = {
 type Message = { text: string; type: "success" | "error" };
 type Pricelist = { id: string; name: string; status: string };
 
-const ALL = ALL_SALES;
 
 // אפשרויות סינון סטטוס
 const FILTER_OPTIONS: { value: string; label: string }[] = [
@@ -162,6 +168,9 @@ export default function PaymentsPage() {
     Array<{ name: string; ok: boolean; msg: string }>
   >([]);
   const [charging, setCharging] = useState<string | null>(null);
+  // §397: 💵 סימון מזומן במרוכז — אילו הזמנות נבחרו
+  const [cashSel, setCashSel] = useState<Set<string>>(new Set());
+  const [cashBulkBusy, setCashBulkBusy] = useState(false);
 
   // §260: 💳 **פריסה לתשלומים ברגע החיוב.**
   //
@@ -246,7 +255,7 @@ export default function PaymentsPage() {
     try {
       const q = new URLSearchParams();
       if (filter !== "default") q.set("status", filter);
-      if (fPricelist !== ALL) q.set("pricelistId", fPricelist);
+      applySaleSelection(q, fPricelist); // §396
       const qs = q.toString();
       const url = qs ? `/api/admin/payments?${qs}` : "/api/admin/payments";
       const res = await fetch(url, { cache: "no-store" });
@@ -386,20 +395,29 @@ export default function PaymentsPage() {
       return;
     }
 
+    // §397: הסכום שייגבה בפועל — היתרה (§384), לא כל ההזמנה
+    const paidSoFar = Number(order.amountPaid ?? 0);
+    const toCharge =
+      chargeOverride ??
+      Math.max(0, Math.round((Number(amount) - paidSoFar) * 100) / 100);
     const confirmMsg =
       `לחייב את הזמנה #${order.orderNumber}?\n\n` +
       `לקוח: ${order.customerName}\n` +
-      `סכום סופי: ${fmtIls(amount)}\n` +
+      (paidSoFar > 0
+        ? `סכום ההזמנה: ${fmtIls(amount)} · שולם כבר: ${fmtIls(paidSoFar)}\n` +
+          `ייגבה עכשיו: ${fmtIls(toCharge)}\n`
+        : `סכום לחיוב: ${fmtIls(toCharge)}\n`) +
       `כרטיס: ${order.customer.cardLast4 ? "****" + order.customer.cardLast4 : "לא ידוע"}` +
       (instOf(order) > 1
         ? `\nתשלומים: ${instOf(order)} × ${fmtIls(
-            Math.round((amount / instOf(order)) * 100) / 100
+            Math.round((toCharge / instOf(order)) * 100) / 100
           )}`
         : "");
     // §364: ההודעה "1₪ יקוזז" הוסרה — השקל כבר בתוך finalTotal
     // (§247), והחיוב גובה אותו בדיוק.
 
-    if (!confirm(confirmMsg)) return;
+    // §397: חיוב חלקי כבר אושר ב-handleChargePartial — בלי אישור שני
+    if (chargeOverride == null && !confirm(confirmMsg)) return;
 
     setCharging(order.id);
     setMessage(null);
@@ -461,6 +479,80 @@ export default function PaymentsPage() {
           return words.every((w) => hay.includes(w.toLowerCase()));
         });
 
+  // §397: 💵 מי ניתן לסמן כ"שולם במזומן" — לקוח/הזמנת מזומן, עם מחיר
+  // סופי, שטרם שולמה במלואה ואינה באמצע חיוב.
+  const cashEligible = (o: PayOrder) =>
+    (o.customer?.paymentPreference === "CASH" ||
+      o.paymentMethod === "CASH" ||
+      o.paymentMethod === "MANUAL") &&
+    o.finalTotal != null &&
+    // §398: גם REFUNDED (זוכתה), PAYMENT_PENDING (קישור תשלום פתוח —
+    // הלקוח עלול לשלם גם שם) ו-CARD_UPDATE_NEEDED לא נכנסים לסימון מרוכז.
+    // אפשר עדיין לסמן אחת-אחת מהשורה, במודע.
+    ![
+      "PAID",
+      "CHARGING",
+      "DEBT_CARRIED",
+      "REFUNDED",
+      "PAYMENT_PENDING",
+      "CARD_UPDATE_NEEDED",
+    ].includes(o.paymentStatus);
+  const cashSelected = shown.filter((o) => cashSel.has(o.id) && cashEligible(o));
+  const cashSelectedSum = cashSelected.reduce(
+    (sum, o) =>
+      sum +
+      Math.max(0, Number(o.finalTotal ?? 0) - Number(o.amountPaid ?? 0)),
+    0
+  );
+
+  // §397: סימון במרוכז — אישור אחד, ואז אחד-אחד מול השרת.
+  //
+  // ⚠️ כל הזמנה מסומנת כשולמה **במלואה** (היתרה). תשלום חלקי — דרך
+  // הכפתור של השורה עצמה, ששואל כמה.
+  async function markCashBulk() {
+    if (cashSelected.length === 0) return;
+    if (
+      !window.confirm(
+        `לסמן ${cashSelected.length} הזמנות כשולמו במזומן?\n\n` +
+          `סה"כ ${fmtIls(Math.round(cashSelectedSum * 100) / 100)} — כל הזמנה בסכום היתרה המלא שלה.`
+      )
+    )
+      return;
+    setCashBulkBusy(true);
+    const failed: string[] = [];
+    for (const o of cashSelected) {
+      try {
+        const res = await fetch(`/api/admin/orders/${o.id}/cash-payment`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            // §398: "כל היתרה" — השרת מחשב לפי הסכום העדכני. אם
+            // ההזמנה נשקלה מחדש אחרי שהדף נטען, נרשם הסכום הנכון.
+            payRemaining: true,
+            note: "סומן במרוכז במסך התשלומים",
+          }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          failed.push(`#${o.orderNumber} ${o.customerName} — ${d.error || res.status}`);
+        }
+      } catch (e: any) {
+        failed.push(`#${o.orderNumber} ${o.customerName} — ${e?.message || "שגיאה"}`);
+      }
+    }
+    setCashBulkBusy(false);
+    setCashSel(new Set());
+    setMessage(
+      failed.length === 0
+        ? { text: `✓ ${cashSelected.length} הזמנות סומנו כשולמו במזומן`, type: "success" }
+        : {
+            text: `סומנו ${cashSelected.length - failed.length}, נכשלו ${failed.length}: ${failed.join(" · ")}`,
+            type: "error",
+          }
+    );
+    fetchOrders();
+  }
+
   // §388: 🚨 **"ניתן לחייב" — רק מי שבאמת ניתן לחייב.**
   //
   // 🐛 שתי בעיות בשטח:
@@ -508,10 +600,17 @@ export default function PaymentsPage() {
     if ((o.activeItemsCount ?? 1) === 0) return false;
     return true;
   });
-  const chargeableSum = chargeable.reduce(
-    (sum, o) => sum + Number(o.finalTotal ?? 0),
-    0
-  );
+  // §397: 🐛 **הסכום לחיוב = היתרה, לא כל ההזמנה.**
+  //
+  // הזמנה ששולמו בה ₪1,000 מתוך ₪1,008.68 הוצגה בקופסת "חיוב לפי
+  // נקודה" כ-₪1,008.68 — כאילו הלקוח חייב הכל. החיוב עצמו גובה רק
+  // את היתרה (§384), כך שהמספר על המסך פשוט היה שגוי.
+  const dueOf = (o: { finalTotal: any; amountPaid?: any }) =>
+    Math.max(
+      0,
+      Math.round((Number(o.finalTotal ?? 0) - Number(o.amountPaid ?? 0)) * 100) / 100
+    );
+  const chargeableSum = chargeable.reduce((sum, o) => sum + dueOf(o), 0);
 
   // §369: הנקודות שיש בהן הזמנות לחיוב, עם מונה וסכום.
   const pointGroups = (() => {
@@ -520,7 +619,7 @@ export default function PaymentsPage() {
       const key = o.pointNameSnapshot || "ללא נקודה";
       const cur = m.get(key) ?? { name: key, count: 0, sum: 0 };
       cur.count++;
-      cur.sum += Number(o.finalTotal ?? 0);
+      cur.sum += dueOf(o); // §397: היתרה
       m.set(key, cur);
     }
     return Array.from(m.values()).sort((a, b) => b.count - a.count);
@@ -534,10 +633,7 @@ export default function PaymentsPage() {
           !excluded.has(o.id)
       )
     : [];
-  const batchSum = batchTargets.reduce(
-    (s2, o) => s2 + Number(o.finalTotal ?? 0),
-    0
-  );
+  const batchSum = batchTargets.reduce((s2, o) => s2 + dueOf(o), 0); // §397: היתרה
   const currentList = lists?.find((l) => l.id === fPricelist) ?? null;
 
   return (
@@ -547,8 +643,8 @@ export default function PaymentsPage() {
         <div>
           <h1 className="text-2xl font-bold text-brand-slatedark">💳 ניהול תשלומים</h1>
           <p className="text-sm text-zinc-500 mt-1">
-            {fPricelist === ALL
-              ? "חיוב הזמנות בכרטיס השמור — כל המכירות"
+            {isAggregateSelection(fPricelist)
+              ? `חיוב הזמנות בכרטיס השמור — ${saleSelectionLabel(fPricelist, lists)}`
               : currentList
                 ? `חיוב הזמנות במכירה: ${currentList.name}`
                 : "חיוב הזמנות בכרטיס השמור"}
@@ -715,7 +811,14 @@ export default function PaymentsPage() {
                           <span className="text-zinc-400"> #{o.orderNumber}</span>
                         </span>
                         <span className="shrink-0 tabular-nums text-zinc-600">
-                          {fmtIls(Number(o.finalTotal ?? 0))}
+                          {/* §397: היתרה לחיוב; אם שולם חלק — מציינים */}
+                          {fmtIls(dueOf(o))}
+                          {Number(o.amountPaid ?? 0) > 0 && (
+                            <span className="text-[10px] text-amber-700">
+                              {" "}
+                              (נותר מתוך {fmtIls(Number(o.finalTotal ?? 0))})
+                            </span>
+                          )}
                         </span>
                       </label>
                     );
@@ -947,7 +1050,7 @@ export default function PaymentsPage() {
         <div className="text-center py-12 bg-white rounded-xl border border-zinc-200">
           <p className="font-medium text-brand-slatedark">אין הזמנות בסינון הנוכחי</p>
           <p className="text-sm text-zinc-500 mt-1">
-            {fPricelist !== ALL
+            {!isAggregateSelection(fPricelist)
               ? "נסה לבחור מכירה אחרת או להציג את כל המכירות."
               : "אין כרגע הזמנות שדורשות פעולת תשלום."}
           </p>
@@ -972,9 +1075,61 @@ export default function PaymentsPage() {
               </button>
             </div>
           )}
+          {/* §397: 💵 סימון מזומן במרוכז */}
+          {shown.some(cashEligible) && (
+            <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2">
+              <span className="text-sm font-bold text-amber-900">
+                💵 מזומן:{" "}
+                {cashSelected.length > 0
+                  ? `${cashSelected.length} נבחרו · ${fmtIls(Math.round(cashSelectedSum * 100) / 100)}`
+                  : "סמן ☑ בהזמנות ששולמו, ואז אשר את כולן יחד"}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setCashSel(new Set(shown.filter(cashEligible).map((o) => o.id)))
+                }
+                disabled={cashBulkBusy}
+                className="text-xs font-bold text-amber-900 underline"
+              >
+                בחר את כל המזומן המוצגים ({shown.filter(cashEligible).length})
+              </button>
+              {cashSelected.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setCashSel(new Set())}
+                    disabled={cashBulkBusy}
+                    className="text-xs text-zinc-600 underline"
+                  >
+                    נקה
+                  </button>
+                  <button
+                    type="button"
+                    onClick={markCashBulk}
+                    disabled={cashBulkBusy}
+                    className="mr-auto px-4 py-1.5 rounded-lg bg-amber-600 text-white text-sm font-bold disabled:opacity-50"
+                  >
+                    {cashBulkBusy ? "מסמן…" : `✓ סמן ${cashSelected.length} כשולמו`}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
           {shown.map((o) => (
             <OrderCard
               key={o.id}
+              // §397: תיבת סימון למזומן במרוכז
+              cashSelectable={cashEligible(o)}
+              cashSelected={cashSel.has(o.id)}
+              onToggleCash={() =>
+                setCashSel((prev) => {
+                  const n = new Set(prev);
+                  if (n.has(o.id)) n.delete(o.id);
+                  else n.add(o.id);
+                  return n;
+                })
+              }
               order={o}
               onCharge={() => handleCharge(o)}
               onDone={fetchOrders}
@@ -1002,7 +1157,14 @@ function OrderCard({
   isCharging,
   currentInstallments,
   onInstallmentsChange,
+  cashSelectable,
+  cashSelected,
+  onToggleCash,
 }: {
+  /** §397: סימון מזומן במרוכז */
+  cashSelectable?: boolean;
+  cashSelected?: boolean;
+  onToggleCash?: () => void;
   order: PayOrder;
   onCharge: () => void;
   /** §383: רענון אחרי סימון מזומן */
@@ -1030,6 +1192,18 @@ function OrderCard({
       {/* שורה עליונה: מספר + סטטוס + זמן */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-3">
+          {/* §397: ☑ לסימון מזומן במרוכז */}
+          {cashSelectable && (
+            <label className="flex items-center gap-1 text-xs font-bold text-amber-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!cashSelected}
+                onChange={onToggleCash}
+                className="h-5 w-5 accent-amber-600"
+              />
+              💵
+            </label>
+          )}
           <span className="text-lg font-bold text-brand-slatedark">#{order.orderNumber}</span>
           <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusColor}`}>
             {statusLabel}
@@ -1295,8 +1469,9 @@ function CashMarkButton({
 }) {
   const [busy, setBusy] = useState(false);
   const isPartial = paymentStatus === "PARTIALLY_PAID";
+  // §397: יתרה לפי מה ששולם בפועל — לא רק כשהסטטוס "חלקי"
   const remaining =
-    isPartial && amountPaid != null
+    amountPaid != null && amountPaid > 0
       ? Math.round((finalTotal - amountPaid) * 100) / 100
       : null;
 
@@ -1320,14 +1495,9 @@ function CashMarkButton({
       return;
     }
     const partial = cumulative < finalTotal - 0.01;
-    if (
-      !window.confirm(
-        partial
-          ? `${customerName} שילם ${amt} ש"ח${amountPaid ? ` (סה"כ ${cumulative})` : ""} מתוך ${finalTotal}.\n\nיישאר חוב של ${(finalTotal - cumulative).toFixed(2)} ש"ח.`
-          : `${customerName} שילם ${amt} ש"ח במזומן?\n\nההזמנה תסומן כשולמה.`
-      )
-    )
-      return;
+    // §397: 🐛 **אישור כפול.** החלון הראשון (כמה שילם, עם הסכום
+    // ממולא מראש) כבר הוא האישור. החלון השני ("שילם X? ההזמנה תסומן
+    // כשולמה") הוסר — המנהל שעובר על 40 הזמנות לחץ פעמיים על כל אחת.
 
     setBusy(true);
     try {
@@ -1336,6 +1506,8 @@ function CashMarkButton({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amountPaid: cumulative,
+          // §398: מה שראיתי ששולם — השרת דוחה אם השתנה בינתיים
+          expectedPrevPaid: amountPaid ?? 0,
           note: partial
             ? `שולם ${amt} מתוך ${finalTotal} במזומן`
             : amountPaid

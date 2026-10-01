@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { canChargeCard } from "@/lib/card-expiry-lib";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+// §396: שבוע של נקודה שבועית — רק ללקוחות שלה
+import { resolveCustomerSaleId, parseSaleKind, orderKindWhere } from "@/lib/weekly-sales";
 import { auth } from "@/lib/auth";
 import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
 import { sendAdminOrderNotification, sendCustomerOrderConfirmation } from "@/lib/email";
@@ -166,11 +168,20 @@ export async function POST(req: Request) {
     // ⚠️ לקוח שמזמין בעצמו — ללא שינוי: נחסם כמו קודם, כדי שלא
     // ייפתחו הזמנות כפולות בטעות מהאתר.
     const isStaffOrder = !!placedByAgentId;
+    // §398: אותו כלל של מסך ההזמנה (order/page.tsx):
+    //   • קנייה כמזדמן בחלוקה (source=WALKIN) אינה חוסמת
+    //   • בשבוע (§396) — הזמנה שכבר נמסרה אינה חוסמת
+    const dupPl = await prisma.pricelist.findUnique({
+      where: { id: data.pricelistId },
+      select: { weeklySeriesId: true },
+    });
     const existingOrder = await prisma.order.findFirst({
       where: {
         customerId,
         pricelistId: data.pricelistId,
         status: { notIn: ["CANCELLED"] },
+        NOT: { source: "WALKIN" },
+        ...(dupPl?.weeklySeriesId ? { deliveredAt: null } : {}),
         ...(isStaffOrder
           ? { paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "DEBT_CARRIED"] as any } }
           : {}),
@@ -317,6 +328,23 @@ export async function POST(req: Request) {
         { error: "המכירה אינה פעילה" },
         { status: 400 }
       );
+    }
+
+    // §396: 🔁 **שבוע של נקודה שבועית — רק למי שהמכירה שלו.**
+    //
+    // לקוח רואה שבוע רק אם הנקודה שלו בו, ורק כשאין מכירה רגילה
+    // שכוללת אותה (resolveCustomerSaleId). המסך לא יציג לו מזהה של
+    // שבוע אחר — אבל בקשה ידנית עוקפת מסך, ולכן הבדיקה כאן.
+    //
+    // ⚠️ נציג ומנהל פטורים: הם רואים את השבוע גם כשהלקוח לא.
+    if (pricelist.weeklySeriesId && !placedByAgentId) {
+      const allowed = await resolveCustomerSaleId(customer.defaultPointId);
+      if (allowed !== pricelist.id) {
+        return NextResponse.json(
+          { error: "המכירה אינה זמינה עבורך" },
+          { status: 400 }
+        );
+      }
     }
 
     // אם הוגדרה שעת סגירה ועברה — אי אפשר להזמין
@@ -659,7 +687,18 @@ export async function POST(req: Request) {
       console.error("[orders] email send failed (order was saved):", err);
     }
 
-    return NextResponse.json({ ok: true, orderNumber: order.orderNumber, id: order.id });
+    return NextResponse.json({
+      ok: true,
+      orderNumber: order.orderNumber,
+      id: order.id,
+      // §397: מזהי הפריטים — נציג שהזין משקלים כבר בהזמנה שולח אותם
+      // מיד אחרי היצירה, לכל פריט לפי (מוצר, קרטון/בודדים).
+      items: order.items.map((i) => ({
+        id: i.id,
+        productId: i.productId,
+        isSingle: i.isSingle,
+      })),
+    });
   } catch (e: any) {
     if (e?.issues) return NextResponse.json({ error: "נתונים שגויים" }, { status: 400 });
     console.error(e);
@@ -716,12 +755,15 @@ export async function GET(req: Request) {
   const pointId = searchParams.get("pointId");
   const status = searchParams.get("status");
   const pricelistId = searchParams.get("pricelistId");
+  // §396: "כל הרגילות" / "כל השבועיות"
+  const saleKind = parseSaleKind(searchParams.get("saleKind"));
 
   const orders = await prisma.order.findMany({
     where: {
       ...(pointId ? { pointId } : {}),
       ...(status ? { status } : {}),
       ...(pricelistId ? { pricelistId } : {}),
+      ...orderKindWhere(saleKind),
     },
     include: { point: true, items: true },
     orderBy: { createdAt: "desc" },

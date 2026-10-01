@@ -29,6 +29,9 @@ type Pricelist = {
   excelSentAt?: string | null;
   excelSentCount?: number;
   _count: { orders: number; products: number; points: number };
+  // §396: 🔁 שבוע מתוך סדרה שבועית (null = מכירה רגילה)
+  weeklySeriesId?: string | null;
+  weeklySeries?: { id: string; name: string } | null;
 };
 
 /**
@@ -59,6 +62,9 @@ export default function PricelistsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // §396: סינון לפי סוג. ברירת מחדל = רגילות: כל סדרה שבועית מוסיפה
+  // 52 מכירות בשנה, והרשימה הייתה טובעת בהן.
+  const [kind, setKind] = useState<"REGULAR" | "WEEKLY" | "ALL">("REGULAR");
   // §145: חוסם לחיצה כפולה בזמן שליחת האקסלים
   const [busy, setBusy] = useState(false);
 
@@ -210,8 +216,48 @@ export default function PricelistsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {lists.map((l) => (
-            <div key={l.id} className="card p-4">
+          {/* §396: 🔁 רגילות / שבועיות — כדי לא להתבלבל ביניהן */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                ["REGULAR", "מכירות רגילות", lists.filter((l) => !l.weeklySeriesId).length],
+                ["WEEKLY", "🔁 שבועיות", lists.filter((l) => !!l.weeklySeriesId).length],
+                ["ALL", "הכל", lists.length],
+              ] as const
+            ).map(([k, label, n]) => (
+              <button
+                key={k}
+                onClick={() => setKind(k)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                  kind === k
+                    ? k === "WEEKLY"
+                      ? "bg-violet-600 text-white"
+                      : "bg-brand-slatedark text-white"
+                    : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                }`}
+              >
+                {label} · {n}
+              </button>
+            ))}
+            <a href="/admin/weekly-series" className="text-xs font-bold text-violet-700 underline mr-auto">
+              ניהול סדרות שבועיות ←
+            </a>
+          </div>
+          {kind === "WEEKLY" && (
+            <p className="text-xs text-violet-900 bg-violet-50 border border-violet-200 rounded-lg p-2">
+              כל שבוע נפתח לבד מתבנית הסדרה. עריכה כאן משנה את השבוע הזה בלבד —
+              לשינוי קבוע עורכים את הסדרה במסך "מכירות שבועיות".
+            </p>
+          )}
+          {lists
+            .filter((l) =>
+              kind === "ALL" ? true : kind === "WEEKLY" ? !!l.weeklySeriesId : !l.weeklySeriesId
+            )
+            .map((l) => (
+            <div
+              key={l.id}
+              className={`card p-4 ${l.weeklySeriesId ? "border-r-4 border-violet-400" : ""}`}
+            >
               <div className="flex flex-wrap justify-between items-start gap-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -228,6 +274,12 @@ export default function PricelistsPage() {
                         ? "סגורה ללקוחות · פתוחה לנציגים"
                         : PRICELIST_STATUS[l.status]}
                     </span>
+                    {/* §396: סימון בולט — שבוע מתוך סדרה */}
+                    {l.weeklySeriesId && (
+                      <span className="badge bg-violet-100 text-violet-800 border border-violet-300">
+                        🔁 שבועית{l.weeklySeries?.name ? ` · ${l.weeklySeries.name}` : ""}
+                      </span>
+                    )}
                     {/* §111: סימון בולט - מכירה שהלקוחות לא רואים */}
                     {l.agentOnly && (
                       <span className="badge bg-amber-100 text-amber-800 border border-amber-300">

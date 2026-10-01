@@ -5,6 +5,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+// §397: סיווג אחיד לסיכום ולפירוט
+import { computeAgentCashAccount } from "@/lib/agent-money-lib";
 
 // GET - החזרת מצב כל הנציגים: עמלה שהצטברה, תשלומים שקיבלו, יתרה חייבת
 export async function GET(req: Request) {
@@ -76,105 +78,34 @@ export async function GET(req: Request) {
         .filter((p) => p.type === "COLLECTED")
         .reduce((s, p) => s + Number(p.amount), 0);
 
-      // מזומן שאסף הנציג ממזדמנים - חייב להעביר למנהל
-      const cashFromWalkins = summaries.reduce(async (accP, x) => {
-        const acc = await accP;
-        const walkinCash = await prisma.walkinOrder.aggregate({
-          where: {
-            pricelistId: x.pricelistId,
-            agentId: agent.id,
-            paymentMethod: "CASH",
-            paymentReceived: true,
-          },
-          _sum: { totalAmount: true },
-        });
-        return acc + Number(walkinCash._sum.totalAmount || 0);
-      }, Promise.resolve(0));
-      const totalCashCollected = await cashFromWalkins;
-
-      // §292: 💳 **כמה נגבה באשראי מהנקודות של הנציג.**
-      //
-      // הבעיה מהשטח: חברת האשראי מעבירה סכום אחד לכל המכירות
-      // ולכל הנקודות. המנהל מקבל ₪40,000 ואין לו שום דרך לדעת
-      // כמה מזה ברכפלד, כמה רמות, וכמה טבריה.
-      //
-      // ⚠️ הבנק לא יודע — **המערכת כן**: כל הזמנה יודעת לאיזו
-      // נקודה היא שייכת, וכל חיוב מוצלח יודע כמה נגבה.
-      //
-      // ⚠️ רק PAID: חיוב שנכשל או שממתין אינו כסף שנכנס.
-      //
-      // ⚠️ ולא מזומן: הוא נספר בנפרד ב-totalCashCollected, וכפל
-      // היה מנפח את מה שכביכול התקבל.
-      const myPointIds = agent.agentPoints.map((ap) => ap.pointId);
-      if (agent.agentPoint?.id && !myPointIds.includes(agent.agentPoint.id)) {
-        myPointIds.push(agent.agentPoint.id);
-      }
-
-      let cardCollected = 0;
-      let cardOrders = 0;
-      let pendingCollection = 0;
-      let pendingOrders = 0;
-      // §294: מזומן מלקוחות רגילים (בנוסף למזדמנים)
-      let cashFromOrders = 0;
-      let cashOrders = 0;
-
-      if (myPointIds.length > 0) {
-        const pointOrders = await prisma.order.findMany({
-          where: {
-            pointId: { in: myPointIds },
-            status: { not: "CANCELLED" },
-          },
-          select: {
-            paymentStatus: true,
-            paymentMethod: true,
-            amountPaid: true,
-            // §325: חוב קודם — מופרד מהכנסות המכירה
-            appliedDebt: true,
-            finalTotal: true,
-            estimatedTotal: true,
-          },
-        });
-
-        for (const o of pointOrders) {
-          const paid = Number(o.amountPaid ?? 0);
-          const due = Number(o.finalTotal ?? o.estimatedTotal ?? 0);
-          // §325: 💸 חוב קודם אינו הכנסה מהמכירה.
-          //
-          // המנהל מצליב את "נגבה באשראי" מול העברת חברת האשראי.
-          // חוב שנספר יחד מנפח את הסכום, וההצלבה נשברת - וזה
-          // בדיוק מה שהמסך הזה נועד לאפשר.
-          const debtPart = Number((o as any).appliedDebt ?? 0);
-
-          if (o.paymentStatus === "PAID") {
-            const actual = Math.max(0, (paid > 0 ? paid : due) - debtPart);
-            // ⚠️ CASH ו-MANUAL הם מזומן (§239) — לא אשראי.
-            if (o.paymentMethod !== "CASH" && o.paymentMethod !== "MANUAL") {
-              cardCollected += actual;
-              cardOrders++;
-            } else {
-              // §294: 💵 מזומן מ**לקוחות רגילים** — לא רק ממזדמנים.
-              //
-              // הפער: totalCashCollected סופר רק walkinOrder. נציג
-              // שגבה מזומן מלקוח שהזמין מראש (§130) - הכסף אצלו,
-              // ולא הופיע בשום מקום.
-              //
-              // ⚠️ וזה בדיוק מה ששובר את ההצלבה: המנהל רואה
-              // "טרם נגבה ₪3,000" בזמן שהנציג כבר גבה במזומן.
-              cashFromOrders += actual;
-              cashOrders++;
-            }
-          } else {
-            pendingCollection += Math.max(0, due - debtPart);
-            pendingOrders++;
-          }
-        }
-      }
+      // §398: 🧮 חשבון הכסף — אותה פונקציה של "החשבון שלי" אצל הנציג.
+      // מזדמנים (ישנים) + מזומן שהנציג **הזה** קיבל (בכל נקודה, גם
+      // בהזמנה שבוטלה) + אשראי / מזומן אצל המנהל / טרם נגבה בנקודות שלו.
+      // ראה agent-money-lib.
+      const acct = await computeAgentCashAccount(agent.id);
+      const totalCashCollected = acct.walkinCash;
+      const walkinCashCount = acct.walkinCashCount;
+      const {
+        cardCollected,
+        cardOrders,
+        cashFromOrders,
+        cashOrders,
+        cashToAdmin,
+        cashToAdminOrders,
+        pendingCollection,
+        pendingOrders,
+      } = acct;
 
       const r2 = (n: number) => Math.round(n * 100) / 100;
 
-      // יתרה: (עמלה - תשלומים ששולמו לו) - (מזומן שאסף - העברות שהעביר למנהל)
-      const balance =
-        totalCommission - totalPaid - (totalCashCollected - totalCollected);
+      // יתרה: (עמלה - תשלומים ששולמו לו) - (מזומן שאצלו - מה שהעביר למנהל)
+      //
+      // §397: 🐛 "מזומן שאצלו" כלל רק מזדמנים. מזומן שהנציג גבה
+      // מלקוחות רגילים (§294) הוצג בשורה "מזומן שאמור להיות אצלו",
+      // אבל לא ירד מהחוב — שני מספרים שלא מסתדרים באותו כרטיס.
+      // עכשיו שניהם באותה נוסחה, והמסך מציג אותה במפורש.
+      const cashHeld = acct.cashHeld;
+      const balance = r2(totalCommission - totalPaid - (cashHeld - totalCollected));
 
       return {
         agent: {
@@ -222,12 +153,17 @@ export async function GET(req: Request) {
           // §294: מזומן מלקוחות רגילים — משלים את התמונה
           cashFromOrders: r2(cashFromOrders),
           cashOrders,
+          // §397: מזומן שהמנהל קיבל ישירות — לא אצל הנציג
+          cashToAdmin: r2(cashToAdmin),
+          cashToAdminOrders,
           pendingCollection: r2(pendingCollection),
           pendingOrders,
           totalCommission,
           totalPaid,
           totalCollected,
           totalCashCollected,
+          // §397: כמה מזדמנים שילמו מזומן (לכותרת הפירוט)
+          walkinCashCount,
           balance,
           // balance > 0 => המנהל חייב לנציג
           // balance < 0 => הנציג חייב למנהל

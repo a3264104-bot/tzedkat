@@ -75,6 +75,8 @@ type Order = {
   notes: string | null;
   pricelistCloseDate: string | null;
   pricelistEditDeadline: string | null;
+  /** §396: מכירה שנסגרה (גם שבוע) — אין עריכה */
+  pricelistStatus?: string | null;
 };
 
 type Point = { id: string; name: string; city: string | null };
@@ -1122,6 +1124,9 @@ export function AccountClient({
 function computeIsEditable(o: Order): boolean {
   if (o.status === "CANCELLED" || o.status === "COMPLETED") return false;
   if (o.finalTotal !== null) return false;
+  // §396: מכירה שאינה פעילה (שבוע שהוחלף, מכירה שנסגרה) — לא עורכים.
+  // לשבוע אין closeDate, ולכן בלי זה הזמנה משבוע קודם נשארה "פתוחה".
+  if (o.pricelistStatus && o.pricelistStatus !== "ACTIVE") return false;
   const deadline = o.pricelistEditDeadline || o.pricelistCloseDate;
   if (deadline) {
     if (new Date(deadline) < new Date()) return false;

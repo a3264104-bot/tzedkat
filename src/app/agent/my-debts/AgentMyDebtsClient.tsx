@@ -40,6 +40,10 @@ type Data = {
     totalPaid: number;
     totalCollected: number;
     totalCashCollected: number;
+    /** §398: מזומן מלקוחות רגילים (אופציונלי — שרת ישן לא מחזיר) */
+    cashFromOrders?: number;
+    cashOrders?: number;
+    cashHeld?: number;
     balance: number;
     debtDirection: "OWED_TO_AGENT" | "OWED_BY_AGENT" | "SETTLED";
   };
@@ -139,13 +143,25 @@ export default function AgentMyDebtsClient() {
               value={`-₪${totals.totalPaid.toFixed(2)}`}
               color="text-red-600"
             />
-            {totals.totalCashCollected > 0 && (
+            {/* §398: כל המזומן שאצלך — מזדמנים + לקוחות ששילמו לך ביד.
+                זהה לנוסחה במסך המנהל. */}
+            {((totals.cashHeld ?? totals.totalCashCollected) > 0 ||
+              totals.totalCollected > 0) && (
               <>
-                <BreakdownRow
-                  label="מזומן שאספתי (מזדמנים)"
-                  value={`-₪${totals.totalCashCollected.toFixed(2)}`}
-                  color="text-amber-700"
-                />
+                {(totals.cashFromOrders ?? 0) > 0 && (
+                  <BreakdownRow
+                    label={`מזומן שקיבלתי מלקוחות (${totals.cashOrders ?? 0} הזמנות)`}
+                    value={`-₪${(totals.cashFromOrders ?? 0).toFixed(2)}`}
+                    color="text-amber-700"
+                  />
+                )}
+                {totals.totalCashCollected > 0 && (
+                  <BreakdownRow
+                    label="מזומן ממזדמנים (שעוד לא הפכו ללקוחות)"
+                    value={`-₪${totals.totalCashCollected.toFixed(2)}`}
+                    color="text-amber-700"
+                  />
+                )}
                 <BreakdownRow
                   label="העברתי למנהל"
                   value={`+₪${totals.totalCollected.toFixed(2)}`}

@@ -25,11 +25,30 @@ export async function POST(req: Request) {
     const pointId = body.pointId || null;
 
     // מכירה פעילה
-    const pricelist = await prisma.pricelist.findFirst({
-      where: { status: "ACTIVE" },
-      orderBy: { createdAt: "desc" },
-      select: { id: true, name: true, deliveryDateText: true },
-    });
+    // §396: 🔁 המכירה הרגילה; ואם נבחרה נקודה שאינה בה — השבוע
+    // של הנקודה. בלי זה "הסחורה הגיעה" לנקודה שבועית היה נשלח
+    // ללקוחות של המכירה הרגילה, או לאף אחד.
+    const pricelist =
+      (await prisma.pricelist.findFirst({
+        where: {
+          status: "ACTIVE",
+          weeklySeriesId: null,
+          ...(pointId ? { points: { some: { pointId } } } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, name: true, deliveryDateText: true },
+      })) ??
+      (pointId
+        ? await prisma.pricelist.findFirst({
+            where: {
+              status: "ACTIVE",
+              weeklySeriesId: { not: null },
+              points: { some: { pointId } },
+            },
+            orderBy: { weekStart: "desc" },
+            select: { id: true, name: true, deliveryDateText: true },
+          })
+        : null);
 
     if (!pricelist) {
       return NextResponse.json({ error: "אין מכירה פעילה" }, { status: 400 });
@@ -40,6 +59,9 @@ export async function POST(req: Request) {
       where: {
         pricelistId: pricelist.id,
         status: { notIn: ["CANCELLED"] },
+        // §398: מי שכבר קיבל (כולל מזדמן שהומר ללקוח — נמסר במקום)
+        // לא צריך הודעה ש"הסחורה הגיעה".
+        deliveredAt: null,
         ...(pointId ? { pointId } : {}),
       },
       include: {

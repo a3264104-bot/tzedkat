@@ -18,6 +18,8 @@ import { canChargeCard, expiryPhoneMessage } from "@/lib/card-expiry-lib";
 import { transcribeName, useGeminiStt } from "@/lib/gemini-stt-lib";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+// §396: שבוע פתוח לנקודה שבועית
+import { ensureWeeklySales } from "@/lib/weekly-sales";
 import {
   parseYemotRequest,
   yemotResponse,
@@ -160,6 +162,11 @@ type ActiveSale = {
   // §100: התאריך עצמו, להקראה נכונה בעברית ובלועזי
   deliveryDate: Date | null;
   editDeadline: Date | null;
+  // §396: הנקודות של המכירה הרגילה — כדי להחליט בלי שאילתה נוספת
+  // אם הלקוח שייך אליה או לשבוע של הנקודה שלו
+  points?: { pointId: string }[];
+  /** §398: שבוע (§396) — לכללי "הזמנה קיימת" */
+  weeklySeriesId?: string | null;
 };
 
 // §61: ימות מחכים לתשובה שלנו לפני שהם משמיעים את ההודעה הבאה, ולכן
@@ -401,7 +408,8 @@ async function handle(req: Request): Promise<Response> {
   //
   // §94: כבר נשלף למעלה במקביל לזיהוי הלקוח, ומגיע מהמטמון אם הוא
   // טרי. אין כאן שאילתה נוספת.
-  const activeSale = activeSaleEarly;
+  // §396: הרגילה, או השבוע של הנקודה של המתקשר
+  const activeSale = await saleForCustomer(activeSaleEarly, customer.defaultPointId);
 
   // §94: ההזמנה הפתוחה וההודעות למתקשרים - במקביל.
   //
@@ -1551,7 +1559,9 @@ async function getActiveSale(): Promise<ActiveSale | null> {
   const value = await prisma.pricelist.findFirst({
     // §111: מכירה לנציגים בלבד אינה קיימת מבחינת הלקוח בטלפון.
     // הוא לא ישמע אותה, לא יוכל להזמין בה, ולא יידע שהיא קיימת.
-    where: { status: "ACTIVE", agentOnly: false },
+    // §396: weeklySeriesId: null — "המכירה הפעילה" היא הרגילה.
+    // שבוע של נקודה שבועית נבחר ללקוח הספציפי ב-saleForCustomer.
+    where: { status: "ACTIVE", agentOnly: false, weeklySeriesId: null },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -1563,10 +1573,61 @@ async function getActiveSale(): Promise<ActiveSale | null> {
       deliveryDateText: true,
       deliveryDate: true,
       editDeadline: true,
+      points: { select: { pointId: true } },
     },
   });
   saleCache = { at: Date.now(), value: value as ActiveSale | null };
   return saleCache.value;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// §396: 🔁 המכירה של המתקשר — רגילה או השבוע של הנקודה שלו
+// ═══════════════════════════════════════════════════════════════
+// אותו כלל של האתר (resolveCustomerSaleId): הרגילה אם היא כוללת את
+// הנקודה, אחרת השבוע של הנקודה, אחרת הרגילה.
+//
+// ⚠️ בלי שאילתה נוספת לרוב המתקשרים: הנקודות של הרגילה כבר במטמון,
+// ושאילתה נוספת רצה רק ללקוח שהנקודה שלו מחוץ לרגילה.
+async function saleForCustomer(
+  regular: ActiveSale | null,
+  pointId: string | null | undefined
+): Promise<ActiveSale | null> {
+  if (!pointId) return regular;
+  if (regular?.points?.some((p) => p.pointId === pointId)) return regular;
+  await ensureWeeklySales();
+  const weekly = await prisma.pricelist.findFirst({
+    where: {
+      status: "ACTIVE",
+      agentOnly: false,
+      weeklySeriesId: { not: null },
+      points: { some: { pointId } },
+    },
+    orderBy: { weekStart: "desc" },
+    select: {
+      id: true,
+      name: true,
+      closeDate: true,
+      openDate: true,
+      singleSurcharge: true,
+      orderFee: true,
+      deliveryDateText: true,
+      deliveryDate: true,
+      editDeadline: true,
+      weeklySeriesId: true,
+    },
+  });
+  if (!weekly) return regular;
+  // §396: 🗣️ שבוע אינו "יום חלוקה" אחד. deliveryDate = תחילת השבוע,
+  // והקראה שלו ("יום ראשון, ...") הייתה מטעה. מקריאים את הטקסט —
+  // בלי טווח התאריכים בסוגריים, שהקריינות הופכת לרצף מספרים.
+  return {
+    ...(weekly as ActiveSale),
+    deliveryDate: null,
+    deliveryDateText:
+      (weekly.deliveryDateText ?? "")
+        .replace(/\s*\([^)]*\)\s*$/, "")
+        .trim() || "במהלך השבוע",
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1759,7 +1820,16 @@ async function handleMyOrders(
     // שמתחילה ב"על איזו הזמנה אתה מדבר".
     const parts: string[] = [say("פירוט הזמנה מספר"), sayNumber(latest.orderNumber)];
     if ((latest as any).pricelist?.name) {
-      parts.push(say(`ממכירת ${(latest as any).pricelist.name}`));
+      // §396: שם של שבוע ("🔁 בני ברק · 4/10–10/10") — בלי האימוג'י
+      // והתאריכים, שהקריינות הייתה מקריאה כ"סלאש" ו"מקף".
+      parts.push(
+        say(
+          `ממכירת ${String((latest as any).pricelist.name)
+            .replace(/🔁\s*/g, "")
+            .replace(/\s*·\s*[\d/–-]+\s*$/, "")
+            .trim()}`
+        )
+      );
     }
     for (const it of its) {
       const qty = Number(it.quantity);
@@ -2147,6 +2217,17 @@ async function handleMyPoint(
 
   const chosenPoint = pts.find((x) => x.id === newPointId);
 
+  // §398: 🐛 ההזמנה הפתוחה עוברת רק אם המכירה שלה כוללת את הנקודה
+  // החדשה. הזמנה בשבוע של נקודה שבועית (§396) שעברה לנקודה רגילה
+  // הייתה "יתומה": הנציג של השבוע לא רואה אותה, והשבוע לא נסגר כי
+  // היא מעולם לא סומנה כנמסרה. אותו כלל של שינוי נקודה באתר.
+  const orderCanMove =
+    !!openOrder?.id &&
+    (!openOrder.pricelistId ||
+      (await prisma.pricelistPoint.count({
+        where: { pricelistId: openOrder.pricelistId, pointId: newPointId },
+      })) > 0);
+
   // עדכון הלקוח + ההזמנה הפתוחה בטרנזקציה. אם רק אחד מהם היה
   // מתעדכן, הלקוח היה מגיע לנקודה אחת והסחורה למקום אחר.
   await prisma.$transaction(async (tx) => {
@@ -2154,7 +2235,7 @@ async function handleMyPoint(
       where: { id: customer.id },
       data: { defaultPointId: newPointId },
     });
-    if (openOrder?.id) {
+    if (openOrder?.id && orderCanMove) {
       await tx.order.update({
         where: { id: openOrder.id },
         data: {
@@ -2172,7 +2253,12 @@ async function handleMyPoint(
       prompt("point_changed", "נקודת החלוקה שלך עודכנה"),
       say(chosenPoint?.name ?? ""),
       openOrder?.id
-        ? prompt("point_changed_order", "ההזמנה הפעילה שלך הועברה לנקודה זו")
+        ? orderCanMove
+          ? prompt("point_changed_order", "ההזמנה הפעילה שלך הועברה לנקודה זו")
+          : prompt(
+              "point_changed_order_stays",
+              "ההזמנה הפעילה שלך נשארת בנקודה הקודמת, כי המכירה שלה אינה מגיעה לנקודה החדשה. ההזמנה הבאה תשויך לנקודה החדשה"
+            )
         : prompt("point_changed_note", "ההזמנה הבאה שלך תשויך לנקודה זו")
     )
   );
@@ -2206,11 +2292,15 @@ async function handleOrder(
   }
 
   // הזמנה כפולה - אותה בדיקה כמו באתר
+  // §398: כולל שני החריגים של האתר — קנייה כמזדמן אינה חוסמת, ובשבוע
+  // (§396) הזמנה שכבר נמסרה אינה חוסמת.
   const existing = await prisma.order.findFirst({
     where: {
       customerId: customer.id,
       pricelistId: pricelist.id,
       status: { notIn: ["CANCELLED"] },
+      NOT: { source: "WALKIN" },
+      ...(pricelist.weeklySeriesId ? { deliveredAt: null } : {}),
     },
     select: { orderNumber: true },
   });

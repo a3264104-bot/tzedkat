@@ -72,7 +72,10 @@ export default function AnnouncementsPage() {
       setLists(pls);
       setPoints(pts);
       if (!fPricelist) {
-        const active = (pls as Pricelist[]).find((l) => l.status === "ACTIVE");
+        // §396: ברירת מחדל — המכירה הרגילה, לא שבוע
+        const active =
+          (pls as any[]).find((l) => l.status === "ACTIVE" && !l.weeklySeriesId) ??
+          (pls as Pricelist[]).find((l) => l.status === "ACTIVE");
         if (active) setFPricelist(active.id);
       }
     } catch (e: any) {

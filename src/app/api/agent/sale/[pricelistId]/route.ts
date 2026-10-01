@@ -4,6 +4,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
+// §396: מכירות שבועיות
+import { ensureWeeklySales } from "@/lib/weekly-sales";
 
 /**
  * §235: מיון לפי שם משפחה — זהה לדף החלוקה (§233).
@@ -35,6 +37,9 @@ export async function GET(
 
   const { pricelistId } = await params;
 
+  // §396: השבועות מעודכנים לפני שמציגים (מוגבל לפעם בדקה)
+  await ensureWeeklySales();
+
   // בדיקה שהמחירון קיים
   const pricelist = await prisma.pricelist.findUnique({
     where: { id: pricelistId },
@@ -50,6 +55,10 @@ export async function GET(
       // Product.singleSurcharge) - כך זה ב-OrderFlow.
       singleSurcharge: true,
       orderFee: true,
+      // §396: 🔁 שבוע — לפס "השבוע הסתיים" ולכפתור סגירה
+      weeklySeriesId: true,
+      weekEnd: true,
+      weekClosedAt: true,
     },
   });
   if (!pricelist) {
@@ -325,6 +334,8 @@ export async function GET(
       ...pricelist,
       singleSurcharge: Number(pricelist.singleSurcharge ?? 0),
       orderFee: Number(pricelist.orderFee ?? 0),
+      weekEnd: pricelist.weekEnd?.toISOString() ?? null,
+      weekClosedAt: pricelist.weekClosedAt?.toISOString() ?? null,
     },
     agent: {
       id: g.agent.id,

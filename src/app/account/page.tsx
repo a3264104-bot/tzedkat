@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+// §396: בחירת מכירה לפי נקודה
+import { resolveCustomerSaleId } from "@/lib/weekly-sales";
 import { auth } from "@/lib/auth";
 import { AccountClient } from "./AccountClient";
 
@@ -40,7 +42,8 @@ export default async function AccountPage() {
           // ההזמנה, הערך כאן לא ישקף את מה שנגבה בפועל. לכן הלקוח
           // (AccountClient) משתמש בו רק לזיהוי: ההפרש בין סכום הפריטים
           // לסה"כ ההזמנה נקרא "דמי הזמנה" רק אם הוא שווה לו בדיוק.
-          pricelist: { select: { closeDate: true, editDeadline: true, orderFee: true } },
+          // §396: status — הזמנה בשבוע שנסגר אינה ניתנת לעריכה
+          pricelist: { select: { closeDate: true, editDeadline: true, orderFee: true, status: true } },
         },
       },
     },
@@ -80,11 +83,9 @@ export default async function AccountPage() {
   });
 
   // בודקים אם יש מכירה פעילה (כדי להציג/להסתיר כפתור הזמנה חדשה)
-  const activePricelist = await prisma.pricelist.findFirst({
-    // §111: מכירה לנציגים בלבד לא מוצגת ללקוח באזור האישי
-    where: { status: "ACTIVE", agentOnly: false },
-    select: { id: true },
-  });
+  // §396: לפי הנקודה — רגילה או השבוע של הנקודה (agentOnly לעולם לא)
+  const activePricelistId = await resolveCustomerSaleId(customer.defaultPointId);
+  const activePricelist = activePricelistId ? { id: activePricelistId } : null;
 
   const ordersData = customer.orders.map((o) => ({
     id: o.id,
@@ -162,6 +163,7 @@ export default async function AccountPage() {
     notes: o.notes,
     pricelistCloseDate: o.pricelist?.closeDate?.toISOString() ?? null,
     pricelistEditDeadline: o.pricelist?.editDeadline?.toISOString() ?? null,
+    pricelistStatus: o.pricelist?.status ?? null,
   }));
 
   return (

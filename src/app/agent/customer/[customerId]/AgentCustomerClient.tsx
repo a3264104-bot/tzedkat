@@ -112,6 +112,8 @@ export function AgentCustomerClient({
     name: string;
     agentOnly: boolean;
     deliveryDateText: string | null;
+    /** §396: שבוע מתוך סדרה שבועית */
+    weekly?: boolean;
   }[];
   singleSurcharge: number;
   availableProducts: AddableProduct[];
@@ -647,6 +649,12 @@ export function AgentCustomerClient({
                     {sl.agentOnly && (
                       <span className="text-[10px] font-bold bg-amber-200 text-amber-900 rounded px-1.5 py-0.5">
                         נציגים בלבד
+                      </span>
+                    )}
+                    {/* §396: 🔁 שבוע של הנקודה */}
+                    {sl.weekly && (
+                      <span className="text-[10px] font-bold bg-violet-200 text-violet-900 rounded px-1.5 py-0.5">
+                        🔁 שבועית
                       </span>
                     )}
                   </div>

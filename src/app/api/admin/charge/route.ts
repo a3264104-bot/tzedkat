@@ -363,6 +363,10 @@ export async function POST(req: Request) {
       where: {
         id: orderId,
         paymentStatus: CHARGEABLE_STATUSES_FOR_LOCK,
+        // §398: 🐛 היתרה חושבה מ-amountPaid שנקרא לפני הנעילה. אם נציג
+        // סימן מזומן חלקי בדיוק באמצע — החיוב היה גובה את היתרה הישנה
+        // (כפל), ודורס את amountPaid. עכשיו הנעילה נכשלת, והמנהל מרענן.
+        amountPaid: preOrder.amountPaid,
       },
       data: {
         paymentStatus: "CHARGING",

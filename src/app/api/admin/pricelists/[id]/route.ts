@@ -56,10 +56,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // השבתת מכירות אחרות מתבצעת יחד עם העדכון בטרנזקציה אחת.
   // 🐛 תוקן: קודם ה-updateMany רץ *לפני* העדכון, ואם העדכון נכשל
   // (למשל ולידציה או שגיאת DB) מכירה אחרת כבר נסגרה לחינם.
+  //
+  // §396: 🔁 **מכירות שבועיות לא נסגרות מהפעלה של מכירה אחרת.**
+  //
+  // הכלל "מכירה פעילה אחת" חל על מכירות רגילות בלבד. שבוע פתוח של
+  // נקודה שבועית רץ במקביל למכירה החודשית — והלקוחות של הנקודה
+  // פשוט לא רואים אותו כשהחודשית כוללת אותם (resolveCustomerSaleId).
+  // סגירה כאן הייתה תוקעת את השבוע עם ההזמנות שבו.
+  //
+  // ⚠️ ולהפך: הפעלה ידנית של שבוע (פתיחה מחדש) לא סוגרת שום דבר.
+  const target = await prisma.pricelist.findUnique({
+    where: { id },
+    select: { weeklySeriesId: true },
+  });
   const list = await prisma.$transaction(async (tx) => {
-    if (b.status === "ACTIVE") {
+    if (b.status === "ACTIVE" && !target?.weeklySeriesId) {
       await tx.pricelist.updateMany({
-        where: { status: "ACTIVE", NOT: { id } },
+        where: { status: "ACTIVE", NOT: { id }, weeklySeriesId: null },
         data: { status: "CLOSED" },
       });
     }

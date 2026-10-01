@@ -335,6 +335,10 @@ export async function PATCH(
           paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "CHARGING"] },
           agentClosedAt: null,
           deliveredAt: null,
+          // §396: רק הזמנות שהמכירה שלהן כוללת את הנקודה החדשה.
+          // הזמנה בשבוע של נקודה שבועית לא "עוברת" לנקודה שאינה
+          // בשבוע — היא הייתה נתקעת בנקודה שאין לה נציג במכירה.
+          pricelist: { points: { some: { pointId: pid } } },
         },
         data: {
           pointId: pid,

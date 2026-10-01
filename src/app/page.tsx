@@ -4,6 +4,8 @@ import { Logo } from "@/components/Logo";
 import { CountdownTimer } from "@/components/CountdownTimer";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+// §396: מכירה לפי נקודה + חסימת הזמנה אישית בנקודה שבועית
+import { resolveCustomerSaleId, isWeeklyPoint } from "@/lib/weekly-sales";
 
 export const dynamic = "force-dynamic";
 
@@ -43,10 +45,34 @@ export default async function Home() {
   const userId = (session?.user as any)?.id as string | undefined;
   const userName = (session?.user as any)?.name || "";
 
-  const active = await prisma.pricelist.findFirst({
-    where: { status: "ACTIVE" },
-    orderBy: { createdAt: "desc" },
-  });
+  // §396: 🔁 המכירה שהלקוח רואה — לפי הנקודה שלו.
+  //
+  // לקוח מחובר: רגילה אם היא כוללת את הנקודה שלו, אחרת השבוע של
+  // הנקודה. אורח (לא מחובר) — המכירה הרגילה בלבד.
+  //
+  // 🐛 גם תוקן בדרך: התנאי היה status: "ACTIVE" בלבד, כלומר מכירה
+  // לנציגים (agentOnly) הייתה יכולה להופיע כאן כ"המכירה הפעילה".
+  const me =
+    isLoggedIn && userId && !isAdmin
+      ? await prisma.customer.findUnique({
+          where: { id: userId },
+          select: { defaultPointId: true },
+        })
+      : null;
+  const activeId = me
+    ? await resolveCustomerSaleId(me.defaultPointId)
+    : (
+        await prisma.pricelist.findFirst({
+          where: { status: "ACTIVE", agentOnly: false, weeklySeriesId: null },
+          orderBy: { createdAt: "desc" },
+          select: { id: true },
+        })
+      )?.id ?? null;
+  const active = activeId
+    ? await prisma.pricelist.findUnique({ where: { id: activeId } })
+    : null;
+  // §396: לנקודה שבועית אין הזמנה אישית — היא מזמינה כל שבוע
+  const weeklyPoint = me ? await isWeeklyPoint(me.defaultPointId) : false;
 
   const settings = await prisma.systemSettings
     .findUnique({ where: { id: "singleton" } })
@@ -67,6 +93,10 @@ export default async function Home() {
             customerId: userId,
             pricelistId: active.id,
             status: { notIn: ["CANCELLED"] },
+            // §398: אותם כללים של מסך ההזמנה — קנייה כמזדמן, או הזמנה
+            // שבועית שכבר נמסרה, אינן "ההזמנה שלך במכירה"
+            NOT: { source: "WALKIN" },
+            ...(active.weeklySeriesId ? { deliveredAt: null } : {}),
           },
           // §392: ייתכנו כמה הזמנות במכירה (נוספת אחרי תשלום) — מציגים את האחרונה
           orderBy: { createdAt: "desc" },
@@ -81,10 +111,16 @@ export default async function Home() {
       : null;
 
   // האם עדיין אפשר לערוך את ההזמנה?
+  //
+  // §398: 🐛 לשבוע (§396) אין editDeadline ואין closeDate — ולקוחות
+  // של נקודה שבועית **אף פעם** לא ראו כפתור עריכה. עכשיו אותו כלל של
+  // האזור האישי (computeIsEditable): מועד העריכה, אחרת מועד הסגירה,
+  // ובלי שניהם — פתוח כל עוד המכירה פעילה. והזמנה שנשקלה — לא.
+  const editDeadline = active?.editDeadline ?? active?.closeDate ?? null;
   const canEditActiveOrder =
     !!activeOrder &&
-    !!active?.editDeadline &&
-    now < new Date(active.editDeadline);
+    activeOrder.finalTotal == null &&
+    (editDeadline ? now < new Date(editDeadline) : true);
 
   return (
     <main dir="rtl" className="min-h-screen bg-brand-cream">
@@ -318,7 +354,7 @@ export default async function Home() {
           )}
 
           {/* הזמנה אישית - רק כשאין מכירה פעילה */}
-          {personalEnabled && !isOpen && (
+          {personalEnabled && !isOpen && !weeklyPoint && (
             <section
               aria-labelledby="personal-heading"
               className="card p-6 ring-2 ring-brand-yellow shadow-md"

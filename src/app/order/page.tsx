@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { OrderFlow } from "./OrderFlow";
+// §396: בחירת מכירה לפי נקודה (רגילה / שבועית)
+import { resolveCustomerSaleId } from "@/lib/weekly-sales";
 
 export const dynamic = "force-dynamic";
 
@@ -58,9 +60,40 @@ export default async function OrderPage({
     );
   }
 
-  const pricelist = await prisma.pricelist.findFirst({
-    where: { status: "ACTIVE", agentOnly: false },
-    orderBy: { createdAt: "desc" },
+  // §396: 🔁 **המכירה נבחרת לפי הנקודה של הלקוח.**
+  //
+  // עד היום: "המכירה הפעילה" — אחת לכולם. עכשיו לנקודה שבועית יש
+  // שבוע פתוח משלה, במקביל למכירה הרגילה. resolveCustomerSaleId
+  // מחזיר את הרגילה אם היא כוללת את הנקודה (השבועית מוסתרת מהלקוח),
+  // אחרת את השבוע של הנקודה, ואחרת את הרגילה כמו תמיד.
+  let resolvedSaleId = await resolveCustomerSaleId(customerRecord.defaultPointId);
+
+  // §398: 🐛 **עריכה — במכירה של ההזמנה, לא במכירה של היום.**
+  //
+  // לקוח הזמין בשבוע (§396), ואז נפתחה מכירה רגילה שכוללת את הנקודה
+  // שלו. resolveCustomerSaleId מחזיר עכשיו את הרגילה, וההזמנה לא
+  // נמצאה בה — הלקוח קיבל עגלה ריקה, ושמירה הייתה יוצרת הזמנה כפולה.
+  // ✅ במצב עריכה: אם המכירה של ההזמנה עדיין פעילה — עובדים בה.
+  if (editOrderId) {
+    const eo = await prisma.order.findFirst({
+      where: { id: editOrderId, customerId },
+      select: {
+        pricelistId: true,
+        pricelist: { select: { status: true, agentOnly: true } },
+      },
+    });
+    // ⚠️ לא מכירת "נציגים בלבד" — המחירון שלה אינו לעיני לקוחות (§111)
+    if (
+      eo?.pricelistId &&
+      eo.pricelist?.status === "ACTIVE" &&
+      !eo.pricelist.agentOnly
+    ) {
+      resolvedSaleId = eo.pricelistId;
+    }
+  }
+
+  const pricelist = !resolvedSaleId ? null : await prisma.pricelist.findUnique({
+    where: { id: resolvedSaleId },
     include: {
       points: { include: { point: true } },
       products: {
@@ -102,7 +135,9 @@ export default async function OrderPage({
     : await prisma.pricelist.findFirst({
         // ⚠️ agentOnly: false - מחירון נציגים אינו לעיני לקוחות,
         // בדיוק כמו במכירה פעילה.
-        where: { agentOnly: false, status: { in: ["CLOSED", "DONE"] } },
+        // §396: מחירון היסטורי — רק ממכירה רגילה. שבוע שנסגר אינו
+        // "המחירון האחרון" של לקוח רגיל.
+        where: { agentOnly: false, weeklySeriesId: null, status: { in: ["CLOSED", "DONE"] } },
         orderBy: { createdAt: "desc" },
         include: {
           points: { include: { point: true } },
@@ -173,6 +208,13 @@ export default async function OrderPage({
         customerId,
         pricelistId: catalogSource.id,
         status: { notIn: ["CANCELLED"] },
+        // §398: קנייה כמזדמן בחלוקה (§398) אינה "ההזמנה שלו למכירה"
+        // — היא לא חוסמת הזמנה רגילה.
+        NOT: { source: "WALKIN" },
+        // §398: 🐛 בשבוע (§396) — הזמנה שכבר נמסרה לא חוסמת. השבוע
+        // יכול להישאר פתוח אחרי סופו (מחכה ללקוח אחר שלא הגיע), ולקוח
+        // שכבר קיבל ורצה להזמין שוב — הופנה לעמוד ההזמנה הישנה.
+        ...(catalogSource.weeklySeriesId ? { deliveredAt: null } : {}),
       },
       // §392: ייתכנו כמה הזמנות (נוספת שפתח נציג אחרי תשלום) — מפנים לאחרונה
       orderBy: { createdAt: "desc" },

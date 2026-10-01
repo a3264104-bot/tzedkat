@@ -307,6 +307,17 @@ export function OrderFlow({
   // ⚠️ מוגדר **לפני** cartLines: החישוב תלוי בו, וב-JS
   // const אינו עולה למעלה כמו function.
   const [favPrices, setFavPrices] = useState<Record<string, string>>({});
+  // §397: ⚖️ **משקל בפועל כבר בהזמנה** — נציג בלבד, הזמנה חדשה בלבד.
+  //
+  // הצורך מהשטח: הרבה הזמנות של נציג הן ללקוח שכבר לקח את הסחורה.
+  // עד היום: שולחים הזמנה, יוצאים, מחפשים את המכירה, נכנסים לטבלת
+  // המשקלים, מחפשים את הלקוח — ורק אז מזינים. עכשיו המשקל נכנס באותה
+  // שורה שבה בוחרים את המוצר, ונשמר יחד עם ההזמנה.
+  //
+  // מפתח: `${productId}|C` לקרטונים, `${productId}|S` לבודדים.
+  // ערך: משבצת לכל קרטון (כמו בטבלת המשקלים, §301/§394).
+  const [agentWeights, setAgentWeights] = useState<Record<string, string[]>>({});
+  const weighInline = !!onBehalfOfCustomerId && !editMode;
 
   // ח4: cartLines — מפרק כל entry לשורה/שתיים (קרטונים + בודדים)
   type ComputedLine = {
@@ -765,6 +776,57 @@ export function OrderFlow({
       console.error("[nedarim iframe] postMessage failed:", e);
     }
   }
+  // §397: שמירת המשקלים שהנציג הזין בהזמנה — אחרי שההזמנה נוצרה.
+  async function saveInlineWeights(
+    items: { id: string; productId: string; isSingle: boolean }[]
+  ): Promise<string[]> {
+    const errors: string[] = [];
+    for (const it of items) {
+      // ⚠️ חותכים למספר הקרטונים **הנוכחי**: נציג שהקטין כמות אחרי
+      // שהזין משקלים — המשבצות העודפות לא נשלחות.
+      const prod = products.find((x) => x.id === it.productId);
+      const qty = it.isSingle ? 1 : Math.floor(cart[it.productId]?.cartonQty ?? 0);
+      const boxes = it.isSingle || prod?.saleType === "UNIT" ? 1 : Math.min(Math.max(qty, 1), 6);
+      const raw = agentWeights[`${it.productId}|${it.isSingle ? "S" : "C"}`];
+      const vals = raw ? Array.from({ length: boxes }, (_, i) => raw[i] ?? "") : null;
+      if (!vals || vals.every((v) => !v || v.trim() === "")) continue;
+      const filled = vals.filter((v) => v && v.trim() !== "");
+      const multi = vals.length > 1;
+      const nums = vals.map((v) => (v && v.trim() !== "" ? Number(v) : null));
+      if (nums.some((n) => n != null && (!Number.isFinite(n) || n < 0))) {
+        errors.push(`${productNameOf(it.productId)}: ערך לא תקין`);
+        continue;
+      }
+      const sum = Math.round(nums.reduce<number>((a, n) => a + (n ?? 0), 0) * 100) / 100;
+      // ⚠️ חלק מהקרטונים ריקים — נשמר כפירוט חלקי והפריט נשאר חסר
+      // (§394), בדיוק כמו בטבלה.
+      const body =
+        multi && filled.length < vals.length
+          ? { agentEnteredWeight: null, weightParts: nums }
+          : multi
+            ? { agentEnteredWeight: sum, weightParts: nums }
+            : { agentEnteredWeight: sum };
+      try {
+        const res = await fetch(`/api/agent/order-item/${it.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          errors.push(`${productNameOf(it.productId)}: ${d.error || res.status}`);
+        }
+      } catch (e: any) {
+        errors.push(`${productNameOf(it.productId)}: ${e?.message || "שגיאה"}`);
+      }
+    }
+    return errors;
+  }
+  function productNameOf(productId: string): string {
+    const pp = products.find((x) => x.id === productId);
+    return String(pp?.name ?? "מוצר").replace(/\*/g, "");
+  }
+
   async function submit() {
     // §221: 🛑 חסימה במצב מחירון.
     //
@@ -887,6 +949,20 @@ export function OrderFlow({
       // משקלים"** — הנציג שמכניס הזמנה ללקוח שכבר לקח סחורה עובר
       // לשקילה בלחיצה אחת, במקום לחזור אחורה ולחפש את המכירה.
       if (orderId && onBehalfOfCustomerId) {
+        // §397: ⚖️ המשקלים שהוזנו בהזמנה — נשמרים עכשיו, לכל פריט.
+        //
+        // ⚠️ דרך אותו endpoint של טבלת המשקלים (order-item): אותה
+        // ולידציה, אותו חישוב סכום, אותו כלל "כל קרטון חייב ערך".
+        // כשל בפריט אחד לא מפיל את השאר — הנציג יראה אותו כחסר
+        // בטבלה ויתקן.
+        const weightErrors = await saveInlineWeights(
+          Array.isArray(data.items) ? data.items : []
+        );
+        if (weightErrors.length > 0) {
+          alert(
+            `ההזמנה נשמרה, אבל חלק מהמשקלים לא נשמרו:\n\n${weightErrors.join("\n")}\n\nאפשר להשלים אותם בעדכון המשקלים.`
+          );
+        }
         window.location.href = `/agent/orders/${orderId}?new=1`;
         return;
       }
@@ -1625,6 +1701,22 @@ export function OrderFlow({
                                   {Math.round(p.avgWeightPerUnit * entry.cartonQty * 10) / 10} ק"ג
                                 </div>
                               )}
+                            {/* §397: ⚖️ משקל בפועל — לנציג, באותה שורה */}
+                            {weighInline && entry.cartonQty > 0 && (
+                              <AgentWeightBoxes
+                                count={
+                                  p.saleType === "UNIT"
+                                    ? 1
+                                    : Math.min(Math.floor(entry.cartonQty), 6)
+                                }
+                                unitLabel={p.saleType === "UNIT" ? "יח׳" : 'ק"ג'}
+                                placeholderPrefix={p.saleType === "UNIT" ? "" : "קרטון"}
+                                values={agentWeights[`${p.id}|C`] ?? []}
+                                onChange={(vals) =>
+                                  setAgentWeights((prev) => ({ ...prev, [`${p.id}|C`]: vals }))
+                                }
+                              />
+                            )}
                             {/* שורת בודדים — רק למוצרים שמאפשרים */}
                             {p.allowSingles && (
                               <div className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2">
@@ -1653,6 +1745,18 @@ export function OrderFlow({
                                   onChange={(v) => setSinglesQty(p.id, v)}
                                 />
                               </div>
+                            )}
+                            {/* §397: ⚖️ משקל בפועל לבודדים */}
+                            {weighInline && p.allowSingles && entry.singlesQty > 0 && (
+                              <AgentWeightBoxes
+                                count={1}
+                                unitLabel={p.singlesMode === "UNITS" ? "יח׳" : 'ק"ג'}
+                                placeholderPrefix="בודדים"
+                                values={agentWeights[`${p.id}|S`] ?? []}
+                                onChange={(vals) =>
+                                  setAgentWeights((prev) => ({ ...prev, [`${p.id}|S`]: vals }))
+                                }
+                              />
                             )}
                           </div>
                         </div>
@@ -2545,6 +2649,76 @@ function QtyRow({
       >
         +
       </button>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// §397: ⚖️ משבצות משקל בפועל — לנציג, בתוך שורת המוצר
+// ═══════════════════════════════════════════════════════════════
+// משבצת לכל קרטון (עד 6), כמו בטבלת המשקלים. ריק = לא הוזן עדיין
+// (ייכנס בעדכון משקלים). מי שלקח הכל — ממלא, וההזמנה נשמרת שקולה.
+function AgentWeightBoxes({
+  count,
+  unitLabel,
+  placeholderPrefix,
+  values,
+  onChange,
+}: {
+  count: number;
+  unitLabel: string;
+  placeholderPrefix: string;
+  values: string[];
+  onChange: (vals: string[]) => void;
+}) {
+  const vals = Array.from({ length: count }, (_, i) => values[i] ?? "");
+  const filled = vals.filter((v) => v.trim() !== "").length;
+  const sum =
+    Math.round(vals.reduce((a, v) => a + (Number(v) || 0), 0) * 100) / 100;
+  return (
+    <div className="rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50/60 px-2 py-1.5">
+      <div className="flex items-center justify-between text-[11px] font-bold text-emerald-900 mb-1">
+        <span>⚖️ בפועל ({unitLabel}) — אם הלקוח כבר לקח</span>
+        {filled > 0 && count > 1 && (
+          <span className="tabular-nums">סה״כ {sum}</span>
+        )}
+      </div>
+      <div className={`grid gap-1 ${count > 1 ? "grid-cols-3" : "grid-cols-1"}`}>
+        {vals.map((v, i) => (
+          <input
+            key={i}
+            type="number"
+            inputMode="decimal"
+            step={unitLabel === "יח׳" ? 1 : 0.01}
+            min={0}
+            dir="ltr"
+            value={v}
+            onChange={(e) => {
+              const next = [...vals];
+              next[i] = e.target.value;
+              onChange(next);
+            }}
+            placeholder={
+              count > 1
+                ? `${placeholderPrefix} ${i + 1}`
+                : placeholderPrefix || unitLabel
+            }
+            className={`w-full text-center font-bold text-base md:text-sm rounded py-1.5 border-2 ${
+              v.trim() === ""
+                ? filled > 0
+                  ? "border-red-400 bg-red-50"
+                  : "border-zinc-200 bg-white"
+                : "border-emerald-400 bg-white"
+            }`}
+          />
+        ))}
+      </div>
+      {filled > 0 && filled < count && (
+        <div className="text-[10px] font-bold text-red-700 mt-1">
+          חסר משקל ל-{count - filled} קרטונים · לא קיבל = 0. אפשר להשלים אחר כך.
+        </div>
+      )}
     </div>
   );
 }

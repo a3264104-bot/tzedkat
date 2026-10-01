@@ -1666,11 +1666,14 @@ function CashCell({
     );
   }
 
-  const isPartial = paymentStatus === "PARTIALLY_PAID";
+  // §398: יתרה לפי מה ששולם בפועל — כמו בכפתור של המנהל (§397).
+  // 🐛 קודם רק ב-PARTIALLY_PAID: הזמנה ששולם בה חלק באשראי ואז החיוב
+  // נכשל (FAILED) הציעה את הסכום המלא, והשרת דחה "גבוה מההזמנה".
   const remaining =
-    isPartial && finalTotal != null && amountPaid != null
+    finalTotal != null && amountPaid != null && amountPaid > 0
       ? Math.round((finalTotal - amountPaid) * 100) / 100
       : null;
+  const isPartial = remaining != null && remaining > 0;
 
   const blocked = missing > 0 || finalTotal == null;
 
@@ -1723,11 +1726,12 @@ function CashCell({
     // §360: חלקי = המצטבר (מה שכבר שולם + עכשיו) קטן מהסכום.
     const cumulative = Math.round((amt + (amountPaid ?? 0)) * 100) / 100;
     const isPartial = cumulative < Number(finalTotal) - 0.01;
+    // §397: אישור שני רק בתשלום **חלקי** (נשאר חוב — חשוב שיידע).
+    // בתשלום מלא החלון הראשון, עם הסכום ממולא, הוא האישור.
     if (
+      isPartial &&
       !window.confirm(
-        isPartial
-          ? `${customerName} שילם ${amt} ש"ח${amountPaid ? ` (סה"כ ${cumulative})` : ""} מתוך ${finalTotal}.\n\nיישאר חוב של ${(Number(finalTotal) - cumulative).toFixed(2)} ש"ח.`
-          : `${customerName} שילם ${amt} ש"ח במזומן?\n\nההזמנה תסומן כשולמה והכרטיס לא יחויב.`
+        `${customerName} שילם ${amt} ש"ח${amountPaid ? ` (סה"כ ${cumulative})` : ""} מתוך ${finalTotal}.\n\nיישאר חוב של ${(Number(finalTotal) - cumulative).toFixed(2)} ש"ח.`
       )
     )
       return;
@@ -1741,6 +1745,8 @@ function CashCell({
         // amountPaid כערך מוחלט, ולכן מוסיפים למה שכבר שולם.
         body: JSON.stringify({
           amountPaid: Math.round((amt + (amountPaid ?? 0)) * 100) / 100,
+          // §398: מה שראיתי ששולם — השרת דוחה אם השתנה בינתיים
+          expectedPrevPaid: amountPaid ?? 0,
           note: isPartial
             ? `שולם ${amt} מתוך ${finalTotal} במזומן בחלוקה`
             : amountPaid

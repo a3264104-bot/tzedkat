@@ -3,6 +3,8 @@
 import { SupplierOrderPlanner } from "@/components/SupplierOrderPlanner";
 
 import { useEffect, useState } from "react";
+// §397: ניווט בין מסכי הסיכום + המכירה עוברת איתך
+import { ReportsNav, rememberSale, recallSale } from "@/components/ReportsNav";
 import { api } from "@/lib/client";
 import { fmt, STATUS_LABELS } from "@/lib/pricing";
 import { payStatusLabel, payStatusColor } from "@/lib/pay-status-lib";
@@ -117,7 +119,24 @@ export default function SaleSummaryPage() {
   const [error, setError] = useState("");
   // §214: המכירה שנבחרה. ריק = ברירת המחדל של השרת (פעילה,
   // ואם אין - האחרונה שנסגרה).
-  const [saleId, setSaleId] = useState("");
+  const [saleId, setSaleIdState] = useState("");
+  // §397: המכירה עוברת בין מסכי הסיכום — מהכתובת (?pricelistId=)
+  // או מהבחירה האחרונה, ונשמרת לבורר המרכזי.
+  const [saleReady, setSaleReady] = useState(false);
+  useEffect(() => {
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get("pricelistId");
+      const initial = fromUrl || recallSale();
+      if (initial) setSaleIdState(initial);
+    } catch {
+      // כתובת לא תקינה — ברירת המחדל של השרת
+    }
+    setSaleReady(true);
+  }, []);
+  const setSaleId = (id: string) => {
+    setSaleIdState(id);
+    rememberSale(id);
+  };
   // אילו נקודות פתוחות כרגע (Set מאפשר לפתוח כמה במקביל, לא כמו accordion)
   const [openPoints, setOpenPoints] = useState<Set<string>>(new Set());
   // אילו נקודות המנהל בחר להציג. null = הצג את כולן (ברירת מחדל).
@@ -189,9 +208,10 @@ export default function SaleSummaryPage() {
   // לתלויות הייתה יוצרת לולאת רינדור.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
+    if (!saleReady) return; // §397: קודם קוראים את המכירה מהכתובת
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saleId, visiblePointIds]);
+  }, [saleId, visiblePointIds, saleReady]);
 
   function exportProductsCsv() {
     if (!data) return;
@@ -271,9 +291,15 @@ export default function SaleSummaryPage() {
 
   return (
     <div className="space-y-6">
+      {/* §397: 🧭 שלושת מסכי הסיכום — מה כל אחד עונה */}
+      <ReportsNav current="summary" pricelistId={data.pricelist.id} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold text-brand-slatedark">סיכום מכירה</h1>
+          <h1 className="text-2xl font-extrabold text-brand-slatedark">📦 סיכום מכירה — מה הוזמן</h1>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            כמויות לכל מוצר ולכל נקודה, להזמנה מהספק ולהכנה. מה שקרה בפועל בחלוקה
+            (משקלים, כסף) — בבקרת מכירה.
+          </p>
           {/* §214: בורר מכירה.
               
               🐛 המסך ננעל ברגע שהמכירה נסגרה - דווקא כשצריך אותו
@@ -288,16 +314,30 @@ export default function SaleSummaryPage() {
               onChange={(e) => setSaleId(e.target.value)}
               className="mt-1 rounded-lg border-2 border-zinc-300 px-2 py-1 text-sm font-bold text-brand-slatedark"
             >
-              {(data as any).allSales.map((sl: any) => (
-                <option key={sl.id} value={sl.id}>
-                  {sl.name}
-                  {sl.status === "ACTIVE"
-                    ? " · פעילה"
-                    : sl.status === "CLOSED"
-                      ? " · סגורה"
-                      : " · הסתיימה"}
-                </option>
-              ))}
+              {/* §396: 🔁 רגילות ושבועיות בקבוצות נפרדות */}
+              {[false, true].map((weekly) => {
+                const group = (data as any).allSales.filter(
+                  (sl: any) => !!sl.weekly === weekly
+                );
+                if (group.length === 0) return null;
+                return (
+                  <optgroup
+                    key={String(weekly)}
+                    label={weekly ? "🔁 מכירות שבועיות" : "מכירות רגילות"}
+                  >
+                    {group.map((sl: any) => (
+                      <option key={sl.id} value={sl.id}>
+                        {sl.name}
+                        {sl.status === "ACTIVE"
+                          ? " · פעילה"
+                          : sl.status === "CLOSED"
+                            ? " · סגורה"
+                            : " · הסתיימה"}
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
             </select>
           ) : (
             <p className="text-sm text-zinc-500">{data.pricelist.name}</p>

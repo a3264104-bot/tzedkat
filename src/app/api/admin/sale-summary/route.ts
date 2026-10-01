@@ -45,12 +45,18 @@ export async function GET(req: Request) {
   // נגישה לדוחות ולבירורים חודשים אחרי.
   const pricelist = pricelistIdParam
     ? await prisma.pricelist.findUnique({ where: { id: pricelistIdParam } })
+    // §396: ברירת המחדל — מכירה **רגילה**. שבוע נפתח כל שבוע, ובלי
+    // זה הדוח היה נפתח תמיד על השבוע האחרון במקום על המכירה הגדולה.
     : ((await prisma.pricelist.findFirst({
-        where: { status: "ACTIVE" },
+        where: { status: "ACTIVE", weeklySeriesId: null },
         orderBy: { createdAt: "desc" },
       })) ??
       (await prisma.pricelist.findFirst({
-        where: { status: { in: ["CLOSED", "DONE"] } },
+        where: { status: { in: ["CLOSED", "DONE"] }, weeklySeriesId: null },
+        orderBy: { createdAt: "desc" },
+      })) ??
+      (await prisma.pricelist.findFirst({
+        where: { status: { in: ["ACTIVE", "CLOSED", "DONE"] } },
         orderBy: { createdAt: "desc" },
       })));
 
@@ -65,12 +71,29 @@ export async function GET(req: Request) {
   //
   // ⚠️ נשלחת יחד עם הנתונים ולא בקריאה נפרדת: המסך צריך אותה
   // בכל טעינה, וקריאה שנייה למסד באירלנד היא 2-3 שניות מיותרות.
-  const allSales = await prisma.pricelist.findMany({
-    where: { status: { in: ["ACTIVE", "CLOSED", "DONE"] } },
-    orderBy: { createdAt: "desc" },
-    take: 12,
-    select: { id: true, name: true, status: true },
-  });
+  //
+  // §396: רגילות ושבועיות **בנפרד**, 12 מכל סוג. ביחד — השבועות
+  // (אחד בכל שבוע) היו דוחקים את המכירות הרגילות מהרשימה.
+  const [regularSales, weeklySales] = await Promise.all([
+    prisma.pricelist.findMany({
+      where: { status: { in: ["ACTIVE", "CLOSED", "DONE"] }, weeklySeriesId: null },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      select: { id: true, name: true, status: true, weeklySeriesId: true },
+    }),
+    prisma.pricelist.findMany({
+      where: { status: { in: ["ACTIVE", "CLOSED", "DONE"] }, weeklySeriesId: { not: null } },
+      orderBy: { weekStart: "desc" },
+      take: 12,
+      select: { id: true, name: true, status: true, weeklySeriesId: true },
+    }),
+  ]);
+  const allSales = [...regularSales, ...weeklySales].map((x) => ({
+    id: x.id,
+    name: x.name,
+    status: x.status,
+    weekly: !!x.weeklySeriesId,
+  }));
 
   // כל ההזמנות של המכירה (לא מבוטלות), עם פריטים ונקודה
   const orders = await prisma.order.findMany({

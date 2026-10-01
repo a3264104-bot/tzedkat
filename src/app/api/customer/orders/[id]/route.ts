@@ -22,7 +22,7 @@ async function checkEditable(orderId: string, customerId: string) {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     include: {
-      pricelist: { select: { closeDate: true, editDeadline: true } },
+      pricelist: { select: { closeDate: true, editDeadline: true, status: true } },
     },
   });
 
@@ -41,6 +41,15 @@ async function checkEditable(orderId: string, customerId: string) {
       ok: false as const,
       status: 409,
       error: "ההזמנה כבר נשקלה - לא ניתן לערוך/לבטל. פנה לתמיכה.",
+    };
+  }
+  // §396: מכירה שאינה פעילה — שבוע שהוחלף (אין לו closeDate) או
+  // מכירה שנסגרה. אותו כלל כמו במסך (computeIsEditable).
+  if (order.pricelist && order.pricelist.status !== "ACTIVE") {
+    return {
+      ok: false as const,
+      status: 409,
+      error: "המכירה נסגרה - לא ניתן יותר לערוך/לבטל",
     };
   }
   // §16: editDeadline קודם, אם ריק — fallback ל-closeDate
@@ -91,6 +100,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const point = await prisma.deliveryPoint.findUnique({ where: { id: body.pointId } });
       if (!point) {
         return NextResponse.json({ error: "נקודת חלוקה לא נמצאה" }, { status: 400 });
+      }
+      // §398: 🐛 רק נקודה שהמכירה של ההזמנה מגיעה אליה. אחרת ההזמנה
+      // הופכת ל"יתומה" — אין לה נציג במכירה, והשבוע (§396) לא נסגר
+      // כי היא אף פעם לא תסומן כנמסרה.
+      if (body.pointId !== check.order.pointId && check.order.pricelistId) {
+        const inSale = await prisma.pricelistPoint.count({
+          where: { pricelistId: check.order.pricelistId, pointId: body.pointId },
+        });
+        if (inSale === 0) {
+          return NextResponse.json(
+            {
+              error: `המכירה של ההזמנה הזו אינה מגיעה לנקודה "${point.name}". אפשר לבטל ולהזמין מחדש בנקודה החדשה, או לפנות לנציג.`,
+            },
+            { status: 400 }
+          );
+        }
       }
       data.pointId = body.pointId;
       data.pointNameSnapshot = point.name;

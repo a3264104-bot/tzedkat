@@ -14,6 +14,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
+// §396: המסירה האחרונה בשבוע פותחת את השבוע הבא
+import { ensureWeeklySales } from "@/lib/weekly-sales";
 
 export async function PATCH(
   req: Request,
@@ -35,6 +37,8 @@ export async function PATCH(
       status: true,
       paymentStatus: true,
       deliveredAt: true,
+      // §396: לזיהוי שבוע — מסירה אחרונה מחליפה שבוע
+      pricelist: { select: { weeklySeriesId: true } },
     },
   });
   if (!order) {
@@ -95,6 +99,12 @@ export async function PATCH(
       deliveredNote: true,
     },
   });
+
+  // §396: 🔁 בשבוע שהסתיים — המסירה האחרונה היא מה שמחליף שבוע.
+  // force כדי שהשבוע החדש ייפתח עכשיו, ולא בכניסה הבאה של מישהו.
+  if (delivered && order.pricelist?.weeklySeriesId) {
+    await ensureWeeklySales(true);
+  }
 
   return NextResponse.json({
     ok: true,

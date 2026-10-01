@@ -13,6 +13,9 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { SignOutBtn } from "./AgentHeader";
 import { AgentAddCustomerButton } from "@/components/AgentAddCustomerButton";
+// §396: מכירות שבועיות
+import { ensureWeeklySales, getOverdueWeeks } from "@/lib/weekly-sales";
+import { CloseWeekButton } from "@/components/CloseWeekButton";
 
 export const dynamic = "force-dynamic";
 
@@ -56,10 +59,27 @@ export default async function AgentIndexPage() {
   const myPointIds = myPoints.map((p) => p.id);
   const hasPoints = myPointIds.length > 0;
 
+  // §396: 🔁 קודם מוודאים שהשבועות מעודכנים (נפתח/הוחלף)
+  await ensureWeeklySales();
+
   // כל המכירות הפעילות
+  //
+  // §396: שבוע של סדרה שבועית — רק לנציג שהנקודה שלו בשבוע. בלי
+  // זה כל נציג היה רואה את השבועות של כל הנקודות השבועיות.
+  // מנהל רואה הכל.
   const activePricelists = await prisma.pricelist.findMany({
-    where: { status: "ACTIVE" },
-    orderBy: { createdAt: "desc" },
+    where:
+      role === "ADMIN"
+        ? { status: "ACTIVE" }
+        : {
+            status: "ACTIVE",
+            OR: [
+              { weeklySeriesId: null },
+              { points: { some: { pointId: { in: hasPoints ? myPointIds : ["__none__"] } } } },
+            ],
+          },
+    // §396: מכירות רגילות קודם, שבועות אחריהן
+    orderBy: [{ weeklySeriesId: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }],
     include: {
       _count: {
         select: {
@@ -89,6 +109,11 @@ export default async function AgentIndexPage() {
     },
   });
   const activeIds = new Set(activePricelists.map((p) => p.id));
+
+  // §396: ⏳ שבועות שהסתיימו וממתינים למסירה — בנקודות של הנציג
+  const overdueWeeks = await getOverdueWeeks(
+    role === "ADMIN" ? undefined : hasPoints ? myPointIds : ["__none__"]
+  );
 
   // §45: פילוח ההזמנות לפי נקודה - נציג רב-נקודתי צריך לדעת כמה בכל
   // אחת, לא רק סך הכל.
@@ -206,22 +231,37 @@ export default async function AgentIndexPage() {
   //
   // ⚠️ נציג בלי נקודות מקבל רשימה ריקה ולא את הכל - אותו כלל
   // אבטחה של §176/§186.
+  // §398: רגילות ושבועיות במכסות נפרדות — אחרת חמש השורות היו
+  // כולן שבועות סגורים, והמכירה החודשית (שעדיין בשקילה ובגבייה)
+  // נעלמת מהמסך של הנציג.
+  const closedWhere = (weekly: boolean) => ({
+    id: { notIn: Array.from(activeIds) },
+    status: { in: ["CLOSED", "DONE"] },
+    weeklySeriesId: weekly ? { not: null } : null,
+    orders: {
+      some: {
+        pointId: { in: myPointIds },
+        status: { notIn: ["CANCELLED"] },
+      },
+    },
+  });
   const salesWithMyOrders = hasPoints
-    ? await prisma.pricelist.findMany({
-        where: {
-          id: { notIn: Array.from(activeIds) },
-          status: { in: ["CLOSED", "DONE"] },
-          orders: {
-            some: {
-              pointId: { in: myPointIds },
-              status: { notIn: ["CANCELLED"] },
-            },
-          },
-        },
-        select: { id: true, name: true, status: true, deliveryDate: true },
-        orderBy: { createdAt: "desc" },
-        take: 5,
-      })
+    ? (
+        await Promise.all([
+          prisma.pricelist.findMany({
+            where: closedWhere(false),
+            select: { id: true, name: true, status: true, deliveryDate: true },
+            orderBy: { createdAt: "desc" },
+            take: 5,
+          }),
+          prisma.pricelist.findMany({
+            where: closedWhere(true),
+            select: { id: true, name: true, status: true, deliveryDate: true },
+            orderBy: { createdAt: "desc" },
+            take: 3,
+          }),
+        ])
+      ).flat()
     : [];
 
   // ⚠️ איחוד: מכירות עם הזמנות + מכירות שכבר יש להן סיכום פתוח.
@@ -470,6 +510,42 @@ export default async function AgentIndexPage() {
           </section>
         )}
 
+        {/* §396: ⏳ שבוע שהסתיים וממתין למסירה.
+            
+            ⚠️ מחוץ לכרטיס המכירה (שהוא קישור): כפתור בתוך קישור
+            היה פותח את המכירה במקום לסגור את השבוע. */}
+        {overdueWeeks.filter((w) => w.undelivered > 0).map((w) => {
+          const pl = activePricelists.find((p) => p.id === w.pricelistId);
+          return (
+            <section
+              key={w.pricelistId}
+              className="bg-orange-50 border-2 border-orange-300 rounded-2xl p-4 space-y-2"
+            >
+              <div className="font-extrabold text-orange-900">
+                ⏳ השבוע הסתיים — {w.undelivered} הזמנות טרם סומנו כנמסרו
+              </div>
+              <div className="text-xs text-orange-800 leading-relaxed">
+                {pl?.name ?? w.seriesName}: השבוע הבא ייפתח ברגע שתסמן מסירה לכל
+                ההזמנות. לקוח שלא הגיע לאסוף? אפשר לסגור את השבוע — ההזמנות שלו
+                יישארו בשבוע הישן לשקילה, חיוב או ביטול.
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Link
+                  href={`/agent/sale/${w.pricelistId}`}
+                  className="text-xs font-bold bg-white border border-orange-400 text-orange-900 rounded-lg px-3 py-1.5"
+                >
+                  לסימון מסירה ←
+                </Link>
+                <CloseWeekButton
+                  pricelistId={w.pricelistId}
+                  weekName={pl?.name ?? w.seriesName}
+                  undelivered={w.undelivered}
+                />
+              </div>
+            </section>
+          );
+        })}
+
         {/* רשימת מכירות פעילות */}
         <section>
           <h2 className="font-bold text-brand-slatedark mb-3">
@@ -504,8 +580,18 @@ export default async function AgentIndexPage() {
                           <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
                             פעילה
                           </span>
+                          {/* §396: שבוע מתוך סדרה שבועית */}
+                          {pl.weeklySeriesId && (
+                            <span className="text-[10px] bg-violet-100 text-violet-800 px-2 py-0.5 rounded-full font-bold">
+                              🔁 שבועית
+                            </span>
+                          )}
                         </div>
-                        {pl.deliveryDate && (
+                        {pl.weeklySeriesId ? (
+                          <div className="text-xs text-zinc-500 mt-1">
+                            📅 {pl.deliveryDateText}
+                          </div>
+                        ) : pl.deliveryDate && (
                           <div className="text-xs text-zinc-500 mt-1">
                             📅 חלוקה: {new Date(pl.deliveryDate).toLocaleDateString("he-IL", {
                     // §200: השרת רץ ב-UTC — בלי זה 3 שעות אחורה

@@ -721,7 +721,9 @@ export default function OrderDetail() {
                   ? "נציג"
                   : order.source === "ADMIN"
                     ? "מנהל"
-                    : "האתר"
+                    : order.source === "WALKIN"
+                      ? "מזדמן בחלוקה (הומר ללקוח)"
+                      : "האתר"
           }
         />
         {order.phoneCallId && (

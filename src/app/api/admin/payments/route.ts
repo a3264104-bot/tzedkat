@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+// §396: סינון לפי סוג מכירה (רגילה / שבועית)
+import { parseSaleKind, pricelistKindWhere } from "@/lib/weekly-sales";
 import { auth } from "@/lib/auth";
 
 // GET /api/admin/payments
@@ -80,6 +82,8 @@ export async function GET(req: NextRequest) {
       customer?: Record<string, unknown>;
       items?: Record<string, unknown>;
       pricelistId?: string;
+      // §396: סינון לפי סוג מכירה
+      pricelist?: Record<string, unknown>;
     } = {};
     if (statusParam === "all") {
       // בלי סינון סטטוס
@@ -141,6 +145,11 @@ export async function GET(req: NextRequest) {
     }
     if (pricelistId) {
       whereClause.pricelistId = pricelistId;
+    }
+    // §396: "כל הרגילות" / "כל השבועיות"
+    const saleKind = parseSaleKind(url.searchParams.get("saleKind"));
+    if (saleKind) {
+      whereClause.pricelist = pricelistKindWhere(saleKind);
     }
 
     const orders = await prisma.order.findMany({

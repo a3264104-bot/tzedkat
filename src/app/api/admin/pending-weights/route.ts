@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+// §396: סינון לפי סוג מכירה (רגילה / שבועית)
+import { parseSaleKind, pricelistKindWhere } from "@/lib/weekly-sales";
 import { auth } from "@/lib/auth";
 
 // GET /api/admin/pending-weights?pricelistId=<id>
@@ -69,7 +71,11 @@ export async function GET(req: Request) {
         // המשקלים מוזנים אחרי סגירת המכירה - כשהסחורה מגיעה מהספק -
         // ולכן CLOSED חייב להיכלל. אותו סינון בדיוק כמו במסך
         // /admin/pending-weights, כדי ששני המקורות יציגו אותו מספר.
-        pricelist: { status: { in: ["ACTIVE", "CLOSED"] } },
+        // §396: + סינון לפי סוג (רגילות / שבועיות)
+        pricelist: {
+          status: { in: ["ACTIVE", "CLOSED"] },
+          ...pricelistKindWhere(parseSaleKind(url.searchParams.get("saleKind"))),
+        },
         ...(pricelistId ? { pricelistId } : {}),
       },
       orderBy: [{ createdAt: "desc" }],

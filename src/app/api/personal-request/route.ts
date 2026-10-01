@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+// §396: חסימת הזמנה אישית בנקודה שבועית
+import { isWeeklyPoint } from "@/lib/weekly-sales";
 import { auth } from "@/lib/auth";
 import { Resend } from "resend";
 // §248: בדיקת תוקף כרטיס (§202)
@@ -59,6 +61,8 @@ export async function POST(req: Request) {
         paymentPreference: true,
         cardExpiry: true,
         isActive: true,
+        // §396: נקודה שבועית — אין הזמנה אישית
+        defaultPointId: true,
       },
     });
 
@@ -66,6 +70,18 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "החשבון אינו פעיל. יש לפנות למנהל." },
         { status: 403 }
+      );
+    }
+
+    // §396: 🔁 לנקודה שבועית אין הזמנה אישית — היא מזמינה כל שבוע
+    // במכירה הקבועה שלה. הכפתור מוסתר במסך; כאן הבקשה הישירה.
+    if (await isWeeklyPoint(customerRecord.defaultPointId)) {
+      return NextResponse.json(
+        {
+          error:
+            "בנקודת החלוקה שלך יש מכירה שבועית קבועה, ולכן אין בה הזמנה אישית. אפשר להזמין במכירה השבועית.",
+        },
+        { status: 400 }
       );
     }
 

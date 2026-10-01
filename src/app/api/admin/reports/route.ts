@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+// §396: סינון לפי סוג מכירה (רגילה / שבועית)
+import { parseSaleKind, orderKindWhere } from "@/lib/weekly-sales";
 import { requireAdmin } from "@/lib/guard";
 import { orderGrandTotal } from "@/lib/pricing";
 
@@ -9,7 +11,11 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const pricelistId = searchParams.get("pricelistId") || undefined;
 
-  const where = pricelistId ? { pricelistId } : {};
+  // §396: "כל הרגילות" / "כל השבועיות"
+  const where = {
+    ...(pricelistId ? { pricelistId } : {}),
+    ...orderKindWhere(parseSaleKind(searchParams.get("saleKind"))),
+  };
 
   const orders = await prisma.order.findMany({
     where,
