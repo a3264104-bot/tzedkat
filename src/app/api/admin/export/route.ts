@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 // §396: סינון לפי סוג מכירה (רגילה / שבועית)
 import { parseSaleKind, orderKindWhere } from "@/lib/weekly-sales";
 import { requireAdmin } from "@/lib/guard";
-import { STATUS_LABELS } from "@/lib/pricing";
+import { orderStageLabel } from "@/lib/order-display";
 
 export async function GET(req: Request) {
   const g = await requireAdmin();
@@ -47,7 +47,13 @@ export async function GET(req: Request) {
       "נקודת חלוקה": o.point?.name ?? o.pointNameSnapshot ?? "",
       // §24: מקור ההזמנה - מאפשר לנתח כמה הזמנות מגיעות מכל ערוץ
       "מקור": o.source === "PHONE" ? "טלפון" : o.source === "AGENT" ? "נציג" : o.source === "ADMIN" ? "מנהל" : o.source === "WALKIN" ? "מזדמן" : "אתר",
-      "סטטוס": STATUS_LABELS[o.status] ?? o.status,
+      // §400: השלב בפועל
+      "סטטוס": orderStageLabel({
+        status: o.status,
+        finalTotal: o.finalTotal != null ? Number(o.finalTotal) : null,
+        paymentStatus: o.paymentStatus,
+        deliveredAt: o.deliveredAt,
+      }),
       "סה\"כ משוער": Number(o.estimatedTotal),
       "סה\"כ סופי": o.finalTotal ? Number(o.finalTotal) : "",
       "הערות": o.notes ?? "",

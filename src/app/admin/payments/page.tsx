@@ -58,6 +58,20 @@ type PayOrder = {
   };
   /** §388: פריטים פעילים — הזמנה ריקה לא ניתנת לחיוב */
   activeItemsCount?: number;
+  /** §400: הנציג סימן V */
+  agentClosedAt?: string | null;
+};
+
+/** §400: הזמנה שלא תיכלל בחיוב — מהשרת, בלי קשר לסינון */
+type BlockedOrder = {
+  id: string;
+  orderNumber: number;
+  customerName: string;
+  pointNameSnapshot: string | null;
+  finalTotal: number | null;
+  estimatedTotal: number;
+  agentClosedAt: string | null;
+  reason: string;
 };
 
 type Message = { text: string; type: "success" | "error" };
@@ -247,6 +261,7 @@ export default function PaymentsPage() {
 
   // §380: הרשימה מגיעה מ-useSelectedPricelist.
 
+  const [blocked, setBlocked] = useState<BlockedOrder[]>([]);
   const fetchOrders = useCallback(async () => {
     // §380: ממתינים לבחירה — לא טוענים "הכל" ואז שוב את הנבחרת.
     if (!fPricelist) return;
@@ -267,6 +282,7 @@ export default function PaymentsPage() {
       }
       const data = await res.json();
       setOrders(Array.isArray(data.orders) ? data.orders : []);
+      setBlocked(Array.isArray(data.blocked) ? data.blocked : []);
     } catch (e: any) {
       setFetchError(`שגיאת רשת: ${e.message || "לא ידוע"}`);
       setOrders([]);
@@ -568,6 +584,9 @@ export default function PaymentsPage() {
   // הטיפול לבדם הם 3. מתחת לזה, אין סחורה.
   const chargeable = orders.filter((o) => {
     if (o.finalTotal == null) return false;
+    // §400: אין יתרה (סכום 0 / שולם הכל) — אין מה לחייב. בלי זה הזמנת ₪0
+    // נכנסה לחבילה, החיוב החזיר שגיאה, ו-3 כאלה עצרו את כל הנקודה.
+    if (Number(o.finalTotal) - Number(o.amountPaid ?? 0) <= 0.009) return false;
     if (
       ["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED"].includes(
         o.paymentStatus
@@ -634,6 +653,20 @@ export default function PaymentsPage() {
       )
     : [];
   const batchSum = batchTargets.reduce((s2, o) => s2 + dueOf(o), 0); // §397: היתרה
+
+  // §400: 🚨 **סומן טופל (V) — ואין סכום סופי. לא ייגבה.**
+  //
+  // מה שקרה (ביתר): 3 לקוחות אשראי סומנו V, והחיוב לפי נקודה פשוט
+  // לא כלל אותם — בלי שום הודעה. הם לא היו "ניתנים לחיוב" כי לא
+  // נקבע להם סכום (משבצות קרטון ריקות), והמסך לא אמר על כך מילה.
+  //
+  // ✅ מעכשיו V כזה לא ייתכן (השרת מחשב סכום לפני V, וחוסם אם חסר
+  // משקל). הרשימה כאן תופסת את מה שכבר נוצר לפני התיקון.
+  const closedNoTotal = blocked.filter((o) => !!o.agentClosedAt && o.finalTotal == null);
+  // ומה שבנקודה שנבחרה ולא ייכלל בחיוב — עם הסיבה (מהשרת)
+  const notInBatch = chargePoint
+    ? blocked.filter((o) => (o.pointNameSnapshot || "ללא נקודה") === chargePoint)
+    : [];
   const currentList = lists?.find((l) => l.id === fPricelist) ?? null;
 
   return (
@@ -731,6 +764,37 @@ export default function PaymentsPage() {
           
           ⚠️ וההסרה: לפעמים לקוח אחד לא צריך להיות בחבילה —
           סיכמת מזומן, או שיש בעיה לברר. */}
+      {/* §400: V בלי סכום — לא ייגבה */}
+      {closedNoTotal.length > 0 && (
+        <div className="rounded-xl border-2 border-red-500 bg-red-50 p-3 mb-3">
+          <div className="text-sm font-extrabold text-red-800">
+            🚨 {closedNoTotal.length} הזמנות סומנו &quot;טופל&quot; אבל אין להן סכום סופי — הן לא ייגבו
+          </div>
+          <div className="text-xs text-red-700 mt-0.5">
+            בדרך כלל משבצת קרטון שנשארה ריקה. במסך המשקלים: להסיר V, להזין 0 בקרטון שלא נלקח,
+            ולסמן שוב — ואז ההזמנה תופיע לחיוב.
+          </div>
+          <div className="mt-2 space-y-0.5 max-h-48 overflow-y-auto">
+            {closedNoTotal.map((o) => (
+              <a
+                key={o.id}
+                href={`/admin/orders/${o.id}`}
+                target="_blank"
+                className="flex justify-between gap-2 text-xs px-2 py-1 rounded bg-white hover:bg-red-100"
+              >
+                <span>
+                  #{o.orderNumber} {o.customerName}
+                  <span className="text-zinc-500"> · {o.pointNameSnapshot || "ללא נקודה"}</span>
+                </span>
+                <span className="text-zinc-500 shrink-0">
+                  ~{fmtIls(Number(o.estimatedTotal ?? 0))}
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
       {chargeable.length > 0 && pointGroups.length > 0 && (
         <div className="rounded-xl border-2 border-brand-rust bg-white p-3 mb-3">
           <div className="text-sm font-extrabold text-brand-slatedark mb-2">
@@ -824,6 +888,40 @@ export default function PaymentsPage() {
                     );
                   })}
               </div>
+
+              {/* §400: מי בנקודה **לא** ייכלל בחיוב — ולמה. קודם הם
+                  פשוט לא הופיעו, והמנהל הניח שכולם חויבו. */}
+              {notInBatch.length > 0 && (
+                <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2">
+                  <div className="text-[11px] font-bold text-amber-900 mb-1">
+                    לא ייכללו בחיוב הזה ({notInBatch.length}):
+                  </div>
+                  <div className="max-h-40 overflow-y-auto space-y-0.5">
+                    {notInBatch.map((o) => (
+                      <a
+                        key={o.id}
+                        href={`/admin/orders/${o.id}`}
+                        target="_blank"
+                        className="flex justify-between gap-2 text-xs px-1.5 py-0.5 rounded hover:bg-amber-100"
+                      >
+                        <span className="truncate">
+                          {o.customerName}
+                          <span className="text-zinc-400"> #{o.orderNumber}</span>
+                        </span>
+                        <span
+                          className={`shrink-0 text-[11px] ${
+                            o.finalTotal == null && o.agentClosedAt
+                              ? "font-bold text-red-700"
+                              : "text-amber-800"
+                          }`}
+                        >
+                          {o.reason}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* ⚠️ הלוג החי: המנהל רואה איפה זה עומד, ואם נתקע —
                   איפה בדיוק. */}

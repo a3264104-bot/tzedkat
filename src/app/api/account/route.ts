@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { Resend } from "resend";
 import crypto from "crypto";
-import { PAYMENT_METHOD_LABELS, STATUS_LABELS } from "@/lib/pricing";
+import { PAYMENT_METHOD_LABELS } from "@/lib/pricing";
+import { orderStageLabel } from "@/lib/order-display";
 import { payStatusLabel } from "@/lib/pay-status-lib";
 // §162: חוסם טלפון נוסף שכבר משמש לזיהוי של לקוח אחר
 import { validatePhone2 } from "@/lib/phone2-lib";
@@ -45,7 +46,13 @@ export async function GET() {
       id: o.id,
       orderNumber: o.orderNumber,
       status: o.status,
-      statusLabel: STATUS_LABELS[o.status] ?? o.status,
+      // §400: השלב בפועל (שקילה/תשלום/מסירה) — status לבד נתקע
+      statusLabel: orderStageLabel({
+        status: o.status,
+        finalTotal: o.finalTotal != null ? Number(o.finalTotal) : null,
+        paymentStatus: o.paymentStatus,
+        deliveredAt: o.deliveredAt,
+      }),
       paymentStatus: o.paymentStatus,
       paymentStatusLabel: payStatusLabel(o.paymentStatus),
       paymentMethod: o.paymentMethod,

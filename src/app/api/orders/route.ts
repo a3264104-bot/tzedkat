@@ -37,6 +37,10 @@ const schema = z.object({
     .nullable(),
   // §160: מחירים שהנציג קבע למוצרים מועדפים - { productId: price }
   favoritePrices: z.record(z.string(), z.number()).optional(),
+  // §400: 🛒 מכירה במקום — הנציג מזין מה שהלקוח לקח עכשיו. אין
+  // מייל "אישור הזמנה": הלקוח יקבל מייל אחד, עם מה שנלקח ומה ששולם,
+  // ברגע התשלום (מזומן / חיוב). רק לנציג/מנהל — נבדק למטה.
+  spotSale: z.boolean().optional(),
   items: z
     .array(
       z.object({
@@ -682,7 +686,10 @@ export async function POST(req: Request) {
     // עכשיו ממתינים לשליחה. ה-try/catch הפנימי מבטיח שכישלון במייל
     // לא יפיל את ההזמנה - היא כבר נשמרה ב-DB.
     try {
-      await sendOrderNotificationsAsync(order, customer, pricelist);
+      await sendOrderNotificationsAsync(order, customer, pricelist, {
+        // §400: במכירה במקום — בלי מייל אישור ללקוח (רק נציג/מנהל)
+        skipCustomer: !!data.spotSale && !!placedByAgentId,
+      });
     } catch (err) {
       console.error("[orders] email send failed (order was saved):", err);
     }
@@ -708,7 +715,12 @@ export async function POST(req: Request) {
 
 // שליחת התראות אסינכרונית - לא חוסמת את התשובה ללקוח
 // הלוגיקה המלאה (Resend + SystemSettings + וואטסאפ) תיכנס לכאן בהמשך
-async function sendOrderNotificationsAsync(order: any, customer: any, pricelist: any) {
+async function sendOrderNotificationsAsync(
+  order: any,
+  customer: any,
+  pricelist: any,
+  opts?: { skipCustomer?: boolean }
+) {
   try {
     // מייל למנהל
     const adminResult = await sendAdminOrderNotification(order, customer.email);
@@ -725,7 +737,8 @@ async function sendOrderNotificationsAsync(order: any, customer: any, pricelist:
     }
 
     // מייל ללקוח - רק אם יש לו מייל
-    if (customer.email) {
+    // §400: ולא במכירה במקום — שם המייל היחיד הוא מייל התשלום
+    if (customer.email && !opts?.skipCustomer) {
       const custResult = await sendCustomerOrderConfirmation(order, customer.email);
       if (custResult.ok) {
         await prisma.order.update({

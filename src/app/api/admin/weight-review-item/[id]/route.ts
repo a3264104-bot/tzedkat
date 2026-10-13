@@ -2,6 +2,7 @@
 // PATCH /api/admin/weight-review-item/[id]
 
 import { NextResponse } from "next/server";
+import { singleTotalParts } from "@/lib/order-display";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 
@@ -28,6 +29,10 @@ export async function PATCH(
       unitPrice: true,
       // §349: המחיר שהנציג קבע — גובר על המחירון
       agentSetPrice: true,
+      // §400: לפירוט "נשקל יחד" כשנשמר סכום אחד
+      quantity: true,
+      isSingle: true,
+      product: { select: { saleType: true } },
       order: {
         select: {
           id: true,
@@ -104,7 +109,14 @@ export async function PATCH(
         }
         data.weightParts = parts;
       } else {
-        data.weightParts = null;
+        // §400: תיקון סכום אחד על כמה קרטונים = "נשקל יחד" (סכום
+        // בראשונה, 0 בשאר) — אחרת סימון V של הנציג נחסם.
+        data.weightParts = singleTotalParts(
+          w,
+          item.quantity as any,
+          item.isSingle,
+          item.product?.saleType === "UNIT"
+        );
       }
     }
   }

@@ -62,42 +62,26 @@ export default function DebtLedgerPage() {
   const [q, setQ] = useState("");
 
   useEffect(() => {
+    // §399: בקשה אחת במקום שלוש. "מי חייב" ו"לא שולם" מגיעים מאותו
+    // API — קודם נקראו /api/admin/debts (שמחזיר הזמנות, לא לקוחות —
+    // ולכן 22 שורות ריקות של ₪0.00) ו-/api/admin/payments (250 הזמנות
+    // מלאות, רק כדי לסכום שני מספרים).
     fetch("/api/admin/debt-ledger", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { rows: [], totals: null }))
       .then((d) => {
         setRows(d.rows ?? []);
         setTotals(d.totals ?? null);
+        setOutstanding(
+          (d.outstanding ?? []).map((c: any) => ({
+            id: c.id,
+            name: c.name ?? "",
+            debt: Number(c.debt ?? 0),
+            note: c.note ?? null,
+          }))
+        );
+        setUnpaid(d.unpaid ?? null);
       })
       .catch(() => setRows([]));
-    // מי חייב עכשיו — מהמסך הקיים
-    fetch("/api/admin/debts", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d) =>
-        setOutstanding(
-          (Array.isArray(d) ? d : d?.customers ?? []).map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            debt: Number(c.debtBalance ?? 0),
-            note: c.debtNote ?? null,
-          }))
-        )
-      )
-      .catch(() => setOutstanding([]));
-    // §377: הזמנות שלא שולמו במכירה הפעילה — מ-payments
-    fetch("/api/admin/payments", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : { orders: [] }))
-      .then((d) => {
-        const list = (d.orders ?? []).filter(
-          (o: any) =>
-            o.finalTotal != null &&
-            !["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED"].includes(o.paymentStatus)
-        );
-        setUnpaid({
-          count: list.length,
-          sum: list.reduce((a: number, o: any) => a + Number(o.finalTotal ?? 0), 0),
-        });
-      })
-      .catch(() => setUnpaid(null));
   }, []);
 
   const fmt = (n: number) => `₪${Math.abs(n).toFixed(2)}`;
@@ -147,13 +131,13 @@ export default function DebtLedgerPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-[11px] font-bold text-amber-800">
-                💳 לא שולם במכירה הנוכחית
+                💳 ממתין לתשלום — הזמנות שנשקלו
               </div>
               <div className="text-xl font-extrabold text-amber-900 tabular-nums">
                 {fmt(unpaid.sum)}
               </div>
               <div className="text-[10px] text-amber-700">
-                {unpaid.count} הזמנות ממתינות לחיוב · זה לא חוב, זה תור
+                {unpaid.count} הזמנות עם מחיר סופי שטרם שולמו במלואן (היתרה בלבד) · זה לא חוב, זה תור
               </div>
             </div>
             <span className="text-amber-700 font-bold text-sm">לחיוב ←</span>
@@ -190,6 +174,11 @@ export default function DebtLedgerPage() {
       </div>
 
       {/* מי חייב עכשיו */}
+      {rows !== null && outstanding.length === 0 && (
+        <div className="card p-4 text-sm text-emerald-800 bg-emerald-50 border-emerald-200">
+          ✅ אין לקוחות עם חוב ממכירות קודמות.
+        </div>
+      )}
       {outstanding.length > 0 && (
         <div className="card p-4">
           <h2 className="font-bold text-brand-slatedark mb-2">

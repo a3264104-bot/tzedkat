@@ -4,6 +4,8 @@ import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { Logo } from "@/components/Logo";
 import { effectiveUnitPrice, lineEstimate, smartLineEstimate, fmt } from "@/lib/pricing";
+// §400: משבצת לכל קרטון — אותו מספר כמו בטבלת המשקלים ובסימון V
+import { cartonBoxCount } from "@/lib/order-display";
 type Point = {
   id: string;
   name: string;
@@ -318,6 +320,61 @@ export function OrderFlow({
   // ערך: משבצת לכל קרטון (כמו בטבלת המשקלים, §301/§394).
   const [agentWeights, setAgentWeights] = useState<Record<string, string[]>>({});
   const weighInline = !!onBehalfOfCustomerId && !editMode;
+
+  // §400: 🛒 **שני מצבים לנציג — ולא שאלה בכל שורה.**
+  //
+  // מה שהיה (§397): משבצת "בפועל — אם הלקוח כבר לקח" ליד כל מוצר,
+  // תמיד. בבודדים זה כפל מיותר (כמה רצה, ואז כמה לקח), ואחרי השליחה
+  // המסך שוב שלח "לעדכון משקלים". והלקוח קיבל שני מיילים — אישור
+  // הזמנה ואז תשלום.
+  //
+  // ✅ עכשיו הנציג בוחר פעם אחת:
+  //   🛒 הלקוח לוקח עכשיו — בבודדים מקלידים ישר כמה נלקח (זה המשקל),
+  //      בקרטונים משבצת **חובה** לכל קרטון (0 = לא לקח). ההזמנה נשמרת
+  //      שקולה, בלי מייל אישור — המייל היחיד הוא מייל התשלום, עם מה
+  //      שנלקח ומה ששולם.
+  //   📞 הזמנה מראש — כמו לקוח באתר: כמויות בלבד, שקילה בחלוקה.
+  //
+  // ⚠️ ברירת המחדל: אחרי סגירת ההרשמה (afterCloseNotice) — "לוקח
+  // עכשיו", כי זה מה שקורה בחלוקה. לפני הסגירה — "הזמנה מראש". הבחירה
+  // נזכרת לכל מכירה בגלישה הזו.
+  const [spotSale, setSpotSaleState] = useState<boolean>(afterCloseNotice);
+  useEffect(() => {
+    try {
+      const v = sessionStorage.getItem(`tzidkat.spot.${pricelist.id}`);
+      if (v === "1" || v === "0") setSpotSaleState(v === "1");
+    } catch {
+      // אין אחסון — נשארים בברירת המחדל
+    }
+  }, [pricelist.id]);
+  function setSpotSale(v: boolean) {
+    setSpotSaleState(v);
+    try {
+      sessionStorage.setItem(`tzidkat.spot.${pricelist.id}`, v ? "1" : "0");
+    } catch {
+      // לא קריטי
+    }
+  }
+  const spotMode = weighInline && spotSale;
+
+  /** §400: מוצרים בקרטונים שחסר בהם משקל לקרטון (במצב "לוקח עכשיו") */
+  function spotMissingCartons(): string[] {
+    if (!spotMode) return [];
+    const out: string[] = [];
+    for (const [id, entry] of Object.entries(cart)) {
+      const qty = Math.floor(entry.cartonQty ?? 0);
+      if (qty <= 0) continue;
+      const p = products.find((x) => x.id === id);
+      if (!p || p.saleType === "UNIT") continue;
+      const boxes = cartonBoxCount(qty, false, false);
+      const vals = agentWeights[`${id}|C`] ?? [];
+      const filled = Array.from({ length: boxes }, (_, i) => vals[i] ?? "").filter(
+        (v) => v.trim() !== ""
+      ).length;
+      if (filled < boxes) out.push(String(p.name).replace(/\*/g, ""));
+    }
+    return out;
+  }
 
   // ח4: cartLines — מפרק כל entry לשורה/שתיים (קרטונים + בודדים)
   type ComputedLine = {
@@ -781,31 +838,46 @@ export function OrderFlow({
     items: { id: string; productId: string; isSingle: boolean }[]
   ): Promise<string[]> {
     const errors: string[] = [];
+    // §400: רק במצב "הלקוח לוקח עכשיו". בהזמנה מראש — שקילה בחלוקה.
+    if (!spotMode) return errors;
     for (const it of items) {
-      // ⚠️ חותכים למספר הקרטונים **הנוכחי**: נציג שהקטין כמות אחרי
-      // שהזין משקלים — המשבצות העודפות לא נשלחות.
       const prod = products.find((x) => x.id === it.productId);
-      const qty = it.isSingle ? 1 : Math.floor(cart[it.productId]?.cartonQty ?? 0);
-      const boxes = it.isSingle || prod?.saleType === "UNIT" ? 1 : Math.min(Math.max(qty, 1), 6);
-      const raw = agentWeights[`${it.productId}|${it.isSingle ? "S" : "C"}`];
-      const vals = raw ? Array.from({ length: boxes }, (_, i) => raw[i] ?? "") : null;
-      if (!vals || vals.every((v) => !v || v.trim() === "")) continue;
-      const filled = vals.filter((v) => v && v.trim() !== "");
-      const multi = vals.length > 1;
-      const nums = vals.map((v) => (v && v.trim() !== "" ? Number(v) : null));
-      if (nums.some((n) => n != null && (!Number.isFinite(n) || n < 0))) {
-        errors.push(`${productNameOf(it.productId)}: ערך לא תקין`);
-        continue;
+      const entry = cart[it.productId];
+      let body: Record<string, unknown> | null = null;
+
+      if (it.isSingle) {
+        // §400: בבודדים הכמות **היא** מה שנלקח (ק"ג או יחידות)
+        const w = Math.round(Number(entry?.singlesQty ?? 0) * 1000) / 1000;
+        if (w > 0) body = { agentEnteredWeight: w };
+      } else if (prod?.saleType === "UNIT") {
+        // מוצר ביחידות — אין מה לשקול; נלקח כפי שהוזמן
+        const q = Number(entry?.cartonQty ?? 0);
+        if (q > 0) body = { agentEnteredWeight: q };
+      } else {
+        // ⚠️ חותכים למספר הקרטונים **הנוכחי**: נציג שהקטין כמות אחרי
+        // שהזין משקלים — המשבצות העודפות לא נשלחות.
+        const boxes = cartonBoxCount(Math.floor(entry?.cartonQty ?? 0), false, false);
+        const raw = agentWeights[`${it.productId}|C`];
+        const vals = Array.from({ length: boxes }, (_, i) => raw?.[i] ?? "");
+        if (vals.every((v) => !v || v.trim() === "")) continue;
+        const nums = vals.map((v) => (v && v.trim() !== "" ? Number(v) : null));
+        if (nums.some((n) => n != null && (!Number.isFinite(n) || n < 0))) {
+          errors.push(`${productNameOf(it.productId)}: ערך לא תקין`);
+          continue;
+        }
+        // §400: דיוק של גרם (היה מעוגל ל-2 ספרות: 3.465 → 3.47)
+        const sum =
+          Math.round(nums.reduce<number>((a, n) => a + (n ?? 0), 0) * 1000) / 1000;
+        const filled = nums.filter((n) => n != null).length;
+        body =
+          boxes > 1 && filled < boxes
+            ? { agentEnteredWeight: null, weightParts: nums }
+            : boxes > 1
+              ? { agentEnteredWeight: sum, weightParts: nums }
+              : { agentEnteredWeight: sum };
       }
-      const sum = Math.round(nums.reduce<number>((a, n) => a + (n ?? 0), 0) * 100) / 100;
-      // ⚠️ חלק מהקרטונים ריקים — נשמר כפירוט חלקי והפריט נשאר חסר
-      // (§394), בדיוק כמו בטבלה.
-      const body =
-        multi && filled.length < vals.length
-          ? { agentEnteredWeight: null, weightParts: nums }
-          : multi
-            ? { agentEnteredWeight: sum, weightParts: nums }
-            : { agentEnteredWeight: sum };
+
+      if (!body) continue;
       try {
         const res = await fetch(`/api/agent/order-item/${it.id}`, {
           method: "PATCH",
@@ -840,6 +912,15 @@ export function OrderFlow({
     setError("");
     if (needsPhoneInput && !phone.trim()) {
       setError("נא להזין מספר טלפון");
+      return;
+    }
+    // §400: "הלקוח לוקח עכשיו" — כל קרטון חייב משקל (0 = לא לקח).
+    // בלי זה ההזמנה נשמרת חלקית, ובסוף לא נגבית.
+    const missingCartons = spotMissingCartons();
+    if (missingCartons.length > 0) {
+      setError(
+        `חסר משקל לקרטון ב: ${missingCartons.join(", ")}. יש למלא כל קרטון — ומה שלא נלקח: 0.`
+      );
       return;
     }
     // לקוח חדש בלי כרטיס שמור - קודם שמירת כרטיס (יצירת טוקן), ואז ההזמנה תישלח אוטומטית
@@ -891,6 +972,8 @@ export function OrderFlow({
                 .map(([k, v]) => [k, Number(v)])
             ),
             onBehalfOfCustomerId: onBehalfOfCustomerId || null,
+            // §400: מכירה במקום — בלי מייל אישור הזמנה ללקוח
+            spotSale: spotMode,
             // §182: משלוח, אם נקבע. השרת מאמת שהשולח הוא נציג.
             delivery:
               delivery && delivery.address.trim() && Number(delivery.fee) >= 0
@@ -963,7 +1046,7 @@ export function OrderFlow({
             `ההזמנה נשמרה, אבל חלק מהמשקלים לא נשמרו:\n\n${weightErrors.join("\n")}\n\nאפשר להשלים אותם בעדכון המשקלים.`
           );
         }
-        window.location.href = `/agent/orders/${orderId}?new=1`;
+        window.location.href = `/agent/orders/${orderId}?new=1${spotMode ? "&spot=1" : ""}`;
         return;
       }
       if (orderId) {
@@ -1401,6 +1484,41 @@ export function OrderFlow({
                 </div>
               )}
 
+              {/* §400: 🛒 / 📞 — מצב ההזמנה של הנציג */}
+              {weighInline && (
+                <div className="rounded-xl border-2 border-zinc-200 bg-white p-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSpotSale(true)}
+                      className={`rounded-lg px-2 py-2 text-sm font-bold border-2 ${
+                        spotMode
+                          ? "border-emerald-600 bg-emerald-600 text-white"
+                          : "border-zinc-200 bg-white text-zinc-700"
+                      }`}
+                    >
+                      🛒 הלקוח לוקח עכשיו
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSpotSale(false)}
+                      className={`rounded-lg px-2 py-2 text-sm font-bold border-2 ${
+                        !spotMode
+                          ? "border-brand-slatedark bg-brand-slatedark text-white"
+                          : "border-zinc-200 bg-white text-zinc-700"
+                      }`}
+                    >
+                      📞 הזמנה מראש
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-zinc-600 mt-1.5 leading-relaxed">
+                    {spotMode
+                      ? "בודדים: מקלידים כמה נלקח. קרטונים: משקל לכל קרטון (לא לקח = 0). ההזמנה נשמרת שקולה, והלקוח מקבל מייל אחד — כשמשלם."
+                      : "כמויות בלבד, כמו הזמנה באתר. השקילה — בחלוקה, בטבלת המשקלים."}
+                  </p>
+                </div>
+              )}
+
               {/* §221: באנר מצב מחירון.
                   
                   ⚠️ **ראשון ובולט**: הלקוח חייב להבין תוך שנייה
@@ -1701,16 +1819,13 @@ export function OrderFlow({
                                   {Math.round(p.avgWeightPerUnit * entry.cartonQty * 10) / 10} ק"ג
                                 </div>
                               )}
-                            {/* §397: ⚖️ משקל בפועל — לנציג, באותה שורה */}
-                            {weighInline && entry.cartonQty > 0 && (
+                            {/* §397/§400: ⚖️ משקל כל קרטון — רק "הלקוח לוקח
+                                עכשיו", ורק מוצר שנשקל (ביחידות — נלקח כפי שהוזמן) */}
+                            {spotMode && entry.cartonQty > 0 && p.saleType !== "UNIT" && (
                               <AgentWeightBoxes
-                                count={
-                                  p.saleType === "UNIT"
-                                    ? 1
-                                    : Math.min(Math.floor(entry.cartonQty), 6)
-                                }
-                                unitLabel={p.saleType === "UNIT" ? "יח׳" : 'ק"ג'}
-                                placeholderPrefix={p.saleType === "UNIT" ? "" : "קרטון"}
+                                count={cartonBoxCount(Math.floor(entry.cartonQty), false, false)}
+                                unitLabel={'ק"ג'}
+                                placeholderPrefix="קרטון"
                                 values={agentWeights[`${p.id}|C`] ?? []}
                                 onChange={(vals) =>
                                   setAgentWeights((prev) => ({ ...prev, [`${p.id}|C`]: vals }))
@@ -1723,6 +1838,7 @@ export function OrderFlow({
                                 <div>
                                   <span className="text-sm text-amber-900 font-medium">
                                     {p.singlesMode === "UNITS" ? "יחידות" : 'בודדים (ק"ג)'}
+                                    {spotMode && " — נלקח"}
                                   </span>
                                   {p.singlesMode !== "UNITS" && pricelist.singleSurcharge > 0 && (
                                     <span className="text-xs text-brand-rust mr-1">
@@ -1735,29 +1851,29 @@ export function OrderFlow({
                                     </span>
                                   )}
                                 </div>
-                                <QtyControl
-                                  value={entry.singlesQty}
-                                  step={1}
-                                  min={p.singlesMode === "UNITS" ? 1 : MIN_SINGLES_KG}
-                                  suffix={
-                                    p.singlesMode === "UNITS" ? "יח׳" : 'ק"ג'
-                                  }
-                                  onChange={(v) => setSinglesQty(p.id, v)}
-                                />
+                                {/* §400: "הלקוח לוקח עכשיו" — מקלידים ישר
+                                    כמה נלקח (בדיוק של גרם, בלי מינימום). זה
+                                    המשקל שנשמר — אין משבצת "בפועל" נוספת. */}
+                                {spotMode ? (
+                                  <SpotQtyInput
+                                    value={entry.singlesQty}
+                                    units={p.singlesMode === "UNITS"}
+                                    onChange={(v) => setSinglesQty(p.id, v)}
+                                  />
+                                ) : (
+                                  <QtyControl
+                                    value={entry.singlesQty}
+                                    step={1}
+                                    min={p.singlesMode === "UNITS" ? 1 : MIN_SINGLES_KG}
+                                    suffix={
+                                      p.singlesMode === "UNITS" ? "יח׳" : 'ק"ג'
+                                    }
+                                    onChange={(v) => setSinglesQty(p.id, v)}
+                                  />
+                                )}
                               </div>
                             )}
-                            {/* §397: ⚖️ משקל בפועל לבודדים */}
-                            {weighInline && p.allowSingles && entry.singlesQty > 0 && (
-                              <AgentWeightBoxes
-                                count={1}
-                                unitLabel={p.singlesMode === "UNITS" ? "יח׳" : 'ק"ג'}
-                                placeholderPrefix="בודדים"
-                                values={agentWeights[`${p.id}|S`] ?? []}
-                                onChange={(vals) =>
-                                  setAgentWeights((prev) => ({ ...prev, [`${p.id}|S`]: vals }))
-                                }
-                              />
-                            )}
+                            {/* §400: אין משבצת "בפועל" לבודדים — הכמות היא המשקל */}
                           </div>
                         </div>
                       );
@@ -1786,7 +1902,17 @@ export function OrderFlow({
               )}
               <button
                 disabled={itemCount === 0 || catalogOnly}
-                onClick={() => setStep("summary")}
+                onClick={() => {
+                  // §400: במכירה במקום — לא ממשיכים עם קרטון בלי משקל
+                  const miss = spotMissingCartons();
+                  if (miss.length > 0) {
+                    alert(
+                      `חסר משקל לקרטון ב:\n${miss.join("\n")}\n\nיש למלא כל קרטון — ומה שלא נלקח: 0.`
+                    );
+                    return;
+                  }
+                  setStep("summary");
+                }}
                 className={`flex-1 py-3 rounded-xl font-bold transition-all ${
                   itemCount === 0 || catalogOnly
                     ? "bg-zinc-100 text-zinc-400 cursor-not-allowed"
@@ -2655,6 +2781,61 @@ function QtyRow({
 
 
 // ═══════════════════════════════════════════════════════════════
+// §400: 🛒 כמות בודדים במכירה במקום — מה שנלקח, בדיוק של גרם
+// ═══════════════════════════════════════════════════════════════
+// QtyControl מעגל ל-2 ספרות ואוכף מינימום 2 ק"ג (מתאים להזמנה מראש).
+// כאן מקלידים את מה שהמשקל הראה — 3.465 נשאר 3.465, ו-1.2 ק"ג תקף.
+//
+// ⚠️ הטקסט נשמר מקומית: שדה מספר מבוקר מאבד "3." באמצע הקלדה.
+function SpotQtyInput({
+  value,
+  units,
+  onChange,
+}: {
+  value: number;
+  units: boolean;
+  onChange: (v: number) => void;
+}) {
+  const [txt, setTxt] = useState(value ? String(value) : "");
+  useEffect(() => {
+    // סנכרון רק כשהערך השתנה מבחוץ (למשל הסרה מהעגלה)
+    const parsed = Math.round((parseFloat(txt) || 0) * 1000) / 1000;
+    if (parsed !== value) setTxt(value ? String(value) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="number"
+        inputMode="decimal"
+        step={units ? 1 : 0.001}
+        min={0}
+        dir="ltr"
+        value={txt}
+        onChange={(e) => {
+          setTxt(e.target.value);
+          const n = parseFloat(e.target.value);
+          // יחידות — מספר שלם; ק"ג — דיוק של גרם
+          onChange(
+            Number.isFinite(n) && n > 0
+              ? units
+                ? Math.round(n)
+                : Math.round(n * 1000) / 1000
+              : 0
+          );
+        }}
+        placeholder={units ? "יח׳" : 'ק"ג'}
+        className="w-24 text-center rounded-lg border-2 border-emerald-400 py-1.5 font-bold"
+        aria-label="כמה נלקח"
+      />
+      <span className="text-[11px] font-bold text-brand-rust shrink-0">
+        {units ? "יח׳" : 'ק"ג'}
+      </span>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // §397: ⚖️ משבצות משקל בפועל — לנציג, בתוך שורת המוצר
 // ═══════════════════════════════════════════════════════════════
 // משבצת לכל קרטון (עד 6), כמו בטבלת המשקלים. ריק = לא הוזן עדיין
@@ -2674,12 +2855,13 @@ function AgentWeightBoxes({
 }) {
   const vals = Array.from({ length: count }, (_, i) => values[i] ?? "");
   const filled = vals.filter((v) => v.trim() !== "").length;
+  // §400: דיוק של גרם
   const sum =
-    Math.round(vals.reduce((a, v) => a + (Number(v) || 0), 0) * 100) / 100;
+    Math.round(vals.reduce((a, v) => a + (Number(v) || 0), 0) * 1000) / 1000;
   return (
     <div className="rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50/60 px-2 py-1.5">
       <div className="flex items-center justify-between text-[11px] font-bold text-emerald-900 mb-1">
-        <span>⚖️ בפועל ({unitLabel}) — אם הלקוח כבר לקח</span>
+        <span>⚖️ משקל {count > 1 ? "כל קרטון" : "בפועל"} ({unitLabel}) — חובה</span>
         {filled > 0 && count > 1 && (
           <span className="tabular-nums">סה״כ {sum}</span>
         )}
@@ -2690,7 +2872,7 @@ function AgentWeightBoxes({
             key={i}
             type="number"
             inputMode="decimal"
-            step={unitLabel === "יח׳" ? 1 : 0.01}
+            step={unitLabel === "יח׳" ? 1 : 0.001}
             min={0}
             dir="ltr"
             value={v}
@@ -2706,17 +2888,15 @@ function AgentWeightBoxes({
             }
             className={`w-full text-center font-bold text-base md:text-sm rounded py-1.5 border-2 ${
               v.trim() === ""
-                ? filled > 0
-                  ? "border-red-400 bg-red-50"
-                  : "border-zinc-200 bg-white"
+                ? "border-red-400 bg-red-50"
                 : "border-emerald-400 bg-white"
             }`}
           />
         ))}
       </div>
-      {filled > 0 && filled < count && (
+      {filled < count && (
         <div className="text-[10px] font-bold text-red-700 mt-1">
-          חסר משקל ל-{count - filled} קרטונים · לא קיבל = 0. אפשר להשלים אחר כך.
+          חסר משקל ל-{count - filled} {count - filled === 1 ? "קרטון" : "קרטונים"} · לא לקח = 0
         </div>
       )}
     </div>

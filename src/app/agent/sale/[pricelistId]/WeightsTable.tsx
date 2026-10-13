@@ -36,7 +36,7 @@ import { fmtDateTime } from "@/lib/date-lib";
 import type { Order, OrderItem, AvailableProduct } from "./AgentSaleClient";
 import { fmt } from "@/lib/pricing";
 // §128: תצוגת יחידות - מקור אחד לכל המערכת
-import { formatItemQty } from "@/lib/order-display";
+import { formatItemQty, cartonBoxCount } from "@/lib/order-display";
 // §393: מצב החיוב ללקוחות אשראי
 import { ChargeStatusBadge } from "@/components/ChargeStatusBadge";
 const CHARGE_BADGE_STATUSES = [
@@ -300,6 +300,25 @@ export function WeightsTable({
                 ? Number((it as any).agentSetPrice)
                 : it.unitPrice;
             total += w * effPrice;
+            // §400: יש סכום — אבל פירוט הקרטונים לא שלם (משבצת ריקה,
+            // או פחות משבצות מקרטונים). אותו כלל של השרת בסימון V.
+            const parts = (it as any).weightParts as (number | null)[] | null | undefined;
+            const boxes = cartonBoxCount(it.quantity, it.isSingle, noWeighing);
+            // ⚠️ גם בלי פירוט (משקל אחד על כמה קרטונים) — המשבצות 2+
+            // מוצגות ריקות; V נחסם בשרת עד שמזינים בהן 0.
+            // ⚠️ רק בהזמנה פתוחה: אחרי V/תשלום השורה נעולה ואין מה למלא.
+            const orderLocked =
+              !!(o as any).agentClosedAt ||
+              ["PAID", "PARTIALLY_PAID", "CHARGING"].includes((o as any).paymentStatus ?? "");
+            if (
+              !orderLocked &&
+              boxes > 1 &&
+              (!Array.isArray(parts) ||
+                parts.length < boxes ||
+                parts.some((x) => x == null))
+            ) {
+              missing++;
+            }
           }
           cells.push({
             itemId: it.id,
@@ -606,6 +625,19 @@ export function WeightsTable({
                       >
                         📞
                       </a>
+                    )}
+                    {/* §400: 🚨 V בלי סכום סופי — ההזמנה לא תיגבה.
+                        
+                        מצב שנוצר לפני התיקון בסימון V (ביתר: 3 לקוחות
+                        שלא חויבו). מוצג באדום, כדי שהנציג יראה אותו
+                        כאן ולא המנהל בסוף החודש. */}
+                    {r.agentClosedAt && r.finalTotal == null && (
+                      <span
+                        className="text-[10px] font-bold text-white bg-red-600 rounded px-1"
+                        title="סומן טופל אך לא נקבע סכום סופי — ההזמנה לא תיגבה. הסר V, השלם משקלים (0 למי שלא לקח) וסמן שוב."
+                      >
+                        ⚠️ לא ייגבה
+                      </span>
                     )}
                     {/* §359: 📄 סיכום חיוב — **רק אחרי V**.
                         
@@ -1010,10 +1042,8 @@ function WeightCell({
   //
   // ⚠️ רק קרטונים: בודדים לפי ק"ג הם שקילה אחת ("3 ק"ג פרגית"),
   // ופיצול היה מבלבל.
-  const cartonCount =
-    !cell.isSingle && !cell.noWeighing && cell.orderedQty > 1
-      ? Math.min(Math.floor(cell.orderedQty), 6)
-      : 1;
+  // §400: עד 30 משבצות (היה 6 — קרטונים 7 ומעלה לא נשאלו בכלל)
+  const cartonCount = cartonBoxCount(cell.orderedQty, cell.isSingle, !!cell.noWeighing);
 
   // ⚠️ בטעינה הכל במשבצת הראשונה: המסד מחזיק סכום, לא פירוט.
   // הנציג רואה את מה שהזין ויכול לתקן.
@@ -1353,7 +1383,7 @@ function WeightCell({
               <input
                 type="number"
                 inputMode="decimal"
-                step={0.01}
+                step={0.001}
                 min={0}
                 dir="ltr"
                 disabled={readOnly || saving}
@@ -1401,7 +1431,8 @@ function WeightCell({
                   }
 
                   const sum = cur.reduce((a, x) => a + (Number(x) || 0), 0);
-                  const rounded = Math.round(sum * 100) / 100;
+                  // §400: דיוק של גרם — 3.465 נשאר 3.465 (היה מעוגל ל-3.47)
+                  const rounded = Math.round(sum * 1000) / 1000;
                   // ⚠️ "0" נשמר כ-0 ולא כריק: כל הקרטונים 0 = לא קיבל.
                   const next = String(rounded);
                   setVal(next);
@@ -1437,8 +1468,8 @@ function WeightCell({
             <div className="text-[10px] text-center font-bold text-brand-rust">
               סה״כ{" "}
               {Math.round(
-                parts.reduce((a, x) => a + (Number(x) || 0), 0) * 100
-              ) / 100}
+                parts.reduce((a, x) => a + (Number(x) || 0), 0) * 1000
+              ) / 1000}
             </div>
           )}
         </div>

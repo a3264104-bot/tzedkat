@@ -31,14 +31,50 @@ export async function GET(req: Request) {
   if (pricelistId) where.pricelistId = pricelistId;
   if (agentId) where.agentId = agentId;
 
-  const rows = await prisma.debtLedger.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    include: {
-      customer: { select: { id: true, name: true, phone: true } },
-    },
-  });
+  // §399: ⚡ הכל בסיבוב אחד, ובמקביל:
+  //   rows        — 200 התנועות האחרונות (לטבלה)
+  //   byKind      — סיכומים על **כל** התנועות (לא רק 200 האחרונות)
+  //   outstanding — מי חייב עכשיו (Customer.debtBalance > 0)
+  //   unpaid      — הזמנות עם מחיר סופי שטרם שולמו במלואן
+  //
+  // 🐛 מה שהיה במסך: "חייבים עכשיו (22)" עם 22 שורות ריקות של ₪0.00.
+  // המסך קרא את /api/admin/debts — שמחזיר **הזמנות שלא שולמו**, לא
+  // לקוחות עם חוב — וחיפש בהן name ו-debtBalance שאינם קיימים. כלומר
+  // 22 ההזמנות שממתינות לחיוב הוצגו כ-22 "חייבים" בלי שם ובלי סכום.
+  // ובנוסף המסך טען את כל רשימת התשלומים (250 הזמנות מלאות) רק כדי
+  // לסכום שני מספרים.
+  const [rows, byKind, outstanding, unpaidAgg] = await Promise.all([
+    prisma.debtLedger.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+      },
+    }),
+    prisma.debtLedger.groupBy({
+      by: ["kind"],
+      where,
+      _sum: { amount: true },
+    }),
+    prisma.customer.findMany({
+      where: { debtBalance: { gt: 0 } },
+      select: { id: true, name: true, phone: true, debtBalance: true, debtNote: true },
+      orderBy: { debtBalance: "desc" },
+    }),
+    prisma.order.aggregate({
+      where: {
+        status: { not: "CANCELLED" },
+        finalTotal: { gt: 0 },
+        paymentStatus: {
+          notIn: ["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED", "REFUNDED"],
+        },
+        items: { some: { isCancelled: false } },
+      },
+      _count: { _all: true },
+      _sum: { finalTotal: true, amountPaid: true },
+    }),
+  ]);
 
   // שמות המכירות והנציגים — במקום include (הם לא relations בסכמה)
   const plIds = Array.from(new Set(rows.map((r) => r.pricelistId).filter(Boolean))) as string[];
@@ -61,13 +97,14 @@ export async function GET(req: Request) {
     : [];
   const orderNum = new Map(orders.map((o) => [o.id, o.orderNumber]));
 
-  // סיכומים
+  // סיכומים — §399: על כל התנועות. קודם נסכמו רק 200 השורות שנטענו,
+  // ו"נגבה סה״כ" היה קטן מהאמת ברגע שהספר עבר 200 תנועות.
   const totals = { added: 0, collected: 0, restored: 0, adjusted: 0 };
-  for (const r of rows) {
-    const a = Number(r.amount);
-    if (r.kind === "ADD") totals.added += a;
-    else if (r.kind === "COLLECT") totals.collected += -a;
-    else if (r.kind === "RESTORE") totals.restored += a;
+  for (const g2 of byKind) {
+    const a = Number(g2._sum.amount ?? 0);
+    if (g2.kind === "ADD") totals.added += a;
+    else if (g2.kind === "COLLECT") totals.collected += -a;
+    else if (g2.kind === "RESTORE") totals.restored += a;
     else totals.adjusted += a;
   }
 
@@ -85,6 +122,22 @@ export async function GET(req: Request) {
       createdBy: r.createdBy,
       createdAt: r.createdAt.toISOString(),
     })),
+    // §399: מי חייב עכשיו — לקוחות עם חוב קודם פתוח
+    outstanding: outstanding.map((c) => ({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      debt: Number(c.debtBalance),
+      note: c.debtNote,
+    })),
+    // §399: הזמנות שטרם שולמו במלואן — היתרה בלבד (בלי מה שכבר שולם)
+    unpaid: {
+      count: unpaidAgg._count._all,
+      sum:
+        Math.round(
+          (Number(unpaidAgg._sum.finalTotal ?? 0) - Number(unpaidAgg._sum.amountPaid ?? 0)) * 100
+        ) / 100,
+    },
     totals: {
       added: Math.round(totals.added * 100) / 100,
       collected: Math.round(totals.collected * 100) / 100,

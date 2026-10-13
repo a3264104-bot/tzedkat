@@ -39,30 +39,35 @@ export async function GET(req: Request) {
   // עבור כל נציג - סיכומי מכירות + היסטוריית תשלומים
   const result = await Promise.all(
     agents.map(async (agent) => {
-      // סיכומים ממכירות (רק מאושרים או שיש בהם עבודה)
-      const summaries = await prisma.agentSaleSummary.findMany({
-        where: { agentId: agent.id },
-        include: {
-          pricelist: {
-            select: {
-              id: true,
-              name: true,
-              deliveryDate: true,
-              status: true,
+      // §399: ⚡ שלוש השליפות של הנציג במקביל (היו אחת אחרי השנייה,
+      // לכל נציג) — סיכומים, תשלומים, וחשבון הכסף.
+      const [summaries, payments, acct] = await Promise.all([
+        // סיכומים ממכירות (רק מאושרים או שיש בהם עבודה)
+        prisma.agentSaleSummary.findMany({
+          where: { agentId: agent.id },
+          include: {
+            pricelist: {
+              select: {
+                id: true,
+                name: true,
+                deliveryDate: true,
+                status: true,
+              },
             },
           },
-        },
-        orderBy: { createdAt: "desc" },
-      });
-
-      // תשלומים / גבייות
-      const payments = await prisma.agentPayment.findMany({
-        where: { agentId: agent.id },
-        include: {
-          pricelist: { select: { id: true, name: true } },
-        },
-        orderBy: { createdAt: "desc" },
-      });
+          orderBy: { createdAt: "desc" },
+        }),
+        // תשלומים / גבייות
+        prisma.agentPayment.findMany({
+          where: { agentId: agent.id },
+          include: {
+            pricelist: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        }),
+        // §398: 🧮 חשבון הכסף — אותה פונקציה של "החשבון שלי" אצל הנציג.
+        computeAgentCashAccount(agent.id),
+      ]);
 
       // חישוב יתרה כוללת
       const totalCommission = summaries.reduce(
@@ -82,7 +87,6 @@ export async function GET(req: Request) {
       // מזדמנים (ישנים) + מזומן שהנציג **הזה** קיבל (בכל נקודה, גם
       // בהזמנה שבוטלה) + אשראי / מזומן אצל המנהל / טרם נגבה בנקודות שלו.
       // ראה agent-money-lib.
-      const acct = await computeAgentCashAccount(agent.id);
       const totalCashCollected = acct.walkinCash;
       const walkinCashCount = acct.walkinCashCount;
       const {

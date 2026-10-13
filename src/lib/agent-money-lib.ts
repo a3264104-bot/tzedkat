@@ -277,12 +277,15 @@ export type AgentCashAccount = {
 };
 
 export async function computeAgentCashAccount(agentId: string): Promise<AgentCashAccount> {
-  const pointIds = await resolveAgentPointIds(agentId);
-  const walkinAgg = await prisma.walkinOrder.aggregate({
-    where: { agentId, paymentMethod: "CASH", paymentReceived: true },
-    _sum: { totalAmount: true },
-    _count: { _all: true },
-  });
+  // §399: ⚡ במקביל — המזדמנים לא תלויים בנקודות
+  const [pointIds, walkinAgg] = await Promise.all([
+    resolveAgentPointIds(agentId),
+    prisma.walkinOrder.aggregate({
+      where: { agentId, paymentMethod: "CASH", paymentReceived: true },
+      _sum: { totalAmount: true },
+      _count: { _all: true },
+    }),
+  ]);
   const acc: AgentCashAccount = {
     walkinCash: Number(walkinAgg._sum.totalAmount || 0),
     walkinCashCount: walkinAgg._count._all,

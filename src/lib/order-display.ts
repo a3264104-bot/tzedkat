@@ -129,3 +129,77 @@ export function formatWeight(kg: number | string | null | undefined): string {
   if (!Number.isFinite(n) || n <= 0) return "—";
   return `${n.toFixed(1)} ${KG}`;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// §400: 📦 משבצת משקל לכל קרטון — מקור אחד
+// ═══════════════════════════════════════════════════════════════
+// 🐛 מה שהיה: התקרה הייתה 6 משבצות (בטבלה ובהזמנה). לקוח שלקח 8
+// קרטונים קיבל 6 משבצות — מילא את כולן, והפריט נחשב שקול. שני
+// קרטונים נשכחו בלי שאיש ידע.
+//
+// ⚠️ 30 ולא בלי גבול: מעבר לזה זו טעות הקלדה (300 במקום 3), ולא
+// הגיוני לפרוש 300 משבצות על המסך. השרת (סימון V) בודק את אותו מספר.
+export const MAX_CARTON_BOXES = 30;
+
+export function cartonBoxCount(
+  quantity: number | string,
+  isSingle: boolean,
+  noWeighing: boolean
+): number {
+  const q = Math.floor(Number(quantity) || 0);
+  if (isSingle || noWeighing || q <= 1) return 1;
+  return Math.min(q, MAX_CARTON_BOXES);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// §400: 🏷️ שלב ההזמנה — מה שקרה בפועל, לא שדה status
+// ═══════════════════════════════════════════════════════════════
+// 🐛 "ממתינה לשקילה" על הזמנות שנשקלו, ואפילו שולמו.
+//
+// השדה status נקבע ביצירה (PENDING_REVIEW) ורק מסלול אחד ישן
+// (קביעת מחיר ע"י מנהל) מעדכן אותו. שקילה בטבלת הנציג, חיוב,
+// מזומן ומסירה — אף אחד מהם לא נוגע בו, ולכן התווית "נתקעה".
+//
+// ✅ התווית נגזרת מהעובדות: בוטלה / נמסרה / שולמה / נשקלה / ממתינה.
+// status עצמו לא משתנה — יש קוד שקורא אותו (COMPLETED, CANCELLED),
+// ושינוי ערכים במסד היה נוגע בכל זה.
+export type OrderStageInput = {
+  status: string;
+  finalTotal?: number | string | null;
+  paymentStatus?: string | null;
+  deliveredAt?: string | Date | null;
+};
+
+export function orderStageLabel(o: OrderStageInput): string {
+  if (o.status === "CANCELLED") return "בוטלה";
+  const ps = o.paymentStatus ?? "";
+  const paid = ps === "PAID";
+  if (o.deliveredAt) return paid ? "נמסרה · שולמה" : "נמסרה";
+  if (paid) return "שולמה";
+  if (ps === "PARTIALLY_PAID") return "שולמה חלקית";
+  if (ps === "DEBT_CARRIED") return "היתרה הועברה לחוב";
+  if (ps === "CHARGING") return "בחיוב";
+  if (ps === "REFUNDED") return "זוכתה";
+  if (o.finalTotal != null) return "נשקלה · ממתינה לתשלום";
+  if (o.status === "COMPLETED") return "הושלמה";
+  return "ממתינה לשקילה";
+}
+
+/**
+ * §400: משקל אחד שנשמר על פריט של כמה קרטונים (רשימה / תיקון מנהל) —
+ * נרשם כ"נשקל יחד": הסכום במשבצת הראשונה, 0 בשאר. זה הכלל של הטבלה
+ * (§394: מי ששקל ביחד — סכום בראשונה ו-0 בשאר), ובלעדיו סימון V נחסם
+ * על פריט שהנציג כן שקל במלואו.
+ *
+ * null = פריט של קרטון אחד / בודדים / יחידות — אין פירוט.
+ */
+export function singleTotalParts(
+  total: number,
+  quantity: number | string,
+  isSingle: boolean,
+  noWeighing: boolean
+): number[] | null {
+  const boxes = cartonBoxCount(quantity, isSingle, noWeighing);
+  if (boxes <= 1) return null;
+  return [total, ...Array(boxes - 1).fill(0)];
+}

@@ -161,6 +161,8 @@ export default async function AgentCustomerPage({
     // §393: מצב החיוב בכרטיס ההזמנה — "✗ אשראי לא עבר"
     amountPaid: o.amountPaid != null ? Number(o.amountPaid) : null,
     lastChargeError: o.lastChargeError ?? null,
+    // §400: לתווית השלב (נמסרה)
+    deliveredAt: o.deliveredAt ? o.deliveredAt.toISOString() : null,
     items: o.items.map((it) => ({
       id: it.id,
       productName: it.productName,
@@ -175,6 +177,10 @@ export default async function AgentCustomerPage({
       finalWeight: it.finalWeight != null ? Number(it.finalWeight) : null,
       finalPrice: it.finalPrice != null ? Number(it.finalPrice) : null,
       unitPrice: Number(it.unitPrice),
+      // §400: המשקל מהטבלה + פריט שבוטל
+      agentEnteredWeight:
+        it.agentEnteredWeight != null ? Number(it.agentEnteredWeight) : null,
+      isCancelled: it.isCancelled,
     })),
   }));
 

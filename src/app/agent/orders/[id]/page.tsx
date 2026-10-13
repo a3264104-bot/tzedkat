@@ -10,8 +10,8 @@ import FavoritePriceEditor from "@/components/FavoritePriceEditor";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { fmt, STATUS_LABELS } from "@/lib/pricing";
-import { formatItemQty, orderItemBadge } from "@/lib/order-display";
+import { fmt } from "@/lib/pricing";
+import { formatItemQty, orderItemBadge, orderStageLabel } from "@/lib/order-display";
 import { payStatusLabel } from "@/lib/pay-status-lib";
 import AgentChargeButton from "./AgentChargeButton";
 import { AgentAddItemPanel } from "./AgentAddItemPanel";
@@ -39,10 +39,13 @@ export default async function AgentOrderDetailPage({
 }: {
   params: Promise<{ id: string }>;
   // §395: ?new=1 — הגענו ישר משליחת הזמנה (OrderFlow)
-  searchParams?: Promise<{ new?: string }>;
+  searchParams?: Promise<{ new?: string; spot?: string }>;
 }) {
   const { id } = await params;
-  const justCreated = (await searchParams)?.new === "1";
+  const sp = await searchParams;
+  const justCreated = sp?.new === "1";
+  // §400: נוצרה במצב "הלקוח לוקח עכשיו"
+  const spotCreated = sp?.spot === "1";
   const session = await auth();
   if (!session?.user) redirect("/login?callbackUrl=/agent");
 
@@ -359,22 +362,51 @@ export default async function AgentOrderDetailPage({
             
             מוצג רק כשיש מה לשקול: הזמנה שטרם שולמה ולא סומנה V.
             אחרי V/תשלום הטבלה נעולה ממילא, והכפתור היה מבלבל. */}
-        {justCreated && (
+        {/* §400: 🐛 "עבור לעדכון משקלים" הופיע גם אחרי שהמשקלים כבר
+            הוזנו בהזמנה עצמה — הנציג נשאל פעמיים. עכשיו: אם יש סכום
+            סופי, ההזמנה שקולה, והצעד הבא הוא התשלום. הקישור לטבלה נשאר
+            קטן — לתיקון בלבד. */}
+        {justCreated && order.finalTotal != null && (
           <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-3 text-center">
             <div className="font-extrabold text-emerald-800">
-              ✓ ההזמנה נשלחה — #{order.orderNumber}
+              ✓ נשמר ונשקל — #{order.orderNumber} · {fmt(Number(order.finalTotal))}
             </div>
             <div className="text-xs text-emerald-700 mt-0.5">
-              הסיכום המשוער למטה. לקוח שכבר לקח — עוברים ישר לעדכון משקלים.
+              {spotCreated
+                ? "הלקוח יקבל מייל אחד — כשישלם, עם מה שלקח ומה ששולם."
+                : "הסכום הסופי למטה."}{" "}
+              <a href="#pay" className="font-bold underline">
+                לתשלום ↓
+              </a>
             </div>
           </div>
         )}
-        {order.pricelistId && !isLocked && (
+        {justCreated && order.finalTotal == null && (
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-3 text-center">
+            <div className="font-extrabold text-amber-900">
+              ✓ ההזמנה נשמרה — #{order.orderNumber}
+            </div>
+            <div className="text-xs text-amber-800 mt-0.5">
+              {spotCreated
+                ? "חסרים משקלים — להשלים בטבלת המשקלים (קרטון שלא נלקח: 0)."
+                : "הזמנה מראש — השקילה בחלוקה. הסיכום המשוער למטה."}
+            </div>
+          </div>
+        )}
+        {order.pricelistId && !isLocked && order.finalTotal == null && (
           <a
             href={`/agent/sale/${order.pricelistId}?order=${order.orderNumber}`}
             className="block text-center bg-amber-500 hover:bg-amber-600 text-white font-extrabold rounded-2xl py-3 shadow-sm"
           >
             ⚖️ עבור לעדכון משקלים
+          </a>
+        )}
+        {order.pricelistId && !isLocked && order.finalTotal != null && (
+          <a
+            href={`/agent/sale/${order.pricelistId}?order=${order.orderNumber}`}
+            className="block text-center text-xs font-bold text-brand-rust underline"
+          >
+            ⚖️ תיקון משקל בטבלה
           </a>
         )}
         {/* לקוח + סטטוס */}
@@ -411,7 +443,13 @@ export default async function AgentOrderDetailPage({
               </a>
             </div>
             <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700">
-              {STATUS_LABELS[order.status] ?? order.status}
+              {/* §400: השלב בפועל — לא שדה status שנתקע ב"ממתינה לשקילה" */}
+              {orderStageLabel({
+                status: order.status,
+                finalTotal: order.finalTotal != null ? Number(order.finalTotal) : null,
+                paymentStatus: order.paymentStatus,
+                deliveredAt: order.deliveredAt,
+              })}
             </span>
           </div>
           {order.point && (
@@ -869,7 +907,7 @@ export default async function AgentOrderDetailPage({
           {/* §365: מוסתר אחרי תשלום מלא — אין מה לסמן. חלקי נשאר
               פתוח כדי להשלים את היתרה (§360). */}
           {order.paymentStatus !== "PAID" && (
-          <div className="mb-3">
+          <div className="mb-3" id="pay">
             <AgentCashPanel
               orderId={order.id}
               orderNumber={order.orderNumber}

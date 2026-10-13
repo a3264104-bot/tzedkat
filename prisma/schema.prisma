@@ -237,6 +237,9 @@ model Customer {
   updatedAt            DateTime  @updatedAt
   /// §368: ספר חובות
   debtLedger DebtLedger[]
+
+  // §399: ⚡ אינדקסים — Postgres לא יוצר אינדקס למפתח זר לבד
+  @@index([defaultPointId])
 }
 
 model Category {
@@ -509,6 +512,9 @@ model PricelistPoint {
   pointId       String
   point         DeliveryPoint @relation(fields: [pointId], references: [id], onDelete: Cascade)
   @@unique([pricelistId, pointId])
+
+  // §399: ⚡ אינדקסים — Postgres לא יוצר אינדקס למפתח זר לבד
+  @@index([pointId])
 }
 
 model PricelistProduct {
@@ -520,6 +526,9 @@ model PricelistProduct {
   // מחיר ספציפי למחירון (אם null נופל חזרה למחיר המוצר)
   price       Decimal?  @db.Decimal(10, 2)
   @@unique([pricelistId, productId])
+
+  // §399: ⚡ אינדקסים — Postgres לא יוצר אינדקס למפתח זר לבד
+  @@index([productId])
 }
 
 model Order {
@@ -760,6 +769,13 @@ model Order {
   updatedAt       DateTime @updatedAt
 
   @@index([agentCashById])
+
+  // §399: ⚡ אינדקסים — Postgres לא יוצר אינדקס למפתח זר לבד
+  @@index([pricelistId])
+  @@index([pointId])
+  @@index([customerId])
+  @@index([paymentStatus])
+  @@index([parentOrderId])
 }
 
 model OrderItem {
@@ -809,6 +825,10 @@ model OrderItem {
   agentNote          String?  // הערה חופשית מהנציג ("הגיע צלעות במקום כתפיים")
   isCancelled        Boolean  @default(false) // לקוח לא רצה - לא מחייבים
   originalProductId  String?  // מוצר מקורי לפני החלפה (לתיעוד)
+
+  // §399: ⚡ אינדקסים — Postgres לא יוצר אינדקס למפתח זר לבד
+  @@index([orderId])
+  @@index([productId])
 }
 
 // הגדרות מערכת גלובליות - שורה יחידה, נערכת מאזור הניהול
@@ -835,6 +855,9 @@ model PaymentAuditLog {
   receivedByUserId String  // מי ביצע את הפעולה (חובה - אין רישום אנונימי)
   note            String?
   createdAt       DateTime @default(now())
+
+  // §399: ⚡ אינדקסים — Postgres לא יוצר אינדקס למפתח זר לבד
+  @@index([orderId])
 }
 
 /// §368: ספר חובות — כל תנועה מתועדת.
@@ -1022,6 +1045,9 @@ model DeliveryNoteItem {
   // אריזה בלבד. שמירת מחיר לקרטון הייתה מייצרת חישוב שגוי בכל
   // פעם שמשקל הקרטון סוטה מהתכנון - כלומר תמיד.
   costPerKg       Decimal?     @db.Decimal(10, 2)
+
+  // §399: ⚡ אינדקסים — Postgres לא יוצר אינדקס למפתח זר לבד
+  @@index([deliveryNoteId])
 }
 
 // לקוח מזדמן - הגיע לחלוקה בלי הזמנה מוקדמת
@@ -1081,6 +1107,9 @@ model WalkinOrderItem {
   isSingle        Boolean  @default(false)   // בודדים
   totalPrice      Decimal  @db.Decimal(10, 2) // weight × unitPrice
   note            String?
+
+  // §399: ⚡ אינדקסים — Postgres לא יוצר אינדקס למפתח זר לבד
+  @@index([walkinOrderId])
 }
 
 // תשלום שהמנהל שילם לנציג - היסטוריה + מעקב חוב

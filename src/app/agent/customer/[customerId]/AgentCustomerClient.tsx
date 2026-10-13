@@ -7,8 +7,8 @@ import { QuickCustomerEdit } from "@/components/QuickCustomerEdit";
 import { fmtDate } from "@/lib/date-lib";
 import Link from "next/link";
 import { ChargeStatusBadge } from "@/components/ChargeStatusBadge";
-import { STATUS_LABELS, fmt } from "@/lib/pricing";
-import { formatItemQty } from "@/lib/order-display";
+import { fmt } from "@/lib/pricing";
+import { formatItemQty, orderStageLabel } from "@/lib/order-display";
 import { UpdateCardModal } from "@/components/UpdateCardButton";
 // §263: רישום חוב ללקוח — אותו רכיב של המנהל
 import { DebtPanel } from "@/components/DebtPanel";
@@ -28,6 +28,9 @@ type Item = {
   finalWeight: number | null;
   finalPrice: number | null;
   unitPrice: number;
+  /** §400: המשקל שהנציג הזין (טבלת המשקלים) */
+  agentEnteredWeight?: number | null;
+  isCancelled?: boolean;
 };
 type Order = {
   id: string;
@@ -43,6 +46,8 @@ type Order = {
   /** §393 */
   amountPaid?: number | null;
   lastChargeError?: string | null;
+  /** §400: לתווית השלב */
+  deliveredAt?: string | null;
   items: Item[];
 };
 
@@ -62,8 +67,6 @@ export function AgentCustomerClient({
   canUpdateCards,
   canSetCash = false,
   orders: initialOrders,
-  canSetFinalPrice,
-  canSendPaymentLink,
   activePricelistId,
   activeSales = [],
   singleSurcharge,
@@ -102,8 +105,9 @@ export function AgentCustomerClient({
    */
   canSetCash?: boolean;
   orders: Order[];
-  canSetFinalPrice: boolean;
-  canSendPaymentLink: boolean;
+  /** §400: לא בשימוש — הזנת המשקלים הועברה למסך ההזמנה/הטבלה */
+  canSetFinalPrice?: boolean;
+  canSendPaymentLink?: boolean;
   // §67: הוספת מוצר להזמנה ישירות מכרטיס הלקוח
   activePricelistId: string | null;
   /** §111: כל המכירות הפעילות - כולל "לנציגים בלבד" */
@@ -118,14 +122,11 @@ export function AgentCustomerClient({
   singleSurcharge: number;
   availableProducts: AddableProduct[];
 }) {
-  const [orders, setOrders] = useState(initialOrders);
+  const [orders] = useState(initialOrders);
   // §111: בורר המכירה לפתיחת הזמנה חדשה
   const [salePickerOpen, setSalePickerOpen] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
-  // משקלים בעריכה: { [itemId]: value }
-  const [weights, setWeights] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [msg] = useState("");
   // §60: מצב התשלום - מתעדכן מקומית אחרי החלפה
   const [pref, setPref] = useState(initialPref);
   const [hasCard, setHasCard] = useState(initialHasCard);
@@ -196,71 +197,6 @@ export function AgentCustomerClient({
       setPrefErr(e.message);
     } finally {
       setPrefSaving(false);
-    }
-  }
-
-  function setWeight(itemId: string, value: string) {
-    setWeights((w) => ({ ...w, [itemId]: value }));
-  }
-
-  async function saveOrder(order: Order, setFinal: boolean) {
-    setSaving(true);
-    setMsg("");
-    try {
-      const items = order.items.map((it) => ({
-        id: it.id,
-        actualWeight: weights[it.id] ?? (it.actualWeight != null ? String(it.actualWeight) : ""),
-      }));
-      const res = await fetch(`/api/agent/orders/${order.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items, setFinalPrice: setFinal }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setMsg(data.error || "שגיאה");
-        return;
-      }
-      // עדכון מקומי
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.id === order.id
-            ? {
-                ...o,
-                status: data.status ?? o.status,
-                paymentStatus: data.paymentStatus ?? o.paymentStatus,
-                finalTotal: data.finalTotal != null ? Number(data.finalTotal) : o.finalTotal,
-                items: data.items
-                  ? data.items.map((it: any) => ({
-                      id: it.id,
-                      productName: it.productName,
-                      unit: it.unit,
-                      quantity: Number(it.quantity),
-                      estimatedPrice: Number(it.estimatedPrice),
-                      actualWeight: it.actualWeight != null ? Number(it.actualWeight) : null,
-                      finalWeight: it.finalWeight != null ? Number(it.finalWeight) : null,
-                      finalPrice: it.finalPrice != null ? Number(it.finalPrice) : null,
-                      unitPrice: Number(it.unitPrice),
-                    }))
-                  : o.items,
-              }
-            : o
-        )
-      );
-      setMsg(
-        setFinal
-          ? // §60: ללקוח מזומן לא נשלח לינק - ההודעה מכוונת לגבייה בשטח
-            data._isCashCustomer
-            ? "המחיר הסופי נקבע. 💵 לגבות במזומן בעת החלוקה."
-            : canSendPaymentLink
-              ? "המחיר הסופי נקבע ולינק התשלום נשלח ללקוח"
-              : "המחיר הסופי נקבע. שליחת לינק התשלום תתבצע ע\"י המנהל."
-          : "המשקלים נשמרו"
-      );
-    } catch {
-      setMsg("שגיאת שרת");
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -444,7 +380,8 @@ export function AgentCustomerClient({
                 </div>
                 <div className="text-left">
                   <span className="badge bg-zinc-100 text-zinc-600">
-                    {STATUS_LABELS[o.status] ?? o.status}
+                    {/* §400: השלב בפועל — לא "ממתינה לשקילה" על הזמנה ששולמה */}
+                    {orderStageLabel(o)}
                   </span>
                   {/* §393: 💳 מצב החיוב — כישלון בולט באדום */}
                   <div className="mt-1">
@@ -487,19 +424,24 @@ export function AgentCustomerClient({
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step="0.1"
-                          className="input w-20 text-center py-1"
-                          placeholder="משקל"
-                          value={
-                            weights[it.id] ??
-                            (it.actualWeight != null ? String(it.actualWeight) : "")
-                          }
-                          onChange={(e) => setWeight(it.id, e.target.value)}
-                        />
-                        <span className="text-xs text-zinc-400">ק"ג</span>
+                      {/* §400: קריאה בלבד. הזנת משקל — בטבלת המשקלים / במסך
+                          ההזמנה בלבד. השדה שהיה כאן שמר משקל בלי מחיר
+                          (actualWeight בלי finalPrice), וזה אחד המסלולים
+                          שבהם הזמנה סומנה "טופל" ולא נגבתה. */}
+                      <div className="text-xs text-left shrink-0">
+                        {it.isCancelled ? (
+                          <span className="text-zinc-400 line-through">בוטל</span>
+                        ) : (it.actualWeight ?? it.agentEnteredWeight) != null ? (
+                          <span className="font-bold text-emerald-700">
+                            {it.actualWeight ?? it.agentEnteredWeight}{" "}
+                            {it.isSingle || it.unit === 'ק"ג' ? 'ק"ג' : ""}
+                            {it.finalPrice != null && (
+                              <span className="text-zinc-500 font-normal"> · {fmt(it.finalPrice)}</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="font-bold text-red-600">טרם נשקל</span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -542,33 +484,24 @@ export function AgentCustomerClient({
                       </div>
                     )}
 
+                  {/* §400: משקלים ותשלום — במסך ההזמנה (מזומן / חיוב /
+                      זיכוי), והשקילה עצמה בטבלה. מקום אחד לכל פעולה. */}
                   <div className="flex gap-2 pt-3">
-                    <button
-                      onClick={() => saveOrder(o, false)}
-                      disabled={saving}
-                      className="btn-ghost btn-sm flex-1"
+                    <Link
+                      href={`/agent/orders/${o.id}`}
+                      className="btn-primary btn-sm flex-1 text-center"
                     >
-                      {saving ? "שומר..." : "שמירת משקלים"}
-                    </button>
-                    {canSetFinalPrice && (
-                      <button
-                        onClick={() => saveOrder(o, true)}
-                        disabled={saving}
-                        className="btn-primary btn-sm flex-1"
+                      📋 פתח הזמנה — משקלים ותשלום
+                    </Link>
+                    {o.pricelistId && o.finalTotal == null && (
+                      <Link
+                        href={`/agent/sale/${o.pricelistId}?order=${o.orderNumber}`}
+                        className="btn-ghost btn-sm flex-1 text-center"
                       >
-                        {pref === "CASH"
-                          ? "קביעת מחיר סופי (מזומן)"
-                          : canSendPaymentLink
-                            ? "מחיר סופי + לינק תשלום"
-                            : "קביעת מחיר סופי"}
-                      </button>
+                        ⚖️ לטבלת המשקלים
+                      </Link>
                     )}
                   </div>
-                  {!canSetFinalPrice && (
-                    <p className="text-xs text-zinc-400 text-center">
-                      קביעת מחיר סופי מתבצעת ע"י המנהל
-                    </p>
-                  )}
                 </div>
               )}
             </div>

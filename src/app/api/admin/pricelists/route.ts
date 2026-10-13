@@ -3,11 +3,22 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { ensureWeeklySales } from "@/lib/weekly-sales";
 
-export async function GET() {
+export async function GET(req: Request) {
   const g = await requireAdmin();
   if (!g.ok) return g.res;
   // §396: השבועות מעודכנים לפני שמציגים את הרשימה
   await ensureWeeklySales();
+
+  // §399: ⚡ גרסה רזה לבורר המכירות (נטען בכל מסך ניהול): 4 שדות,
+  // שאילתה אחת — בלי כל העמודות ובלי 3 ספירות לכל מכירה.
+  if (new URL(req.url).searchParams.get("slim") === "1") {
+    const slim = await prisma.pricelist.findMany({
+      select: { id: true, name: true, status: true, weeklySeriesId: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return NextResponse.json(slim);
+  }
+
   const lists = await prisma.pricelist.findMany({
     include: {
       _count: { select: { orders: true, products: true, points: true } },

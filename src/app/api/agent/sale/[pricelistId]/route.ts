@@ -41,38 +41,6 @@ export async function GET(
   await ensureWeeklySales();
 
   // בדיקה שהמחירון קיים
-  const pricelist = await prisma.pricelist.findUnique({
-    where: { id: pricelistId },
-    select: {
-      id: true,
-      name: true,
-      status: true,
-      deliveryDate: true,
-      deliveryDateText: true,
-      editDeadline: true,
-      // §65: נדרש לחישוב מחיר בודדים ב-AddOrderItem, באותה פונקציה
-      // של האתר. Pricelist.singleSurcharge הוא זה שקובע (ולא
-      // Product.singleSurcharge) - כך זה ב-OrderFlow.
-      singleSurcharge: true,
-      orderFee: true,
-      // §396: 🔁 שבוע — לפס "השבוע הסתיים" ולכפתור סגירה
-      weeklySeriesId: true,
-      weekEnd: true,
-      weekClosedAt: true,
-    },
-  });
-  if (!pricelist) {
-    // §235: 🐛 המסך והדף המודפס ממוינים אחרת.
-  //
-  // הדף המודפס (§233) ממוין לפי **שם משפחה**, והמסך היה ממוין
-  // לפי createdAt - סדר ההזמנה. הנציג שעובד עם הדף בשטח ומזין
-  // במסך היה מחפש כל לקוח מחדש, כי שני הסדרים לא קשורים.
-  //
-  // ⚠️ **אותה פונקציה בדיוק** של דף החלוקה. אילו העתקתי אותה
-  // הן היו מתפצלות ביום שמישהו משנה אחת מהן - וזה בדיוק סוג
-  // הבאג שאי אפשר לאתר.
-  return NextResponse.json({ error: "מחירון לא נמצא" }, { status: 404 });
-  }
 
   // הזמנות: אם הנציג משויך לנקודות - רק ההזמנות שלהן. אם לא (מנהל) - הכל.
   // g.agentPointIds מכיל את *כל* נקודות הנציג (many-to-many), לא רק אחת.
@@ -99,16 +67,57 @@ export async function GET(
   // למה זה נדרש: המסך גזר את בורר הנקודות מההזמנות בפועל, ולכן נציג
   // עם שתי נקודות שאין בהן עדיין הזמנות לא ראה בורר כלל - ולא ידע
   // שיש לו יותר מנקודה אחת. עכשיו הבורר נגזר מהרשימה הזו.
-  const myPoints =
+  // (myPoints — נטען למטה, במקביל לשאר)
+
+
+  // מזדמנים של הנציג הזה במכירה הזאת
+
+  // תעודות משלוח מאושרות למכירה זו - הנציג רואה כמה יש לו לחלוקה
+
+  // §399: ⚡ **כל השליפות במקביל.**
+  //
+  // המסך הראשי של הנציג רץ שמונה שליפות אחת אחרי השנייה (מכירה,
+  // נקודות, הזמנות, מזדמנים, תעודות, סיכום, מוצרים, הרשאות) — כל אחת
+  // חיכתה לקודמת. אף אחת מהן לא תלויה בתוצאה של אחרת, אז עכשיו הן
+  // יוצאות יחד.
+  const [
+    pricelist,
+    myPoints,
+    orders,
+    walkins,
+    deliveryNotes,
+    existingSummary,
+    availableProducts,
+    agentPerms,
+  ] = await Promise.all([
+    prisma.pricelist.findUnique({
+    where: { id: pricelistId },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      deliveryDate: true,
+      deliveryDateText: true,
+      editDeadline: true,
+      // §65: נדרש לחישוב מחיר בודדים ב-AddOrderItem, באותה פונקציה
+      // של האתר. Pricelist.singleSurcharge הוא זה שקובע (ולא
+      // Product.singleSurcharge) - כך זה ב-OrderFlow.
+      singleSurcharge: true,
+      orderFee: true,
+      // §396: 🔁 שבוע — לפס "השבוע הסתיים" ולכפתור סגירה
+      weeklySeriesId: true,
+      weekEnd: true,
+      weekClosedAt: true,
+    },
+  }),
     g.agentPointIds.length > 0
-      ? await prisma.deliveryPoint.findMany({
+      ? prisma.deliveryPoint.findMany({
           where: { id: { in: g.agentPointIds } },
           select: { id: true, name: true, city: true },
           orderBy: { name: "asc" },
         })
-      : [];
-
-  const orders = await prisma.order.findMany({
+      : Promise.resolve([] as { id: string; name: string; city: string | null }[]),
+    prisma.order.findMany({
     where: {
       ...whereOrders,
       status: { notIn: ["CANCELLED"] },
@@ -165,10 +174,8 @@ export async function GET(
         },
       },
     },
-  });
-
-  // מזדמנים של הנציג הזה במכירה הזאת
-  const walkins = await prisma.walkinOrder.findMany({
+  }),
+    prisma.walkinOrder.findMany({
     where: {
       pricelistId,
       agentId: g.agent.id,
@@ -183,10 +190,8 @@ export async function GET(
       // §44: הנקודה שאליה שויך המזדמן - נדרשת לפירוט העמלות לפי נקודה
       point: { select: { id: true, name: true } },
     },
-  });
-
-  // תעודות משלוח מאושרות למכירה זו - הנציג רואה כמה יש לו לחלוקה
-  const deliveryNotes = await prisma.deliveryNote.findMany({
+  }),
+    prisma.deliveryNote.findMany({
     where: {
       pricelistId,
       status: "CONFIRMED",
@@ -198,53 +203,16 @@ export async function GET(
         },
       },
     },
-  });
-
-  // סיכום ק"ג לפי מוצר מהתעודות (מקור אמת לקרטונים)
-  const productWeightsFromNotes: Record<string, number> = {};
-  for (const note of deliveryNotes) {
-    for (const item of note.items) {
-      if (item.productId) {
-        productWeightsFromNotes[item.productId] =
-          (productWeightsFromNotes[item.productId] || 0) + Number(item.weight);
-      }
-    }
-  }
-
-  // סיכום נציג במכירה זו (אם קיים)
-  let summary = await prisma.agentSaleSummary.findUnique({
+  }),
+    prisma.agentSaleSummary.findUnique({
     where: {
       pricelistId_agentId: {
         pricelistId,
         agentId: g.agent.id,
       },
     },
-  });
-  // §70: הסיכום נוצר רק לנציג.
-  //
-  // 🐛 קודם הוא נוצר לכל מי שפתח את המסך - כולל מנהל, שקיבל בכך
-  // רשומת AgentSaleSummary ריקה והופיע בדוח התשלומים לנציגים
-  // עם עמלה 0 (ואחרי עדכון משקל - עם עמלה על כל המכירה).
-  //
-  // מנהל מקבל אובייקט סיכום ריק לתצוגה בלבד, בלי כתיבה למסד.
-  if (!summary && !g.isAdmin) {
-    summary = await prisma.agentSaleSummary.create({
-      data: {
-        pricelistId,
-        agentId: g.agent.id,
-        status: "DRAFT",
-      },
-    });
-  }
-
-  // מוצרים זמינים למכירה זו - להחלפת מוצר, הוספת מזדמן, ו-§65
-  // הוספת פריט להזמנה קיימת.
-  //
-  // §7: אין כאן סינון לפי product.isActive **בכוונה**. מוצר לא-פעיל
-  // מסונן מהאתר כדי שלא יוצג לכל הלקוחות, אבל הנציג צריך לראות
-  // אותו - זה בדיוק התרחיש של פרימיום או כמות מוגבלת שמחליטים
-  // למי להביא. הסימון isActive מוחזר כדי שה-UI יציג אותו בנפרד.
-  const availableProducts = await prisma.pricelistProduct.findMany({
+  }),
+    prisma.pricelistProduct.findMany({
     where: { pricelistId },
     include: {
       product: {
@@ -269,7 +237,69 @@ export async function GET(
         },
       },
     },
-  });
+  }),
+    g.isAdmin
+      ? Promise.resolve({ agentCanUpdateCards: true, agentCanCreateCashCustomers: true })
+      : prisma.customer.findUnique({
+          where: { id: g.agent.id },
+          select: {
+            agentCanUpdateCards: true,
+            agentCanCreateCashCustomers: true,
+          },
+        }),
+  ]);
+
+  if (!pricelist) {
+    // §235: 🐛 המסך והדף המודפס ממוינים אחרת.
+  //
+  // הדף המודפס (§233) ממוין לפי **שם משפחה**, והמסך היה ממוין
+  // לפי createdAt - סדר ההזמנה. הנציג שעובד עם הדף בשטח ומזין
+  // במסך היה מחפש כל לקוח מחדש, כי שני הסדרים לא קשורים.
+  //
+  // ⚠️ **אותה פונקציה בדיוק** של דף החלוקה. אילו העתקתי אותה
+  // הן היו מתפצלות ביום שמישהו משנה אחת מהן - וזה בדיוק סוג
+  // הבאג שאי אפשר לאתר.
+  return NextResponse.json({ error: "מחירון לא נמצא" }, { status: 404 });
+  }
+
+  let summary = existingSummary;
+
+  // סיכום ק"ג לפי מוצר מהתעודות (מקור אמת לקרטונים)
+  const productWeightsFromNotes: Record<string, number> = {};
+  for (const note of deliveryNotes) {
+    for (const item of note.items) {
+      if (item.productId) {
+        productWeightsFromNotes[item.productId] =
+          (productWeightsFromNotes[item.productId] || 0) + Number(item.weight);
+      }
+    }
+  }
+
+  // סיכום נציג במכירה זו (אם קיים)
+  // §70: הסיכום נוצר רק לנציג.
+  //
+  // 🐛 קודם הוא נוצר לכל מי שפתח את המסך - כולל מנהל, שקיבל בכך
+  // רשומת AgentSaleSummary ריקה והופיע בדוח התשלומים לנציגים
+  // עם עמלה 0 (ואחרי עדכון משקל - עם עמלה על כל המכירה).
+  //
+  // מנהל מקבל אובייקט סיכום ריק לתצוגה בלבד, בלי כתיבה למסד.
+  if (!summary && !g.isAdmin) {
+    summary = await prisma.agentSaleSummary.create({
+      data: {
+        pricelistId,
+        agentId: g.agent.id,
+        status: "DRAFT",
+      },
+    });
+  }
+
+  // מוצרים זמינים למכירה זו - להחלפת מוצר, הוספת מזדמן, ו-§65
+  // הוספת פריט להזמנה קיימת.
+  //
+  // §7: אין כאן סינון לפי product.isActive **בכוונה**. מוצר לא-פעיל
+  // מסונן מהאתר כדי שלא יוצג לכל הלקוחות, אבל הנציג צריך לראות
+  // אותו - זה בדיוק התרחיש של פרימיום או כמות מוגבלת שמחליטים
+  // למי להביא. הסימון isActive מוחזר כדי שה-UI יציג אותו בנפרד.
 
   // §353: 🐛 **מוצרים מיוחדים מחוץ למחירון לא הגיעו לטבלה.**
   //
@@ -316,15 +346,7 @@ export async function GET(
   //
   // ⚠️ שאילתה אחת ולא שתיים: הן על אותה שורה, ופיצול היה
   // מכפיל את זמן התגובה של מסך שנטען בכל רענון.
-  const agentPerms = g.isAdmin
-    ? { agentCanUpdateCards: true, agentCanCreateCashCustomers: true }
-    : await prisma.customer.findUnique({
-        where: { id: g.agent.id },
-        select: {
-          agentCanUpdateCards: true,
-          agentCanCreateCashCustomers: true,
-        },
-      });
+  // (agentPerms — נטען למעלה, במקביל לשאר)
 
   const agentCanUpdateCards = !!agentPerms?.agentCanUpdateCards;
   const agentCanSetCash = !!agentPerms?.agentCanCreateCashCustomers;

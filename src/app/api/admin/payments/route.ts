@@ -200,6 +200,8 @@ export async function GET(req: NextRequest) {
         updatedAt: true,
         pointNameSnapshot: true,
         deliveryDateSnapshot: true,
+        // §400: V של הנציג — לזיהוי "סומן טופל ואין סכום" (לא ייגבה)
+        agentClosedAt: true,
         customer: {
           select: {
             id: true,
@@ -252,6 +254,7 @@ export async function GET(req: NextRequest) {
       updatedAt: o.updatedAt.toISOString(),
       pointNameSnapshot: o.pointNameSnapshot,
       deliveryDateSnapshot: o.deliveryDateSnapshot,
+      agentClosedAt: o.agentClosedAt ? o.agentClosedAt.toISOString() : null,
       customer: {
         id: o.customer.id,
         name: o.customer.name,
@@ -268,7 +271,74 @@ export async function GET(req: NextRequest) {
       },
     }));
 
-    return NextResponse.json({ orders: payOrders, count: payOrders.length });
+    // §400: 🚨 **מה שלא ייגבה — בלי קשר לסינון במסך.**
+    //
+    // המסך נפתח על "ניתן לחייב", והשאילתה למעלה מחזירה רק את מי שאפשר
+    // לחייב. כך הזמנות שסומנו V בלי סכום (משבצת קרטון ריקה) פשוט לא
+    // הופיעו בשום מקום — וזה בדיוק מה שקרה בביתר. כאן שאילתה נפרדת,
+    // באותה מכירה, של כל מי שלא שולם ולא ייכלל בחיוב — עם הסיבה.
+    const blockedRows = await prisma.order.findMany({
+      where: {
+        status: { not: "CANCELLED" },
+        paymentStatus: {
+          notIn: ["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED", "REFUNDED"],
+        },
+        items: { some: { isCancelled: false } },
+        ...(pricelistId ? { pricelistId } : {}),
+        ...(saleKind ? { pricelist: pricelistKindWhere(saleKind) } : {}),
+      },
+      // ⚠️ החדשות קודם — בתצוגת "כל המכירות" התקרה חותכת את הישנות
+      orderBy: { orderNumber: "desc" },
+      take: 600,
+      select: {
+        id: true,
+        orderNumber: true,
+        customerName: true,
+        pointNameSnapshot: true,
+        paymentMethod: true,
+        finalTotal: true,
+        estimatedTotal: true,
+        amountPaid: true,
+        agentClosedAt: true,
+        customer: { select: { paymentToken: true, paymentPreference: true } },
+      },
+    });
+    const blocked = blockedRows
+      .map((o) => {
+        const ft = o.finalTotal != null ? Number(o.finalTotal) : null;
+        const hasToken = !!o.customer?.paymentToken;
+        const isCash =
+          o.customer?.paymentPreference === "CASH" ||
+          o.paymentMethod === "CASH" ||
+          o.paymentMethod === "MANUAL";
+        const paidSome = Number(o.amountPaid ?? 0) > 0;
+        let reason: string | null = null;
+        if (ft == null) {
+          reason = o.agentClosedAt ? "⚠️ סומן V אבל חסר משקל — אין סכום" : "טרם נשקל";
+        } else if (ft <= 0) {
+          reason = null; // סכום 0 (כוסה ביתרת זכות) — אין מה לגבות
+        } else if (Number(o.amountPaid ?? 0) >= ft - 0.01) {
+          reason = null; // אין יתרה
+        } else if (isCash && !(paidSome && hasToken)) {
+          reason = "לקוח מזומן — לגבות בחלוקה";
+        } else if (!hasToken) {
+          reason = "אין כרטיס שמור";
+        }
+        if (!reason) return null;
+        return {
+          id: o.id,
+          orderNumber: o.orderNumber,
+          customerName: o.customerName,
+          pointNameSnapshot: o.pointNameSnapshot,
+          finalTotal: ft,
+          estimatedTotal: Number(o.estimatedTotal ?? 0),
+          agentClosedAt: o.agentClosedAt ? o.agentClosedAt.toISOString() : null,
+          reason,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+
+    return NextResponse.json({ orders: payOrders, count: payOrders.length, blocked });
   } catch (e) {
     console.error("GET /api/admin/payments exception:", e);
     return NextResponse.json({ error: "server error" }, { status: 500 });

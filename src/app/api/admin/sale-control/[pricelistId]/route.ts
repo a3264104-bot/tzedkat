@@ -29,15 +29,73 @@ export async function GET(
     return NextResponse.json({ error: "מחירון לא נמצא" }, { status: 404 });
   }
 
-  // ─── תעודות משלוח מאושרות ─────────────────
-  const deliveryNotes = await prisma.deliveryNote.findMany({
-    where: { pricelistId, status: "CONFIRMED" },
-    include: {
-      items: {
-        include: { product: { select: { id: true, name: true } } },
-      },
-    },
-  });
+  // §399: ⚡ **חמש השאילתות במקביל, ובלי שאילתה לכל מוצר.**
+  //
+  // המסך הזה (וקוביית "הכסף" בדשבורד, שקוראת לו) היה איטי: שבע
+  // שאילתות אחת אחרי השנייה, ועוד שאילתה **לכל מוצר** שאין לו תעודת
+  // משלוח — לפני קליטת התעודות זה כל מוצרי המכירה, עשרות סיבובים
+  // למסד. עכשיו: סיבוב אחד במקביל, שמות המוצרים מהפריטים שכבר נטענו,
+  // וספירת "הזמנות אחרי הסגירה" מההזמנות שכבר בזיכרון.
+  const [deliveryNotes, orders, walkins, agentSummaries, agentPayments] =
+    await Promise.all([
+      // ─── תעודות משלוח מאושרות ───
+      prisma.deliveryNote.findMany({
+        where: { pricelistId, status: "CONFIRMED" },
+        include: {
+          items: {
+            include: { product: { select: { id: true, name: true } } },
+          },
+        },
+      }),
+      // ─── הזמנות ───
+      prisma.order.findMany({
+        where: {
+          pricelistId,
+          status: { notIn: ["CANCELLED"] },
+        },
+        include: {
+          items: { where: { isCancelled: false } },
+          customer: { select: { id: true, name: true } },
+          point: { select: { id: true, name: true } },
+        },
+      }),
+      // ─── מזדמנים ───
+      prisma.walkinOrder.findMany({
+        where: { pricelistId },
+        include: {
+          items: true,
+          agent: { select: { id: true, name: true } },
+        },
+      }),
+      // ─── סיכומי נציגים ───
+      prisma.agentSaleSummary.findMany({
+        where: { pricelistId },
+        include: {
+          agent: {
+            select: {
+              id: true, name: true, phone: true,
+              agentPoint: { select: { id: true, name: true } },
+              commissionRateCarton: true,
+              commissionRateSingles: true,
+            },
+          },
+        },
+      }),
+      prisma.agentPayment.findMany({ where: { pricelistId } }),
+    ]);
+
+  // שמות מוצרים — מהפריטים עצמם (snapshot), בלי שאילתה לכל מוצר
+  const productNameById = new Map<string, string>();
+  for (const o of orders) {
+    for (const it of o.items) {
+      if (!productNameById.has(it.productId)) productNameById.set(it.productId, it.productName);
+    }
+  }
+  for (const w of walkins) {
+    for (const it of w.items) {
+      if (!productNameById.has(it.productId)) productNameById.set(it.productId, it.productName);
+    }
+  }
 
   // סיכום ק"ג לפי מוצר מהתעודות
   const productWeightsFromNotes: Record<
@@ -78,18 +136,7 @@ export async function GET(
     }
   }
 
-  // ─── הזמנות ─────────────────
-  const orders = await prisma.order.findMany({
-    where: {
-      pricelistId,
-      status: { notIn: ["CANCELLED"] },
-    },
-    include: {
-      items: { where: { isCancelled: false } },
-      customer: { select: { id: true, name: true } },
-      point: { select: { id: true, name: true } },
-    },
-  });
+  // ─── הזמנות ───────────────── (נטענו למעלה, במקביל)
 
   // סיכום ק"ג לפי מוצר לפי הזמנות (מה שהנציג הזין)
   const productWeightsUsed: Record<string, { entered: number; ordered: number; missing: number }> = {};
@@ -213,14 +260,7 @@ export async function GET(
     if (allEntered && items.length > 0) ordersFullyEntered++;
   }
 
-  // ─── מזדמנים ─────────────────
-  const walkins = await prisma.walkinOrder.findMany({
-    where: { pricelistId },
-    include: {
-      items: true,
-      agent: { select: { id: true, name: true } },
-    },
-  });
+  // ─── מזדמנים ───────────────── (נטענו למעלה, במקביל)
 
   let walkinRevenue = 0;
   let walkinCash = 0;
@@ -271,11 +311,8 @@ export async function GET(
     const used = productWeightsUsed[productId];
     const receivedWeight = received?.weight || 0;
     const distributedWeight = used?.entered || 0;
-    const productName = received?.name ||
-      (await prisma.product.findUnique({
-        where: { id: productId },
-        select: { name: true },
-      }))?.name || "לא ידוע";
+    const productName =
+      received?.name || productNameById.get(productId) || "לא ידוע";
 
     let difference = 0;
     let differencePercent = 0;
@@ -319,20 +356,7 @@ export async function GET(
 
   productComparison.sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference));
 
-  // ─── סיכומי נציגים ─────────────────
-  const agentSummaries = await prisma.agentSaleSummary.findMany({
-    where: { pricelistId },
-    include: {
-      agent: {
-        select: {
-          id: true, name: true, phone: true,
-          agentPoint: { select: { id: true, name: true } },
-          commissionRateCarton: true,
-          commissionRateSingles: true,
-        },
-      },
-    },
-  });
+  // ─── סיכומי נציגים ───────────────── (נטענו למעלה, במקביל)
 
   // חישוב מזומן ומעברים לפי נציג
   const agentCashCollectedMap: Record<string, number> = {};
@@ -342,9 +366,6 @@ export async function GET(
     }
   }
 
-  const agentPayments = await prisma.agentPayment.findMany({
-    where: { pricelistId },
-  });
   const agentCollectedMap: Record<string, number> = {};
   const agentPaidMap: Record<string, number> = {};
   for (const p of agentPayments) {
@@ -632,15 +653,12 @@ export async function GET(
   //
   // ⚠️ **אחרי** בדיקת ה-null: pricelist מובטח כאן, וזה מה
   // שהכשיל את ה-build כשהקוד ישב בתוך ה-guard.
-  const afterCloseCount = pricelist.closeDate
-    ? await prisma.order.count({
-        where: {
-          pricelistId,
-          status: { notIn: ["CANCELLED"] },
-          createdAt: { gt: pricelist.closeDate },
-        },
-      })
-    : 0;
+  // §399: מההזמנות שכבר נטענו (אותו סינון: לא מבוטלות) — בלי שאילתה
+  const closeAt = pricelist.closeDate?.getTime() ?? null;
+  const afterCloseCount =
+    closeAt != null
+      ? orders.filter((o) => o.createdAt.getTime() > closeAt).length
+      : 0;
 
   // §282: רשימת הנקודות שיש בהן הזמנות — לבורר ההדפסה.
   //

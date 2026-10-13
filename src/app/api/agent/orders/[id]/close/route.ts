@@ -15,6 +15,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
+// §400: סכום סופי לפני V — אותו חישוב של השקילה
+import { recomputeOrderTotal } from "@/lib/order-total-lib";
+import { MAX_CARTON_BOXES } from "@/lib/order-display";
 
 export async function POST(
   req: Request,
@@ -48,7 +51,15 @@ export async function POST(
 
   const order = await prisma.order.findUnique({
     where: { id },
-    select: { id: true, pointId: true, status: true, orderNumber: true },
+    select: {
+      id: true,
+      pointId: true,
+      status: true,
+      orderNumber: true,
+      // §400: הזמנה ששולמה/בחיוב/הועברה לחוב — לא מחשבים מחדש
+      paymentStatus: true,
+      finalTotal: true,
+    },
   });
   if (!order) {
     return NextResponse.json({ error: "הזמנה לא נמצאה" }, { status: 404 });
@@ -79,21 +90,112 @@ export async function POST(
     // נגבה - קרטון שריר שנשכח הוא כ-1,900 ש"ח.
     //
     // null = לא מולא. 0 = מולא במפורש ("הלקוח לא קיבל") ותקף.
-    const missing = await prisma.orderItem.count({
-      where: {
-        orderId: id,
-        isCancelled: false,
-        agentEnteredWeight: null,
-        // §137: מוצר יחידה אינו נשקל, ולכן אינו נספר כחסר.
-        product: { saleType: { not: "UNIT" } },
+    //
+    // §400: 🚨 **V עבר — והחיוב דילג על ההזמנה בשקט.**
+    //
+    // מה שקרה בשטח (ביתר, 3 לקוחות): ההזמנות סומנו V, אבל לא נקבע
+    // להן סכום סופי — ולכן "חיוב לפי נקודה" לא כלל אותן, בלי שום
+    // הודעה. הבדיקה כאן בדקה רק agentEnteredWeight, ושני מצבים עברו:
+    //   • פריט עם משקל — אבל בלי finalPrice (משקל שנשמר במסלול אחר,
+    //     למשל מכרטיס הלקוח, שלא חישב מחיר)
+    //   • קרטונים: פירוט עם משבצות ריקות / פחות משבצות מקרטונים
+    //   • מוצר ביחידות שלא אושר — לא נחשב "חסר", אבל גם לא תומחר
+    //
+    // ✅ עכשיו: V רק כשלכל פריט יש מחיר סופי, ולהזמנה יש סכום סופי.
+    // מה שאפשר לתקן לבד — מתוקן (מחיר ממשקל קיים, יחידות כפי
+    // שהוזמנו); מה שחסר באמת — נחסם עם שם הפריט.
+    const items = await prisma.orderItem.findMany({
+      where: { orderId: id, isCancelled: false },
+      select: {
+        id: true,
+        productName: true,
+        quantity: true,
+        isSingle: true,
+        unitPrice: true,
+        agentSetPrice: true,
+        agentEnteredWeight: true,
+        actualWeight: true,
+        finalPrice: true,
+        weightParts: true,
+        product: { select: { saleType: true } },
       },
     });
-    if (missing > 0) {
+
+    const missingNames: string[] = [];
+    const repairs: { id: string; data: Record<string, unknown> }[] = [];
+    for (const it of items) {
+      const price =
+        it.agentSetPrice != null ? Number(it.agentSetPrice) : Number(it.unitPrice);
+      const noWeighing = it.product?.saleType === "UNIT";
+      const qty = Number(it.quantity);
+
+      if (it.agentEnteredWeight == null) {
+        if (noWeighing) {
+          // §400: מוצר ביחידות שהנציג לא שינה — נמסר כפי שהוזמן.
+          // V הוא ההצהרה "סיימתי עם הלקוח"; בלי זה הפריט נשאר בלי
+          // מחיר וההזמנה כולה לא נגבית.
+          //
+          // ⚠️ מחיר שכבר נקבע (למשל ע"י המנהל) — לא נדרס.
+          repairs.push({
+            id: it.id,
+            data: {
+              agentEnteredWeight: it.actualWeight ?? qty,
+              agentEnteredById: g.agent.id,
+              ...(it.actualWeight == null ? { actualWeight: qty, finalWeight: qty } : {}),
+              ...(it.finalPrice == null
+                ? {
+                    finalPrice:
+                      Math.round(Number(it.actualWeight ?? qty) * price * 100) / 100,
+                  }
+                : {}),
+            },
+          });
+          continue;
+        }
+        missingNames.push(it.productName);
+        continue;
+      }
+
+      // §400: קרטונים — כל משבצת חייבת ערך (0 = לא לקח)
+      //
+      // ⚠️ גם בלי פירוט בכלל (משקל אחד על כמה קרטונים — נתון ישן, או
+      // כמות שהוגדלה אחרי השקילה): הטבלה מציגה אותו במשבצת הראשונה
+      // והשאר אדומות. בדיוק התמונה של התקלה — ולכן זה "חסר" עד שהנציג
+      // מזין 0 במה שלא נלקח.
+      const cartons = !it.isSingle && !noWeighing ? Math.floor(qty) : 1;
+      const parts = Array.isArray(it.weightParts) ? (it.weightParts as unknown[]) : null;
+      const boxes = Math.min(cartons, MAX_CARTON_BOXES);
+      if (
+        cartons > 1 &&
+        (!parts ||
+          parts.length < boxes ||
+          parts.some((x) => x === null || x === undefined))
+      ) {
+        missingNames.push(`${it.productName} (חסר משקל לחלק מהקרטונים)`);
+        continue;
+      }
+
+      if (it.finalPrice == null) {
+        // יש משקל ואין מחיר — מחשבים מהמשקל השמור (תיקון מנהל גובר)
+        const w = Number(it.actualWeight ?? it.agentEnteredWeight);
+        repairs.push({
+          id: it.id,
+          data: {
+            ...(it.actualWeight == null
+              ? { actualWeight: w, finalWeight: w }
+              : {}),
+            finalPrice: Math.round(w * price * 100) / 100,
+          },
+        });
+      }
+    }
+
+    if (missingNames.length > 0) {
       return NextResponse.json(
         {
-          error: `לא ניתן לסמן כטופל: חסרים ${missing} משקלים בהזמנה. לקוח שלא קיבל פריט - יש להזין 0.`,
+          error: `לא ניתן לסמן כטופל: חסרים משקלים — ${missingNames.join(", ")}. לקוח שלא קיבל פריט או קרטון - יש להזין 0.`,
           code: "MISSING_WEIGHTS",
-          missingCount: missing,
+          missingCount: missingNames.length,
         },
         { status: 400 }
       );
@@ -157,6 +259,42 @@ export async function POST(
           { status: 409 }
         );
       }
+    }
+
+    // §400: תיקונים (מחיר ממשקל קיים / יחידות כפי שהוזמנו) ואז חישוב
+    // הסכום הסופי — בדיוק כמו אחרי שקילה בטבלה.
+    //
+    // ⚠️ לא בהזמנה ששולמה / בחיוב / שהועברה לחוב: חישוב מחדש שם היה
+    // מקזז שוב את יתרת הזכות או החוב של הלקוח (מוחק אותם), ומשנה סכום
+    // שכבר נגבה. שם רק בודקים שיש סכום.
+    const moneyLocked = [
+      "PAID",
+      "PARTIALLY_PAID",
+      "CHARGING",
+      "DEBT_CARRIED",
+      "REFUNDED",
+    ].includes(order.paymentStatus ?? "");
+    if (!moneyLocked) {
+      for (const r of repairs) {
+        await prisma.orderItem.update({ where: { id: r.id }, data: r.data });
+      }
+      await recomputeOrderTotal(id, g.agent.id);
+    }
+    const after = moneyLocked
+      ? { finalTotal: order.finalTotal }
+      : await prisma.order.findUnique({
+          where: { id },
+          select: { finalTotal: true },
+        });
+    if (after?.finalTotal == null) {
+      return NextResponse.json(
+        {
+          error:
+            "לא ניתן לסמן כטופל: לא נקבע להזמנה סכום סופי. בדוק שלכל פריט הוזן משקל, או פנה למנהל.",
+          code: "NO_FINAL_TOTAL",
+        },
+        { status: 400 }
+      );
     }
   }
 

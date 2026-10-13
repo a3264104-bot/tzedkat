@@ -10,7 +10,9 @@ import { signOut } from "next-auth/react";
 import { CustomerOrderActions } from "@/components/CustomerOrderActions";
 import { UpdateCardButton } from "@/components/UpdateCardButton";
 import { RoleSwitcher } from "@/components/RoleSwitcher";
-import { STATUS_LABELS, PAYMENT_METHOD_LABELS, fmt } from "@/lib/pricing";
+import { PAYMENT_METHOD_LABELS, fmt } from "@/lib/pricing";
+// §400: השלב בפועל — לא "ממתינה לשקילה" על הזמנה ששולמה
+import { orderStageLabel } from "@/lib/order-display";
 
 type OrderItem = {
   id: string;
@@ -571,7 +573,7 @@ export function AccountClient({
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[o.status] ?? "bg-zinc-100 text-zinc-600"}`}
                     >
-                      {STATUS_LABELS[o.status] ?? o.status}
+                      {orderStageLabel(o)}
                     </span>
                   </div>
 
@@ -1386,7 +1388,7 @@ function HistoryOrderCard({ o }: { o: Order }) {
                 statusColors[o.status] ?? "bg-zinc-100 text-zinc-600"
               }`}
             >
-              {STATUS_LABELS[o.status] ?? o.status}
+              {orderStageLabel(o)}
             </span>
             {o.paymentStatus === "PAID" && (
               <span className="text-[10px] text-green-700 font-bold">✓ שולם</span>
