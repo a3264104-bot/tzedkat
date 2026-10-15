@@ -7,7 +7,6 @@ import { api, download } from "@/lib/client";
 import { PRICELIST_STATUS, fmt } from "@/lib/pricing";
 import { Modal, Field } from "@/components/AdminModal";
 import { HebrewDate } from "@/components/HebrewDate";
-import { SaleLaunchModal } from "@/components/SaleLaunchModal";
 
 type Pricelist = {
   id: string;
@@ -66,8 +65,7 @@ export default function PricelistsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  // §401: 📣 הודעת פתיחה — למכירה הזו
-  const [launchFor, setLaunchFor] = useState<string | null>(null);
+
   // §396: סינון לפי סוג. ברירת מחדל = רגילות: כל סדרה שבועית מוסיפה
   // 52 מכירות בשנה, והרשימה הייתה טובעת בהן.
   const [kind, setKind] = useState<"REGULAR" | "WEEKLY" | "ALL">("REGULAR");
@@ -426,25 +424,25 @@ export default function PricelistsPage() {
                       )}
                     </button>
                   )}
-                  {/* §401: 📣 הודעת פתיחה — מייל לכל הלקוחות + טלפון חד-פעמי,
-                      מהנוסח הקבוע */}
+                  {/* §401/§403: 📣 הודעת פתיחה — פותח את "שליחת מייל ללקוחות"
+                      עם הנוסח כבר ממולא למכירה הזו (מקום אחד לשליחה) */}
                   {l.status === "ACTIVE" &&
                     !l.agentOnly &&
                     !(l.closeDate && new Date() > new Date(l.closeDate)) && (
-                    <button
-                      onClick={() => setLaunchFor(l.id)}
+                    <a
+                      href={`/admin/broadcast?launch=${encodeURIComponent(l.id)}`}
                       title={
                         l.launchSentAt
                           ? `נשלחה ב-${fmtDateTime(l.launchSentAt)} · ${l.launchSentCount ?? 0} נמענים`
                           : "מייל ללקוחות + הודעה בטלפון: המכירה נפתחה"
                       }
-                      className="btn-sm bg-violet-600 text-white rounded-lg px-3 font-bold hover:opacity-90"
+                      className="btn-sm bg-violet-600 text-white rounded-lg px-3 font-bold hover:opacity-90 inline-flex items-center"
                     >
                       📣 הודעת פתיחה
                       {!!l.launchSentAt && (
                         <span className="text-[10px] font-normal mr-1">✓{l.launchSentCount ?? 0}</span>
                       )}
-                    </button>
+                    </a>
                   )}
                   <button onClick={() => setEditing(l.id)} className="btn-ghost btn-sm">
                     ערוך
@@ -470,13 +468,6 @@ export default function PricelistsPage() {
         </div>
       )}
 
-      {launchFor && (
-        <SaleLaunchModal
-          pricelistId={launchFor}
-          onClose={() => setLaunchFor(null)}
-          onDone={load}
-        />
-      )}
       {creating && (
         <CreateModal
           onClose={() => setCreating(false)}

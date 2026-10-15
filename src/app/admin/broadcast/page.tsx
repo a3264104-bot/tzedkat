@@ -4,7 +4,6 @@
 // 3 מצבים: כולם / לפי נקודת חלוקה / בחירה ידנית
 
 import { useEffect, useState, useMemo } from "react";
-import { SaleLaunchTemplateEditor } from "@/components/SaleLaunchTemplateEditor";
 
 type Point = { id: string; name: string; city: string | null };
 type Customer = {
@@ -59,6 +58,20 @@ export default function AdminBroadcastPage() {
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   });
+
+  // §403: 📣 נוסח מוכן — "פתיחת מכירה". הטקסט מגיע **ממולא** (שם המכירה,
+  // תאריכים) — המנהל לא רואה משתנים בסוגריים, ולא יכול לשבור אותם.
+  const [launchSales, setLaunchSales] = useState<Array<{ id: string; name: string }>>([]);
+  const [launchId, setLaunchId] = useState("");
+  const [launchInfo, setLaunchInfo] = useState<{
+    name: string;
+    launchSentAt: string | null;
+    launchSentCount: number;
+    heardCount: number | null;
+  } | null>(null);
+  const [phoneText, setPhoneText] = useState("");
+  const [launchLoading, setLaunchLoading] = useState(false);
+  const [tplMsg, setTplMsg] = useState("");
 
   // מצב הבחירה
   const [mode, setMode] = useState<"all" | "point" | "manual">("all");
@@ -139,6 +152,96 @@ export default function AdminBroadcastPage() {
     }
   }
 
+  // §403: מכירות שאפשר להודיע על פתיחתן — פעילות, ללקוחות, לפני סגירה
+  useEffect(() => {
+    fetch("/api/admin/pricelists", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: any[]) => {
+        const now = Date.now();
+        setLaunchSales(
+          (Array.isArray(rows) ? rows : [])
+            .filter(
+              (p) =>
+                p.status === "ACTIVE" &&
+                !p.agentOnly &&
+                !(p.closeDate && new Date(p.closeDate).getTime() < now)
+            )
+            .map((p) => ({ id: p.id, name: p.name }))
+        );
+      })
+      .catch(() => setLaunchSales([]));
+    // §403: הגיעו מכפתור "📣 הודעת פתיחה" במסך המכירות
+    try {
+      const id = new URLSearchParams(window.location.search).get("launch");
+      if (id) {
+        setMailKind("free");
+        applyLaunch(id);
+      }
+    } catch {
+      // אין URL — לא קריטי
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** §403: בחירת "פתיחת מכירה" — ממלא כותרת, תוכן וטלפון מהנוסח הקבוע */
+  async function applyLaunch(id: string) {
+    setLaunchId(id);
+    setTplMsg("");
+    setResult(null);
+    if (!id) {
+      setLaunchInfo(null);
+      return;
+    }
+    setLaunchLoading(true);
+    try {
+      const res = await fetch(`/api/admin/sale-launch?pricelistId=${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "שגיאה בטעינת הנוסח");
+      setSubject(d.filled.subject);
+      setMessage(d.filled.email);
+      setPhoneText(d.filled.phone);
+      setAlsoPhone(true);
+      setLaunchInfo({
+        name: d.sale.name,
+        launchSentAt: d.sale.launchSentAt,
+        launchSentCount: d.sale.launchSentCount,
+        heardCount: d.phoneAnnouncement ? d.phoneAnnouncement.heardCount : null,
+      });
+      // מכירה שבועית — רק הנקודות שלה. רגילה — כל הלקוחות.
+      if (d.sale.weekly && Array.isArray(d.sale.pointIds)) {
+        setMode("point");
+        setSelectedPointIds(new Set<string>(d.sale.pointIds));
+      } else {
+        setMode("all");
+      }
+    } catch (e: any) {
+      setResult({ ok: false, text: e.message || "שגיאה" });
+      setLaunchId("");
+      setLaunchInfo(null);
+    } finally {
+      setLaunchLoading(false);
+    }
+  }
+
+  /** §403: שמירת הטקסט הנוכחי כנוסח הקבוע — השם והתאריכים יתחלפו לבד */
+  async function saveLaunchTemplate() {
+    setTplMsg("");
+    try {
+      const res = await fetch("/api/admin/sale-launch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pricelistId: launchId, subject, email: message, phone: phoneText }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "שגיאה");
+      setTplMsg("✓ נשמר. בפתיחת המכירה הבאה הטקסט יגיע כך — עם השם והתאריכים שלה.");
+    } catch (e: any) {
+      setTplMsg("⚠️ " + (e.message || "שגיאה"));
+    }
+  }
+
   useEffect(() => {
     fetch("/api/admin/broadcast/recipients")
       .then((r) => r.json())
@@ -212,12 +315,12 @@ export default function AdminBroadcastPage() {
     setSelectedCustomerIds(new Set());
   }
 
-  async function handleSend() {
+  async function handleSend(force = false) {
     if (!subject.trim()) {
       alert("יש להזין כותרת");
       return;
     }
-    if (alsoPhone && !phoneExpiry) {
+    if (alsoPhone && !launchId && !phoneExpiry) {
       alert("יש לקבוע מתי ההודעה הקולית מפסיקה להישמע");
       return;
     }
@@ -230,11 +333,16 @@ export default function AdminBroadcastPage() {
       return;
     }
 
+    if (launchId && alsoPhone && !phoneText.trim()) {
+      alert("יש למלא את הנוסח שיוקרא בטלפון");
+      return;
+    }
     const confirmMsg =
       `לשלוח את ההודעה ל-${recipientCount} נמענים?\n\n` +
       `כותרת: ${subject}\n\n` +
+      (launchId && alsoPhone ? `📞 בטלפון: כל מתקשר ישמע את ההודעה פעם אחת.\n\n` : "") +
       `המשלוח יתבצע ברקע ועשוי לקחת כמה דקות (בהתאם למספר הנמענים).`;
-    if (!confirm(confirmMsg)) return;
+    if (!force && !confirm(confirmMsg)) return;
 
     setSending(true);
     setResult(null);
@@ -249,10 +357,18 @@ export default function AdminBroadcastPage() {
           pointIds: mode === "point" ? Array.from(selectedPointIds) : [],
           customerIds: mode === "manual" ? Array.from(selectedCustomerIds) : [],
           alsoPhone,
-          phoneExpiry: alsoPhone ? phoneExpiry : null,
+          phoneExpiry: alsoPhone && !launchId ? phoneExpiry : null,
+          // §403: 📣 פתיחת מכירה
+          ...(launchId ? { launchPricelistId: launchId, phoneText: phoneText.trim(), force } : {}),
         }),
       });
       const data = await res.json();
+      // §403: הודעת פתיחה כבר נשלחה למכירה הזו — לשאול לפני שליחה חוזרת
+      if (res.status === 409 && data.code === "ALREADY_SENT") {
+        setSending(false);
+        if (confirm(`${data.error}\n\nלשלוח שוב לכולם?`)) return handleSend(true);
+        return;
+      }
       if (res.ok && data.ok) {
         setResult({
           ok: true,
@@ -261,6 +377,9 @@ export default function AdminBroadcastPage() {
         // מנקה את הטופס
         setSubject("");
         setMessage("");
+        setPhoneText("");
+        setLaunchId("");
+        setLaunchInfo(null);
         setSelectedPointIds(new Set());
         setSelectedCustomerIds(new Set());
       } else {
@@ -291,9 +410,6 @@ export default function AdminBroadcastPage() {
           שולח מייל לכל הלקוחות הרשומים עם כתובת מייל.
         </p>
       </div>
-
-      {/* §401: 📣 המקום הקבוע לנוסח הודעת פתיחת מכירה */}
-      <SaleLaunchTemplateEditor />
 
       {/* §330: 🚚 בורר סוג המייל.
           
@@ -374,6 +490,36 @@ export default function AdminBroadcastPage() {
       {/* תוכן ההודעה */}
       {mailKind === "free" && (
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-4 space-y-3">
+        {/* §403: 📋 נוסח מוכן — ממלא את הטופס. בלי משתנים בסוגריים:
+            הטקסט מגיע עם שם המכירה והתאריכים האמיתיים. */}
+        <div className="rounded-xl bg-violet-50 border border-violet-200 p-3 space-y-1.5">
+          <label className="text-xs font-bold text-violet-900 block">📋 להתחיל מנוסח מוכן</label>
+          <select
+            value={launchId}
+            onChange={(e) => applyLaunch(e.target.value)}
+            disabled={launchLoading}
+            className="w-full px-3 py-2 border-2 border-violet-300 rounded-lg text-sm font-bold bg-white"
+          >
+            <option value="">— בלי נוסח (כותבים חופשי) —</option>
+            {launchSales.map((sl) => (
+              <option key={sl.id} value={sl.id}>
+                📣 פתיחת מכירה: {sl.name}
+              </option>
+            ))}
+          </select>
+          {launchLoading && <p className="text-xs text-violet-700">ממלא…</p>}
+          {launchId && launchInfo && !launchLoading && (
+            <p className="text-xs text-violet-800 leading-relaxed">
+              הטקסט מולא עם הפרטים של <b>{launchInfo.name}</b>. אפשר לשנות אותו לפני השליחה.
+              {launchInfo.launchSentAt && (
+                <span className="block text-amber-800 font-bold mt-0.5">
+                  ⚠️ הודעת פתיחה למכירה הזו כבר נשלחה ({launchInfo.launchSentCount} נמענים).
+                </span>
+              )}
+            </p>
+          )}
+        </div>
+
         <div>
           <label className="text-xs font-bold text-zinc-500 block mb-1">
             כותרת *
@@ -419,17 +565,59 @@ export default function AdminBroadcastPage() {
           />
           <span className="min-w-0">
             <span className="block text-sm font-medium text-brand-slatedark">
-              📞 גם כהודעה קולית למתקשרים
+              {launchId ? "📞 גם בטלפון — כל מתקשר ישמע פעם אחת" : "📞 גם כהודעה קולית למתקשרים"}
             </span>
             <span className="block text-xs text-zinc-600 mt-0.5">
-              ההודעה תוקרא בטלפון ללקוחות שהזמינו במכירה הפעילה. חשוב במיוחד
-              ללקוחות שנרשמו בטלפון ואין להם מייל.
-              {mode === "point" && " ההודעה תוקרא רק בנקודות שנבחרו."}
+              {launchId ? (
+                <>
+                  כל לקוח שיתקשר למערכת ישמע את ההודעה בשיחה הראשונה (גם אם עוד לא הזמין),
+                  ומהשיחה הבאה — את התפריט הרגיל. נשמעת עד סגירת ההזמנות.
+                  {launchInfo?.heardCount != null &&
+                    ` כבר יש הודעת פתיחה פעילה (${launchInfo.heardCount} שמעו) — היא תוחלף.`}
+                </>
+              ) : (
+                <>
+                  ההודעה תוקרא בטלפון ללקוחות שהזמינו במכירה הפעילה. חשוב במיוחד
+                  ללקוחות שנרשמו בטלפון ואין להם מייל.
+                  {mode === "point" && " ההודעה תוקרא רק בנקודות שנבחרו."}
+                </>
+              )}
             </span>
           </span>
         </label>
 
-        {alsoPhone && (
+        {/* §403: בפתיחת מכירה — נוסח קצר לטלפון (מוקרא), במקום תאריך תפוגה */}
+        {alsoPhone && launchId && (
+          <label className="block px-3">
+            <span className="text-xs font-bold text-zinc-500">מה יוקרא בטלפון</span>
+            <textarea
+              value={phoneText}
+              onChange={(e) => setPhoneText(e.target.value)}
+              rows={2}
+              maxLength={450}
+              className="w-full mt-1 px-3 py-2 border-2 border-zinc-300 rounded-lg text-sm"
+            />
+          </label>
+        )}
+
+        {/* §403: 💾 שמירה כנוסח קבוע — בלי משתנים לערוך */}
+        {launchId && (
+          <div className="px-3 space-y-1">
+            <button
+              type="button"
+              onClick={saveLaunchTemplate}
+              className="text-xs font-bold text-violet-800 border border-violet-300 bg-white rounded-lg px-3 py-1.5 hover:bg-violet-50"
+            >
+              💾 שמור את הנוסח הזה לפתיחת המכירות הבאות
+            </button>
+            <p className="text-[11px] text-zinc-500">
+              שם המכירה והתאריכים יתחלפו לבד בכל מכירה חדשה.
+            </p>
+            {tplMsg && <p className="text-xs font-bold text-violet-800">{tplMsg}</p>}
+          </div>
+        )}
+
+        {alsoPhone && !launchId && (
           <label className="block px-3">
             <span className="text-xs font-bold text-zinc-500">
               עד מתי ההודעה תושמע בטלפון
@@ -617,7 +805,7 @@ export default function AdminBroadcastPage() {
       {/* כפתור שליחה + הודעת תוצאה */}
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-4 space-y-3">
         <button
-          onClick={handleSend}
+          onClick={() => handleSend(false)}
           disabled={sending || recipientCount === 0 || !subject.trim() || !message.trim()}
           className="w-full py-3 rounded-xl bg-brand-rust text-white font-bold hover:bg-[#a83a15] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >

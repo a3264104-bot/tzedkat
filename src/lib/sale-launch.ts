@@ -10,9 +10,12 @@
 //
 // ⚠️ משתנה שאין לו ערך (למשל מכירה בלי תאריך סגירה) — כל השורה
 // (במייל) או המשפט (בטלפון) שבהם הוא מופיע יורדים, במקום "עד ." ריק.
+//
+// §403: המנהל **לא רואה את המשתנים**. במסך "שליחת מייל ללקוחות" הוא
+// בוחר "📣 פתיחת מכירה: <מכירה>" והטקסט מגיע ממולא. שמירה כנוסח קבוע
+// מחליפה את הערכים בחזרה למשתנים (tokenizeLaunchText).
 
 import { prisma } from "@/lib/prisma";
-import { sendBroadcastEmail } from "@/lib/email";
 
 export {
   DEFAULT_LAUNCH_SUBJECT,
@@ -24,6 +27,7 @@ export {
   fillLaunchPhone,
   siteUrl,
   textToHtml,
+  tokenizeLaunchText,
 } from "@/lib/sale-launch-text";
 export type { LaunchSale } from "@/lib/sale-launch-text";
 import {
@@ -47,60 +51,4 @@ export async function getLaunchTemplates() {
       phone: !s?.saleLaunchPhone,
     },
   };
-}
-
-/**
- * הנמענים: לקוחות פעילים שאישרו מיילים, בנקודות של המכירה.
- *
- * ⚠️ לפי הנקודות של המכירה — מכירה שבועית של נקודה אחת לא שולחת
- * מייל לכל הלקוחות. לקוח בלי נקודה מקבל רק במכירה רגילה.
- */
-export async function launchRecipientsWhere(pricelistId: string) {
-  const pl = await prisma.pricelist.findUnique({
-    where: { id: pricelistId },
-    select: { weeklySeriesId: true, points: { select: { pointId: true } } },
-  });
-  const pointIds = pl?.points.map((p) => p.pointId) ?? [];
-  const pointFilter: any[] = [{ defaultPointId: { in: pointIds } }];
-  if (pl && !pl.weeklySeriesId) pointFilter.push({ defaultPointId: null });
-  return {
-    role: "CUSTOMER",
-    email: { not: null },
-    agreedToEmails: true,
-    isActive: true,
-    OR: pointFilter,
-  };
-}
-
-const BATCH_SIZE = 8;
-const BATCH_DELAY_MS = 1200;
-
-/** שליחה בקצב מבוקר (Resend) — כמו §broadcast */
-export async function sendEmailsInBatches(
-  recipients: { name: string; email: string | null }[],
-  subject: string,
-  messageHtml: string,
-  tag = "launch"
-) {
-  let sent = 0;
-  let failed = 0;
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
-    const batch = recipients.slice(i, i + BATCH_SIZE);
-    const results = await Promise.allSettled(
-      batch.map((r) =>
-        r.email
-          ? sendBroadcastEmail(r.name, r.email, subject, messageHtml)
-          : Promise.resolve({ ok: false as const, error: "no email" })
-      )
-    );
-    for (const res of results) {
-      if (res.status === "fulfilled" && res.value.ok) sent++;
-      else failed++;
-    }
-    if (i + BATCH_SIZE < recipients.length) {
-      await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
-    }
-  }
-  console.log(`[${tag}] done sent=${sent} failed=${failed} total=${recipients.length}`);
-  return { sent, failed };
 }

@@ -7,7 +7,15 @@
 //   mode: "all" | "point" | "manual",
 //   pointIds?: string[],    // רק אם mode=point
 //   customerIds?: string[], // רק אם mode=manual
+//   launchPricelistId?: string, // §403: 📣 הודעת פתיחת מכירה
+//   phoneText?: string,         // §403: הנוסח לטלפון (בפתיחת מכירה)
+//   force?: boolean,            // §403: שליחה חוזרת של הודעת פתיחה
 // }
+//
+// §403: 📣 **פתיחת מכירה** — אותה שליחה, ושני הבדלים:
+//   1. הטלפון: הודעה **חד-פעמית לכל מתקשר** במכירה הזו (oncePerCaller),
+//      שנשמעת עד סגירת ההזמנות — גם למי שעוד לא הזמין.
+//   2. נרשם שנשלחה (launchSentAt) — ושליחה שנייה דורשת אישור.
 //
 // הגנות:
 //   - רק ADMIN יכול לשלוח
@@ -40,6 +48,8 @@ export async function POST(req: Request) {
   const mode = String(body?.mode || "");
   const pointIds: string[] = Array.isArray(body?.pointIds) ? body.pointIds : [];
   const customerIds: string[] = Array.isArray(body?.customerIds) ? body.customerIds : [];
+  const launchPricelistId = body?.launchPricelistId ? String(body.launchPricelistId) : "";
+  const phoneText = String(body?.phoneText ?? "").trim();
 
   if (!subject) {
     return NextResponse.json({ error: "יש להזין כותרת" }, { status: 400 });
@@ -55,6 +65,48 @@ export async function POST(req: Request) {
   }
   if (mode === "manual" && customerIds.length === 0) {
     return NextResponse.json({ error: "יש לבחור לפחות לקוח אחד" }, { status: 400 });
+  }
+
+  // §403: 📣 פתיחת מכירה — בדיקות לפני ששולחים משהו
+  const launchSale = launchPricelistId
+    ? await prisma.pricelist.findUnique({
+        where: { id: launchPricelistId },
+        select: {
+          id: true,
+          status: true,
+          agentOnly: true,
+          closeDate: true,
+          launchSentAt: true,
+          launchSentCount: true,
+        },
+      })
+    : null;
+  if (launchPricelistId) {
+    if (!launchSale) {
+      return NextResponse.json({ error: "המכירה לא נמצאה" }, { status: 404 });
+    }
+    // ⚠️ "נפתחה" על מכירה שהלקוח לא יכול להזמין בה — שקר
+    if (launchSale.status !== "ACTIVE") {
+      return NextResponse.json({ error: "המכירה אינה פעילה — הפעל אותה לפני ההודעה" }, { status: 400 });
+    }
+    if (launchSale.agentOnly) {
+      return NextResponse.json({ error: "מכירה לנציגים בלבד אינה מוצגת ללקוחות" }, { status: 400 });
+    }
+    if (launchSale.closeDate && launchSale.closeDate < new Date()) {
+      return NextResponse.json({ error: "המכירה כבר נסגרה להזמנות" }, { status: 400 });
+    }
+    if (launchSale.launchSentAt && body?.force !== true) {
+      return NextResponse.json(
+        {
+          error: `הודעת פתיחה למכירה הזו כבר נשלחה (${launchSale.launchSentCount} נמענים, ${launchSale.launchSentAt.toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" })}).`,
+          code: "ALREADY_SENT",
+        },
+        { status: 409 }
+      );
+    }
+    if (body?.alsoPhone && !phoneText) {
+      return NextResponse.json({ error: "יש למלא את הנוסח לטלפון" }, { status: 400 });
+    }
   }
 
   // בניית where clause לפי mode.
@@ -103,6 +155,14 @@ export async function POST(req: Request) {
   // כאן לא ניתן פשוט להוסיף await: שליחה למאות נמענים בקצב מבוקר
   // עלולה לחרוג מזמן הריצה. waitUntil הוא הפתרון הנכון - הוא מבטיח
   // ש-Vercel ימתין לסיום המשימה גם אחרי שהתשובה נשלחה.
+  // §403: נרשם **לפני** השליחה — לחיצה כפולה לא תשלח פעמיים
+  if (launchSale) {
+    await prisma.pricelist.update({
+      where: { id: launchSale.id },
+      data: { launchSentAt: new Date(), launchSentCount: recipients.length },
+    });
+  }
+
   waitUntil(
     sendBroadcastAsync(recipients, subject, messageHtml).catch((err) => {
       console.error("[broadcast] async send error:", err);
@@ -113,7 +173,26 @@ export async function POST(req: Request) {
   // כשיתקשר. נוצרת רק אם המנהל ביקש - לא כל ברודקסט רלוונטי לטלפון
   // (למשל מייל שיווקי כללי).
   let announcementCreated = false;
-  if (body?.alsoPhone) {
+  if (body?.alsoPhone && launchSale) {
+    // §403: 📣 פעם אחת לכל מתקשר. הודעת פתיחה קודמת של המכירה — מכובה.
+    await prisma.phoneAnnouncement.updateMany({
+      where: { pricelistId: launchSale.id, oncePerCaller: true, isActive: true },
+      data: { isActive: false },
+    });
+    await prisma.phoneAnnouncement.create({
+      data: {
+        pricelistId: launchSale.id,
+        pointId: null,
+        text: phoneText.slice(0, 450),
+        isActive: true,
+        oncePerCaller: true,
+        // נשמעת עד סגירת ההזמנות; בלי תאריך סגירה — עד שמכבים
+        expiresAt: launchSale.closeDate ?? null,
+        createdBy: g.session?.user?.email ?? null,
+      },
+    });
+    announcementCreated = true;
+  } else if (body?.alsoPhone) {
     // §396: 🔁 ההודעה הקולית נקשרת **למכירה שהמתקשר שומע**.
     //
     // ה-IVR שולף הודעות לפי המכירה של הלקוח. לקוח של נקודה שבועית
@@ -171,7 +250,11 @@ export async function POST(req: Request) {
     announcementCreated,
     message:
       `השליחה החלה לרקע. ${recipients.length} מיילים יישלחו בקצב מבוקר.` +
-      (announcementCreated ? " ההודעה תוקרא גם למתקשרים למערכת הטלפונית." : ""),
+      (announcementCreated
+        ? launchSale
+          ? " כל מתקשר למערכת הטלפונית ישמע את ההודעה פעם אחת."
+          : " ההודעה תוקרא גם למתקשרים למערכת הטלפונית."
+        : ""),
   });
 }
 
