@@ -211,7 +211,7 @@ export function QuickCustomerEdit({
         </label>
         {paymentPreference === "CASH" ? (
           <div className="text-xs bg-lime-50 border border-lime-300 rounded-lg px-2.5 py-2 text-lime-800">
-            💵 <b>מזומן</b> — גבייה בחלוקה. מעבר לאשראי נעשה ע&quot;י המנהל.
+            ⭐ <b>לקוח מזומן קבוע</b> — גבייה בחלוקה בכל המכירות. ביטול: בכרטיס הלקוח.
           </div>
         ) : canSetCash ? (
           <div className="grid grid-cols-2 gap-2">
@@ -235,7 +235,7 @@ export function QuickCustomerEdit({
                   : "border-zinc-300 text-zinc-600"
               }`}
             >
-              💵 מזומן
+              ⭐ מזומן קבוע
             </button>
           </div>
         ) : (
@@ -248,8 +248,9 @@ export function QuickCustomerEdit({
         )}
         {f.paymentPreference === "CASH" && paymentPreference !== "CASH" && (
           <p className="text-[10px] text-lime-700 mt-1 leading-relaxed">
-            ⚠️ הלקוח יסומן כמשלם מזומן ויוכל להזמין בלי כרטיס. הגבייה תתבצע
-            על ידך בחלוקה.
+            ⚠️ ⭐ לקוח מזומן קבוע: בכל המכירות, עד שמבטלים — מזמין בלי כרטיס,
+            והגבייה על ידך בחלוקה. למזומן <b>בהזמנה הזו בלבד</b> — הבורר
+            &quot;מזומן&quot; בטבלת המשקלים.
           </p>
         )}
       </div>

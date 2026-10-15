@@ -1,3 +1,4 @@
+import { isCashFor, newOrderPaymentMethod } from "@/lib/cash-customer";
 import { NextResponse } from "next/server";
 // §202: תוקף כרטיס האשראי
 import { canChargeCard } from "@/lib/card-expiry-lib";
@@ -236,7 +237,8 @@ export async function POST(req: Request) {
       !placedByAgentId &&
       role === "CUSTOMER" &&
       !customer.paymentToken &&
-      customer.paymentPreference !== "CASH"
+      // §401: ⭐ קבוע, או 💵 מזומן רק במכירה הזו
+      !isCashFor(customer, data.pricelistId)
     ) {
       return NextResponse.json(
         {
@@ -259,7 +261,7 @@ export async function POST(req: Request) {
     if (
       !placedByAgentId &&
       role === "CUSTOMER" &&
-      customer.paymentPreference !== "CASH" &&
+      !isCashFor(customer, data.pricelistId) &&
       !canChargeCard((customer as any).cardExpiry)
     ) {
       return NextResponse.json(
@@ -651,6 +653,11 @@ export async function POST(req: Request) {
         notes: data.notes || null,
         requestedInstallments: data.requestedInstallments ?? 1,
         estimatedTotal,
+        // §401: 💵 מזומן רק במכירה הזו → "מזומן להזמנה זו" (§332).
+        // החיוב הקבוצתי מדלג, ומסך התשלומים מציע "שילם במזומן".
+        ...(newOrderPaymentMethod(customer, data.pricelistId)
+          ? { paymentMethod: newOrderPaymentMethod(customer, data.pricelistId) }
+          : {}),
         // §182: משלוח שנקבע ביצירה.
         //
         // ⚠️ **רק לנציג/מנהל** - placedByAgentId. לקוח ששולח את

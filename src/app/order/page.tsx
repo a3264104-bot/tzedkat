@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { OrderFlow } from "./OrderFlow";
+import { isCashFor } from "@/lib/cash-customer";
 // §396: בחירת מכירה לפי נקודה (רגילה / שבועית)
 import { resolveCustomerSaleId } from "@/lib/weekly-sales";
 
@@ -360,7 +361,8 @@ export default async function OrderPage({
       cardVerified={
         (!!customerRecord.paymentToken &&
           canChargeCard(customerRecord.cardExpiry)) ||
-        customerRecord.paymentPreference === "CASH"
+        // §401: ⭐ קבוע, או 💵 מזומן רק במכירה הזו
+        isCashFor(customerRecord, pricelist?.id)
       }
       // §202: הודעת התוקף - מוצגת גם כשעדיין אפשר לחייב
       cardExpiryWarning={expiryMessage(customerRecord.cardExpiry)}
@@ -369,7 +371,7 @@ export default async function OrderPage({
       catalogNotice={catalogNotice}
       // §157: לקוח מזומן רואה מסך מותאם - בלי פריסה לתשלומים,
       // ועם "מזומן בחלוקה" במקום "כרטיס אשראי".
-      isCashCustomer={customerRecord.paymentPreference === "CASH"}
+      isCashCustomer={isCashFor(customerRecord, pricelist?.id)}
       customerId={customerRecord.id}
       hasSeenOrderIntro={customerRecord.hasSeenOrderIntro}
       existingOrder={null}

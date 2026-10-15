@@ -20,6 +20,7 @@ import { validatePhone2 } from "@/lib/phone2-lib";
 // §173: הרכבת שם מלא משם פרטי ומשפחה
 import { buildName } from "@/lib/name-lib";
 import { auth } from "@/lib/auth";
+import { resolveCustomerSaleId } from "@/lib/weekly-sales";
 
 // יצירת סיסמא אקראית חזקה - 32 תווים, לא לזכירה, לא לשימוש חוזר
 function generateStrongPassword(): string {
@@ -124,6 +125,10 @@ const phone2Raw = String(body.phone2 || "").trim();
       );
     }
   }
+
+  // §401: 💵 מזומן במכירה הזו בלבד (ברירת המחדל) או ⭐ קבוע.
+  // קורא ישן שלא שולח cashScope — קבוע, כמו עד היום.
+  const cashScope = body.cashScope === "SALE" ? "SALE" : "ALWAYS";
 
   if (!name || name.length < 2) {
     return NextResponse.json({ error: "שם קצר מדי" }, { status: 400 });
@@ -337,6 +342,20 @@ const phone2Raw = String(body.phone2 || "").trim();
       defaultPoint: { select: { name: true } },
     },
   });
+
+  // §401: 💵 מזומן רק במכירה — המכירה שהנציג נמצא בה, או זו שהנקודה
+  // של הלקוח רואה. בלי מכירה פעילה — הלקוח נשאר אשראי, ומסך ההזמנה
+  // ישאל "איך משלם?" (כרטיס / מזומן במכירה).
+  if (paymentPreference === "CASH" && cashScope === "SALE") {
+    const saleId =
+      (body.pricelistId ? String(body.pricelistId) : null) ??
+      (await resolveCustomerSaleId(customer.defaultPointId ?? null));
+    await prisma.customer.update({
+      where: { id: customer.id },
+      data: { paymentPreference: "CREDIT", cashPricelistId: saleId },
+    });
+    customer.paymentPreference = "CREDIT";
+  }
 
   // §167: סגירת פניות טלפוניות פתוחות של אותו מספר.
   //

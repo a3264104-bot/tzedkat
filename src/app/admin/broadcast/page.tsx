@@ -4,6 +4,7 @@
 // 3 מצבים: כולם / לפי נקודת חלוקה / בחירה ידנית
 
 import { useEffect, useState, useMemo } from "react";
+import { SaleLaunchTemplateEditor } from "@/components/SaleLaunchTemplateEditor";
 
 type Point = { id: string; name: string; city: string | null };
 type Customer = {
@@ -290,6 +291,9 @@ export default function AdminBroadcastPage() {
           שולח מייל לכל הלקוחות הרשומים עם כתובת מייל.
         </p>
       </div>
+
+      {/* §401: 📣 המקום הקבוע לנוסח הודעת פתיחת מכירה */}
+      <SaleLaunchTemplateEditor />
 
       {/* §330: 🚚 בורר סוג המייל.
           

@@ -23,6 +23,8 @@ export function AgentPaymentGate({
   customerName,
   canUpdateCards,
   canSetCash = false,
+  pricelistId,
+  pricelistName,
 }: {
   customerId: string;
   customerName: string;
@@ -39,20 +41,31 @@ export function AgentPaymentGate({
    * שייכשל מאשר להציג אותו.
    */
   canSetCash?: boolean;
+  /**
+   * §401: המכירה שבה מזמינים — ל"מזומן במכירה הזו בלבד".
+   * בלעדיה מוצג רק המזומן הקבוע.
+   */
+  pricelistId?: string;
+  pricelistName?: string;
 }) {
   const router = useRouter();
   const [showCard, setShowCard] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  async function markCash() {
+  // §401: 💵 מזומן — במכירה הזו בלבד (ברירת המחדל), או ⭐ קבוע
+  async function markCash(scope: "SALE" | "ALWAYS") {
     setError("");
     setSaving(true);
     try {
       const res = await fetch("/api/agent/customer-payment-pref", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId, preference: "CASH" }),
+        body: JSON.stringify(
+          scope === "SALE"
+            ? { customerId, preference: "CASH", scope, pricelistId }
+            : { customerId, preference: "CASH", scope }
+        ),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "שגיאה");
@@ -103,15 +116,38 @@ export function AgentPaymentGate({
               </div>
             </button>
             )}
-            {canSetCash && (
+            {/* §401: 💵 מזומן **במכירה הזו בלבד** — ברירת המחדל.
+                🐛 עד היום "מזומן" נשמר לתמיד: הלקוח הזמין בלי כרטיס
+                גם במכירה הבאה, ואף אחד לא גבה. */}
+            {canSetCash && pricelistId && (
             <button
-              onClick={markCash}
+              onClick={() => markCash("SALE")}
               disabled={saving}
               className="w-full py-3 rounded-xl border-2 border-lime-600 bg-lime-50 text-lime-800 font-bold hover:bg-lime-100 disabled:opacity-50"
             >
-              {saving ? "מעדכן..." : "💵 תשלום במזומן"}
+              {saving ? "מעדכן..." : "💵 מזומן — במכירה הזו בלבד"}
               <div className="text-[11px] font-normal mt-0.5">
-                הגבייה תתבצע במזומן בעת החלוקה, גם בהזמנות הבאות
+                גבייה במזומן בחלוקה{pricelistName ? ` של ${pricelistName}` : ""}. במכירה הבאה
+                יידרש כרטיס.
+              </div>
+            </button>
+            )}
+            {canSetCash && (
+            <button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `להגדיר את ${customerName} כ⭐ לקוח מזומן קבוע?\n\nבכל המכירות, עד שמבטלים בכרטיס הלקוח: מזמין בלי כרטיס, והגבייה במזומן.`
+                  )
+                )
+                  markCash("ALWAYS");
+              }}
+              disabled={saving}
+              className="w-full py-2.5 rounded-xl border-2 border-amber-400 bg-white text-amber-800 font-bold hover:bg-amber-50 disabled:opacity-50 text-sm"
+            >
+              ⭐ לקוח מזומן קבוע
+              <div className="text-[11px] font-normal mt-0.5">
+                לקוח מיוחד — תמיד מזומן, עד שמשנים
               </div>
             </button>
             )}

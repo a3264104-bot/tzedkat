@@ -434,6 +434,8 @@ export async function PATCH(
     prefWarning = warning;
 
     data.paymentPreference = pref;
+    // §401: קבוע/אשראי מבטל "מזומן במכירה אחת"
+    data.cashPricelistId = null;
 
     // §114: סימון כלקוח מזומן = הלקוח הוקם ויכול להזמין. זה הרגע
     // שבו הוא צריך גם דרך להיכנס לאתר, ולכן הקוד מופק כאן.

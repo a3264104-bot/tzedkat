@@ -50,6 +50,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const b = await req.json().catch(() => ({}));
   const note: string | null = b.note ?? null;
+  // §401: 🏦 העברה בנקאית — לקוח אשראי ששילם בהעברה. הכסף אצל העסק
+  // (כמו אשראי), ולא "מזומן אצל המנהל" או אצל הנציג.
+  const method: "CASH" | "BANK_TRANSFER" =
+    b.method === "BANK_TRANSFER" ? "BANK_TRANSFER" : "CASH";
+  const isTransfer = method === "BANK_TRANSFER";
   const receivedByUserId = actorLabel;
 
   const order = await prisma.order.findUnique({ where: { id } });
@@ -178,13 +183,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     },
     data: {
       paymentStatus,
-      paymentMethod: "CASH",
+      paymentMethod: method,
       amountPaid,
       paidAt: new Date(),
       receivedByUserId,
       manualPaymentNote: note,
       // §398: הכסף אצל מי שקיבל אותו
-      ...(agentActorId
+      // §401: העברה — לא מזומן של אף אחד (היתרה = אשראי/העברה)
+      ...(isTransfer
+        ? {}
+        : agentActorId
         ? {
             agentCashAmount: Math.round((prevAgentCash + increment) * 100) / 100,
             agentCashById: agentActorId,
@@ -209,7 +217,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       action: "MANUAL_CASH_PAYMENT",
       amountPaid,
       finalTotalAtTime: finalTotal,
-      paymentMethod: "CASH",
+      paymentMethod: method,
       receivedByUserId,
       note,
     },
@@ -226,7 +234,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       await sendPaymentConfirmedEmail(
         fullOrder as any,
         fullOrder.customer.email,
-        PAYMENT_METHOD_LABELS["CASH"]
+        PAYMENT_METHOD_LABELS[method]
       ).catch(() => null);
     }
   }

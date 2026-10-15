@@ -72,6 +72,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/payments", label: "תשלומים", icon: "💳" },
       { href: "/admin/debts", label: "חובות לקוחות", icon: "💰" },
       { href: "/admin/agent-debts", label: "חובות נציגים", icon: "🧮" },
+      // §401: כמה נכנס לכל נציג ונקודה — נטו, בלי דמי ההזמנה
+      { href: "/admin/agent-income", label: "כמה נכנס לפי נציג", icon: "📥" },
       { href: "/admin/payment-audit", label: "יומן תשלומים", icon: "🧾" },
       // §126: זיכויים ויתרות. שייך לשלב הכספים - זה כסף שיוצא
       // מהקופה, וכל נציג יכול לתת אותו בלי אישור מראש.

@@ -198,6 +198,10 @@ export default async function AgentCustomerPage({
       debtNote={(customer as any).debtNote}
       // §60: מצב התשלום - לתצוגה ולכפתור ההחלפה מזומן/אשראי
       paymentPreference={customer.paymentPreference}
+      // §401: 💵 מזומן במכירה אחת בלבד — שם המכירה, אם היא עדיין פעילה
+      saleCashName={
+        activeSales.find((sl) => sl.id === (customer as any).cashPricelistId)?.name ?? null
+      }
       hasCard={!!customer.paymentToken}
       cardLast4={customer.cardLast4}
       canUpdateCards={canUpdateCards}

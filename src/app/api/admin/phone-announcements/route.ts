@@ -25,6 +25,8 @@ export async function GET(req: Request) {
     include: {
       point: { select: { id: true, name: true, city: true } },
       pricelist: { select: { id: true, name: true, status: true } },
+      // §401: כמה כבר שמעו הודעה חד-פעמית
+      _count: { select: { heard: true } },
     },
     take: 100,
   });
@@ -54,6 +56,9 @@ export async function GET(req: Request) {
         // מספר הלקוחות שההודעה תגיע אליהם בפועל
         reachCount: count,
         isExpired: !!(r.expiresAt && r.expiresAt < new Date()),
+        // §401: 🔂 הודעת פתיחה — פעם אחת לכל מתקשר
+        oncePerCaller: r.oncePerCaller,
+        heardCount: r._count.heard,
       };
     })
   );

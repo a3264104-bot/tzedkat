@@ -55,13 +55,22 @@ export async function POST(req: Request) {
       finalTotal: { gt: 0 },
       customer: {
         email: { not: "" },
-        // §327: סינון לפי אמצעי תשלום — מזומן או אשראי בלבד.
-        ...(onlyPref === "CASH"
-          ? { paymentPreference: "CASH" }
-          : onlyPref === "CREDIT"
-            ? { paymentPreference: { not: "CASH" } }
-            : {}),
+        // §327: סינון לפי אמצעי תשלום — אשראי בלבד (ההעדפה)
+        ...(onlyPref === "CREDIT" ? { paymentPreference: { not: "CASH" } } : {}),
       },
+      // §401: מזומן = ⭐ לקוח קבוע **או** הזמנה שסומנה מזומן (§332, וגם
+      // "מזומן במכירה הזו בלבד"). בלי זה לקוח מזומן-למכירה לא קיבל
+      // תזכורת "כמה להביא", וכן קיבל מייל חיוב אשראי.
+      ...(onlyPref === "CASH"
+        ? {
+            OR: [
+              { customer: { paymentPreference: "CASH" } },
+              { paymentMethod: { in: ["CASH", "MANUAL"] } },
+            ],
+          }
+        : onlyPref === "CREDIT"
+          ? { OR: [{ paymentMethod: null }, { paymentMethod: { notIn: ["CASH", "MANUAL"] } }] }
+          : {}),
     },
     include: {
       // §361: product.saleType — להבחנה יחידות/ק"ג במייל

@@ -58,6 +58,9 @@ export function StuckCustomersPanel({
       const c = o.customer;
       if (!c) continue;
       if (c.paymentPreference === "CASH") continue;
+      // §401: הזמנה שסומנה מזומן (גם "מזומן במכירה הזו בלבד") — יש לה
+      // מסלול גבייה, היא לא תקועה
+      if (o.paymentMethod === "CASH" || o.paymentMethod === "MANUAL") continue;
       if (c.paymentToken) continue;
       if (seen.has(c.id)) continue;
       seen.add(c.id);

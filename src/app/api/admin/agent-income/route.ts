@@ -1,0 +1,209 @@
+// ═══════════════════════════════════════════════════════════════
+// §401: 📥 כמה נכנס — לפי נציג ונקודה, בלי דמי ההזמנה
+// ═══════════════════════════════════════════════════════════════
+// GET /api/admin/agent-income?pricelistId=X
+// GET /api/admin/agent-income?saleKind=REGULAR|WEEKLY   (צבירה)
+// GET /api/admin/agent-income                            (כל המכירות)
+//
+// הצורך: המנהל מנהל אקסל בצד, משבצת לכל נציג. "נגבה" באתר כולל
+// את דמי ההזמנה (₪3 לכל הזמנה) — והם לא שייכים לנציג. כאן כל נקודה
+// מקבלת: ברוטו, דמי הזמנה, נטו — ופיצול לפי מי שמחזיק בכסף.
+//
+// ⚠️ אותה פונקציית סיווג של חשבון הנציג (classifyOrderMoney): חוב
+// קודם שקוזז בהזמנה **לא** נספר כהכנסה מהמכירה (§325) — הוא מוצג
+// בעמודה נפרדת.
+//
+// ⚠️ דמי ההזמנה לפי המכירה של ההזמנה (orderFee), ורק בהזמנה שנגבה
+// בה משהו — ולא יותר ממה שנגבה. הזמנה שלא שולמה לא "מורידה" ₪3.
+
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { requireAdmin } from "@/lib/guard";
+import { classifyOrderMoney, ORDER_MONEY_SELECT, splitPaid } from "@/lib/agent-money-lib";
+import { parseSaleKind, pricelistKindWhere } from "@/lib/weekly-sales";
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+export type IncomeRow = {
+  pointId: string;
+  pointName: string;
+  city: string | null;
+  /** שמות הנציגים של הנקודה ("—" אם אין) */
+  agentLabel: string;
+  orders: number;
+  paidOrders: number;
+  /** נגבה מהמכירה (בלי חוב קודם), כולל דמי הזמנה */
+  gross: number;
+  /** דמי ההזמנה שבתוך הנגבה */
+  fees: number;
+  /** gross - fees */
+  net: number;
+  /** הפיצול של הנגבה (ברוטו) */
+  card: number;
+  agentCash: number;
+  adminCash: number;
+  /** מזדמנים ישנים (לפני ההמרה) — בלי דמי הזמנה */
+  walkins: number;
+  walkinCount: number;
+  /** חוב קודם שקוזז ונגבה בהזמנות בנקודה — לא חלק מהמכירה */
+  debtCollected: number;
+  pending: number;
+  pendingOrders: number;
+};
+
+export async function GET(req: Request) {
+  const g = await requireAdmin();
+  if (!g.ok) return g.res;
+
+  const url = new URL(req.url);
+  const pricelistId = url.searchParams.get("pricelistId");
+  const saleKind = parseSaleKind(url.searchParams.get("saleKind"));
+
+  const orderWhere: any = {
+    // ⚠️ מבוטלת נכללת רק אם נגבה בה כסף — הכסף נכנס בפועל
+    OR: [{ status: { not: "CANCELLED" } }, { amountPaid: { gt: 0 } }],
+  };
+  const walkinWhere: any = { paymentReceived: true };
+  if (pricelistId) {
+    orderWhere.pricelistId = pricelistId;
+    walkinWhere.pricelistId = pricelistId;
+  } else if (saleKind) {
+    orderWhere.pricelist = pricelistKindWhere(saleKind);
+    walkinWhere.pricelist = pricelistKindWhere(saleKind);
+  }
+
+  const [orders, walkins] = await Promise.all([
+    prisma.order.findMany({
+      where: orderWhere,
+      select: {
+        ...ORDER_MONEY_SELECT,
+        pricelist: { select: { orderFee: true } },
+      },
+    }),
+    prisma.walkinOrder.findMany({
+      where: walkinWhere,
+      select: { pointId: true, totalAmount: true, paymentMethod: true },
+    }),
+  ]);
+
+  const pointIds = new Set<string>();
+  for (const o of orders) pointIds.add(o.pointId);
+  for (const w of walkins) if (w.pointId) pointIds.add(w.pointId);
+
+  const points = await prisma.deliveryPoint.findMany({
+    where: { id: { in: [...pointIds] } },
+    select: {
+      id: true,
+      name: true,
+      city: true,
+      agentPoints: { select: { agent: { select: { name: true } } } },
+      agents: { select: { name: true } },
+    },
+  });
+  const pointById = new Map(points.map((p) => [p.id, p]));
+
+  const rows = new Map<string, IncomeRow>();
+  const rowFor = (pointId: string | null): IncomeRow => {
+    const key = pointId ?? "__none__";
+    let r = rows.get(key);
+    if (!r) {
+      const p = pointId ? pointById.get(pointId) : null;
+      const names = new Set<string>();
+      for (const ap of p?.agentPoints ?? []) names.add(ap.agent.name);
+      for (const a of p?.agents ?? []) names.add(a.name);
+      r = {
+        pointId: key,
+        pointName: p?.name ?? "ללא נקודה",
+        city: p?.city ?? null,
+        agentLabel: names.size > 0 ? [...names].sort().join(" + ") : "—",
+        orders: 0,
+        paidOrders: 0,
+        gross: 0,
+        fees: 0,
+        net: 0,
+        card: 0,
+        agentCash: 0,
+        adminCash: 0,
+        walkins: 0,
+        walkinCount: 0,
+        debtCollected: 0,
+        pending: 0,
+        pendingOrders: 0,
+      };
+      rows.set(key, r);
+    }
+    return r;
+  };
+
+  for (const o of orders) {
+    const r = rowFor(o.pointId);
+    const m = classifyOrderMoney(o as any);
+    if (o.status !== "CANCELLED") r.orders++;
+    if (m.collected > 0) {
+      r.paidOrders++;
+      const fee = Math.min(Number(o.pricelist?.orderFee ?? 0), m.collected);
+      r.gross += m.collected;
+      r.fees += fee;
+      r.card += m.cardRev;
+      r.adminCash += m.adminCashRev;
+      r.agentCash += m.agentCashRev;
+    }
+    // חוב קודם שנגבה בפועל בהזמנה הזו — אותו כלל של classifyOrderMoney:
+    // החוב יורד ראשון מהתשלום
+    if (m.debtPart > 0) {
+      r.debtCollected += Math.min(m.debtPart, splitPaid(o as any).paid);
+    }
+    if (m.pending > 0 && o.status !== "CANCELLED") {
+      r.pending += m.pending;
+      r.pendingOrders++;
+    }
+  }
+
+  for (const w of walkins) {
+    const r = rowFor(w.pointId);
+    const amt = Number(w.totalAmount ?? 0);
+    if (amt <= 0) continue;
+    r.walkins += amt;
+    r.walkinCount++;
+    r.gross += amt;
+    if (w.paymentMethod === "CASH") r.agentCash += amt;
+    else r.card += amt;
+  }
+
+  const list = [...rows.values()].map((r) => ({
+    ...r,
+    gross: r2(r.gross),
+    fees: r2(r.fees),
+    net: r2(r.gross - r.fees),
+    card: r2(r.card),
+    agentCash: r2(r.agentCash),
+    adminCash: r2(r.adminCash),
+    walkins: r2(r.walkins),
+    debtCollected: r2(r.debtCollected),
+    pending: r2(r.pending),
+  }));
+  list.sort(
+    (a, b) =>
+      a.agentLabel.localeCompare(b.agentLabel, "he") ||
+      a.pointName.localeCompare(b.pointName, "he")
+  );
+
+  const sum = (k: keyof IncomeRow) =>
+    r2(list.reduce((s, r) => s + (Number(r[k]) || 0), 0));
+  const totals = {
+    orders: sum("orders"),
+    paidOrders: sum("paidOrders"),
+    gross: sum("gross"),
+    fees: sum("fees"),
+    net: sum("net"),
+    card: sum("card"),
+    agentCash: sum("agentCash"),
+    adminCash: sum("adminCash"),
+    walkins: sum("walkins"),
+    debtCollected: sum("debtCollected"),
+    pending: sum("pending"),
+    pendingOrders: sum("pendingOrders"),
+  };
+
+  return NextResponse.json({ rows: list, totals });
+}

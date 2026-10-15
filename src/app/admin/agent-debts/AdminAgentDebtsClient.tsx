@@ -114,6 +114,10 @@ export default function AdminAgentDebtsClient() {
           <h1 className="font-extrabold text-brand-slatedark">
             💰 חובות ותשלומים לנציגים
           </h1>
+          {/* §401: הסכום לאקסל — נטו, בלי דמי ההזמנה */}
+          <Link href="/admin/agent-income" className="text-sm font-bold text-brand-rust">
+            📥 כמה נכנס (נטו) ←
+          </Link>
         </div>
       </header>
 

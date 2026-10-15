@@ -544,9 +544,9 @@ function Modal({
                           : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-400"
                       }`}
                     >
-                      💵 מזומן
+                      ⭐ מזומן קבוע
                       <div className="text-[10px] font-normal mt-0.5">
-                        גבייה בחלוקה, בלי כרטיס
+                        לקוח מיוחד — תמיד מזומן, בלי כרטיס
                       </div>
                     </button>
                     <button
@@ -572,8 +572,9 @@ function Modal({
                   )}
                   {payMethod === "CASH" && (
                     <p className="text-[10px] text-lime-700 mt-1 leading-relaxed">
-                      הלקוח יסומן כמשלם מזומן ויוכל להזמין בלי כרטיס. ניתן
-                      להעביר לאשראי בהמשך.
+                      ⭐ לקוח מזומן קבוע: בכל המכירות עד שמבטלים. למזומן במכירה
+                      אחת בלבד — צור כאשראי, והנציג יבחר &quot;מזומן — במכירה הזו&quot;
+                      בזמן ההזמנה.
                     </p>
                   )}
                 </div>

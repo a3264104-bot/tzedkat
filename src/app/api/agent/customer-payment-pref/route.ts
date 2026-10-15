@@ -1,6 +1,15 @@
 // §60: החלפת אופן התשלום של לקוח ע"י נציג/מנהל.
 // POST /api/agent/customer-payment-pref
-// Body: { customerId: string, preference: "CASH" | "CREDIT" }
+// Body: { customerId: string, preference: "CASH" | "CREDIT",
+//         scope?: "SALE" | "ALWAYS", pricelistId?: string }
+//
+// §401: 💵 שני סוגי מזומן:
+//   scope=SALE   + pricelistId → מזומן **רק במכירה הזו** (cashPricelistId).
+//                  במכירה הבאה הלקוח חוזר לאשראי.
+//   scope=ALWAYS (ברירת מחדל) → ⭐ לקוח מזומן קבוע, עד שמשנים.
+//   preference=CREDIT          → מבטל את שניהם. §401: גם בלי כרטיס —
+//                  "חייב להסדיר כרטיס לפני שיזמין לבד" הוא מצב תקף
+//                  (כך גם במסך הלקוחות של המנהל, §90).
 //
 // הכיוון העיקרי כאן הוא אשראי -> מזומן. הכיוון ההפוך (מזומן -> אשראי)
 // מתבצע בפועל דרך הזנת כרטיס: save-token מציב CREDIT אוטומטית כשנשמר
@@ -32,6 +41,13 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const customerId = String(body.customerId || "").trim();
   const preference = String(body.preference || "").trim();
+  // §401: מזומן למכירה אחת / קבוע
+  const scope = body.scope === "SALE" ? "SALE" : "ALWAYS";
+  const salePricelistId =
+    scope === "SALE" ? String(body.pricelistId || "").trim() : "";
+  if (preference === "CASH" && scope === "SALE" && !salePricelistId) {
+    return NextResponse.json({ error: "חסרה המכירה" }, { status: 400 });
+  }
 
   if (!customerId) {
     return NextResponse.json({ error: "חסר מזהה לקוח" }, { status: 400 });
@@ -52,6 +68,7 @@ export async function POST(req: Request) {
       isActive: true,
       paymentToken: true,
       paymentPreference: true,
+      cashPricelistId: true,
       defaultPointId: true,
       createdByAgentId: true,
     },
@@ -100,10 +117,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "נציג לא נמצא" }, { status: 403 });
     }
 
+    // §401: ביטול "מזומן קבוע" — גם מי שרשאי לסמן מזומן רשאי לבטל
+    // אותו (הוא לא פותח שום מסלול, רק מחזיר את הלקוח לאשראי).
     const allowed =
       preference === "CASH"
         ? agent.agentCanCreateCashCustomers
-        : agent.agentCanUpdateCards;
+        : agent.agentCanUpdateCards || agent.agentCanCreateCashCustomers;
 
     if (!allowed) {
       return NextResponse.json(
@@ -149,34 +168,49 @@ export async function POST(req: Request) {
     }
   }
 
-  // ─── מעבר לאשראי מחייב טוקן קיים ───
-  // אין מצב ביניים "אשראי בלי כרטיס": לקוח כזה היה נתקע ברשימת
-  // כשלי החיוב. אם אין טוקן, ה-UI צריך לפתוח את זרימת הכרטיס
-  // (UpdateCardButton) - ו-save-token יעביר ל-CREDIT בעצמו.
-  if (preference === "CREDIT" && !customer.paymentToken) {
-    return NextResponse.json(
-      {
-        error:
-          "ללקוח אין כרטיס שמור. כדי לעבור לאשראי יש להזין כרטיס - עם שמירת הכרטיס הלקוח יעבור לאשראי אוטומטית.",
-        needsCard: true,
-      },
-      { status: 400 }
-    );
+  // §401: מעבר לאשראי **בלי** כרטיס מותר — הלקוח פשוט לא יוכל
+  // להזמין לבד עד שיוזן כרטיס (הנציג יראה את מסך "איך משלם?").
+  const noCard = preference === "CREDIT" && !customer.paymentToken;
+
+  if (preference === "CASH" && scope === "SALE") {
+    const pl = await prisma.pricelist.findUnique({
+      where: { id: salePricelistId },
+      select: { id: true },
+    });
+    if (!pl) {
+      return NextResponse.json({ error: "המכירה לא נמצאה" }, { status: 404 });
+    }
   }
 
   // §61: אם הערך כבר זהה - לא מעדכנים, אבל *כן* ממשיכים לסגירת
   // הבקשה. לקוח שכבר סומן CASH ובקשתו נשארה תקועה מ"ממתינה" הוא
   // בדיוק המקרה שצריך תיקון, ויציאה מוקדמת כאן הייתה מנציחה אותו.
-  const changed = customer.paymentPreference !== preference;
+  // §401: מה נשמר בפועל
+  //   מזומן למכירה  → העדפה נשארת (אשראי), cashPricelistId = המכירה
+  //   מזומן קבוע    → CASH, ובלי מכירה ספציפית
+  //   אשראי         → CREDIT, ובלי מכירה
+  // ⚠️ לקוח שכבר ⭐ קבוע ומסמנים לו "רק במכירה" — לא מורידים אותו
+  // מהקבוע בשקט. ביטול הקבוע הוא פעולה מפורשת (אשראי).
+  const next =
+    preference === "CREDIT"
+      ? { paymentPreference: "CREDIT", cashPricelistId: null as string | null }
+      : scope === "ALWAYS"
+        ? { paymentPreference: "CASH", cashPricelistId: null as string | null }
+        : customer.paymentPreference === "CASH"
+          ? { paymentPreference: "CASH", cashPricelistId: customer.cashPricelistId }
+          : { paymentPreference: customer.paymentPreference, cashPricelistId: salePricelistId };
+  const changed =
+    customer.paymentPreference !== next.paymentPreference ||
+    (customer.cashPricelistId ?? null) !== (next.cashPricelistId ?? null);
 
   if (changed) {
     await prisma.customer.update({
       where: { id: customerId },
-      data: { paymentPreference: preference },
+      data: next,
     });
 
     console.log(
-      `[customer-payment-pref] ${role} ${sessionUserId} changed customer ${customerId} (${customer.name}): ${customer.paymentPreference} -> ${preference}`
+      `[customer-payment-pref] ${role} ${sessionUserId} changed customer ${customerId} (${customer.name}): ${customer.paymentPreference}/${customer.cashPricelistId ?? "-"} -> ${next.paymentPreference}/${next.cashPricelistId ?? "-"} (scope=${scope})`
     );
   }
 
@@ -206,7 +240,10 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    paymentPreference: preference,
+    paymentPreference: next.paymentPreference,
+    cashPricelistId: next.cashPricelistId,
+    scope,
+    noCard,
     unchanged: !changed,
     closedRequests,
   });

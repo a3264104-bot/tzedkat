@@ -62,6 +62,7 @@ export function AgentCustomerClient({
   debtBalance = 0,
   debtNote,
   paymentPreference: initialPref,
+  saleCashName = null,
   hasCard: initialHasCard,
   cardLast4: initialCardLast4,
   canUpdateCards,
@@ -89,6 +90,8 @@ export function AgentCustomerClient({
   debtNote?: string | null;
   // §60: מצב התשלום של הלקוח
   paymentPreference: string;
+  /** §401: 💵 מזומן רק במכירה הזו — שם המכירה (null = אין) */
+  saleCashName?: string | null;
   hasCard: boolean;
   cardLast4: string | null;
   canUpdateCards: boolean;
@@ -141,9 +144,15 @@ export function AgentCustomerClient({
   async function switchToCredit() {
     setPrefErr("");
     setPrefMsg("");
-    if (!hasCard) {
-      // אין כרטיס - פותחים את מסך ההזנה. save-token יעשה את ההחלפה.
-      setShowCardModal(true);
+    // §401: ביטול "מזומן קבוע" — גם בלי כרטיס. הלקוח פשוט יצטרך
+    // כרטיס (או סימון מזומן למכירה) לפני ההזמנה הבאה.
+    if (
+      !window.confirm(
+        hasCard
+          ? `לבטל ל${customerName} את "לקוח מזומן קבוע"?\nמההזמנה הבאה הכרטיס השמור יחויב.`
+          : `לבטל ל${customerName} את "לקוח מזומן קבוע"?\n\nאין לו כרטיס שמור — הוא לא יוכל להזמין לבד עד שיוזן כרטיס. בהזמנה דרכך תתבקש לבחור: כרטיס, או מזומן במכירה הזו בלבד.`
+      )
+    ) {
       return;
     }
     setPrefSaving(true);
@@ -162,7 +171,11 @@ export function AgentCustomerClient({
         throw new Error(data.error || "שגיאה");
       }
       setPref("CREDIT");
-      setPrefMsg("הלקוח הועבר לתשלום באשראי");
+      setPrefMsg(
+        data.noCard
+          ? "בוטל מזומן קבוע. אין כרטיס שמור — יש להזין כרטיס לפני ההזמנה הבאה."
+          : "בוטל מזומן קבוע — הלקוח באשראי"
+      );
     } catch (e: any) {
       setPrefErr(e.message);
     } finally {
@@ -177,7 +190,7 @@ export function AgentCustomerClient({
     setPrefMsg("");
     if (
       !window.confirm(
-        `להעביר את ${customerName} לתשלום במזומן?\nהגבייה תתבצע במזומן בחלוקה, והחיוב האוטומטי בכרטיס יפסיק.`
+        `להגדיר את ${customerName} כ⭐ לקוח מזומן קבוע?\n\nבכל המכירות, עד שמבטלים: יוכל להזמין בלי כרטיס, הגבייה במזומן בחלוקה, והכרטיס לא יחויב.\n\n(למזומן במכירה אחת בלבד — בחר "מזומן" בזמן ההזמנה, או בבורר בטבלת המשקלים.)`
       )
     ) {
       return;
@@ -187,12 +200,12 @@ export function AgentCustomerClient({
       const res = await fetch("/api/agent/customer-payment-pref", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId, preference: "CASH" }),
+        body: JSON.stringify({ customerId, preference: "CASH", scope: "ALWAYS" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "שגיאה");
       setPref("CASH");
-      setPrefMsg("הלקוח הועבר לתשלום במזומן");
+      setPrefMsg("הלקוח הוגדר כ⭐ לקוח מזומן קבוע");
     } catch (e: any) {
       setPrefErr(e.message);
     } finally {
@@ -250,7 +263,7 @@ export function AgentCustomerClient({
               <div>
                 <div className="text-xs text-zinc-500">אופן תשלום</div>
                 <div className="font-bold text-brand-slatedark text-sm">
-                  {pref === "CASH" ? "מזומן בחלוקה" : "אשראי"}
+                  {pref === "CASH" ? "⭐ לקוח מזומן קבוע" : "אשראי"}
                   {pref !== "CASH" && hasCard && cardLast4 && (
                     <span className="text-xs text-zinc-400 font-normal mr-1.5" dir="ltr">
                       ****{cardLast4}
@@ -261,6 +274,12 @@ export function AgentCustomerClient({
                       אין כרטיס שמור
                     </span>
                   )}
+                  {/* §401: מזומן רק במכירה הזו */}
+                  {pref !== "CASH" && saleCashName && (
+                    <span className="block text-[11px] text-lime-700 font-bold mt-0.5">
+                      💵 מזומן רק ב{saleCashName}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -268,7 +287,8 @@ export function AgentCustomerClient({
                 
                 מזומן ← אשראי  דורש canUpdateCards (הוא יזין כרטיס)
                 אשראי ← מזומן  דורש canSetCash */}
-            {(pref === "CASH" ? canUpdateCards : canSetCash) && (
+            {/* §401: ביטול הקבוע — גם מי שרשאי לסמן מזומן */}
+            {(pref === "CASH" ? canUpdateCards || canSetCash : canSetCash) && (
               <button
                 onClick={pref === "CASH" ? switchToCredit : switchToCash}
                 disabled={prefSaving}
@@ -277,8 +297,8 @@ export function AgentCustomerClient({
                 {prefSaving
                   ? "מעדכן..."
                   : pref === "CASH"
-                    ? "💳 העבר לאשראי"
-                    : "💵 העבר למזומן"}
+                    ? "✖ בטל מזומן קבוע"
+                    : "⭐ מזומן קבוע"}
               </button>
             )}
           </div>
@@ -299,8 +319,8 @@ export function AgentCustomerClient({
 
           {pref === "CASH" && (
             <p className="text-[11px] text-zinc-500 mt-2">
-              הגבייה מתבצעת במזומן בעת החלוקה. הלקוח לא יכול להזמין באתר
-              בעצמו עד שיעבור לאשראי.
+              ⭐ בכל המכירות עד שמבטלים: מזמין בלי כרטיס, והגבייה במזומן
+              בחלוקה. הכרטיס (אם יש) לא מחויב.
             </p>
           )}
           {/* §67: 🐛 פער שנסגר - עדכון כרטיס היה אפשרי רק כתוצר לוואי

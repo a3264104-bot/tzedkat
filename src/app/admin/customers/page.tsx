@@ -1060,9 +1060,9 @@ export default function AdminCustomersPage() {
                             {c.paymentPreference === "CASH" && (
                               <span
                                 className="text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded px-1.5 py-0.5"
-                                title="מוגדר כלקוח מזומן — הכרטיס לא יחויב"
+                                title="לקוח מזומן קבוע — הכרטיס לא יחויב, בכל המכירות"
                               >
-                                מזומן
+                                ⭐ מזומן קבוע
                               </span>
                             )}
                             {!c.hasPaymentToken && c.paymentPreference !== "CASH" && (
@@ -1262,8 +1262,8 @@ export default function AdminCustomersPage() {
                 {editing.paymentPreference === "CASH" ? (
                   <>
                     <div className="bg-white border border-amber-300 rounded-lg p-2.5 text-xs text-amber-800">
-                      💵 לקוח <b>מזומן</b> — הגבייה מתבצעת פיזית בחלוקה,
-                      והכרטיס לא יחויב.
+                      ⭐ לקוח <b>מזומן קבוע</b> — בכל המכירות עד שמבטלים: הגבייה
+                      פיזית בחלוקה, והכרטיס לא יחויב.
                     </div>
                     {editing.hasPaymentToken && (
                       <div className="bg-white border border-zinc-200 rounded-lg p-2.5 text-xs text-zinc-600">
@@ -1330,7 +1330,7 @@ export default function AdminCustomersPage() {
                     onClick={() => {
                       if (
                         window.confirm(
-                          "לסמן כלקוח מזומן?\n\nהוא יוכל להזמין בלי כרטיס אשראי, והגבייה תתבצע פיזית בחלוקה."
+                          "לסמן כ⭐ לקוח מזומן קבוע?\n\nבכל המכירות, עד שמבטלים: יוכל להזמין בלי כרטיס אשראי, והגבייה תתבצע פיזית בחלוקה."
                         )
                       )
                         setPaymentPref("CASH");
@@ -1341,7 +1341,7 @@ export default function AdminCustomersPage() {
                         : "border-zinc-300 bg-white text-zinc-600 hover:border-amber-400"
                     }`}
                   >
-                    💵 מזומן
+                    ⭐ מזומן קבוע
                   </button>
                 </div>
 

@@ -544,7 +544,7 @@ export default function OrderDetail() {
                 title={!hasFinalTotal ? "יש לקבוע מחיר סופי תחילה" : undefined}
                 className="btn-yellow btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                סמן כתשלום מזומן
+                💵 / 🏦 שילם מזומן או העברה
               </button>
             </div>
           )}
@@ -1050,6 +1050,8 @@ function CashPaymentModal({
   const [amountPaid, setAmountPaid] = useState(String(finalTotal));
   const [receivedBy, setReceivedBy] = useState("");
   const [note, setNote] = useState("");
+  // §401: 🏦 העברה בנקאית — הכסף אצל העסק, לא מזומן ביד
+  const [payMethod, setPayMethod] = useState<"CASH" | "BANK_TRANSFER">("CASH");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -1079,7 +1081,7 @@ function CashPaymentModal({
     try {
       await api(`/api/admin/orders/${orderId}/cash-payment`, {
         method: "POST",
-        body: JSON.stringify({ amountPaid: amount, note: note.trim() || null }),
+        body: JSON.stringify({ amountPaid: amount, note: note.trim() || null, method: payMethod }),
       });
       onDone();
     } catch (e: any) {
@@ -1093,7 +1095,7 @@ function CashPaymentModal({
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end md:items-center justify-center p-0 md:p-4">
       <div className="bg-white w-full md:max-w-md rounded-t-3xl md:rounded-2xl max-h-[92vh] overflow-y-auto">
         <div className="sticky top-0 bg-white flex items-center justify-between p-4 border-b">
-          <h3 className="font-bold text-brand-slatedark">סימון תשלום מזומן</h3>
+          <h3 className="font-bold text-brand-slatedark">סימון תשלום ידני</h3>
           <button onClick={onClose} className="text-2xl leading-none text-zinc-400">
             ×
           </button>
@@ -1102,6 +1104,28 @@ function CashPaymentModal({
           <p className="text-sm text-zinc-500">
             מחיר סופי להזמנה: <strong>{fmt(finalTotal)}</strong>
           </p>
+          {/* §401: איך שילם */}
+          <div className="grid grid-cols-2 gap-2">
+            {(
+              [
+                ["CASH", "💵 מזומן"],
+                ["BANK_TRANSFER", "🏦 העברה בנקאית"],
+              ] as const
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setPayMethod(m)}
+                className={`py-2 rounded-lg border-2 text-sm font-bold ${
+                  payMethod === m
+                    ? "border-brand-rust bg-orange-50 text-brand-rust"
+                    : "border-zinc-300 text-zinc-600"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div>
             <label className="label">סכום שהתקבל *</label>
             <input

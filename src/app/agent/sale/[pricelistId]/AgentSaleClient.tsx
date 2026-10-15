@@ -654,7 +654,7 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
               ← לרשימת המכירות
             </Link>
             {!isSealed && (
-              <AgentAddCustomerButton className="py-1.5 px-3 text-xs" />
+              <AgentAddCustomerButton className="py-1.5 px-3 text-xs" pricelistId={pricelistId} />
             )}
           </div>
           <div className="text-right">

@@ -10,6 +10,7 @@ import { resolveCustomerSaleId } from "@/lib/weekly-sales";
 import { auth } from "@/lib/auth";
 import { OrderFlow } from "@/app/order/OrderFlow";
 import { AgentPaymentGate } from "@/components/AgentPaymentGate";
+import { isCashFor, isSaleOnlyCash } from "@/lib/cash-customer";
 
 export const dynamic = "force-dynamic";
 
@@ -419,7 +420,9 @@ export default async function AgentOrderPage({
   // בחלוקה. לכן cardVerified מקבל true גם בלי טוקן, וה-flow לא יעצור
   // את הנציג במסך הזנת כרטיס. זה תקף *רק* להזמנת נציג: באתר עצמו
   // לקוח מזומן בלי טוקן חסום (אכיפה ב-API יצירת ההזמנה).
-  const isCashCustomer = targetCustomer.paymentPreference === "CASH";
+  // §401: ⭐ קבוע, או 💵 רק במכירה הזו
+  const isCashCustomer = isCashFor(targetCustomer as any, pricelist.id);
+  const saleOnlyCash = isSaleOnlyCash(targetCustomer as any, pricelist.id);
 
   // §61: לקוח בלי אמצעי תשלום כלל - חוסם לפני ההזמנה.
   //
@@ -494,6 +497,9 @@ export default async function AgentOrderPage({
         customerName={targetCustomer.name}
         canUpdateCards={canUpdateCards}
         canSetCash={canSetCash}
+        // §401: "מזומן במכירה הזו בלבד"
+        pricelistId={pricelist.id}
+        pricelistName={pricelist.name}
       />
     );
   }
@@ -521,7 +527,7 @@ export default async function AgentOrderPage({
                   )}
                   {isCashCustomer ? (
                     <span className="text-[10px] bg-lime-300 text-lime-950 px-1.5 py-0.5 rounded font-bold">
-                      💵 מזומן
+                      {saleOnlyCash ? "💵 מזומן — מכירה זו" : "⭐ מזומן קבוע"}
                     </span>
                   ) : hasPaymentToken ? (
                     <span className="text-[10px] bg-emerald-400 text-emerald-950 px-1.5 py-0.5 rounded font-bold">
@@ -560,8 +566,17 @@ export default async function AgentOrderPage({
           {/* §60: לקוח מזומן - אין דרישת כרטיס, הגבייה בחלוקה */}
           {isCashCustomer ? (
             <div className="mt-2 text-[11px] bg-lime-500/20 border border-lime-400/40 rounded-lg px-3 py-1.5 text-lime-100">
-              💵 <strong>לקוח מזומן:</strong> לא יידרש כרטיס אשראי. הגבייה תתבצע
-              במזומן בעת החלוקה, לאחר קביעת המחיר הסופי.
+              {saleOnlyCash ? (
+                <>
+                  💵 <strong>מזומן במכירה הזו בלבד:</strong> הגבייה במזומן בחלוקה. במכירה
+                  הבאה יידרש כרטיס.
+                </>
+              ) : (
+                <>
+                  ⭐ <strong>לקוח מזומן קבוע:</strong> לא יידרש כרטיס אשראי. הגבייה תתבצע
+                  במזומן בעת החלוקה, לאחר קביעת המחיר הסופי.
+                </>
+              )}
             </div>
           ) : (
             /* התראת אזהרה אם אין כרטיס - רק ללקוח אשראי */

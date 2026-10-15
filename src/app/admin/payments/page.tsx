@@ -1478,15 +1478,34 @@ function OrderCard({
               המנהל שגובה מזומן בחלוקה או מקבל העברה — מסמן כאן,
               בלי לצאת לטבלת המשקלים. אותו prompt של §347/§360:
               שואל כמה, מטפל בחלקי, מציג יתרה. */}
-          {isCashOrder && hasFinalTotal && order.paymentStatus !== "PAID" && (
-            <CashMarkButton
-              orderId={order.id}
-              customerName={order.customerName}
-              finalTotal={Number(order.finalTotal)}
-              amountPaid={order.amountPaid ?? null}
-              paymentStatus={order.paymentStatus}
-              onDone={onDone}
-            />
+          {/* §401: גם ללקוח **אשראי** ששילם לך ביד או בהעברה.
+              🐛 עד היום הכפתור הופיע רק ללקוח מזומן, ולקוח אשראי
+              ששילם בהעברה נשאר "ממתין לחיוב" — ונכנס לחיוב הקבוצתי.
+              ⚠️ לא בזמן חיוב / זוכתה / הועבר לחוב — השרת דוחה ממילא. */}
+          {hasFinalTotal &&
+            !["PAID", "CHARGING", "REFUNDED", "DEBT_CARRIED"].includes(order.paymentStatus) && (
+            <>
+              <CashMarkButton
+                orderId={order.id}
+                customerName={order.customerName}
+                finalTotal={Number(order.finalTotal)}
+                amountPaid={order.amountPaid ?? null}
+                paymentStatus={order.paymentStatus}
+                onDone={onDone}
+                method="CASH"
+                compact={!isCashOrder}
+              />
+              <CashMarkButton
+                orderId={order.id}
+                customerName={order.customerName}
+                finalTotal={Number(order.finalTotal)}
+                amountPaid={order.amountPaid ?? null}
+                paymentStatus={order.paymentStatus}
+                onDone={onDone}
+                method="BANK_TRANSFER"
+                compact
+              />
+            </>
           )}
           {/* §267: הכפתור לבדו מותנה — הבורר מוצג תמיד. */}
           {showCharge && !isCashOrder && (
@@ -1557,6 +1576,8 @@ function CashMarkButton({
   amountPaid,
   paymentStatus,
   onDone,
+  method = "CASH",
+  compact = false,
 }: {
   orderId: string;
   customerName: string;
@@ -1564,8 +1585,14 @@ function CashMarkButton({
   amountPaid: number | null;
   paymentStatus: string;
   onDone?: () => void;
+  /** §401: מזומן, או העברה בנקאית (הכסף אצל העסק — כמו אשראי) */
+  method?: "CASH" | "BANK_TRANSFER";
+  /** §401: כפתור משני (ללקוח אשראי / העברה) */
+  compact?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
+  const isTransfer = method === "BANK_TRANSFER";
+  const how = isTransfer ? "בהעברה" : "במזומן";
   const isPartial = paymentStatus === "PARTIALLY_PAID";
   // §397: יתרה לפי מה ששולם בפועל — לא רק כשהסטטוס "חלקי"
   const remaining =
@@ -1577,8 +1604,8 @@ function CashMarkButton({
     const suggest = remaining != null && remaining > 0 ? remaining : finalTotal;
     const entered = window.prompt(
       remaining != null && remaining > 0
-        ? `${customerName} שילם כבר ${amountPaid} ש"ח.\n\nכמה מביא עכשיו? (נותר ${remaining} ש"ח)`
-        : `כמה שילם ${customerName} במזומן?\n\nסכום ההזמנה: ${finalTotal} ש"ח`,
+        ? `${customerName} שילם כבר ${amountPaid} ש"ח.\n\nכמה שילם עכשיו ${how}? (נותר ${remaining} ש"ח)`
+        : `כמה שילם ${customerName} ${how}?\n\nסכום ההזמנה: ${finalTotal} ש"ח`,
       String(suggest)
     );
     if (entered === null) return;
@@ -1606,11 +1633,12 @@ function CashMarkButton({
           amountPaid: cumulative,
           // §398: מה שראיתי ששולם — השרת דוחה אם השתנה בינתיים
           expectedPrevPaid: amountPaid ?? 0,
+          method,
           note: partial
-            ? `שולם ${amt} מתוך ${finalTotal} במזומן`
+            ? `שולם ${amt} מתוך ${finalTotal} ${how}`
             : amountPaid
-              ? `השלמת יתרה: ${amt} (סה"כ ${cumulative})`
-              : "שולם במזומן",
+              ? `השלמת יתרה ${how}: ${amt} (סה"כ ${cumulative})`
+              : `שולם ${how}`,
         }),
       });
       const d = await res.json().catch(() => ({}));
@@ -1627,17 +1655,24 @@ function CashMarkButton({
     <button
       onClick={mark}
       disabled={busy}
-      className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-40 ${
-        isPartial
-          ? "bg-red-600 text-white hover:bg-red-700"
-          : "bg-amber-500 text-white hover:bg-amber-600"
+      title={isTransfer ? "הלקוח העביר לך — הכסף אצל העסק" : "הלקוח שילם לך במזומן"}
+      className={`rounded-lg font-bold disabled:opacity-40 ${
+        compact
+          ? "px-2.5 py-1.5 text-xs border-2 border-zinc-300 bg-white text-zinc-700 hover:border-amber-500"
+          : `px-4 py-2 text-sm ${
+              isPartial
+                ? "bg-red-600 text-white hover:bg-red-700"
+                : "bg-amber-500 text-white hover:bg-amber-600"
+            }`
       }`}
     >
       {busy
         ? "..."
-        : isPartial && remaining != null
-          ? `💵 חסר ${remaining.toFixed(2)} — השלם`
-          : "💵 שילם במזומן"}
+        : isTransfer
+          ? "🏦 שילם בהעברה"
+          : isPartial && remaining != null && !compact
+            ? `💵 חסר ${remaining.toFixed(2)} — השלם`
+            : "💵 שילם במזומן"}
     </button>
   );
 }

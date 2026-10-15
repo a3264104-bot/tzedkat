@@ -11,6 +11,7 @@
 // עקרון מרכזי: לא משכפלים לוגיקה. המכירה, המוצרים, המחירים והוולידציות
 // הם בדיוק אותם של האתר.
 
+import { isCashFor, newOrderPaymentMethod } from "@/lib/cash-customer";
 import bcrypt from "bcryptjs";
 // §202: תוקף כרטיס האשראי
 import { canChargeCard, expiryPhoneMessage } from "@/lib/card-expiry-lib";
@@ -302,6 +303,8 @@ async function handle(req: Request): Promise<Response> {
       cardExpiry: true,
       // §60: לקוח מזומן מזמין בלי כרטיס
       paymentPreference: true,
+      // §401: 💵 מזומן רק במכירה אחת
+      cashPricelistId: true,
       // §52: לקוח מושבת
       isActive: true,
       defaultPointId: true,
@@ -367,14 +370,20 @@ async function handle(req: Request): Promise<Response> {
   // עכשיו הוא שומע את זה בשיחה ויכול לעדכן לפני שהוא מזמין.
   const cardUsable =
     !!customer.paymentToken && canChargeCard((customer as any).cardExpiry);
-  const canOrder = cardUsable || customer.paymentPreference === "CASH";
+  // §396: הרגילה, או השבוע של הנקודה של המתקשר
+  // §401: נשלף כאן (ולא למטה) — מזומן-למכירה תלוי במכירה שהוא שומע
+  const activeSale = await saleForCustomer(activeSaleEarly, customer.defaultPointId);
+  // §401: ⭐ מזומן קבוע, או 💵 מזומן רק במכירה הזו. מזומן ממכירה
+  // קודמת כבר לא פוטר מכרטיס.
+  const isCashNow = isCashFor(customer as any, activeSale?.id);
+  const canOrder = cardUsable || isCashNow;
 
   // §202: אזהרה על כרטיס שפג בקרוב. null כשהכל תקין.
   //
   // ⚠️ רק ללקוח אשראי: למזומן אין כרטיס, והודעה כזו הייתה
   // מבלבלת אותו לגמרי.
   const cardWarning =
-    customer.paymentPreference === "CASH"
+    isCashNow
       ? null
       : expiryPhoneMessage((customer as any).cardExpiry);
   if (!canOrder) {
@@ -408,9 +417,6 @@ async function handle(req: Request): Promise<Response> {
   //
   // §94: כבר נשלף למעלה במקביל לזיהוי הלקוח, ומגיע מהמטמון אם הוא
   // טרי. אין כאן שאילתה נוספת.
-  // §396: הרגילה, או השבוע של הנקודה של המתקשר
-  const activeSale = await saleForCustomer(activeSaleEarly, customer.defaultPointId);
-
   // §94: ההזמנה הפתוחה וההודעות למתקשרים - במקביל.
   //
   // ההודעה סוננה קודם לפי openOrder.pointId, ולכן נאלצה לחכות לו -
@@ -420,6 +426,47 @@ async function handle(req: Request): Promise<Response> {
   // ⚠️ הסינון עצמו לא השתנה: גלובלית או ספציפית לנקודת הלקוח,
   // וספציפית גוברת - רק המקום שבו הוא מתבצע.
   const nowForAnn = new Date();
+
+  // ─── §401: 📣 הודעת פתיחת מכירה — פעם אחת לכל מתקשר ───
+  // נשמעת לכל לקוח שיכול להזמין (גם בלי הזמנה — הוא בדיוק הקהל),
+  // לפני התפריט. נרשם שהוא שמע **ברגע ההשמעה**, ומהשיחה הבאה הוא
+  // מקבל את התפריט הרגיל. LAUNCH = כבר הושמעה בשיחה הזו.
+  if (activeSale && !p.LAUNCH) {
+    const launch = await prisma.phoneAnnouncement.findFirst({
+      where: {
+        pricelistId: activeSale.id,
+        isActive: true,
+        oncePerCaller: true,
+        AND: [
+          { OR: [{ pointId: null }, { pointId: customer.defaultPointId ?? "__none__" }] },
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: nowForAnn } }] },
+        ],
+        heard: { none: { customerId: customer.id } },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, text: true },
+    });
+    if (launch?.text) {
+      // ⚠️ createMany+skipDuplicates: שתי בקשות מקבילות של ימות לא
+      // נכשלות על המפתח הייחודי
+      await prisma.phoneAnnouncementHeard
+        .createMany({
+          data: [{ announcementId: launch.id, customerId: customer.id }],
+          skipDuplicates: true,
+        })
+        .catch((e) => console.error("[ivr] launch heard failed:", e));
+      return yemotResponse(
+        read(
+          messages(
+            say(`שלום ${customer.name}`),
+            say(launch.text),
+            prompt("launch_continue", "לתפריט ההזמנות הקש 1")
+          ),
+          { name: "LAUNCH", max: 1, min: 1, allowed: "1" }
+        )
+      );
+    }
+  }
   const [openOrder, announcements] = await Promise.all([
     activeSale
       ? prisma.order.findFirst({
@@ -447,6 +494,8 @@ async function handle(req: Request): Promise<Response> {
           where: {
             pricelistId: activeSale.id,
             isActive: true,
+            // §401: החד-פעמיות (פתיחת מכירה) מטופלות למעלה
+            oncePerCaller: false,
             OR: [{ expiresAt: null }, { expiresAt: { gt: nowForAnn } }],
           },
           orderBy: [{ pointId: "desc" }, { createdAt: "desc" }],
@@ -3043,6 +3092,10 @@ async function finalizeOrder(
       customerName: customer.name,
       phone: customer.phone ?? "",
       estimatedTotal: total,
+      // §401: 💵 מזומן רק במכירה הזו → "מזומן להזמנה זו"
+      ...(newOrderPaymentMethod(customer, pricelist.id)
+        ? { paymentMethod: newOrderPaymentMethod(customer, pricelist.id) }
+        : {}),
       status: "PENDING_REVIEW",
       items: {
         create: items.map((i) => ({

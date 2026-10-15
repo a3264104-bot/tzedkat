@@ -24,6 +24,9 @@ type Row = {
   createdAt: string;
   reachCount: number;
   isExpired: boolean;
+  /** §401: 🔂 הודעת פתיחה — פעם אחת לכל מתקשר */
+  oncePerCaller?: boolean;
+  heardCount?: number;
 };
 
 type Pricelist = { id: string; name: string; status: string };
@@ -297,9 +300,15 @@ export default function AnnouncementsPage() {
                     <span className="badge bg-zinc-100 text-zinc-700">
                       {r.pointName ? `📍 ${r.pointName}` : "כל הנקודות"}
                     </span>
-                    <span className="text-xs text-brand-rust font-medium">
-                      <bdi>{r.reachCount}</bdi> לקוחות ישמעו
-                    </span>
+                    {r.oncePerCaller ? (
+                      <span className="text-xs text-violet-700 font-medium">
+                        🔂 פתיחת מכירה — כל מתקשר שומע פעם אחת · <bdi>{r.heardCount ?? 0}</bdi> כבר שמעו
+                      </span>
+                    ) : (
+                      <span className="text-xs text-brand-rust font-medium">
+                        <bdi>{r.reachCount}</bdi> לקוחות ישמעו
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm text-brand-slatedark">{r.text}</p>
                   <p className="text-xs text-zinc-400 mt-1">

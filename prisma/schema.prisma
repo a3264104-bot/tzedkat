@@ -139,6 +139,20 @@ model Customer {
   // עד שיוסיף כרטיס. String ולא Boolean - עקבי עם Order.paymentMethod
   // וניתן להרחבה. save-token מחזיר ל-CREDIT אוטומטית כשנשמר טוקן.
   paymentPreference    String    @default("CREDIT")
+  // §401: 💵 מזומן **למכירה אחת בלבד**.
+  //
+  // 🐛 מה שהיה: "מזומן" שהנציג בחר נשמר ב-paymentPreference — כלומר
+  // לתמיד. לקוח ששילם מזומן פעם אחת נשאר מזומן גם במכירה הבאה, הזמין
+  // בלי כרטיס, ואף אחד לא גבה ממנו.
+  //
+  // ✅ עכשיו:
+  //   paymentPreference = "CASH"  → ⭐ לקוח מזומן קבוע (עד שמשנים)
+  //   cashPricelistId = <מכירה>   → מזומן רק במכירה הזו. במכירה אחרת
+  //                                 הוא לקוח אשראי רגיל, ובלי כרטיס
+  //                                 לא יוכל להזמין לבד.
+  // ⚠️ בלי relation: מחיקת מכירה לא צריכה לגעת בלקוח — מזהה שלא
+  // קיים פשוט לא שווה לאף מכירה.
+  cashPricelistId      String?
   // שדות נציג (רלוונטיים רק כאשר role=AGENT)
   // agentPointId: הנקודה שהנציג מוגבל אליה. null = רואה את כל הלקוחות
   // 🔴 DEPRECATED: משתמש בטבלת הקשר AgentPoint (מרובה נקודות). נשאר לתאימות אחורה
@@ -422,6 +436,9 @@ model Pricelist {
   // ובלי הסימון הזה הלקוחות היו מקבלים את אותו קובץ פעמיים.
   excelSentAt      DateTime?
   excelSentCount   Int      @default(0)
+  // §401: 📣 מתי נשלחה הודעת הפתיחה (מייל + טלפון) — מונע שליחה כפולה
+  launchSentAt     DateTime?
+  launchSentCount  Int      @default(0)
   notes         String?
   status        String   @default("DRAFT") // DRAFT / ACTIVE / CLOSED / DONE
   singleSurcharge Decimal @default(3) @db.Decimal(10, 2) // תוספת לבודדים גלובלית למחירון
@@ -841,6 +858,12 @@ model SystemSettings {
   customerEmailTemplate String? // נוסח חופשי, null = ברירת המחדל הקבועה בקוד
   adminEmailTemplate    String?
   personalOrdersEnabled Boolean @default(false) // מתג מודול הזמנות אישיות
+  // §401: 📣 נוסח קבוע להודעת "מכירה חדשה נפתחה" — מייל + טלפון.
+  // null = ברירת המחדל שבקוד (src/lib/sale-launch.ts). משתנים:
+  // {מכירה} {חלוקה} {סגירה} {אתר}
+  saleLaunchSubject     String?
+  saleLaunchEmail       String?
+  saleLaunchPhone       String?
   updatedAt             DateTime @updatedAt
 }
 
@@ -1270,6 +1293,13 @@ model PhoneAnnouncement {
 
   text         String
   isActive     Boolean  @default(true)
+  // §401: 🔂 **פעם אחת לכל מתקשר** (הודעת פתיחת מכירה).
+  //
+  // הודעה רגילה (§30) נשמעת רק למי שיש לו הזמנה פתוחה, ובכל שיחה.
+  // הודעת פתיחה מיועדת דווקא למי שעוד לא הזמין — וכל מתקשר שומע אותה
+  // פעם אחת בלבד. משם והלאה: התפריט הרגיל.
+  oncePerCaller Boolean  @default(false)
+  heard         PhoneAnnouncementHeard[]
   // תפוגה אוטומטית: הודעה על חלוקה של אתמול לא צריכה להישמע היום
   expiresAt    DateTime?
 
@@ -1279,6 +1309,18 @@ model PhoneAnnouncement {
 
   @@index([pricelistId, isActive])
   @@index([pointId])
+}
+
+// §401: מי כבר שמע הודעה חד-פעמית (oncePerCaller)
+model PhoneAnnouncementHeard {
+  id             String   @id @default(cuid())
+  announcementId String
+  announcement   PhoneAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  customerId     String
+  heardAt        DateTime @default(now())
+
+  @@unique([announcementId, customerId])
+  @@index([customerId])
 }
 
 // §51: תכנון ההזמנה לספק - ההחלטה של המנהל כמה קרטונים להזמין.

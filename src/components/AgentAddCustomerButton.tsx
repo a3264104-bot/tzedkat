@@ -40,7 +40,14 @@ type SystemUser = {
   customerName: string;
 };
 
-export function AgentAddCustomerButton({ className = "" }: { className?: string }) {
+export function AgentAddCustomerButton({
+  className = "",
+  pricelistId,
+}: {
+  className?: string;
+  /** §401: המכירה שהנציג נמצא בה — ל"מזומן במכירה הזו בלבד" */
+  pricelistId?: string;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -59,12 +66,18 @@ export function AgentAddCustomerButton({ className = "" }: { className?: string 
             הנציג שרצה להזמין ללקוח קיים לא ידע שזה המקום. */}
         הזמנה ללקוח
       </button>
-      {open && <AddCustomerModal onClose={() => setOpen(false)} />}
+      {open && <AddCustomerModal pricelistId={pricelistId} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function AddCustomerModal({ onClose }: { onClose: () => void }) {
+function AddCustomerModal({
+  onClose,
+  pricelistId,
+}: {
+  onClose: () => void;
+  pricelistId?: string;
+}) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [searching, setSearching] = useState(false);
@@ -94,6 +107,8 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
   // מחדל. מזומן = הלקוח יוגדר כמשלם מזומן בחלוקה. אשראי = מיד אחרי
   // היצירה נפתח מסך הזנת הכרטיס (טוקן + אימות 1₪ מול נדרים).
   const [payMethod, setPayMethod] = useState<"" | "CASH" | "CREDIT">("");
+  // §401: ⭐ מזומן קבוע (לקוח מיוחד). ברירת המחדל — מזומן במכירה הזו בלבד.
+  const [cashAlways, setCashAlways] = useState(false);
   // הלקוח שנוצר וממתין להזנת כרטיס (זרימת אשראי)
   const [cardForCustomerId, setCardForCustomerId] = useState<string | null>(null);
   const timerRef = useRef<any>(null);
@@ -191,6 +206,10 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
           defaultPointId: pointId || null,
           // §60: אופן התשלום שנבחר
           paymentPreference: payMethod,
+          // §401: מזומן — במכירה הזו בלבד, או ⭐ קבוע
+          ...(payMethod === "CASH"
+            ? { cashScope: cashAlways ? "ALWAYS" : "SALE", pricelistId: pricelistId || undefined }
+            : {}),
         }),
       });
       const json = await res.json();
@@ -226,7 +245,10 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
         setCardForCustomerId(json.customer.id);
         return;
       }
-      router.push(`/agent/order/${json.customer.id}`);
+      // §401: אותה מכירה שהנציג נמצא בה (המזומן שייך לה)
+      router.push(
+        `/agent/order/${json.customer.id}${pricelistId ? `?sale=${encodeURIComponent(pricelistId)}` : ""}`
+      );
       onClose();
     } catch (e: any) {
       setError("שגיאה: " + e.message);
@@ -550,10 +572,21 @@ function AddCustomerModal({ onClose }: { onClose: () => void }) {
                   </p>
                 )}
                 {payMethod === "CASH" && (
-                  <p className="text-[10px] text-lime-700 mt-1">
-                    הלקוח יסומן כמשלם מזומן. גם בהזמנות הבאות דרכך לא
-                    יידרש כרטיס. ניתן להעביר לאשראי בהמשך.
-                  </p>
+                  <div className="mt-1.5 space-y-1">
+                    <p className="text-[10px] text-lime-700">
+                      {cashAlways
+                        ? "⭐ לקוח מזומן קבוע — בכל המכירות, עד שמבטלים בכרטיס הלקוח."
+                        : "💵 מזומן במכירה הזו בלבד. במכירה הבאה יידרש כרטיס."}
+                    </p>
+                    <label className="flex items-center gap-1.5 text-[11px] text-amber-800 font-bold">
+                      <input
+                        type="checkbox"
+                        checked={cashAlways}
+                        onChange={(e) => setCashAlways(e.target.checked)}
+                      />
+                      ⭐ לקוח מזומן קבוע (לקוח מיוחד)
+                    </label>
+                  </div>
                 )}
               </div>
             </>
