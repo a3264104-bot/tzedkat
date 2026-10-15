@@ -163,7 +163,7 @@ export async function POST(req: Request) {
   if (pricelist.excelSentAt && !b.force) {
     return NextResponse.json(
       {
-        error: `כבר נשלחו קבצים למכירה זו ב-${pricelist.excelSentAt.toLocaleString("he-IL")} (${pricelist.excelSentCount} נמענים). לשליחה חוזרת יש לאשר.`,
+        error: `כבר נשלחו קבצים למכירה זו ב-${pricelist.excelSentAt.toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" })} (${pricelist.excelSentCount} נמענים). לשליחה חוזרת יש לאשר.`,
         code: "ALREADY_SENT",
         sentAt: pricelist.excelSentAt.toISOString(),
         sentCount: pricelist.excelSentCount,
@@ -272,6 +272,8 @@ export async function POST(req: Request) {
 
   const closeText = pricelist.closeDate
     ? pricelist.closeDate.toLocaleDateString("he-IL", {
+        // §402: 🐛 המייל ללקוחות הציג שעת סגירה 3 שעות מוקדמת
+        timeZone: "Asia/Jerusalem",
         day: "numeric",
         month: "long",
         hour: "2-digit",

@@ -122,7 +122,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   if (b.status === "CANCELLED" && b.cancelReason) {
-    const stamp = new Date().toLocaleString("he-IL");
+    const stamp = new Date().toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" });
     const by = g.session?.user?.email ?? "מנהל";
     const line = `[${stamp}] בוטלה ע"י ${by}: ${String(b.cancelReason).slice(0, 300)}`;
     data.internalNotes = current.internalNotes

@@ -67,6 +67,7 @@ function toHebYear(year: number): string {
 
 function fmtGreg(d: Date): string {
   return d.toLocaleDateString("he-IL", {
+    timeZone: "Asia/Jerusalem", // §402: השרת ב-UTC
     weekday: "long",
     day: "2-digit",
     month: "2-digit",

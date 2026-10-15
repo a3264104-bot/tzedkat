@@ -26,6 +26,9 @@ function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "";
   try {
     return new Date(d).toLocaleDateString("he-IL", {
+      // §402: 🐛 בלי זה השרת (UTC ב-Vercel) הציג 3 שעות אחורה —
+      // מכירה שנסגרת ב-22:00 הוצגה "19:00" (הספירה לאחור הייתה נכונה)
+      timeZone: "Asia/Jerusalem",
       weekday: "long",
       day: "2-digit",
       month: "2-digit",

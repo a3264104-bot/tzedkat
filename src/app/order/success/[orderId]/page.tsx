@@ -20,6 +20,7 @@ function fmtDate(d: Date | string | null): string {
   if (!d) return "";
   try {
     return new Date(d).toLocaleDateString("he-IL", {
+      timeZone: "Asia/Jerusalem", // §402: השרת ב-UTC
       weekday: "long",
       day: "2-digit",
       month: "2-digit",

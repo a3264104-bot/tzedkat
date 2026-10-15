@@ -115,6 +115,7 @@ export default async function SaleControlIndexPage() {
                         <span>
                           📅{" "}
                           {new Date(p.deliveryDate).toLocaleDateString("he-IL", {
+                            timeZone: "Asia/Jerusalem", // §402: השרת ב-UTC
                             weekday: "long",
                             day: "numeric",
                             month: "long",

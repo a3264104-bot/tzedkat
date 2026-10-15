@@ -1237,7 +1237,7 @@ async function handleEditOrder(
       where: { id: order.id },
       data: {
         status: "CANCELLED",
-        internalNotes: `בוטלה אוטומטית - כל הפריטים נמחקו בשיחה ${new Date().toLocaleString("he-IL")}`,
+        internalNotes: `בוטלה אוטומטית - כל הפריטים נמחקו בשיחה ${new Date().toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" })}`,
       },
     });
     return yemotResponse(
@@ -1458,7 +1458,7 @@ async function handleCancelOrder(
     where: { id: order.id },
     data: {
       status: "CANCELLED",
-      internalNotes: `בוטלה ע"י הלקוח במערכת הטלפונית ${new Date().toLocaleString("he-IL")}`,
+      internalNotes: `בוטלה ע"י הלקוח במערכת הטלפונית ${new Date().toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" })}`,
     },
   });
 
@@ -3154,6 +3154,7 @@ async function finalizeOrder(
     dlParts.push(
       say(
         dl.toLocaleDateString("he-IL", {
+          timeZone: "Asia/Jerusalem", // §402: השרת ב-UTC
           weekday: "long",
           day: "numeric",
           month: "numeric",

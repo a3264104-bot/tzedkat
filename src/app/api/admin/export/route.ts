@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   if (type === "orders") {
     const rows = orders.map((o) => ({
       "מס' הזמנה": o.orderNumber,
-      "תאריך": new Date(o.createdAt).toLocaleDateString("he-IL"),
+      "תאריך": new Date(o.createdAt).toLocaleDateString("he-IL", { timeZone: "Asia/Jerusalem" }),
       "שם לקוח": o.customerName,
       "טלפון": o.phone,
       "טלפון נוסף": o.phone2 ?? "",
