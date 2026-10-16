@@ -54,6 +54,15 @@ export default function Dashboard() {
     orders: number;
     paidCount: number;
     pendingCount: number;
+    // ערוץ המזדמנים — טבלה נפרדת (WalkinOrder), לא נספר ב"נמכר"
+    walkins: {
+      count: number;
+      revenue: number;
+      cash: number;
+      card: number;
+      transferPending: number;
+      transferReceived: number;
+    };
   } | null>(null);
 
   const [pendingW, setPendingW] = useState<{
@@ -105,6 +114,14 @@ export default function Dashboard() {
             orders: Number(f.orderCount ?? r?.orders?.length ?? 0),
             paidCount: Number(f.paidOrdersCount ?? 0),
             pendingCount: Number(f.pendingOrdersCount ?? 0),
+            walkins: {
+              count: Number(r?.progress?.totalWalkins ?? 0),
+              revenue: Number(f.walkinRevenue ?? 0),
+              cash: Number(f.walkinCash ?? 0),
+              card: Number(f.walkinCardTerminal ?? 0) + Number(f.walkinOnline ?? 0),
+              transferPending: Number(f.walkinTransferPending ?? 0),
+              transferReceived: Number(f.walkinTransferReceived ?? 0),
+            },
           });
         })
         .catch(() => setMoney(null));
@@ -369,6 +386,9 @@ export default function Dashboard() {
             )}
           </section>
 
+          {/* ─── לפי ערוץ הזמנה ─── */}
+          <ChannelBreakdown sourceCounts={data.sourceCounts ?? {}} walkins={money?.walkins ?? null} />
+
           {/* ─── אזהרות כמות מוגבלת ─── */}
           {data.limitedWarnings?.length > 0 && (
             <section className="card p-4 md:p-5 border-amber-300 bg-amber-50">
@@ -451,6 +471,132 @@ export default function Dashboard() {
         </>
       )}
     </div>
+  );
+}
+
+// §24: מקור ההזמנה — אותן תוויות כמו ברשימת ההזמנות
+const CHANNELS: Record<string, { label: string; color: string }> = {
+  WEB: { label: "אתר", color: "bg-brand-rust" },
+  PHONE: { label: "טלפון", color: "bg-indigo-500" },
+  AGENT: { label: "נציג", color: "bg-teal-500" },
+  EXCEL: { label: "אקסל", color: "bg-green-500" },
+  ADMIN: { label: "מנהל", color: "bg-zinc-400" },
+  WALKIN: { label: "מזדמן שהומר", color: "bg-violet-500" },
+};
+const CHANNEL_ORDER = ["WEB", "PHONE", "AGENT", "EXCEL", "WALKIN", "ADMIN"];
+
+function shekels(n: number) {
+  return "₪" + n.toLocaleString("he-IL", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function ChannelBreakdown({
+  sourceCounts,
+  walkins,
+}: {
+  sourceCounts: Record<string, number>;
+  walkins: {
+    count: number;
+    revenue: number;
+    cash: number;
+    card: number;
+    transferPending: number;
+    transferReceived: number;
+  } | null;
+}) {
+  const rows = Object.entries(sourceCounts)
+    .filter(([, n]) => n > 0)
+    .sort(([a], [b]) => {
+      const ia = CHANNEL_ORDER.indexOf(a);
+      const ib = CHANNEL_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+  const total = rows.reduce((s, [, n]) => s + n, 0);
+  const hasWalkins = !!walkins && walkins.count > 0;
+  if (total === 0 && !hasWalkins) return null;
+
+  const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+  const walkinOther = walkins
+    ? Math.max(0, walkins.revenue - walkins.cash - walkins.card - walkins.transferPending - walkins.transferReceived)
+    : 0;
+
+  return (
+    <section className="card p-4 md:p-5" aria-labelledby="channels">
+      <div className="flex items-center justify-between mb-3">
+        <h2 id="channels" className="font-extrabold text-brand-slatedark">
+          לפי ערוץ הזמנה
+        </h2>
+        <a href="/admin/reports" className="text-xs font-bold text-brand-rust hover:underline">
+          לדוחות ←
+        </a>
+      </div>
+
+      {total > 0 && (
+        <>
+          {/* פס אחד מחולק — היחס בין הערוצים במבט */}
+          <div className="flex h-2.5 rounded-full overflow-hidden bg-zinc-100 gap-0.5" role="presentation">
+            {rows.map(([src, n]) => (
+              <div
+                key={src}
+                className={CHANNELS[src]?.color ?? "bg-zinc-300"}
+                style={{ width: `${(n / total) * 100}%` }}
+              />
+            ))}
+          </div>
+
+          <ul className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {rows.map(([src, n]) => (
+              <li key={src} className="rounded-lg bg-zinc-50 px-3 py-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-600">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${CHANNELS[src]?.color ?? "bg-zinc-300"}`} aria-hidden="true" />
+                  <span className="truncate">{CHANNELS[src]?.label ?? src}</span>
+                </div>
+                <div className="mt-0.5 flex items-baseline gap-1.5">
+                  <span className="text-lg font-extrabold text-brand-slatedark tabular-nums">{n}</span>
+                  <span className="text-xs text-zinc-500 tabular-nums">{pct(n)}%</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-zinc-500 mt-2">
+            <bdi className="tabular-nums">{total}</bdi> הזמנות פעילות (בלי מבוטלות)
+          </p>
+        </>
+      )}
+
+      {/* מכירות מזדמנות — טבלה נפרדת, ולכן גם בנפרד כאן */}
+      {hasWalkins && walkins && (
+        <div className={total > 0 ? "mt-4 pt-4 border-t border-zinc-100" : ""}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-sm font-extrabold text-brand-slatedark">
+              מכירות מזדמנות בשטח
+              <span className="font-normal text-zinc-500"> · <bdi className="tabular-nums">{walkins.count}</bdi> מכירות</span>
+            </h3>
+            <span className="text-lg font-extrabold text-brand-slatedark tabular-nums">{shekels(walkins.revenue)}</span>
+          </div>
+          <p className="text-xs text-zinc-500 mb-2">לא כלול ב"נמכר" למעלה</p>
+          <div className="flex flex-wrap gap-1.5">
+            {walkins.cash > 0 && <MethodChip label="מזומן" value={walkins.cash} />}
+            {walkins.card > 0 && <MethodChip label="אשראי" value={walkins.card} />}
+            {walkins.transferReceived > 0 && <MethodChip label="העברה שהתקבלה" value={walkins.transferReceived} />}
+            {walkins.transferPending > 0 && <MethodChip label="העברה ממתינה לאישור" value={walkins.transferPending} warn />}
+            {walkinOther > 0.5 && <MethodChip label="אחר" value={walkinOther} />}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MethodChip({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
+        warn ? "bg-amber-100 text-amber-900 ring-1 ring-amber-200" : "bg-zinc-100 text-zinc-700"
+      }`}
+    >
+      <span>{label}</span>
+      <span className="font-bold tabular-nums">{shekels(value)}</span>
+    </span>
   );
 }
 
