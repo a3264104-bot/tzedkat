@@ -26,6 +26,8 @@ import { ReportsNav } from "@/components/ReportsNav";
 import Link from "next/link";
 import { api } from "@/lib/client";
 import { fmt } from "@/lib/pricing";
+// מסלול המכירה + "לפני סגירה"
+import { SaleTrack, CloseChecklist, SaleClosedNote, type CloseInfo } from "@/components/SaleProgress";
 
 
 // ריבוי בעברית עם טיפול באות סופית: "קרטון"+"ים" נותן "קרטוןים"
@@ -65,6 +67,11 @@ export default function Dashboard() {
     };
   } | null>(null);
 
+  // התגובה המלאה של sale-control — לפס ההתקדמות ולרשימת "לפני סגירה"
+  const [ctl, setCtl] = useState<any>(null);
+  // §385: שער הסגירה — אותו מקור שמסך הסגירה בודק, כדי שהמספרים יתאימו
+  const [closeInfo, setCloseInfo] = useState<CloseInfo | null>(null);
+
   const [pendingW, setPendingW] = useState<{
     ordersCount: number;
     totalMissingItems: number;
@@ -100,8 +107,15 @@ export default function Dashboard() {
     // ⚠️ sale-control הוא per-pricelist. ב"כל המכירות" אין
     // משמעות לסכום אחד, ולכן הבלוק פשוט לא מוצג.
     if (!isAggregateSelection(pricelistId)) {
+      // מנקים את המכירה הקודמת — שהפס לא יציג לרגע נתונים של מכירה אחרת
+      setCtl(null);
+      setCloseInfo(null);
+      api(`/api/admin/sale-close/${pricelistId}`)
+        .then((r: any) => setCloseInfo(r))
+        .catch(() => setCloseInfo(null));
       api(`/api/admin/sale-control/${pricelistId}`)
         .then((r: any) => {
+          setCtl(r);
           // ⚠️ financialSummary — השם ב-sale-control (§78).
           const f = r?.financialSummary ?? r?.financial ?? r ?? {};
           const sold = Number(f.orderRevenue ?? f.totalRevenue ?? 0);
@@ -124,9 +138,14 @@ export default function Dashboard() {
             },
           });
         })
-        .catch(() => setMoney(null));
+        .catch(() => {
+          setMoney(null);
+          setCtl(null);
+        });
     } else {
       setMoney(null);
+      setCtl(null);
+      setCloseInfo(null);
     }
 
     api(`/api/admin/reports${qs}`)
@@ -186,7 +205,13 @@ export default function Dashboard() {
   // "תומחרו" = כל מה שעבר את שלב השקילה (כלומר כבר לא ממתין לשקילה),
   // מתוך ההזמנות הפעילות בלבד.
   const activeTotal = data?.totalOrders ?? 0;
-  const pricedCount = Math.max(0, activeTotal - waitingWeigh);
+  // 🐛 תוקן: הספירה הייתה לפי status=PENDING_REVIEW — סטטוס שנשאר גם על
+  // הזמנות שכבר נשקלו ושולמו (ראה הערה למעלה). במכירה עם 315/320 שולמו
+  // הבר הציג "נותרו 301 לשקילה". עכשיו ממקור האמת (/pending-weights),
+  // ורק אם הוא לא נטען — הנפילה לישן.
+  const pricedCount = pendingW
+    ? Math.max(0, activeTotal - realWeighOrders)
+    : Math.max(0, activeTotal - waitingWeigh);
   const remaining = Math.max(0, activeTotal - pricedCount);
 
   // פילוח מצב ההזמנות - בלי מבוטלות (הן מוצגות בנפרד),
@@ -202,6 +227,8 @@ export default function Dashboard() {
   // לתצוגה: רק השורות שמוצגות בפועל ברשימה (awaitingFinalPrice כבר לא שורה, §372)
   const shownActions = chargeFailed + realWeighOrders + readyToCharge + waitingPay + needsMarkReady;
   const aggregate = isAggregateSelection(selected);
+  // המצב העדכני מהשרת (sale-control), ולא מרשימת הבורר שנשמרת לזמן הגלישה
+  const saleStatus: string = ctl?.pricelist?.status ?? currentList?.status ?? "";
   const saleTitle = aggregate
     ? saleSelectionLabel(selected, lists)
     : currentList?.name ?? "בחר מכירה";
@@ -219,7 +246,7 @@ export default function Dashboard() {
             <h1 className="text-xl md:text-2xl font-extrabold text-brand-slatedark truncate">
               {saleTitle}
             </h1>
-            {!aggregate && currentList && <SaleStatusBadge status={currentList.status} />}
+            {!aggregate && saleStatus && <SaleStatusBadge status={saleStatus} />}
           </div>
           {data && (
             <p className="text-sm mt-1 text-zinc-600">
@@ -268,6 +295,20 @@ export default function Dashboard() {
 
       {data && (
         <>
+          {/* ─── מסלול המכירה — באיזה שלב, וכמה נשאר בכל שלב ─── */}
+          {!aggregate && selected && ctl && (
+            <SaleTrack
+              pricelistId={selected}
+              status={saleStatus}
+              closeDate={ctl?.pricelist?.closeDate ?? null}
+              activeTotal={activeTotal}
+              pricedCount={pricedCount}
+              deliveredCount={deliveredCount}
+              awaitingPickup={awaitingPickup}
+              close={closeInfo}
+            />
+          )}
+
           {/* §372: שורת הכסף — נמכר, נגבה, ממתין, חוב (בנפרד, §325/§366).
               ⚠️ רק במכירה אחת: sale-control הוא per-pricelist. */}
           {money ? (
@@ -385,6 +426,16 @@ export default function Dashboard() {
               </div>
             )}
           </section>
+
+          {/* ─── לפני סגירת המכירה — רק אחרי שההזמנות נסגרו.
+              בזמן שעוד מזמינים, רשימת חוסמים מלאה היא רעש; הפס למעלה
+              כבר מראה כמה חוסמים יש. ─── */}
+          {!aggregate && selected && closeInfo && ctl && saleStatus === "CLOSED" && (
+            <CloseChecklist pricelistId={selected} close={closeInfo} ctl={ctl} />
+          )}
+          {!aggregate && ctl && saleStatus === "DONE" && (
+            <SaleClosedNote carriedToDebt={Number(ctl?.financialSummary?.carriedToDebt ?? 0)} />
+          )}
 
           {/* ─── לפי ערוץ הזמנה ─── */}
           <ChannelBreakdown sourceCounts={data.sourceCounts ?? {}} walkins={money?.walkins ?? null} />
@@ -608,10 +659,23 @@ function SaleStatusBadge({ status }: { status: string }) {
         פעילה
       </span>
     );
+  // DRAFT / ACTIVE / CLOSED / DONE (schema.prisma: Pricelist.status)
   if (status === "CLOSED")
     return (
+      <span className="shrink-0 rounded-full bg-amber-100 text-amber-800 px-2.5 py-0.5 text-xs font-bold">
+        ההזמנות נסגרו
+      </span>
+    );
+  if (status === "DONE")
+    return (
       <span className="shrink-0 rounded-full bg-zinc-200 text-zinc-700 px-2.5 py-0.5 text-xs font-bold">
-        סגורה
+        נסגרה סופית ✓
+      </span>
+    );
+  if (status === "DRAFT")
+    return (
+      <span className="shrink-0 rounded-full bg-zinc-100 text-zinc-500 px-2.5 py-0.5 text-xs font-bold">
+        טיוטה
       </span>
     );
   return null;
