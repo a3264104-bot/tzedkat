@@ -1,5 +1,5 @@
 import { Providers } from "@/components/Providers";
-import { AdminNav } from "@/components/AdminNav";
+import { AdminShell } from "@/components/AdminShell";
 import { auth } from "@/lib/auth";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -9,10 +9,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <Providers>
       {session?.user ? (
-        <div className="md:flex bg-[#faf6ec] min-h-screen">
-          <AdminNav />
-          <main className="flex-1 min-w-0 p-4 md:p-6">{children}</main>
-        </div>
+        <AdminShell>{children}</AdminShell>
       ) : (
         children
       )}

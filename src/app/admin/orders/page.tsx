@@ -106,6 +106,8 @@ export default function OrdersPage() {
   const [fPay, setFPay] = useState("");
   // §48: סינון לפי שלב + בחירה מרובה לפעולה מרוכזת
   const [fStage, setFStage] = useState("");
+  // סינון לפי ערוץ הזמנה (source) — מקומי, כמו החיפוש
+  const [fSource, setFSource] = useState("");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -195,7 +197,15 @@ export default function OrdersPage() {
   };
 
   const currentList = lists?.find((l) => l.id === fPricelist) ?? null;
-  const hasSubFilter = !!fPoint || !!fStatus || !!q.trim() || !!fPay || !!fStage;
+  const hasSubFilter = !!fPoint || !!fStatus || !!q.trim() || !!fPay || !!fStage || !!fSource;
+
+  // הערוצים שקיימים בפועל ברשימה — לבורר הערוץ
+  const sourceCounts: Record<string, number> = {};
+  for (const o of orders) {
+    const src = o.source || "WEB";
+    sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+  }
+  const sourcesPresent = Object.keys(sourceCounts);
 
   // ספירת ההזמנות בכל שלב - מזינה את סרגל המשימות
   const stageCounts: Record<string, number> = {};
@@ -207,6 +217,7 @@ export default function OrdersPage() {
   // סינון מקומי: שלב + חיפוש חופשי + מצב תשלום
   const shown = orders.filter((o) => {
     if (fStage && orderStage(o).key !== fStage) return false;
+    if (fSource && (o.source || "WEB") !== fSource) return false;
     if (fPay === "PAID" && o.paymentStatus !== "PAID") return false;
     if (fPay === "UNPAID" && o.paymentStatus === "PAID") return false;
     // §273: חיפוש **רב-מילים**, כמו במסך הלקוחות (§251).
@@ -281,143 +292,174 @@ export default function OrdersPage() {
 
       {/* §48: סרגל המשימות. לא כפתורי פעולה אלא מסננים - "מה מחכה לי
           עכשיו". לחיצה מסננת את הטבלה, ואז מופיעה הפעולה הרלוונטית.
-          זה משקף את העבודה בפועל: המנהל לא מסמן הזמנה בודדת, הוא
-          מסמן את כל מי שרלוונטי בנקודה שהסחורה הגיעה אליה. */}
+          ⚠️ בנייד: שורה אחת נגללת לרוחב, ולא חמש שורות של שבבים. */}
       {!loading && orders.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          <StageChip
-            active={fStage === ""}
-            onClick={() => {
-              setFStage("");
-              setSel(new Set());
-            }}
-            color="bg-brand-slatedark text-white"
-          >
-            הכל · {orders.length}
-          </StageChip>
-          {STAGE_ORDER.map((key) => {
-            const count = stageCounts[key] || 0;
-            if (!count) return null;
-            const sample = orders.find((o) => orderStage(o).key === key);
-            const st = orderStage(sample);
-            return (
-              <StageChip
-                key={key}
-                active={fStage === key}
-                onClick={() => {
-                  setFStage(fStage === key ? "" : key);
-                  setSel(new Set());
-                }}
-                color={st.isTask ? "bg-brand-rust text-white" : "bg-zinc-600 text-white"}
-              >
-                {st.isTask && "⚠ "}
-                {st.label} · {count}
-              </StageChip>
-            );
-          })}
+        <div className="-mx-4 px-4 md:mx-0 md:px-0 overflow-x-auto [scrollbar-width:none]">
+          <div className="flex gap-1.5 w-max md:w-auto md:flex-wrap">
+            <StageChip
+              active={fStage === ""}
+              onClick={() => {
+                setFStage("");
+                setSel(new Set());
+              }}
+              count={orders.length}
+            >
+              הכל
+            </StageChip>
+            {STAGE_ORDER.map((key) => {
+              const count = stageCounts[key] || 0;
+              if (!count) return null;
+              const sample = orders.find((o) => orderStage(o).key === key);
+              const st = orderStage(sample);
+              return (
+                <StageChip
+                  key={key}
+                  active={fStage === key}
+                  onClick={() => {
+                    setFStage(fStage === key ? "" : key);
+                    setSel(new Set());
+                  }}
+                  count={count}
+                  task={st.isTask}
+                >
+                  {st.label}
+                </StageChip>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        {/* פילטר מכירה - הפילטר הראשי */}
-        {/* §380: רכיב אחד — הבחירה נשמרת בין המסכים. */}
-        <PricelistSelector
-          lists={lists}
-          selected={fPricelist}
-          onChange={setFPricelist}
-          allowAll
-          className="input max-w-[240px]"
-        />
-
-        <select
-          className="input max-w-[180px]"
-          value={fPoint}
-          onChange={(e) => setFPoint(e.target.value)}
-          aria-label="סינון לפי נקודת חלוקה"
-        >
-          <option value="">כל הנקודות</option>
-          {points.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-
-        <select
-          className="input max-w-[180px]"
-          value={fStatus}
-          onChange={(e) => setFStatus(e.target.value)}
-          aria-label="סינון לפי סטטוס"
-        >
-          <option value="">כל הסטטוסים</option>
-          {STATUS_ORDER.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
-
-        <select
-          className="input max-w-[150px]"
-          value={fPay}
-          onChange={(e) => setFPay(e.target.value)}
-          aria-label="סינון לפי תשלום"
-        >
-          <option value="">תשלום: הכל</option>
-          <option value="PAID">שולם</option>
-          <option value="UNPAID">טרם שולם</option>
-        </select>
-
-        <input
-          className="input max-w-[200px]"
-          placeholder="חיפוש: שם, טלפון, מספר"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          aria-label="חיפוש בהזמנות"
-        />
-
-        {hasSubFilter && (
-          <button
-            onClick={() => {
-              setFPoint("");
-              setFStatus("");
-              setQ("");
-              setFPay("");
-            }}
-            className="btn-ghost btn-sm"
+      {/* ─── חיפוש וסינון ─── */}
+      <div className="card p-3 space-y-2.5">
+        <div className="relative">
+          <svg
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            aria-hidden="true"
           >
-            נקה סינון
-          </button>
-        )}
+            <circle cx="11" cy="11" r="7" />
+            <path strokeLinecap="round" d="M20 20l-3.5-3.5" />
+          </svg>
+          <input
+            type="search"
+            className="input !pr-10 !py-2.5"
+            placeholder="חיפוש: שם, טלפון או מספר הזמנה"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            aria-label="חיפוש בהזמנות"
+          />
+        </div>
 
-        {/* §231: 🐛 "252 הזמנות" מול "244" בבקרת מכירה.
-            
-            ההפרש הוא המבוטלות - אבל אף מסך לא אמר את זה, והמנהל
-            שרואה שני מספרים שונים לאותה מכירה לא יודע במי לבטוח.
-            
-            ⚠️ הפירוט מוצג רק כשיש מבוטלות: במכירה בלי ביטולים
-            "252 · 252 פעילות · 0 בוטלו" הוא רעש. */}
-        {!loading && (
-          <span className="text-sm text-brand-slate/60 mr-auto">
-            <bdi>{shown.length}</bdi> הזמנות
-            {shown.length !== orders.length && ` מתוך ${orders.length}`}
-            {(() => {
-              // ⚠️ נספר מתוך **כל** ההזמנות ולא מהמסוננות: המנהל
-              // רוצה לדעת כמה בוטלו במכירה, לא כמה בוטלו בסינון
-              // הנוכחי.
-              const cancelled = orders.filter(
-                (o: any) => o.status === "CANCELLED"
-              ).length;
-              if (cancelled === 0) return null;
-              return (
-                <span className="text-zinc-400">
-                  {" · "}
-                  {orders.length - cancelled} פעילות · {cancelled} בוטלו
-                </span>
-              );
-            })()}
-          </span>
-        )}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
+          {/* פילטר מכירה - הפילטר הראשי */}
+          {/* §380: רכיב אחד — הבחירה נשמרת בין המסכים. */}
+          <div className="col-span-2 lg:col-span-1">
+            <PricelistSelector
+              lists={lists}
+              selected={fPricelist}
+              onChange={setFPricelist}
+              allowAll
+              className="input py-2 text-sm"
+            />
+          </div>
+
+          <select
+            className="input py-2 text-sm"
+            value={fPoint}
+            onChange={(e) => setFPoint(e.target.value)}
+            aria-label="סינון לפי נקודת חלוקה"
+          >
+            <option value="">כל הנקודות</option>
+            {points.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="input py-2 text-sm"
+            value={fStatus}
+            onChange={(e) => setFStatus(e.target.value)}
+            aria-label="סינון לפי סטטוס"
+          >
+            <option value="">כל הסטטוסים</option>
+            {STATUS_ORDER.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABELS[s]}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="input py-2 text-sm"
+            value={fPay}
+            onChange={(e) => setFPay(e.target.value)}
+            aria-label="סינון לפי תשלום"
+          >
+            <option value="">תשלום: הכל</option>
+            <option value="PAID">שולם</option>
+            <option value="UNPAID">טרם שולם</option>
+          </select>
+
+          {/* סינון לפי ערוץ — מקומי, על הרשימה שכבר נטענה */}
+          <select
+            className="input py-2 text-sm"
+            value={fSource}
+            onChange={(e) => setFSource(e.target.value)}
+            aria-label="סינון לפי ערוץ הזמנה"
+          >
+            <option value="">כל הערוצים</option>
+            {sourcesPresent.map((s) => (
+              <option key={s} value={s}>
+                {s === "WEB" ? "אתר" : SOURCE_LABELS[s] ?? s} · {sourceCounts[s]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+          {/* §231: הפירוט מוצג רק כשיש מבוטלות */}
+          {!loading ? (
+            <span className="text-sm text-zinc-600">
+              <bdi className="font-bold text-brand-slatedark tabular-nums">{shown.length}</bdi> הזמנות
+              {shown.length !== orders.length && ` מתוך ${orders.length}`}
+              {(() => {
+                // ⚠️ נספר מתוך **כל** ההזמנות ולא מהמסוננות
+                const cancelled = orders.filter(
+                  (o: any) => o.status === "CANCELLED"
+                ).length;
+                if (cancelled === 0) return null;
+                return (
+                  <span className="text-zinc-400">
+                    {" · "}
+                    {orders.length - cancelled} פעילות · {cancelled} בוטלו
+                  </span>
+                );
+              })()}
+            </span>
+          ) : (
+            <span />
+          )}
+          {hasSubFilter && (
+            <button
+              onClick={() => {
+                setFPoint("");
+                setFStatus("");
+                setQ("");
+                setFPay("");
+                setFSource("");
+              }}
+              className="text-sm font-bold text-brand-rust hover:underline"
+            >
+              נקה סינון
+            </button>
+          )}
+        </div>
       </div>
 
       {/* §48: סרגל הפעולה. מופיע רק כשהסינון ממקד בשלב שיש עליו פעולה
@@ -508,7 +550,68 @@ export default function OrdersPage() {
           </p>
         </div>
       ) : (
-        <div className="table-wrap">
+        <>
+        {/* ─── נייד: כרטיסים ─── */}
+        <ul className="md:hidden space-y-2">
+          {shown.map((o) => {
+            const st = orderStage(o);
+            const selectable = fStage === "needsReady" || fStage === "ready";
+            return (
+              <li key={o.id} className="card flex items-stretch overflow-hidden">
+                {selectable && (
+                  <label className="flex items-center px-3 border-l border-zinc-100 bg-zinc-50">
+                    <input
+                      type="checkbox"
+                      className="w-5 h-5"
+                      checked={sel.has(o.id)}
+                      onChange={(e) => {
+                        const next = new Set(sel);
+                        if (e.target.checked) next.add(o.id);
+                        else next.delete(o.id);
+                        setSel(next);
+                      }}
+                      aria-label={`בחר הזמנה ${o.orderNumber}`}
+                    />
+                  </label>
+                )}
+                <Link
+                  href={`/admin/orders/${o.id}`}
+                  className="flex-1 min-w-0 p-3 active:bg-zinc-50 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-bold text-brand-slatedark truncate">{o.customerName}</p>
+                      <p className="text-xs text-zinc-500 mt-0.5 truncate">
+                        #{o.orderNumber} · {o.point?.name ?? o.pointNameSnapshot ?? "—"}
+                      </p>
+                    </div>
+                    <span className={`badge ${st.color} whitespace-nowrap shrink-0`}>{st.label}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-2 text-xs">
+                    <span className="flex items-center gap-1.5 min-w-0 text-zinc-500">
+                      {o.source && o.source !== "WEB" && (
+                        <span className={`badge ${SOURCE_COLORS[o.source] ?? "bg-zinc-100 text-zinc-600"}`}>
+                          {SOURCE_LABELS[o.source] ?? o.source}
+                        </span>
+                      )}
+                      <span dir="ltr" className="truncate">{o.phone}</span>
+                    </span>
+                    <span className="shrink-0 tabular-nums">
+                      {o.finalTotal ? (
+                        <strong className="text-sm text-brand-slatedark">{fmt(o.finalTotal)}</strong>
+                      ) : (
+                        <span className="text-zinc-500">משוער {fmt(o.estimatedTotal)}</span>
+                      )}
+                    </span>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+
+        {/* ─── דסקטופ: טבלה ─── */}
+        <div className="table-wrap hidden md:block">
           <table className="admin">
             <thead>
               <tr>
@@ -555,7 +658,7 @@ export default function OrdersPage() {
                       />
                     </td>
                   )}
-                  <td className="font-bold">{o.orderNumber}</td>
+                  <td className="font-bold tabular-nums">{o.orderNumber}</td>
                   <td className="text-zinc-500 whitespace-nowrap">
                     {new Date(o.createdAt).toLocaleDateString("he-IL")}
                   </td>
@@ -568,19 +671,17 @@ export default function OrdersPage() {
                         {SOURCE_LABELS[o.source] ?? o.source}
                       </span>
                     ) : (
-                      <span className="text-zinc-300 text-xs">אתר</span>
+                      <span className="text-zinc-400 text-xs">אתר</span>
                     )}
                   </td>
                   <td className="text-zinc-500" dir="ltr">
                     {o.phone}
                   </td>
                   <td className="text-zinc-500">{o.point?.name ?? o.pointNameSnapshot ?? "—"}</td>
-                  <td>{fmt(o.estimatedTotal)}</td>
-                  <td>{o.finalTotal ? fmt(o.finalTotal) : "—"}</td>
+                  <td className="tabular-nums">{fmt(o.estimatedTotal)}</td>
+                  <td className="tabular-nums">{o.finalTotal ? fmt(o.finalTotal) : "—"}</td>
                   <td>
-                    {/* §48: תווית אחת שאומרת איפה ההזמנה עומדת, במקום
-                        שהמנהל יפענח שילוב של status + paymentStatus +
-                        deliveredAt בשלוש תגיות נפרדות. */}
+                    {/* §48: תווית אחת שאומרת איפה ההזמנה עומדת */}
                     {(() => {
                       const st = orderStage(o);
                       return (
@@ -600,6 +701,7 @@ export default function OrdersPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
@@ -610,22 +712,40 @@ export default function OrdersPage() {
 function StageChip({
   active,
   onClick,
-  color,
+  count,
+  task,
   children,
 }: {
   active: boolean;
   onClick: () => void;
-  color: string;
+  count: number;
+  task?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
-        active ? color + " shadow-sm" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+      aria-pressed={active}
+      className={`shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-bold rounded-full border transition-colors active:scale-[0.97] ${
+        active
+          ? "bg-brand-slatedark text-white border-brand-slatedark"
+          : "bg-white text-brand-slatedark border-zinc-200 hover:border-zinc-300"
       }`}
     >
-      {children}
+      {task && (
+        <span
+          className={`w-2 h-2 rounded-full ${active ? "bg-amber-300" : "bg-brand-rust"}`}
+          aria-hidden="true"
+        />
+      )}
+      <span className="whitespace-nowrap">{children}</span>
+      <span
+        className={`min-w-6 px-1.5 rounded-full text-xs tabular-nums text-center ${
+          active ? "bg-white/20" : "bg-zinc-100 text-zinc-600"
+        }`}
+      >
+        {count}
+      </span>
     </button>
   );
 }

@@ -189,7 +189,7 @@ export default function AdminNav() {
                 )}
                 <span className="min-w-0 text-right">
                   <span className="block truncate">{group.label}</span>
-                  <span className="block text-[10px] font-normal text-brand-slate/50 truncate">
+                  <span className="block text-xs font-normal text-brand-slate/60 truncate">
                     {group.hint}
                   </span>
                 </span>
@@ -330,7 +330,7 @@ function NavLink({
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={`flex items-center gap-2 px-3 rounded-lg text-sm transition-colors ${
-        small ? "py-1.5" : "py-2.5 font-bold"
+        small ? "py-2 md:py-1.5" : "py-2.5 font-bold"
       } ${
         active
           ? "bg-brand-rust text-white shadow-sm"
