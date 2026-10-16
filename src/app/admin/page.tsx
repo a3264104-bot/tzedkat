@@ -182,327 +182,293 @@ export default function Dashboard() {
   const openActions =
     realWeighOrders + awaitingFinalPrice + readyToCharge + chargeFailed + waitingPay + needsMarkReady;
 
+  // לתצוגה: רק השורות שמוצגות בפועל ברשימה (awaitingFinalPrice כבר לא שורה, §372)
+  const shownActions = chargeFailed + realWeighOrders + readyToCharge + waitingPay + needsMarkReady;
+  const aggregate = isAggregateSelection(selected);
+  const saleTitle = aggregate
+    ? saleSelectionLabel(selected, lists)
+    : currentList?.name ?? "בחר מכירה";
+  const collectedPct =
+    money && money.sold > 0 ? Math.min(100, Math.round((money.collected / money.sold) * 100)) : 0;
+  const pricedPct = activeTotal > 0 ? Math.round((pricedCount / activeTotal) * 100) : 0;
+
   return (
-    <div className="space-y-6">
-      {/* ─── כותרת + בורר מכירה ─── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold text-brand-slatedark">דשבורד</h1>
-          <p className="text-sm text-brand-slate/60 mt-0.5">
-            {isAggregateSelection(selected)
-              ? `מציג נתונים: ${saleSelectionLabel(selected, lists)}`
-              : currentList
-                ? `מציג את המכירה: ${currentList.name}`
-                : "בחר מכירה"}
-          </p>
+    <div className="space-y-5 max-w-6xl">
+      {/* ─── פס המכירה: מה מוצג, באיזה מצב, וכמה מחכה ─── */}
+      <section className="card p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-zinc-500">דשבורד</p>
+          <div className="flex items-center gap-2 min-w-0 mt-0.5">
+            <h1 className="text-xl md:text-2xl font-extrabold text-brand-slatedark truncate">
+              {saleTitle}
+            </h1>
+            {!aggregate && currentList && <SaleStatusBadge status={currentList.status} />}
+          </div>
+          {data && (
+            <p className="text-sm mt-1 text-zinc-600">
+              {shownActions > 0 ? (
+                <>
+                  <bdi className="font-extrabold text-brand-rust tabular-nums">{shownActions}</bdi>{" "}
+                  פעולות ממתינות לטיפול
+                </>
+              ) : (
+                <span className="text-emerald-700 font-bold">אין פעולות פתוחות</span>
+              )}
+              {activeTotal > 0 && (
+                <span className="text-zinc-400"> · {activeTotal} הזמנות פעילות</span>
+              )}
+            </p>
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <label htmlFor="sale-picker" className="text-sm font-bold text-brand-slatedark">
-            מכירה
+        <div className="flex flex-col gap-2 sm:items-end shrink-0">
+          <label className="flex items-center gap-2">
+            <span className="text-sm font-bold text-brand-slatedark shrink-0">מכירה</span>
+            {/* §380: רכיב אחד לכל המסכים — הבחירה נשמרת. */}
+            <PricelistSelector
+              lists={lists}
+              selected={selected}
+              onChange={setSelected}
+              allowAll
+              className="input py-2 px-3 text-sm w-full sm:w-64"
+            />
           </label>
-          {/* §380: רכיב אחד לכל המסכים — הבחירה נשמרת. */}
-          <PricelistSelector
-            lists={lists}
-            selected={selected}
-            onChange={setSelected}
-            allowAll
-            className="input py-2 px-3 text-sm w-56"
-          />
+          {!aggregate && selected && (
+            <div className="flex gap-4 text-xs font-bold">
+              <a href={`/admin/sale-control/${selected}`} className="text-brand-rust hover:underline">
+                בקרת מכירה ←
+              </a>
+              {/* §385: סגירת מכירה — השער */}
+              <a href={`/admin/sale-close/${selected}`} className="text-zinc-600 hover:text-brand-rust hover:underline">
+                סגירת מכירה ←
+              </a>
+            </div>
+          )}
         </div>
-      </div>
+      </section>
 
-      {loading && <p className="text-zinc-500 text-sm">טוען נתונים...</p>}
+      {loading && !data && <DashboardSkeleton />}
 
       {data && (
         <>
-          {/* §373: 🗑️ שורת ה-Stat **מוזגה ל-💰**.
-              
-              "סכום סופי" ו"נמכר" הם אותו מספר בשני שמות, ו"סכום
-              משוער" מיותר אחרי שהכל נשקל.
-              
-              ⚠️ מה שנשאר רלוונטי — "תומחרו X/Y" — עבר לשורת
-              הכסף כשורת התקדמות. */}
-
-          {/* §372: 💰 **שורת הכסף — התמונה שחסרה.**
-              
-              הדשבורד ענה על "מה לעשות" ולא על "איפה הכסף".
-              המנהל עבר בין ארבעה מסכים (בקרת מכירה, סיכום
-              מכירה, תשלומים, חובות נציגים) כדי להרכיב מצב אחד.
-              
-              ⚠️ ארבעה מספרים, ולא דוח: נמכר, נגבה, ממתין, חוב.
-              מי שרוצה פירוט לוחץ ועובר.
-              
-              ⚠️ והחוב **בנפרד** (§325/§366): הוא כסף שנכנס אבל
-              לא מהמכירה הזו, וערבוב שלו שובר את ההצלבה מול
-              תעודות הספק. */}
-          {/* §397: 🧭 לאן הולכים מכאן — שלושת מסכי הסיכום, עם הסבר */}
-          <ReportsNav
-            current={null}
-            pricelistId={isAggregateSelection(selected) ? "" : selected}
-          />
-          {money && (
-            <div className="card p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-bold text-brand-slatedark">💰 הכסף</h2>
-                <div className="flex gap-3">
-                  <a
-                    href={`/admin/sale-control/${!isAggregateSelection(selected) ? selected : ""}`}
-                    className="text-xs font-bold text-brand-rust hover:underline"
-                  >
-                    לפירוט ←
-                  </a>
-                  {/* §385: סגירת מכירה — השער */}
-                  {!isAggregateSelection(selected) && (
-                    <a
-                      href={`/admin/sale-close/${selected}`}
-                      className="text-xs font-bold text-zinc-600 hover:text-brand-rust hover:underline"
-                    >
-                      🔒 סגירה ←
-                    </a>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <MoneyBox
-                  label="נמכר"
-                  value={money.sold}
-                  sub={`${money.orders} הזמנות`}
-                  tone="slate"
-                />
-                <MoneyBox
+          {/* §372: שורת הכסף — נמכר, נגבה, ממתין, חוב (בנפרד, §325/§366).
+              ⚠️ רק במכירה אחת: sale-control הוא per-pricelist. */}
+          {money ? (
+            <section aria-label="הכסף" className="card p-4 md:p-5">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Kpi label="נמכר" value={money.sold} sub={`${money.orders} הזמנות`} />
+                <Kpi
                   label="נגבה"
                   value={money.collected}
-                  sub={`${money.paidCount} שולמו`}
-                  tone="emerald"
+                  sub={`${money.paidCount} שולמו · ${collectedPct}%`}
+                  tone={money.collected > 0 ? "good" : "neutral"}
+                  progress={collectedPct}
                 />
-                <MoneyBox
-                  label="💳 ממתין לחיוב"
+                <Kpi
+                  label="ממתין לחיוב"
                   value={money.pending}
-                  sub={`${money.pendingCount} הזמנות · במכירה הזו`}
-                  tone={money.pending > 0 ? "amber" : "slate"}
+                  sub={`${money.pendingCount} הזמנות במכירה הזו`}
+                  tone={money.pending > 0 ? "warn" : "neutral"}
                   href="/admin/payments"
                 />
-                <MoneyBox
-                  label="💸 חוב קודם שנגבה"
+                <Kpi
+                  label="חוב קודם שנגבה"
                   value={money.debt}
                   sub="ממכירות קודמות · לא נספר כאן"
-                  tone="slate"
+                  tone="muted"
                   href="/admin/debt-ledger"
                 />
               </div>
 
-              {/* §373: התקדמות השקילה — מה שנשאר משורת ה-Stat.
-                  
-                  ⚠️ פס ולא מספר: "213/256" דורש חישוב בראש, ופס
-                  נקרא במבט. */}
+              {/* §373: התקדמות השקילה — פס ולא מספר */}
               {activeTotal > 0 && (
-                <div className="mt-3 pt-3 border-t border-zinc-100">
-                  <div className="flex items-center justify-between text-xs mb-1">
+                <div className="mt-4 pt-4 border-t border-zinc-100">
+                  <div className="flex items-center justify-between text-xs mb-1.5">
                     <span className="font-bold text-zinc-600">
-                      תומחרו {pricedCount} מתוך {activeTotal}
+                      שקילה ותמחור · <bdi className="tabular-nums">{pricedCount}/{activeTotal}</bdi>
                     </span>
-                    <span
-                      className={
-                        remaining === 0
-                          ? "text-emerald-700 font-bold"
-                          : "text-amber-700 font-bold"
-                      }
-                    >
-                      {remaining === 0
-                        ? "✓ הכל תומחר"
-                        : `נותרו ${remaining} לשקילה`}
+                    <span className={remaining === 0 ? "text-emerald-700 font-bold" : "text-amber-700 font-bold"}>
+                      {remaining === 0 ? "✓ הכל תומחר" : `נותרו ${remaining} לשקילה`}
                     </span>
                   </div>
-                  <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-500 transition-all"
-                      style={{
-                        width: `${Math.round((pricedCount / activeTotal) * 100)}%`,
-                      }}
-                    />
-                  </div>
+                  <Bar pct={pricedPct} tone={remaining === 0 ? "good" : "warn"} />
                 </div>
               )}
-            </div>
+            </section>
+          ) : (
+            aggregate && (
+              <p className="text-sm text-zinc-500 px-1">
+                נתוני כסף מוצגים כשבוחרים מכירה אחת.
+              </p>
+            )
           )}
 
           {/* ─── מה הצעד הבא ─── */}
-          <div className="card p-5">
-            <h2 className="font-bold text-brand-slatedark mb-1">מה הצעד הבא</h2>
-            <p className="text-xs text-brand-slate/60 mb-3">לפי מצב ההזמנות במכירה הזו</p>
-            <div className="space-y-1.5">
-              <NextAction
-                count={realWeighOrders}
-                label={
-                  // §72: הניסוח הקודם - "הזמנות עם 2 פריטים שממתינים לשקילה"
-                  // ליד עיגול עם המספר 2 - הציג את אותו מספר פעמיים בשתי
-                  // משמעויות (הזמנות/פריטים), ואי אפשר היה לדעת מה סופר מה.
-                  // עכשיו: העיגול = הזמנות, והפריטים מפורטים רק כשהם שונים.
-                  realWeighItems > 0 && realWeighItems !== realWeighOrders
-                    ? `הזמנות ממתינות לשקילה (${realWeighItems} פריטים בסך הכל)`
-                    : "הזמנות ממתינות לשקילה"
-                }
-                href="/admin/pending-weights"
-                cta="להזנת משקלים"
-              />
-              {/* §372: 🗑️ "נשקלו — ממתינות למחיר סופי" **הוסרה**.
-                  
-                  🐛 היא לא הייתה מצב אמיתי אלא הפרש בין שני
-                  מספרים (waitingWeigh − realWeighOrders), ותיארה
-                  שלב שכלל לא קיים: §266 קובע finalTotal ומסמן
-                  READY_TO_CHARGE **באותה שקילה**.
-                  
-                  ⚠️ המנהל ראה שורה שאומרת "יש משהו לעשות" בלי
-                  שיהיה מה לעשות — וזה בדיוק מה שהופך דשבורד
-                  לרעש. */}
-              <NextAction
-                count={readyToCharge}
-                label="הזמנות מוכנות לחיוב"
-                href="/admin/payments"
-                cta="למסך תשלומים"
-              />
-              <NextAction
-                count={chargeFailed}
-                label="חיובים שנכשלו או שדורשים עדכון כרטיס"
-                href="/admin/payments"
-                cta="לטיפול בחיובים"
-              />
-              <NextAction
-                count={waitingPay}
-                label="הזמנות ממתינות לתשלום"
-                href="/admin/payments"
-                cta="למסך תשלומים"
-              />
-              <NextAction
-                count={needsMarkReady}
-                label="הזמנות ששולמו — סמן שהן מוכנות לחלוקה"
-                href="/admin/orders"
-                cta="לרשימת ההזמנות"
-              />
-              {openActions === 0 && (
-                <p className="text-sm text-brand-slate/50 py-2">
-                  אין פעולות פתוחות במכירה הזו.
-                </p>
-              )}
-
-              {/* §47: מצב החלוקה - מידע ולא משימה. הזמנה שסומנה מוכנה
-                  ממתינה שהלקוח יגיע, וזו לא פעולה שהמנהל צריך לעשות. */}
-              {(awaitingPickup > 0 || deliveredCount > 0) && (
-                <div className="mt-3 pt-3 border-t border-zinc-100 flex flex-wrap gap-x-5 gap-y-1 text-xs text-brand-slate/70">
-                  {awaitingPickup > 0 && (
-                    <span>
-                      <bdi>{awaitingPickup}</bdi> מוכנות וממתינות שהלקוח יגיע
-                    </span>
-                  )}
-                  {deliveredCount > 0 && (
-                    <span className="text-emerald-700">
-                      <bdi>{deliveredCount}</bdi> כבר נמסרו ✓
-                    </span>
-                  )}
-                </div>
+          <section className="card overflow-hidden" aria-labelledby="next-steps">
+            <div className="flex items-center justify-between gap-3 px-4 md:px-5 pt-4 pb-3">
+              <h2 id="next-steps" className="font-extrabold text-brand-slatedark">
+                מה הצעד הבא
+              </h2>
+              {shownActions > 0 && (
+                <span className="text-xs font-bold text-zinc-500">לפי מצב ההזמנות במכירה</span>
               )}
             </div>
-          </div>
+
+            {shownActions === 0 ? (
+              <div className="px-4 md:px-5 pb-5 flex items-center gap-3">
+                <span className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center font-extrabold" aria-hidden="true">
+                  ✓
+                </span>
+                <p className="text-sm text-zinc-600">הכל מטופל — אין פעולות פתוחות במכירה הזו.</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-zinc-100 border-t border-zinc-100">
+                <NextAction
+                  count={chargeFailed}
+                  label="חיובים שנכשלו או שדורשים עדכון כרטיס"
+                  href="/admin/payments"
+                  cta="לטיפול"
+                  tone="danger"
+                />
+                <NextAction
+                  count={realWeighOrders}
+                  label={
+                    // §72: העיגול = הזמנות, והפריטים מפורטים רק כשהם שונים.
+                    realWeighItems > 0 && realWeighItems !== realWeighOrders
+                      ? `הזמנות ממתינות לשקילה (${realWeighItems} פריטים בסך הכל)`
+                      : "הזמנות ממתינות לשקילה"
+                  }
+                  href="/admin/pending-weights"
+                  cta="להזנת משקלים"
+                />
+                <NextAction count={readyToCharge} label="הזמנות מוכנות לחיוב" href="/admin/payments" cta="לחיוב" />
+                <NextAction count={waitingPay} label="הזמנות ממתינות לתשלום" href="/admin/payments" cta="לתשלומים" />
+                <NextAction
+                  count={needsMarkReady}
+                  label="הזמנות ששולמו — לסמן מוכנות לחלוקה"
+                  href="/admin/orders"
+                  cta="להזמנות"
+                />
+              </ul>
+            )}
+
+            {/* §47: מצב החלוקה - מידע ולא משימה */}
+            {(awaitingPickup > 0 || deliveredCount > 0) && (
+              <div className="px-4 md:px-5 py-3 bg-zinc-50 border-t border-zinc-100 flex flex-wrap gap-x-5 gap-y-1 text-xs text-zinc-600">
+                {awaitingPickup > 0 && (
+                  <span>
+                    <bdi className="font-bold tabular-nums">{awaitingPickup}</bdi> מוכנות וממתינות ללקוח
+                  </span>
+                )}
+                {deliveredCount > 0 && (
+                  <span className="text-emerald-700">
+                    <bdi className="font-bold tabular-nums">{deliveredCount}</bdi> כבר נמסרו ✓
+                  </span>
+                )}
+              </div>
+            )}
+          </section>
 
           {/* ─── אזהרות כמות מוגבלת ─── */}
           {data.limitedWarnings?.length > 0 && (
-            <div className="card p-5 border-amber-300 bg-amber-50">
-              <h2 className="font-bold text-amber-900 mb-1">מוצרים שמתקרבים למגבלת הכמות</h2>
-              <p className="text-xs text-amber-800/70 mb-3">
-                כדאי לעדכן מלאי או לסגור את המוצר להזמנה
-              </p>
-              <div className="space-y-2">
+            <section className="card p-4 md:p-5 border-amber-300 bg-amber-50">
+              <h2 className="font-extrabold text-amber-900">מוצרים שמתקרבים למגבלת הכמות</h2>
+              <p className="text-xs text-amber-800/80 mb-3">כדאי לעדכן מלאי או לסגור את המוצר להזמנה</p>
+              <ul className="space-y-2">
                 {data.limitedWarnings.map((w: any) => (
-                  <div key={w.name} className="flex justify-between gap-3 items-center text-sm">
+                  <li key={w.name} className="flex justify-between gap-3 items-center text-sm">
                     <span className="font-medium text-amber-900 min-w-0 truncate">{w.name}</span>
-                    <span
-                      className={`font-bold shrink-0 ${
-                        w.level === "over" ? "text-red-700" : "text-amber-800"
-                      }`}
-                    >
+                    <span className={`font-bold shrink-0 tabular-nums ${w.level === "over" ? "text-red-700" : "text-amber-800"}`}>
                       {w.ordered} / {w.limit} {w.unit}
                       {w.level === "over" ? " — חריגה" : ""}
                     </span>
-                  </div>
+                  </li>
                 ))}
-              </div>
-            </div>
+              </ul>
+            </section>
           )}
 
           {/* ─── פילוח ─── */}
-          <div className="grid lg:grid-cols-2 gap-4">
-            <div className="card p-5">
-              {/* §373: כותרת עם קישור — הנקודה היא גם יחידת
-                  החיוב (§369), והמנהל שרואה "34 בברכפלד" רוצה
-                  לחייב אותן. */}
+          {/* grid-cols-1 = minmax(0,1fr): בלעדיו שם נקודה ארוך מרחיב את העמודה מעבר למסך בנייד */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <section className="card p-4 md:p-5">
+              {/* §373: הנקודה היא גם יחידת החיוב (§369) */}
               <div className="flex items-center justify-between mb-3">
-                <h2 className="font-bold text-brand-slatedark">
-                  הזמנות לפי נקודת חלוקה
-                </h2>
-                <a
-                  href="/admin/payments"
-                  className="text-xs font-bold text-brand-rust hover:underline"
-                >
+                <h2 className="font-extrabold text-brand-slatedark">לפי נקודת חלוקה</h2>
+                <a href="/admin/payments" className="text-xs font-bold text-brand-rust hover:underline">
                   לחיוב לפי נקודה ←
                 </a>
               </div>
-              <div className="space-y-2">
-                {data.byPoint.length === 0 && (
-                  <p className="text-zinc-400 text-sm">אין הזמנות במכירה הזו</p>
-                )}
-                {data.byPoint.map((p: any) => (
-                  <div key={p.name} className="flex justify-between gap-3 text-sm">
-                    <span className="min-w-0 truncate">{p.name}</span>
-                    <span className="text-zinc-500 shrink-0">
-                      <bdi>{p.orders}</bdi> הזמנות · {fmt(p.total)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+              {data.byPoint.length === 0 ? (
+                <p className="text-zinc-400 text-sm">אין הזמנות במכירה הזו</p>
+              ) : (
+                <ul className="divide-y divide-zinc-100">
+                  {data.byPoint.map((p: any) => (
+                    <li key={p.name} className="flex justify-between gap-3 text-sm py-2">
+                      <span className="min-w-0 truncate">{p.name}</span>
+                      <span className="text-zinc-500 shrink-0 tabular-nums">
+                        <bdi>{p.orders}</bdi> הזמנות ·{" "}
+                        <span className="font-bold text-brand-slatedark">{fmt(p.total)}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
 
-            <div className="card p-5">
-              <h2 className="font-bold text-brand-slatedark mb-3">מוצרים הכי נמכרים</h2>
-              <div className="space-y-2">
-                {data.topProducts.length === 0 && (
-                  <p className="text-zinc-400 text-sm">אין הזמנות במכירה הזו</p>
-                )}
-                {data.topProducts.map((p: any) => (
-                  <div key={p.name} className="flex justify-between gap-3 text-sm">
-                    <span className="min-w-0 truncate">{p.name}</span>
-                    <span className="text-zinc-500 shrink-0">
-                      {/* §38: התווית לפי unit האמיתי. מוצר ארוז נמכר
-                          ביחידות והוצג כ"קרטון". */}
-                      {[
-                        p.cartons > 0
-                          ? `${p.cartons} ${pluralizeUnit(p.unitLabel || "קרטון", p.cartons)}`
-                          : null,
-                        p.singlesKg > 0 ? `${p.singlesKg} ק"ג בודדים` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" + ") || "—"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <section className="card p-4 md:p-5">
+              <h2 className="font-extrabold text-brand-slatedark mb-3">מוצרים הכי נמכרים</h2>
+              {data.topProducts.length === 0 ? (
+                <p className="text-zinc-400 text-sm">אין הזמנות במכירה הזו</p>
+              ) : (
+                <ul className="divide-y divide-zinc-100">
+                  {data.topProducts.map((p: any) => (
+                    <li key={p.name} className="flex justify-between gap-3 text-sm py-2">
+                      <span className="min-w-0 truncate">{p.name}</span>
+                      <span className="text-zinc-500 shrink-0 tabular-nums">
+                        {/* §38: התווית לפי unit האמיתי */}
+                        {[
+                          p.cartons > 0
+                            ? `${p.cartons} ${pluralizeUnit(p.unitLabel || "קרטון", p.cartons)}`
+                            : null,
+                          p.singlesKg > 0 ? `${p.singlesKg} ק"ג בודדים` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" + ") || "—"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
 
-          {/* §373: 🗑️ "מצב ההזמנות" **הוסר**.
-
-              🐛 הוא הציג את אותם סטטוסים ש"מה הצעד הבא" כבר
-              מתרגם לפעולות. המנהל ראה "READY_TO_CHARGE: 256"
-              למעלה, ו"256 מוכנות לחיוב → למסך תשלומים" למטה —
-              אותו מספר, פעמיים, ורק אחד מהם אומר מה לעשות.
-
-              ⚠️ תגיות סטטוס הן שפה של המערכת. הדשבורד מדבר
-              בשפה של המנהל. */}
+          {/* §397: לאן הולכים מכאן — שלושת מסכי הסיכום */}
+          <section aria-label="מסכי סיכום" className="pt-1">
+            <h2 className="text-xs font-bold text-zinc-500 mb-2 px-1">מסכי סיכום</h2>
+            <ReportsNav current={null} pricelistId={aggregate ? "" : selected} />
+          </section>
         </>
       )}
     </div>
   );
+}
+
+function SaleStatusBadge({ status }: { status: string }) {
+  if (status === "ACTIVE")
+    return (
+      <span className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-xs font-bold">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+        פעילה
+      </span>
+    );
+  if (status === "CLOSED")
+    return (
+      <span className="shrink-0 rounded-full bg-zinc-200 text-zinc-700 px-2.5 py-0.5 text-xs font-bold">
+        סגורה
+      </span>
+    );
+  return null;
 }
 
 function NextAction({
@@ -510,72 +476,113 @@ function NextAction({
   label,
   href,
   cta,
+  tone = "task",
 }: {
   count: number;
   label: string;
   href: string;
   cta: string;
+  tone?: "task" | "danger";
 }) {
   if (!count) return null;
+  const chip = tone === "danger" ? "bg-red-600 text-white" : "bg-brand-rust text-white";
   return (
-    <Link
-      href={href}
-      className="flex items-center justify-between gap-3 p-2.5 rounded-lg hover:bg-amber-50 transition-colors"
-    >
-      <span className="flex items-center gap-2.5 min-w-0">
-        <span className="w-8 h-8 shrink-0 rounded-lg bg-[#c0461e] text-white grid place-items-center font-extrabold text-sm">
-          {count}
+    <li>
+      <Link
+        href={href}
+        className={`flex items-center justify-between gap-3 px-4 md:px-5 py-3 min-h-[56px] transition-colors ${
+          tone === "danger" ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-amber-50/70"
+        }`}
+      >
+        <span className="flex items-center gap-3 min-w-0">
+          <span className={`min-w-9 h-9 px-2 shrink-0 rounded-lg grid place-items-center font-extrabold text-sm tabular-nums ${chip}`}>
+            {count}
+          </span>
+          <span className="text-sm font-medium text-brand-slatedark min-w-0">{label}</span>
         </span>
-        <span className="text-sm text-brand-slatedark min-w-0">{label}</span>
-      </span>
-      <span className="text-xs font-bold text-[#c0461e] shrink-0">{cta} ←</span>
-    </Link>
+        <span className={`text-xs font-bold shrink-0 ${tone === "danger" ? "text-red-700" : "text-brand-rust"}`}>
+          <span className="hidden sm:inline">{cta} </span>←
+        </span>
+      </Link>
+    </li>
   );
 }
 
-// Stat: צבעים מפורשים (hex) ולא utility של המותג, כדי שהכרטיס לעולם
-// לא ייצא "טקסט לבן על רקע לבן" אם class כלשהו לא נטען.
+function Bar({ pct, tone }: { pct: number; tone: "good" | "warn" }) {
+  return (
+    <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden" role="presentation">
+      <div
+        className={`h-full rounded-full transition-[width] duration-500 ease-out motion-reduce:transition-none ${
+          tone === "good" ? "bg-emerald-500" : "bg-amber-500"
+        }`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
 
-// §372: 💰 קוביית כסף — מספר אחד, בלי דוח.
-//
-// ⚠️ ארבע קוביות ולא טבלה: המנהל סורק אותן בשנייה, ולוחץ רק
-// על מה שדורש פעולה.
-function MoneyBox({
+// §372: קוביית כסף — מספר אחד, בלי דוח. המנהל סורק ולוחץ רק על מה שדורש פעולה.
+function Kpi({
   label,
   value,
   sub,
-  tone,
+  tone = "neutral",
   href,
+  progress,
 }: {
   label: string;
   value: number;
   sub?: string;
-  tone: "slate" | "emerald" | "amber";
+  tone?: "neutral" | "good" | "warn" | "muted";
   href?: string;
+  progress?: number;
 }) {
-  const tones = {
-    slate: "border-zinc-200 bg-white text-brand-slatedark",
-    emerald: "border-emerald-300 bg-emerald-50 text-emerald-900",
-    amber: "border-amber-300 bg-amber-50 text-amber-900",
-  };
+  const valueColor = {
+    neutral: "text-brand-slatedark",
+    good: "text-emerald-700",
+    warn: "text-amber-700",
+    muted: "text-zinc-500",
+  }[tone];
   const body = (
-    <div className={`rounded-xl border-2 p-3 ${tones[tone]}`}>
-      <div className="text-[11px] font-bold opacity-70">{label}</div>
-      <div className="text-lg font-extrabold tabular-nums mt-0.5">
-        ₪
-        {value.toLocaleString("he-IL", {
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 0,
-        })}
+    <div
+      className={`h-full rounded-xl p-3 md:p-4 ${
+        tone === "warn" ? "bg-amber-50 ring-1 ring-amber-200" : "bg-zinc-50"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold text-zinc-500">{label}</span>
+        {href && <span className="text-xs text-zinc-400" aria-hidden="true">←</span>}
       </div>
-      {sub && <div className="text-[10px] opacity-60 mt-0.5">{sub}</div>}
+      <div className={`text-xl md:text-2xl font-extrabold tabular-nums mt-1 ${valueColor}`}>
+        ₪
+        {value.toLocaleString("he-IL", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+      </div>
+      {sub && <div className="text-xs text-zinc-500 mt-0.5 leading-snug">{sub}</div>}
+      {progress != null && (
+        <div className="mt-2">
+          <Bar pct={progress} tone="good" />
+        </div>
+      )}
     </div>
   );
   return href ? (
-    <a href={href} className="block hover:opacity-80 transition-opacity">
+    <a href={href} className="block rounded-xl transition-transform active:scale-[0.98] hover:brightness-[0.98]">
       {body}
     </a>
   ) : (
     body
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-5" aria-busy="true" aria-label="טוען נתונים">
+      <div className="card p-4 md:p-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="h-24 rounded-xl bg-zinc-100 animate-pulse motion-reduce:animate-none" />
+        ))}
+      </div>
+      <div className="card h-40 animate-pulse motion-reduce:animate-none bg-zinc-50" />
+    </div>
   );
 }
