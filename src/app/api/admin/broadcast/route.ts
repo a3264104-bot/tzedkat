@@ -29,6 +29,10 @@ import { prisma } from "@/lib/prisma";
 // §396: הודעה קולית למכירה שהמתקשר שומע (רגילה/שבועית)
 import { resolveCustomerSaleId } from "@/lib/weekly-sales";
 import { requireAdmin } from "@/lib/guard";
+import {
+  cleanBroadcastAttachments,
+  type BroadcastAttachment,
+} from "@/lib/broadcast-attachments";
 import { sendBroadcastEmail } from "@/lib/email";
 import {
   createPhoneAnnouncement,
@@ -50,6 +54,8 @@ export async function POST(req: Request) {
   const customerIds: string[] = Array.isArray(body?.customerIds) ? body.customerIds : [];
   const launchPricelistId = body?.launchPricelistId ? String(body.launchPricelistId) : "";
   const phoneText = String(body?.phoneText ?? "").trim();
+  // §404: 📎 תמונה / PDF — רק כאלה שהועלו דרכנו
+  const attachments = cleanBroadcastAttachments(body?.attachments);
 
   if (!subject) {
     return NextResponse.json({ error: "יש להזין כותרת" }, { status: 400 });
@@ -164,7 +170,7 @@ export async function POST(req: Request) {
   }
 
   waitUntil(
-    sendBroadcastAsync(recipients, subject, messageHtml).catch((err) => {
+    sendBroadcastAsync(recipients, subject, messageHtml, attachments).catch((err) => {
       console.error("[broadcast] async send error:", err);
     })
   );
@@ -247,6 +253,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     recipientCount: recipients.length,
+    attachmentCount: attachments.length,
     announcementCreated,
     message:
       `השליחה החלה לרקע. ${recipients.length} מיילים יישלחו בקצב מבוקר.` +
@@ -262,7 +269,8 @@ export async function POST(req: Request) {
 async function sendBroadcastAsync(
   recipients: { id: string; name: string; email: string | null }[],
   subject: string,
-  messageHtml: string
+  messageHtml: string,
+  attachments: BroadcastAttachment[] = []
 ) {
   const total = recipients.length;
   let sent = 0;
@@ -277,7 +285,7 @@ async function sendBroadcastAsync(
     const results = await Promise.allSettled(
       batch.map((r) => {
         if (!r.email) return Promise.resolve({ ok: false, error: "no email" });
-        return sendBroadcastEmail(r.name, r.email, subject, messageHtml);
+        return sendBroadcastEmail(r.name, r.email, subject, messageHtml, attachments);
       })
     );
 

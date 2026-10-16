@@ -1,3 +1,4 @@
+import { attachmentsHtml, type BroadcastAttachment } from "@/lib/broadcast-attachments";
 import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/pricing";
@@ -613,7 +614,9 @@ export async function sendBroadcastEmail(
   customerName: string,
   customerEmail: string,
   subject: string,
-  messageHtml: string
+  messageHtml: string,
+  // §404: 📎 תמונות (בתוך המייל) ו-PDF (מצורף) — כבר מסוננים
+  attachments: BroadcastAttachment[] = []
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const body = `
@@ -624,17 +627,28 @@ export async function sendBroadcastEmail(
         <div style="font-size: 14px; line-height: 1.7; color: #52525B;">
           ${messageHtml}
         </div>
+        ${attachmentsHtml(attachments)}
         <p style="font-size: 13px; color: #71717A; margin-top: 20px;">
           בברכה,<br/>צדקת רבותינו
         </p>
       </div>
     `;
 
+    // §404: ה-PDF מצורף כקובץ (Resend מוריד מהכתובת). תמונה — רק בגוף
+    // המייל, כדי שלא תופיע פעמיים.
+    const pdfs = attachments
+      .filter((a) => a.kind === "pdf")
+      .map((a) => ({
+        path: a.url,
+        filename: a.filename.toLowerCase().endsWith(".pdf") ? a.filename : `${a.filename}.pdf`,
+      }));
+
     const { data, error } = await getResend().emails.send({
       from: FROM_ADDRESS,
       to: customerEmail,
       subject,
       html: baseTemplate(subject, body),
+      ...(pdfs.length > 0 ? { attachments: pdfs } : {}),
     });
 
     if (error) {

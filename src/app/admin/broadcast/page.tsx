@@ -4,6 +4,10 @@
 // 3 מצבים: כולם / לפי נקודת חלוקה / בחירה ידנית
 
 import { useEffect, useState, useMemo } from "react";
+import {
+  MAX_BROADCAST_ATTACHMENTS,
+  type BroadcastAttachment,
+} from "@/lib/broadcast-attachments";
 
 type Point = { id: string; name: string; city: string | null };
 type Customer = {
@@ -72,6 +76,48 @@ export default function AdminBroadcastPage() {
   const [phoneText, setPhoneText] = useState("");
   const [launchLoading, setLaunchLoading] = useState(false);
   const [tplMsg, setTplMsg] = useState("");
+  // §404: 📎 תמונה / PDF למייל
+  const [attachments, setAttachments] = useState<BroadcastAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState("");
+
+  /** §404: העלאה מיד בבחירה — התמונה הגדולה מוקטנת קודם בדפדפן */
+  async function addFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setUploadErr("");
+    const room = MAX_BROADCAST_ATTACHMENTS - attachments.length;
+    if (room <= 0) {
+      setUploadErr(`אפשר לצרף עד ${MAX_BROADCAST_ATTACHMENTS} קבצים`);
+      return;
+    }
+    setUploading(true);
+    try {
+      for (const original of Array.from(files).slice(0, room)) {
+        const isPdf = original.type === "application/pdf";
+        if (!isPdf && !original.type.startsWith("image/")) {
+          throw new Error(`"${original.name}" — אפשר לצרף רק תמונה או PDF`);
+        }
+        const file = isPdf ? original : await shrinkImage(original);
+        if (file.size > 4 * 1024 * 1024) {
+          throw new Error(`"${original.name}" גדול מדי (מקסימום 4MB)`);
+        }
+        const form = new FormData();
+        form.append("file", file);
+        form.append("purpose", "broadcast");
+        const res = await fetch("/api/admin/upload", { method: "POST", body: form });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok || !d.url) throw new Error(d.error || `ההעלאה נכשלה (${res.status})`);
+        setAttachments((prev) => [
+          ...prev,
+          { url: d.url, filename: original.name, kind: d.kind === "pdf" ? "pdf" : "image" },
+        ]);
+      }
+    } catch (e: any) {
+      setUploadErr(e.message || "ההעלאה נכשלה");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   // מצב הבחירה
   const [mode, setMode] = useState<"all" | "point" | "manual">("all");
@@ -341,6 +387,7 @@ export default function AdminBroadcastPage() {
       `לשלוח את ההודעה ל-${recipientCount} נמענים?\n\n` +
       `כותרת: ${subject}\n\n` +
       (launchId && alsoPhone ? `📞 בטלפון: כל מתקשר ישמע את ההודעה פעם אחת.\n\n` : "") +
+      (attachments.length > 0 ? `📎 מצורפים: ${attachments.map((a) => a.filename).join(", ")}\n\n` : "") +
       `המשלוח יתבצע ברקע ועשוי לקחת כמה דקות (בהתאם למספר הנמענים).`;
     if (!force && !confirm(confirmMsg)) return;
 
@@ -360,6 +407,8 @@ export default function AdminBroadcastPage() {
           phoneExpiry: alsoPhone && !launchId ? phoneExpiry : null,
           // §403: 📣 פתיחת מכירה
           ...(launchId ? { launchPricelistId: launchId, phoneText: phoneText.trim(), force } : {}),
+          // §404: 📎
+          attachments,
         }),
       });
       const data = await res.json();
@@ -378,6 +427,7 @@ export default function AdminBroadcastPage() {
         setSubject("");
         setMessage("");
         setPhoneText("");
+        setAttachments([]);
         setLaunchId("");
         setLaunchInfo(null);
         setSelectedPointIds(new Set());
@@ -552,6 +602,61 @@ export default function AdminBroadcastPage() {
           <div className="text-[10px] text-zinc-400 mt-0.5 text-left">
             {message.length}/5000 · שורות חדשות יישמרו במייל
           </div>
+        </div>
+
+        {/* §404: 📎 תמונה (מוצגת בתוך המייל) או PDF (מצורף) */}
+        <div className="rounded-lg border border-dashed border-zinc-300 p-3 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <label
+              className={`text-sm font-bold px-3 py-1.5 rounded-lg border-2 border-zinc-300 bg-white cursor-pointer hover:border-brand-rust ${
+                uploading || attachments.length >= MAX_BROADCAST_ATTACHMENTS ? "opacity-50 pointer-events-none" : ""
+              }`}
+            >
+              {uploading ? "מעלה…" : "📎 צרף תמונה או PDF"}
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  addFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            <span className="text-[11px] text-zinc-500">
+              עד {MAX_BROADCAST_ATTACHMENTS} קבצים, 4MB כל אחד · תמונה מוצגת בתוך המייל, PDF מצורף
+            </span>
+          </div>
+          {uploadErr && <p className="text-xs text-red-700">{uploadErr}</p>}
+          {attachments.length > 0 && (
+            <div className="flex gap-2 flex-wrap">
+              {attachments.map((a, i) => (
+                <div
+                  key={a.url}
+                  className="relative border border-zinc-200 rounded-lg bg-zinc-50 p-1.5 flex items-center gap-2 max-w-[220px]"
+                >
+                  {a.kind === "image" ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={a.url} alt="" className="w-12 h-12 object-cover rounded" />
+                  ) : (
+                    <span className="w-12 h-12 flex items-center justify-center text-2xl bg-white rounded">📄</span>
+                  )}
+                  <a href={a.url} target="_blank" rel="noreferrer" className="text-xs text-brand-slatedark truncate underline">
+                    {a.filename}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                    className="text-zinc-400 hover:text-red-600 text-lg leading-none px-1"
+                    title="הסר"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* §32: הודעה קולית מקבילה. לקוחות שנרשמו בטלפון לרוב אין להם
@@ -867,4 +972,31 @@ function ModeButton({
       </div>
     </button>
   );
+}
+
+/**
+ * §404: תמונה גדולה (צילום מהטלפון, 5-8MB) — מוקטנת בדפדפן לפני
+ * ההעלאה: עד 1600px ברוחב, JPEG. במייל זה נראה זהה ונטען מהר.
+ * קובץ קטן או GIF/SVG — עובר כמו שהוא.
+ */
+async function shrinkImage(file: File): Promise<File> {
+  if (file.size <= 1.5 * 1024 * 1024 || /gif|svg/.test(file.type)) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / bmp.width);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const blob: Blob | null = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.85));
+    if (!blob || blob.size >= file.size) return file;
+    const name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+    return new File([blob], name, { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
 }
