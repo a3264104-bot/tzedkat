@@ -58,6 +58,8 @@ export function DebtPanel({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "שמירה נכשלה");
+      // §405: איפה החוב ייגבה — עכשיו בהזמנה הפתוחה, או בהבאה
+      if (data.message) alert(data.message);
       setOpen(false);
       onDone?.();
     } catch (e: any) {
