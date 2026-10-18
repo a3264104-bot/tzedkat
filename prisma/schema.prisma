@@ -254,6 +254,9 @@ model Customer {
 
   // §399: ⚡ אינדקסים — Postgres לא יוצר אינדקס למפתח זר לבד
   @@index([defaultPointId])
+  // קיימים במסד (חיפוש לפי שם, §173); היו חסרים כאן
+  @@index([firstName])
+  @@index([lastName])
 }
 
 model Category {
@@ -301,6 +304,9 @@ model Product {
   packageWeight String?  // 200 גרם / 400 גרם / 500 גרם / 900 גרם
   // משקל ממוצע משוער ליחידה/קרטון - משמש לחישוב מחיר משוער מדויק יותר ללקוח
   avgWeightPerUnit Decimal? @db.Decimal(10, 3)
+  // §275: משקל יחידה בודדת. קיים במסד (נוסף ב-SQL ידני) ונשמר דרך
+  // /api/admin/products/[id]; היה חסר כאן, ו-db push היה מוחק אותו.
+  avgWeightPerPiece Decimal? @db.Decimal(10, 3)
   imageUrl      String?  // תמונת המוצר (Supabase Storage)
   kashrut       String?  // כשרות (legacy - טקסט חופשי, לתאימות)
   // כשרות מרשימה מרוכזת - יש לו גם שם וגם תמונה מנוהלים ע"י המנהל
@@ -498,15 +504,15 @@ model WeeklySeries {
   products        WeeklySeriesProduct[]
   pricelists      Pricelist[]
   createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedAt       DateTime @default(now()) @updatedAt
 }
 
 model WeeklySeriesPoint {
   id       String        @id @default(cuid())
   seriesId String
-  series   WeeklySeries  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  series   WeeklySeries  @relation(fields: [seriesId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   pointId  String
-  point    DeliveryPoint @relation(fields: [pointId], references: [id], onDelete: Cascade)
+  point    DeliveryPoint @relation(fields: [pointId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   // ⚠️ נקודה בסדרה אחת בלבד — אחרת לא ברור איזה שבוע הלקוח רואה
   @@unique([pointId])
 }
@@ -514,9 +520,9 @@ model WeeklySeriesPoint {
 model WeeklySeriesProduct {
   id        String       @id @default(cuid())
   seriesId  String
-  series    WeeklySeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  series    WeeklySeries @relation(fields: [seriesId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   productId String
-  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   // null = מחיר המוצר הרגיל, כמו ב-PricelistProduct
   price     Decimal?     @db.Decimal(10, 2)
   @@unique([seriesId, productId])
@@ -691,7 +697,7 @@ model Order {
   creditAt        DateTime?
 
   parentOrderId   String?
-  parentOrder     Order?   @relation("OrderSupplements", fields: [parentOrderId], references: [id], onDelete: SetNull)
+  parentOrder     Order?   @relation("OrderSupplements", fields: [parentOrderId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   supplements     Order[]  @relation("OrderSupplements")
   // מזהה השיחה בימות המשיח (ApiCallId) - לתחקור הזמנה טלפונית מול הלוגים
   phoneCallId     String?
@@ -888,9 +894,12 @@ model PaymentAuditLog {
 /// debtBalance על הלקוח הוא המספר המהיר. הספר הוא ההיסטוריה:
 /// מאיזו מכירה, מי רשם, מתי נגבה, דרך איזה נציג.
 model DebtLedger {
+  // ⚠️ במסד ל-id יש DEFAULT gen_random_uuid() (נוצר ב-SQL ידני), כאן cuid().
+  // Prisma מייצר את ה-id בעצמו ולא נוגע בברירת המחדל של המסד, ולכן הפער
+  // לא משנה התנהגות; db push רק יסיר את ה-DEFAULT. כנ"ל ב-WeeklySeries*.
   id           String   @id @default(cuid())
   customerId   String
-  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   /// ADD = חוב חדש · COLLECT = נגבה · RESTORE = הוחזר מביטול · ADJUST = תיקון ידני
   kind         String
   /// חיובי = החוב גדל · שלילי = נגבה
