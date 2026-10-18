@@ -2,3 +2,6 @@ node_modules
 .next
 .env
 .env*.local
+
+# §152: גיבוי קודים מסקריפט האיחוד — לא לגיט
+unify-login-backup-*.json

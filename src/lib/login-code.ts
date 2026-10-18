@@ -317,7 +317,7 @@ export async function ensureLoginCode(
 
     const customer = await prisma.customer.findUnique({
       where: { id: customerId },
-      select: { loginCode: true, role: true },
+      select: { loginCode: true, role: true, passwordPlain: true },
     });
     if (!customer) return null;
 
@@ -329,7 +329,13 @@ export async function ensureLoginCode(
     // שיחליש חשבון בעל הרשאות.
     if (customer.role !== "CUSTOMER") return null;
 
-    const plain = generateLoginCode(6);
+    // §152: 🐛 לקוח שבחר סיסמה בהרשמה - **היא** הקוד.
+    //
+    // עד כה הופק כאן קוד אקראי גם לו, ונוצרו שני ערכים: הסיסמה
+    // שהוא מכיר, וקוד שאיש לא מסר לו - והטלפון הקריא דווקא את הקוד.
+    // 472 לקוחות היו במצב הזה.
+    const chosen = (customer.passwordPlain || "").trim();
+    const plain = chosen || generateLoginCode(6);
     await prisma.customer.update({
       where: { id: customerId },
       data: { loginCode: encryptCode(plain), loginCodeSetAt: new Date() },

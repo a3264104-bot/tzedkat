@@ -129,7 +129,9 @@ export function AdminCustomerCodePanel({
             {code}
           </div>
           <div className="text-[10px] text-zinc-500 mt-1.5">
-            הקוד של {customerName} — ניתן להקריא לו בטלפון
+            {passwordPlain && code === passwordPlain
+              ? `הסיסמה שנבחרה בהרשמה — זה הקוד של ${customerName}`
+              : `הקוד של ${customerName} — ניתן להקריא לו בטלפון`}
           </div>
           <button
             type="button"
@@ -255,11 +257,11 @@ export function AdminCustomerCodePanel({
           שמיעה בטלפון. לקוח עם סיסמה בלבד אינו חסום - הוא רק
           לא יוכל לשמוע קוד בשיחה. */}
       {/* §152: הסיסמה שהלקוח בחר - באותו פאנל.
-          
-          ⚠️ מוצגת רק כשאין קוד, או כשהיא שונה ממנו. לקוח שיש לו
-          שניהם מקבל את הקוד (הוא הופק ע"י המערכת ולכן ודאי תקין),
-          והסיסמה מוצגת מתחת כמידע נוסף. */}
-      {passwordPlain && (
+
+          🐛 הוצגה תמיד, גם כשיש קוד — והמנהל ראה שני ערכים שונים.
+          עכשיו הסיסמה שבחר **היא** הקוד (ensureLoginCode, הרשמה),
+          ולכן כשיש קוד מוצג רק הוא. הסיסמה בנפרד רק כשאין קוד. */}
+      {passwordPlain && !exists && !code && (
         <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 mt-2">
           <div className="text-[11px] text-zinc-500 mb-1">
             🔐 הסיסמה שהלקוח בחר בהרשמה
