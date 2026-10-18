@@ -8,7 +8,7 @@ import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
 // §173: הרכבת השם המלא משם פרטי ומשפחה
 import { buildName } from "@/lib/name-lib";
 // §121: הפקת קוד כניסה אוטומטית
-import { ensureLoginCode } from "@/lib/login-code";
+import { ensureLoginCode, encryptCode, isCodeKeyConfigured } from "@/lib/login-code";
 
 // מודל הזיהוי: טלפון = חובה (המזהה הראשי להתחברות, לכולם יש).
 // מייל = אופציונלי אך מומלץ (מאפשר איפוס סיסמה עצמאי + אישורי הזמנה).
@@ -197,6 +197,13 @@ export async function POST(req: Request) {
             lastName,
             email,
             passwordHash,
+            // §152: הסיסמה שבחר עכשיו היא פרטי הכניסה **היחידים** שלו —
+            // גם לתצוגה אצל המנהל וגם כקוד (מוקרא בטלפון). הקוד שקיבל
+            // בשיחה מוחלף, כדי שלא יהיו לו שני ערכים.
+            passwordPlain: data.password,
+            ...(isCodeKeyConfigured()
+              ? { loginCode: encryptCode(data.password), loginCodeSetAt: new Date() }
+              : {}),
             // נקודה חדשה רק אם נבחרה; אחרת נשמרת זו שנבחרה בטלפון
             ...(data.defaultPointId ? { defaultPointId: data.defaultPointId } : {}),
             // הלקוח השלים בעצמו - החשבון פעיל מבחינתו

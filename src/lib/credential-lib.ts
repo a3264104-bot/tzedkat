@@ -136,11 +136,18 @@ export function resolveCredential(customer: {
   passwordPlain?: string | null;
 }): Credential | null {
   const code = (customer.loginCode || "").trim();
+  const pw = (customer.passwordPlain || "").trim();
+
+  // §152: הקוד **הוא** הסיסמה שהלקוח בחר — ערך אחד, ומתויג כסיסמה,
+  // כדי שגם בדיקת האורך להקראה תחול עליו.
+  if (code && pw && code === pw) {
+    return { value: pw, kind: "password", canSpeak: pw.length <= 12 };
+  }
+
   if (code) {
     return { value: code, kind: "code", canSpeak: true };
   }
 
-  const pw = (customer.passwordPlain || "").trim();
   if (pw) {
     // ⚠️ סיסמה ארוכה מדי אינה ניתנת להקראה מעשית: 20 תווים
     // מאויתים הם חצי דקה שהלקוח לא יצליח לכתוב.
