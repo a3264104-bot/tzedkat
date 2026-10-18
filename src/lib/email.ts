@@ -617,7 +617,7 @@ export async function sendBroadcastEmail(
   messageHtml: string,
   // §404: 📎 תמונות (בתוך המייל) ו-PDF (מצורף) — כבר מסוננים
   attachments: BroadcastAttachment[] = []
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const body = `
       <div style="padding: 8px 0;">
@@ -657,7 +657,7 @@ export async function sendBroadcastEmail(
     if (!data?.id) {
       return { ok: false, error: "no message id" };
     }
-    return { ok: true };
+    return { ok: true, id: data.id };
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) };
   }

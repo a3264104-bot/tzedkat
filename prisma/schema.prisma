@@ -1428,3 +1428,44 @@ model ImpersonationTicket {
 
   @@index([expiresAt])
 }
+
+// ═══ יומן שליחות מייל ללקוחות (מסך "שליחת מייל ללקוחות") ═══
+// עד כה התוצאה נכתבה רק ללוג של השרת — המנהל לא ידע אם הודעת
+// הפתיחה באמת יצאה ולמי. כל שליחה נרשמת כאן, וכל נמען בנפרד.
+//
+// ⚠️ status=SENDING עם נמענים PENDING שנשארו = השליחה נקטעה באמצע
+// (למשל הפונקציה ב-Vercel הגיעה למגבלת הזמן). המסך מציג זאת כ"לא הושלמה".
+model BroadcastLog {
+  id              String               @id @default(cuid())
+  createdAt       DateTime             @default(now())
+  createdBy       String?
+  subject         String
+  mode            String // all / point / manual
+  // הודעת פתיחת מכירה (§403) — אם נשלחה ככזו
+  pricelistId     String?
+  attachmentCount Int                  @default(0)
+  total           Int                  @default(0)
+  sent            Int                  @default(0)
+  failed          Int                  @default(0)
+  status          String               @default("SENDING") // SENDING / DONE
+  finishedAt      DateTime?
+  recipients      BroadcastRecipient[]
+
+  @@index([createdAt])
+}
+
+model BroadcastRecipient {
+  id          String       @id @default(cuid())
+  broadcastId String
+  broadcast   BroadcastLog @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  customerId  String?
+  name        String
+  email       String
+  status      String       @default("PENDING") // PENDING / SENT / FAILED
+  error       String?
+  // מזהה ההודעה ב-Resend — לבדיקת מסירה בלוח הבקרה שלהם
+  resendId    String?
+  sentAt      DateTime?
+
+  @@index([broadcastId, status])
+}
