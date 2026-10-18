@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+import { recalculateAgentSummary } from "@/lib/agent-summary-lib";
 
 export async function GET(
   _req: Request,
@@ -309,5 +310,31 @@ export async function PATCH(
     }
   });
 
-  return NextResponse.json({ ok: true });
+  // 🐛 שינוי עמלה (או נקודות) לא חל על מכירה פתוחה.
+  //
+  // הסיכום של הנציג נשמר במסד ומחושב מחדש רק כשמוזן משקל או מזדמן.
+  // המנהל שינה שיעור באמצע מכירה, והנציג המשיך לראות את הסכום הישן
+  // עד השקילה הבאה — כאילו השינוי לא נשמר.
+  //
+  // ⚠️ רק סיכומים שלא אושרו (DRAFT), ורק במכירות שלא נסגרו סופית.
+  // סיכום שהנציג אישר הוא סכום שסוכם איתו — לא משנים אותו בדיעבד.
+  let recalculated = 0;
+  const ratesChanged = "commissionRateCarton" in data || "commissionRateSingles" in data;
+  if (ratesChanged || newPointIds !== null) {
+    const open = await prisma.agentSaleSummary.findMany({
+      where: { agentId: id, status: { not: "CONFIRMED" }, pricelist: { status: { not: "DONE" } } },
+      select: { pricelistId: true },
+    });
+    for (const s of open) {
+      try {
+        await recalculateAgentSummary(s.pricelistId, id);
+        recalculated++;
+      } catch (e) {
+        // השמירה עצמה הצליחה; החישוב יתעדכן בשקילה הבאה
+        console.error(`[agent-profile] recalc failed pricelist=${s.pricelistId} agent=${id}:`, e);
+      }
+    }
+  }
+
+  return NextResponse.json({ ok: true, recalculated });
 }

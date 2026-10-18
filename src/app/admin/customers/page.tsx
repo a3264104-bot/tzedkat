@@ -5,6 +5,7 @@ import { api } from "@/lib/client";
 import { Modal, Field } from "@/components/AdminModal";
 import { AdminAddCustomerButton } from "@/components/AdminAddCustomerButton";
 import { AdminCustomerCodePanel } from "@/components/AdminCustomerCodePanel";
+import { CustomerOrderHistory } from "@/components/CustomerOrderHistory";
 import { ImpersonateButton } from "@/components/ImpersonateButton";
 // §82: עדכון אשראי ישירות ממסך הלקוחות
 import { UpdateCardModal } from "@/components/UpdateCardButton";
@@ -1161,6 +1162,9 @@ export default function AdminCustomersPage() {
                 ? `📦 פתח הזמנה #${editing.activeOrderNumber}`
                 : "🛒 בצע הזמנה ללקוח"}
             </a>
+
+            {/* היסטוריית ההזמנות — כל המכירות, בלי לעבור למסך ההזמנות */}
+            <CustomerOrderHistory customerId={editing.id} orderCount={editing.orderCount} />
 
             {/* §173: שם פרטי ומשפחה.
                 

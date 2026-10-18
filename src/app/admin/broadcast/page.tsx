@@ -127,7 +127,7 @@ export default function AdminBroadcastPage() {
 
   // מצב שליחה
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; text: string; logId?: string | null } | null>(null);
 
   // §330: המכירות הפעילות — לבורר התזכורת.
   //
@@ -422,6 +422,7 @@ export default function AdminBroadcastPage() {
         setResult({
           ok: true,
           text: `נשלחו הוראות שליחה ל-${data.recipientCount} נמענים. המערכת שולחת ברקע.`,
+          logId: data.logId ?? null,
         });
         // מנקה את הטופס
         setSubject("");
@@ -457,7 +458,10 @@ export default function AdminBroadcastPage() {
           📧 שליחת הודעה ללקוחות
         </h1>
         <p className="text-sm text-zinc-500 mt-1">
-          שולח מייל לכל הלקוחות הרשומים עם כתובת מייל.
+          שולח מייל לכל הלקוחות הרשומים עם כתובת מייל.{" "}
+          <a href="/admin/broadcast/history" className="font-bold text-brand-rust hover:underline">
+            יומן שליחות ←
+          </a>
         </p>
       </div>
 
@@ -927,6 +931,15 @@ export default function AdminBroadcastPage() {
           >
             {result.ok ? "✅ " : "⚠️ "}
             {result.text}
+            {/* יומן השליחות — שם רואים מי קיבל ומה נכשל */}
+            {result.ok && (
+              <a
+                href={result.logId ? `/admin/broadcast/history?id=${result.logId}` : "/admin/broadcast/history"}
+                className="block mt-1 font-bold underline"
+              >
+                למעקב: מי קיבל ←
+              </a>
+            )}
           </div>
         )}
 

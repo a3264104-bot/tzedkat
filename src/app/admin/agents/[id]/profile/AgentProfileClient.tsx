@@ -83,6 +83,146 @@ const METHOD_LABELS: Record<string, string> = {
   OTHER: "אחר",
 };
 
+// שיעורי העמלה של הנציג — לכל נציג בנפרד (ברירת מחדל 1 ₪ קרטונים, 4 ₪ בודדים).
+//
+// ⚠️ ההגדרה הייתה קיימת אבל חבויה בתוך "ערוך פרטים", והמנהל חשב
+// שהעמלה קבועה. עכשיו היא נערכת כאן, והשרת מחשב מחדש את סיכומי
+// הנציג במכירות פתוחות (סיכום שהנציג אישר — לא משתנה).
+function CommissionRates({
+  agentId,
+  carton,
+  singles,
+  onSaved,
+}: {
+  agentId: string;
+  carton: number;
+  singles: number;
+  onSaved: () => void;
+}) {
+  const [edit, setEdit] = useState(false);
+  const [c, setC] = useState(String(carton));
+  const [s, setS] = useState(String(singles));
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const cNum = Number(c);
+  const sNum = Number(s);
+  const valid = c.trim() !== "" && s.trim() !== "" && cNum >= 0 && sNum >= 0 && !isNaN(cNum) && !isNaN(sNum);
+
+  async function save() {
+    if (!valid) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/agents/${agentId}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commissionRateCarton: cNum, commissionRateSingles: sNum }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `שגיאה (${res.status})`);
+      setEdit(false);
+      setMsg(
+        json.recalculated > 0
+          ? `✓ נשמר · העמלה חושבה מחדש ב-${json.recalculated} מכירות פתוחות`
+          : "✓ נשמר · יחול על החישוב הבא"
+      );
+      onSaved();
+    } catch (e: any) {
+      setMsg(e?.message || "שגיאה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-zinc-100">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="text-xs font-bold text-zinc-500">שיעורי עמלה (₪ לק"ג)</div>
+        {!edit && (
+          <button
+            type="button"
+            onClick={() => {
+              setC(String(carton));
+              setS(String(singles));
+              setMsg(null);
+              setEdit(true);
+            }}
+            className="text-xs font-bold text-brand-rust hover:underline"
+          >
+            ✏️ שינוי עמלה
+          </button>
+        )}
+      </div>
+
+      {edit ? (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2 max-w-sm">
+            <label className="block">
+              <span className="block text-[11px] font-bold text-orange-700 mb-1">קרטונים</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.5"
+                min="0"
+                dir="ltr"
+                className="input py-2 text-center font-bold"
+                value={c}
+                onChange={(e) => setC(e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-bold text-amber-700 mb-1">בודדים</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.5"
+                min="0"
+                dir="ltr"
+                className="input py-2 text-center font-bold"
+                value={s}
+                onChange={(e) => setS(e.target.value)}
+              />
+            </label>
+          </div>
+          <p className="text-[11px] text-zinc-500 leading-relaxed">
+            חל על מכירות פתוחות שהנציג עוד לא אישר את הסיכום שלהן. סיכום שאושר לא משתנה.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={save}
+              disabled={!valid || busy}
+              className="btn-primary btn-sm"
+            >
+              {busy ? "שומר..." : "שמירה"}
+            </button>
+            <button type="button" onClick={() => setEdit(false)} disabled={busy} className="btn-ghost btn-sm">
+              ביטול
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-3 flex-wrap">
+          <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+            <div className="text-[10px] text-orange-700 font-bold">קרטונים</div>
+            <div className="text-brand-rust font-extrabold text-lg">₪{carton.toFixed(2)}/ק"ג</div>
+          </div>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <div className="text-[10px] text-amber-700 font-bold">בודדים</div>
+            <div className="text-amber-800 font-extrabold text-lg">₪{singles.toFixed(2)}/ק"ג</div>
+          </div>
+        </div>
+      )}
+      {msg && (
+        <p className={`text-xs font-bold mt-2 ${msg.startsWith("✓") ? "text-emerald-700" : "text-red-600"}`}>
+          {msg}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function AgentProfileClient({ agentId }: { agentId: string }) {
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
@@ -301,24 +441,13 @@ export default function AgentProfileClient({ agentId }: { agentId: string }) {
             />
           </div>
 
-          {/* עמלות */}
-          <div className="mt-4 pt-4 border-t border-zinc-100">
-            <div className="text-xs font-bold text-zinc-500 mb-2">שיעורי עמלה</div>
-            <div className="flex gap-3 flex-wrap">
-              <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
-                <div className="text-[10px] text-orange-700 font-bold">קרטונים</div>
-                <div className="text-brand-rust font-extrabold text-lg">
-                  ₪{agent.commissionRateCarton.toFixed(2)}/ק"ג
-                </div>
-              </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                <div className="text-[10px] text-amber-700 font-bold">בודדים</div>
-                <div className="text-amber-800 font-extrabold text-lg">
-                  ₪{agent.commissionRateSingles.toFixed(2)}/ק"ג
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* עמלות — עריכה ישירה, בלי לפתוח את חלון "ערוך פרטים" */}
+          <CommissionRates
+            agentId={agent.id}
+            carton={agent.commissionRateCarton}
+            singles={agent.commissionRateSingles}
+            onSaved={load}
+          />
 
           {/* תוצאת איפוס סיסמא */}
           {resetResult && (

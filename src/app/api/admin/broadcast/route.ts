@@ -169,8 +169,38 @@ export async function POST(req: Request) {
     });
   }
 
+  // יומן שליחות: נרשם **לפני** השליחה, כל נמען כ-PENDING. כך שליחה
+  // שנקטעה באמצע נראית במסך ("לא הושלמה") ולא נעלמת בשקט.
+  //
+  // ⚠️ כשל ברישום לא עוצר את השליחה — היומן הוא תיעוד, לא תנאי.
+  let logId: string | null = null;
+  try {
+    const log = await prisma.broadcastLog.create({
+      data: {
+        createdBy: g.session?.user?.email ?? null,
+        subject,
+        mode,
+        pricelistId: launchSale?.id ?? null,
+        attachmentCount: attachments.length,
+        total: recipients.length,
+      },
+      select: { id: true },
+    });
+    logId = log.id;
+    await prisma.broadcastRecipient.createMany({
+      data: recipients.map((r) => ({
+        broadcastId: log.id,
+        customerId: r.id,
+        name: r.name,
+        email: r.email ?? "",
+      })),
+    });
+  } catch (e) {
+    console.error("[broadcast] failed to create send log:", e);
+  }
+
   waitUntil(
-    sendBroadcastAsync(recipients, subject, messageHtml, attachments).catch((err) => {
+    sendBroadcastAsync(recipients, subject, messageHtml, attachments, logId).catch((err) => {
       console.error("[broadcast] async send error:", err);
     })
   );
@@ -253,6 +283,8 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     recipientCount: recipients.length,
+    // יומן השליחה — המסך מקשר אליו כדי לעקוב אחרי ההתקדמות
+    logId,
     attachmentCount: attachments.length,
     announcementCreated,
     message:
@@ -270,7 +302,9 @@ async function sendBroadcastAsync(
   recipients: { id: string; name: string; email: string | null }[],
   subject: string,
   messageHtml: string,
-  attachments: BroadcastAttachment[] = []
+  attachments: BroadcastAttachment[] = [],
+  /** יומן השליחה — null אם הרישום נכשל (השליחה ממשיכה בכל זאת) */
+  logId: string | null = null
 ) {
   const total = recipients.length;
   let sent = 0;
@@ -284,14 +318,24 @@ async function sendBroadcastAsync(
     // שליחה מקבילית של הbatch הנוכחי
     const results = await Promise.allSettled(
       batch.map((r) => {
-        if (!r.email) return Promise.resolve({ ok: false, error: "no email" });
+        if (!r.email) return Promise.resolve({ ok: false as const, error: "no email" });
         return sendBroadcastEmail(r.name, r.email, subject, messageHtml, attachments);
       })
     );
 
-    for (const res of results) {
-      if (res.status === "fulfilled" && "ok" in res.value && res.value.ok) {
+    const updates: Promise<unknown>[] = [];
+    results.forEach((res, j) => {
+      const r = batch[j];
+      if (res.status === "fulfilled" && res.value.ok) {
         sent++;
+        if (logId) {
+          updates.push(
+            prisma.broadcastRecipient.updateMany({
+              where: { broadcastId: logId, customerId: r.id },
+              data: { status: "SENT", resendId: res.value.id, sentAt: new Date() },
+            })
+          );
+        }
       } else {
         failed++;
         const err =
@@ -299,7 +343,21 @@ async function sendBroadcastAsync(
             ? String(res.reason)
             : (res.value as any)?.error || "unknown";
         console.error("[broadcast] send failed:", err);
+        if (logId) {
+          updates.push(
+            prisma.broadcastRecipient.updateMany({
+              where: { broadcastId: logId, customerId: r.id },
+              data: { status: "FAILED", error: String(err).slice(0, 500) },
+            })
+          );
+        }
       }
+    });
+    // ⚠️ המונים מתעדכנים בכל batch ולא רק בסוף: שליחה שנקטעה תראה
+    // כמה כבר יצאו, ולא 0.
+    if (logId) {
+      updates.push(prisma.broadcastLog.update({ where: { id: logId }, data: { sent, failed } }));
+      await Promise.allSettled(updates);
     }
 
     // המתנה לפני הbatch הבא (חוץ מהאחרון)
@@ -309,6 +367,14 @@ async function sendBroadcastAsync(
   }
 
   console.log(`[broadcast] Done. sent=${sent}, failed=${failed}, total=${total}`);
+  if (logId) {
+    await prisma.broadcastLog
+      .update({
+        where: { id: logId },
+        data: { sent, failed, status: "DONE", finishedAt: new Date() },
+      })
+      .catch((e) => console.error("[broadcast] failed to close send log:", e));
+  }
 }
 
 function escapeHtml(s: string): string {
