@@ -247,7 +247,9 @@ export default function OrdersPage() {
   // ⚠️ אותה נפילה של דף החלוקה (§233): lastName אם קיים, אחרת
   // המילה האחרונה בשם המלא. עובד גם על 386 שטרם פוצלו.
   const lastNameOf = (o: any): string => {
-    const full = (o.customerName || "").trim();
+    // §235: שם המשפחה האמיתי של הלקוח קודם — זהה למסך הנציג
+    if (o.customer?.lastName?.trim()) return o.customer.lastName.trim();
+    const full = (o.customer?.name || o.customerName || "").trim();
     if (!full) return "";
     const parts = full.split(/\s+/);
     return parts.length > 1 ? parts[parts.length - 1] : full;
@@ -257,7 +259,7 @@ export default function OrdersPage() {
     if (r !== 0) return r;
     // ⚠️ שם משפחה זהה - לפי השם המלא, כדי ששני "כהן" יופיעו
     // בסדר קבוע ולא ישתנו בכל רענון.
-    return (a.customerName || "").localeCompare(b.customerName || "", "he");
+    return (a.customer?.name || a.customerName || "").localeCompare(b.customer?.name || b.customerName || "", "he");
   });
 
   // סיכום כספי של מה שמוצג - המנהל צריך לדעת כמה כסף מול העיניים

@@ -785,7 +785,14 @@ export async function GET(req: Request) {
       ...(pricelistId ? { pricelistId } : {}),
       ...orderKindWhere(saleKind),
     },
-    include: { point: true, items: true },
+    include: {
+      point: true,
+      items: true,
+      // §235: למיון לפי שם משפחה — כמו במסך הנציג ובדף החלוקה.
+      // 🐛 המנהל מיין לפי המילה האחרונה של השם שנשמר בהזמנה, ולכן
+      // "כהן משה" או לקוח ששמו תוקן הופיעו לא במקומם.
+      customer: { select: { name: true, lastName: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
   return NextResponse.json(orders);

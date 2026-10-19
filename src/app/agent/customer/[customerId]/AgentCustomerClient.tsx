@@ -132,6 +132,8 @@ export function AgentCustomerClient({
   const [msg] = useState("");
   // §60: מצב התשלום - מתעדכן מקומית אחרי החלפה
   const [pref, setPref] = useState(initialPref);
+  // מזומן למכירה אחת — מתעדכן מיד אחרי סימון, בלי רענון
+  const [saleCash, setSaleCash] = useState<string | null>(saleCashName);
   const [hasCard, setHasCard] = useState(initialHasCard);
   const [cardLast4, setCardLast4] = useState(initialCardLast4);
   const [showCardModal, setShowCardModal] = useState(false);
@@ -213,6 +215,40 @@ export function AgentCustomerClient({
     }
   }
 
+  // מזומן רק במכירה הנוכחית — בלי להפוך את הלקוח ל"מזומן קבוע"
+  async function cashThisSaleOnly() {
+    setPrefErr("");
+    setPrefMsg("");
+    if (
+      !window.confirm(
+        `לסמן את ${customerName} כ💵 מזומן במכירה הנוכחית בלבד?\n\nבמכירה הזו יוכל להזמין בלי כרטיס והגבייה במזומן בחלוקה. במכירה הבאה — חוזר לאשראי.`
+      )
+    ) {
+      return;
+    }
+    setPrefSaving(true);
+    try {
+      const res = await fetch("/api/agent/customer-payment-pref", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId,
+          preference: "CASH",
+          scope: "SALE",
+          ...(activePricelistId ? { pricelistId: activePricelistId } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+      setSaleCash(data.saleName || "המכירה הנוכחית");
+      setPrefMsg(`💵 מזומן רק ב${data.saleName || "מכירה הנוכחית"}`);
+    } catch (e: any) {
+      setPrefErr(e.message);
+    } finally {
+      setPrefSaving(false);
+    }
+  }
+
   return (
     <main dir="rtl" className="min-h-screen bg-[#faf6ec] pb-16">
       <header className="bg-brand-slatedark text-white">
@@ -275,9 +311,9 @@ export function AgentCustomerClient({
                     </span>
                   )}
                   {/* §401: מזומן רק במכירה הזו */}
-                  {pref !== "CASH" && saleCashName && (
+                  {pref !== "CASH" && saleCash && (
                     <span className="block text-[11px] text-lime-700 font-bold mt-0.5">
-                      💵 מזומן רק ב{saleCashName}
+                      💵 מזומן רק ב{saleCash}
                     </span>
                   )}
                 </div>
@@ -299,6 +335,15 @@ export function AgentCustomerClient({
                   : pref === "CASH"
                     ? "✖ בטל מזומן קבוע"
                     : "⭐ מזומן קבוע"}
+              </button>
+            )}
+            {pref !== "CASH" && canSetCash && !saleCash && (
+              <button
+                onClick={cashThisSaleOnly}
+                disabled={prefSaving}
+                className="text-xs font-bold text-lime-800 border border-lime-600 rounded-lg px-3 py-1.5 hover:bg-lime-600 hover:text-white transition-colors disabled:opacity-50"
+              >
+                💵 מזומן למכירה הזו בלבד
               </button>
             )}
           </div>

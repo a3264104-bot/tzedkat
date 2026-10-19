@@ -177,6 +177,8 @@ export async function GET(req: Request) {
       failedLoginAttempts: c.failedLoginAttempts,
       // §60: אופן תשלום
       paymentPreference: c.paymentPreference,
+      // §401: מזומן רק במכירה אחת (לא קבוע)
+      cashPricelistId: c.cashPricelistId,
       role: c.role,
       // §52: מצב פעילות - לתגית ברשימה ולכפתור ההשבתה במודל.
       // לקוח לא פעיל: לא מקבל מיילים, לא נכלל בברודקסט ובתזכורות,

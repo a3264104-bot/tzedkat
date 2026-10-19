@@ -128,6 +128,32 @@ export default function AdminBroadcastPage() {
   // מצב שליחה
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string; logId?: string | null } | null>(null);
+  // שליחה חוזרת לנמענים שנכשלו בשליחה קודמת (מיומן השליחות: ?retryLog=<id>)
+  const [retry, setRetry] = useState<{ logId: string; subject: string; count: number } | null>(null);
+
+  useEffect(() => {
+    let id = "";
+    try {
+      id = new URLSearchParams(window.location.search).get("retryLog") || "";
+    } catch {
+      // כתובת לא תקינה — שליחה רגילה
+    }
+    if (!id) return;
+    fetch(`/api/admin/broadcast/logs/${id}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        const ids: string[] = (d.recipients ?? [])
+          .filter((r: any) => r.status !== "SENT" && r.customerId)
+          .map((r: any) => r.customerId);
+        if (ids.length === 0) return;
+        setMode("manual");
+        setSelectedCustomerIds(new Set(ids));
+        setAlsoPhone(false);
+        if (d.subject) setSubject(d.subject);
+        setRetry({ logId: id, subject: d.subject ?? "", count: ids.length });
+      })
+      .catch(() => {});
+  }, []);
 
   // §330: המכירות הפעילות — לבורר התזכורת.
   //
@@ -248,6 +274,8 @@ export default function AdminBroadcastPage() {
       setSubject(d.filled.subject);
       setMessage(d.filled.email);
       setPhoneText(d.filled.phone);
+      // שליחה חוזרת: רק הנוסח. הנמענים נשארים מי שנכשל, ובלי הודעה טלפונית חדשה
+      if (retry) return;
       setAlsoPhone(true);
       setLaunchInfo({
         name: d.sale.name,
@@ -406,7 +434,9 @@ export default function AdminBroadcastPage() {
           alsoPhone,
           phoneExpiry: alsoPhone && !launchId ? phoneExpiry : null,
           // §403: 📣 פתיחת מכירה
-          ...(launchId ? { launchPricelistId: launchId, phoneText: phoneText.trim(), force } : {}),
+          // ⚠️ לא בשליחה חוזרת לנכשלים: היא הייתה מסמנת שוב "נשלחה הודעת פתיחה"
+          // עם מספר הנמענים החלקי, ויוצרת הודעה טלפונית חדשה שכולם ישמעו שוב.
+          ...(launchId && !retry ? { launchPricelistId: launchId, phoneText: phoneText.trim(), force } : {}),
           // §404: 📎
           attachments,
         }),
@@ -424,6 +454,7 @@ export default function AdminBroadcastPage() {
           text: `נשלחו הוראות שליחה ל-${data.recipientCount} נמענים. המערכת שולחת ברקע.`,
           logId: data.logId ?? null,
         });
+        setRetry(null);
         // מנקה את הטופס
         setSubject("");
         setMessage("");
@@ -464,6 +495,17 @@ export default function AdminBroadcastPage() {
           </a>
         </p>
       </div>
+
+      {retry && (
+        <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-extrabold">🔁 שליחה חוזרת ל-{retry.count} נמענים שלא קיבלו את ההודעה</p>
+          <p className="mt-1">
+            מתוך: "{retry.subject}". הנמענים כבר מסומנים (רק מי שנכשל) — בחר את הנוסח
+            (למשל נוסח הפתיחה של המכירה), צרף את הקובץ אם היה, ושלח. מי שכבר קיבל לא יקבל שוב,
+            ולא תיווצר הודעה טלפונית חדשה.
+          </p>
+        </div>
+      )}
 
       {/* §330: 🚚 בורר סוג המייל.
           

@@ -610,16 +610,9 @@ export async function sendDeliveryReminderEmail(params: {
   }
 }
 
-export async function sendBroadcastEmail(
-  customerName: string,
-  customerEmail: string,
-  subject: string,
-  messageHtml: string,
-  // §404: 📎 תמונות (בתוך המייל) ו-PDF (מצורף) — כבר מסוננים
-  attachments: BroadcastAttachment[] = []
-): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  try {
-    const body = `
+// גוף המייל של הודעה ללקוחות — משותף לשליחה בודדת ולשליחה ב-batch
+function broadcastBody(customerName: string, messageHtml: string, attachments: BroadcastAttachment[]) {
+  return `
       <div style="padding: 8px 0;">
         <p style="font-size: 15px; color: #27272A; margin: 0 0 12px;">
           שלום ${customerName},
@@ -633,6 +626,36 @@ export async function sendBroadcastEmail(
         </p>
       </div>
     `;
+}
+
+/**
+ * 🐛 שגיאת Resend היא אובייקט ({ name, message, statusCode }). String(error)
+ * נתן "[object Object]" — ביומן השליחות לא היה אפשר לראות למה מייל נכשל.
+ */
+export function resendErrorText(error: unknown): string {
+  if (!error) return "unknown";
+  if (typeof error === "string") return error.slice(0, 500);
+  const e = error as { message?: string; name?: string; statusCode?: number | null };
+  const parts = [e.statusCode ? String(e.statusCode) : "", e.name || "", e.message || ""].filter(Boolean);
+  return (parts.join(" · ") || JSON.stringify(error)).slice(0, 500);
+}
+
+/** האם השגיאה היא חריגה ממגבלת הקצב של Resend (429) — כדאי לנסות שוב */
+export function isRateLimitError(error: unknown): boolean {
+  const e = error as { statusCode?: number | null; name?: string } | null;
+  return !!e && (e.statusCode === 429 || e.name === "rate_limit_exceeded");
+}
+
+export async function sendBroadcastEmail(
+  customerName: string,
+  customerEmail: string,
+  subject: string,
+  messageHtml: string,
+  // §404: 📎 תמונות (בתוך המייל) ו-PDF (מצורף) — כבר מסוננים
+  attachments: BroadcastAttachment[] = []
+): Promise<{ ok: true; id: string } | { ok: false; error: string; rateLimited?: boolean }> {
+  try {
+    const body = broadcastBody(customerName, messageHtml, attachments);
 
     // §404: ה-PDF מצורף כקובץ (Resend מוריד מהכתובת). תמונה — רק בגוף
     // המייל, כדי שלא תופיע פעמיים.
@@ -652,7 +675,7 @@ export async function sendBroadcastEmail(
     });
 
     if (error) {
-      return { ok: false, error: String(error) };
+      return { ok: false, error: resendErrorText(error), rateLimited: isRateLimitError(error) };
     }
     if (!data?.id) {
       return { ok: false, error: "no message id" };
@@ -662,6 +685,58 @@ export async function sendBroadcastEmail(
     return { ok: false, error: String(e?.message || e) };
   }
 }
+
+/**
+ * שליחה ב-Batch API של Resend: עד 100 מיילים בבקשה אחת.
+ *
+ * 🐛 למה: Resend מגביל ל-2 בקשות בשנייה. השליחה הקודמת — 8 מיילים
+ * במקביל כל 1.2 שניות — חרגה פי 3, ובהודעת הפתיחה של חשון נכשלו
+ * 575 מתוך 743 (בערך 2 מכל 8 עברו).
+ *
+ * ⚠️ ה-Batch API לא תומך בקבצים מצורפים. ה-PDF ממילא מופיע בגוף
+ * המייל ככפתור "לצפייה בקובץ" (attachmentsHtml), ולכן לא אובד דבר.
+ *
+ * ⚠️ batchValidation=permissive: נמען אחד לא תקין לא מפיל את כל ה-100.
+ * התוצאה מוחזרת לפי סדר הנמענים.
+ */
+export async function sendBroadcastBatch(
+  recipients: { name: string; email: string }[],
+  subject: string,
+  messageHtml: string,
+  attachments: BroadcastAttachment[] = []
+): Promise<
+  | { ok: true; results: ({ ok: true; id: string } | { ok: false; error: string })[] }
+  | { ok: false; error: string; rateLimited: boolean }
+> {
+  try {
+    const payload = recipients.map((r) => ({
+      from: FROM_ADDRESS,
+      to: r.email,
+      subject,
+      html: baseTemplate(subject, broadcastBody(r.name, messageHtml, attachments)),
+    }));
+    const { data, error } = await getResend().batch.send(payload, { batchValidation: "permissive" });
+    if (error) {
+      return { ok: false, error: resendErrorText(error), rateLimited: isRateLimitError(error) };
+    }
+    const failed = new Map<number, string>();
+    for (const f of (data as any)?.errors ?? []) failed.set(Number(f.index), String(f.message || "invalid"));
+    const ids: string[] = ((data as any)?.data ?? []).map((x: any) => String(x.id));
+    // המזהים חוזרים לפי הסדר, בלי הפריטים שנדחו
+    let k = 0;
+    const results = recipients.map((_, i) =>
+      failed.has(i)
+        ? { ok: false as const, error: failed.get(i)! }
+        : ids[k]
+          ? { ok: true as const, id: ids[k++] }
+          : { ok: false as const, error: "no message id" }
+    );
+    return { ok: true, results };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500), rateLimited: false };
+  }
+}
+
 /**
  * §79: התראה על בקשת הרשמה חדשה מהמערכת הטלפונית.
  *

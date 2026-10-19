@@ -29,6 +29,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+// מזומן למכירה אחת בלי מזהה מכירה — המכירה הנוכחית של הלקוח לפי הנקודה
+import { resolveCustomerSaleId } from "@/lib/weekly-sales";
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -43,11 +45,8 @@ export async function POST(req: Request) {
   const preference = String(body.preference || "").trim();
   // §401: מזומן למכירה אחת / קבוע
   const scope = body.scope === "SALE" ? "SALE" : "ALWAYS";
-  const salePricelistId =
+  let salePricelistId =
     scope === "SALE" ? String(body.pricelistId || "").trim() : "";
-  if (preference === "CASH" && scope === "SALE" && !salePricelistId) {
-    return NextResponse.json({ error: "חסרה המכירה" }, { status: 400 });
-  }
 
   if (!customerId) {
     return NextResponse.json({ error: "חסר מזהה לקוח" }, { status: 400 });
@@ -172,11 +171,26 @@ export async function POST(req: Request) {
   // להזמין לבד עד שיוזן כרטיס (הנציג יראה את מסך "איך משלם?").
   const noCard = preference === "CREDIT" && !customer.paymentToken;
 
+  // "מזומן למכירה הזו" מכרטיס הלקוח (מנהל/נציג) — בלי מכירה מפורשת.
+  // ⚠️ המכירה שהלקוח מזמין בה בפועל לפי הנקודה שלו (כולל שבועית), ולא
+  // "המכירה הפעילה" הכללית — אחרת המזומן היה נרשם למכירה שהוא לא בה.
+  if (preference === "CASH" && scope === "SALE" && !salePricelistId) {
+    salePricelistId = (await resolveCustomerSaleId(customer.defaultPointId)) ?? "";
+    if (!salePricelistId) {
+      return NextResponse.json(
+        { error: "אין כרגע מכירה פעילה בנקודה של הלקוח — אין למה לסמן מזומן חד-פעמי" },
+        { status: 400 }
+      );
+    }
+  }
+
+  let saleName: string | null = null;
   if (preference === "CASH" && scope === "SALE") {
     const pl = await prisma.pricelist.findUnique({
       where: { id: salePricelistId },
-      select: { id: true },
+      select: { id: true, name: true },
     });
+    saleName = pl?.name ?? null;
     if (!pl) {
       return NextResponse.json({ error: "המכירה לא נמצאה" }, { status: 404 });
     }
@@ -243,6 +257,7 @@ export async function POST(req: Request) {
     paymentPreference: next.paymentPreference,
     cashPricelistId: next.cashPricelistId,
     scope,
+    saleName,
     noCard,
     unchanged: !changed,
     closedRequests,

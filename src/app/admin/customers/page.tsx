@@ -47,6 +47,8 @@ type Customer = {
   failedLoginAttempts?: number;
   // §60: CASH / CREDIT
   paymentPreference?: string;
+  /** §401: מזומן רק במכירה אחת */
+  cashPricelistId?: string | null;
   role: string;
   agentPointId: string | null;
   agentPoints?: { id: string; name: string; city: string | null }[];
@@ -172,6 +174,37 @@ export default function AdminCustomersPage() {
 
   // §90: החלפת אופן תשלום. הפעולה נשמרת מיד ולא מחכה ל"שמירה" -
   // היא משנה מה הלקוח יכול לעשות ברגע זה, ולא ראוי שתישכח בטופס.
+  // §401: 💵 מזומן רק במכירה הנוכחית של הלקוח — לא "מזומן קבוע"
+  async function setCashThisSale() {
+    if (!editing) return;
+    if (
+      !window.confirm(
+        "לסמן כ💵 מזומן במכירה הנוכחית בלבד?\n\nבמכירה הזו יוכל להזמין בלי כרטיס והגבייה במזומן בחלוקה. במכירה הבאה — חוזר לאשראי."
+      )
+    )
+      return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch("/api/agent/customer-payment-pref", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: editing.id, preference: "CASH", scope: "SALE" }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "שגיאה");
+      setEditing((cur) => (cur ? { ...cur, cashPricelistId: json.cashPricelistId } : cur));
+      setCustomers((list) =>
+        list.map((c) => (c.id === editing.id ? { ...c, cashPricelistId: json.cashPricelistId } : c))
+      );
+      setSuccessMsg(`💵 מזומן רק ב${json.saleName || "מכירה הנוכחית"} — במכירה הבאה חוזר לאשראי`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function setPaymentPref(pref: "CASH" | "CREDIT") {
     if (!editing) return;
     setSaving(true);
@@ -1348,6 +1381,23 @@ export default function AdminCustomersPage() {
                     ⭐ מזומן קבוע
                   </button>
                 </div>
+
+                {/* §401: מזומן למכירה אחת — כשהלקוח באשראי */}
+                {editing.paymentPreference !== "CASH" &&
+                  (editing.cashPricelistId ? (
+                    <div className="bg-lime-50 border border-lime-300 rounded-lg p-2.5 text-xs text-lime-800 font-bold">
+                      💵 מסומן כמזומן במכירה אחת בלבד — במכירה הבאה חוזר לאשראי.
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={setCashThisSale}
+                      className="w-full py-2 rounded-lg text-xs font-bold border-2 border-lime-500 bg-white text-lime-800 hover:bg-lime-50 transition-colors disabled:opacity-50"
+                    >
+                      💵 מזומן למכירה הזו בלבד
+                    </button>
+                  ))}
 
                 <button
                   type="button"

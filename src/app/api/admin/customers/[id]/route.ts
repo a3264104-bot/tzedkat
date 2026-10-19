@@ -182,6 +182,8 @@ export async function GET(
     lockedUntil: c.lockedUntil,
     failedLoginAttempts: c.failedLoginAttempts,
     paymentPreference: c.paymentPreference,
+    // §401: מזומן רק במכירה אחת (לא קבוע)
+    cashPricelistId: c.cashPricelistId,
     role: c.role,
     agentPointId: c.agentPointId,
     agentPoints: c.agentPoints.map((ap) => ap.point),

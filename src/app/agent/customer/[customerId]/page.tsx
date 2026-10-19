@@ -56,14 +56,35 @@ export default async function AgentCustomerPage({
     // ההזמנה - יוצר הלקוח / נקודת ברירת מחדל / הזמנה קודמת בנקודה.
     const agentPointIds = new Set(agent?.agentPoints.map((ap) => ap.pointId) ?? []);
     if (agent?.agentPointId) agentPointIds.add(agent.agentPointId);
-    if (agentPointIds.size === 0) redirect("/agent");
+    if (agentPointIds.size === 0) {
+      return <NoAccess title="אין לך נקודת חלוקה משויכת" text="כדי לפתוח כרטיס לקוח צריך להיות משויך לנקודת חלוקה. פנה למנהל." />;
+    }
 
     const isCreator = customer.createdByAgentId === sessionUserId;
     const belongs =
       isCreator ||
       (customer.defaultPointId !== null && agentPointIds.has(customer.defaultPointId)) ||
       customer.orders.some((o) => agentPointIds.has(o.pointId));
-    if (!belongs) redirect("/agent");
+    // 🐛 קודם: redirect שקט ל-/agent. הנציג לחץ על לקוח וחזר למסך הראשי
+    // בלי שום הסבר — וזה נראה כמו "לא מצליח להיכנס לערוך".
+    if (!belongs) {
+      const point = customer.defaultPointId
+        ? await prisma.deliveryPoint.findUnique({
+            where: { id: customer.defaultPointId },
+            select: { name: true },
+          })
+        : null;
+      return (
+        <NoAccess
+          title={`${customer.name} משויך לנקודה אחרת`}
+          text={
+            point
+              ? `הלקוח משויך לנקודת החלוקה "${point.name}", ולא לנקודה שלך, ואין לו הזמנות בנקודה שלך. לעריכת הפרטים שלו פנה למנהל, או לנציג של הנקודה הזו.`
+              : "ללקוח אין נקודת חלוקה, ואין לו הזמנות בנקודה שלך. לעריכת הפרטים שלו פנה למנהל."
+          }
+        />
+      );
+    }
   }
 
   // §67: מוצרי המכירה הפעילה, להוספת פריט מכרטיס הלקוח.
@@ -237,5 +258,19 @@ export default async function AgentCustomerPage({
         categoryName: pp.product.category?.name ?? null,
       }))}
     />
+  );
+}
+
+// הודעה ברורה כשנציג לא יכול לפתוח כרטיס לקוח — במקום להחזיר אותו בשקט
+function NoAccess({ title, text }: { title: string; text: string }) {
+  return (
+    <main dir="rtl" className="min-h-screen bg-[#faf6ec] px-4 py-10">
+      <div className="mx-auto max-w-md card p-6 text-center space-y-3">
+        <div className="text-3xl" aria-hidden="true">🔒</div>
+        <h1 className="text-lg font-extrabold text-brand-slatedark">{title}</h1>
+        <p className="text-sm text-zinc-600 leading-relaxed">{text}</p>
+        <a href="/agent" className="btn-primary btn-sm inline-flex">← חזרה למסך הנציג</a>
+      </div>
+    </main>
   );
 }

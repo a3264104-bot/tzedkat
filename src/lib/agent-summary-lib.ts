@@ -11,7 +11,29 @@
 
 import { prisma } from "@/lib/prisma";
 
+// שגיאות חיבור רגעיות למסד (Supabase pooler) — שווה לנסות שוב
+// P1001 לא מגיע לשרת · P1002 timeout · P1008 פעולה ארכה מדי ·
+// P1017 השרת סגר חיבור · P2024 אין חיבור פנוי ב-pool
+const TRANSIENT_DB_CODES = new Set(["P1001", "P1002", "P1008", "P1017", "P2024"]);
+
+/**
+ * 🐛 "Can't reach database server" (P1001) רגעי הפיל את עדכון הסיכום,
+ * והנציג נשאר עם עמלה וסיכומים ישנים עד השקילה הבאה. עכשיו: עד 3
+ * ניסיונות, עם המתנה קצרה ביניהם. שגיאה אחרת — נזרקת מיד כמו קודם.
+ */
 export async function recalculateAgentSummary(pricelistId: string, agentId: string) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await recalculateAgentSummaryOnce(pricelistId, agentId);
+    } catch (e: any) {
+      if (attempt >= 3 || !TRANSIENT_DB_CODES.has(e?.code)) throw e;
+      console.warn(`[agent-summary] ${e.code} — retry ${attempt}/2 pricelist=${pricelistId} agent=${agentId}`);
+      await new Promise((r) => setTimeout(r, 400 * attempt));
+    }
+  }
+}
+
+async function recalculateAgentSummaryOnce(pricelistId: string, agentId: string) {
   if (!pricelistId) return;
 
   const agent = await prisma.customer.findUnique({
