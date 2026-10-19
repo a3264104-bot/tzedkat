@@ -23,6 +23,7 @@
 // והלקוח מקבל הודעה ברורה במקום להיות מסומן כמאומת בטעות.
 
 import { useEffect, useRef, useState } from "react";
+import { responseCustomerId } from "@/lib/nedarim-response";
 
 // ═════════════════════════════════════════════════════════
 // TYPES
@@ -120,6 +121,10 @@ export function UpdateCardModal({
   const processingRef = useRef(false);
   // ⭐ שומרים את cardVerifiedAt הראשוני - כדי לזהות רק שינוי אמיתי
   const initialVerifiedAtRef = useRef<string | null>(null);
+  // 🔒 מתקבלת תשובה מנדרים רק אחרי לחיצה על "שמור" בחלון **הזה**
+  const awaitingResponseRef = useRef(false);
+  // 🔒 לאיזה חשבון הכרטיס נשמר — מוצג בראש החלון
+  const [owner, setOwner] = useState<{ name: string; phone: string | null; last4: string | null } | null>(null);
 
   // בטעינה - שומרים את cardVerifiedAt הנוכחי כדי לזהות רק אימות חדש
   useEffect(() => {
@@ -130,6 +135,7 @@ export function UpdateCardModal({
         );
         const data = await res.json();
         initialVerifiedAtRef.current = data.cardVerifiedAt || null;
+        if (data.name) setOwner({ name: data.name, phone: data.phone ?? null, last4: data.cardLast4 ?? null });
       } catch {
         // מתעלמים
       }
@@ -187,6 +193,8 @@ export function UpdateCardModal({
     async function handleMessage(e: MessageEvent) {
       const origin = e.origin || "";
       if (!origin.includes("matara.pro")) return;
+      // 🔒 רק מה-iframe של החלון הזה — לא מחלון/טאב/iframe אחר
+      if (iframeRef.current && e.source !== iframeRef.current.contentWindow) return;
 
       let payload: any = e.data;
       if (typeof payload === "string") {
@@ -204,6 +212,20 @@ export function UpdateCardModal({
       if (name !== "TransactionResponse") return;
 
       console.log("[UpdateCard] TransactionResponse:", value);
+      // 🔒 תשובה אחת לכל לחיצה, ורק אחרי לחיצה
+      if (!awaitingResponseRef.current) {
+        console.warn("[UpdateCard] TransactionResponse ignored — no pending submit in this window");
+        return;
+      }
+      awaitingResponseRef.current = false;
+      // 🔒 התשובה חייבת להיות של הלקוח שפתוח בחלון
+      const respCustomer = responseCustomerId(value);
+      if (respCustomer && respCustomer !== customerId) {
+        console.error("[UpdateCard] response customer mismatch:", respCustomer, "!=", customerId);
+        setStatus("error");
+        setError("פרטי הכרטיס שהתקבלו לא שייכים לחשבון הזה ולכן לא נשמרו. יש לסגור את החלון ולנסות שוב.");
+        return;
+      }
       const respStatus = String(value?.Status || "").toLowerCase();
       const isError = respStatus === "error" || respStatus === "err" || respStatus === "fail";
       const isOk = respStatus === "ok" || respStatus === "success";
@@ -252,6 +274,8 @@ export function UpdateCardModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             customerId, // תומך בעדכון ע"י מנהל/נציג בשם לקוח
+            responseParam1: respCustomer,
+            via: "update-card",
             token: receivedToken,
             lastNum: receivedLast4,
             tokef: receivedTokef,
@@ -307,6 +331,7 @@ export function UpdateCardModal({
     setError(null);
     setCardRejected(false);
     setStatus("verifying");
+    awaitingResponseRef.current = true;
 
     // שליחת ההוראה לנדרים - חייבים לכלול את כל הפרמטרים ב-Value!
     // זהו הפרוטוקול של נדרים - Param1/Param2 בURL של iframe לא מספיקים
@@ -356,6 +381,19 @@ export function UpdateCardModal({
         </div>
 
         <div className="p-5 space-y-4">
+          {/* 🔒 לאיזה חשבון הכרטיס נשמר — כדי שאף אחד לא יקליד את הכרטיס
+              שלו בחשבון של מישהו אחר בלי לשים לב */}
+          {owner && status !== "success" && (
+            <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              הכרטיס יישמר בחשבון של: <strong>{owner.name}</strong>
+              {owner.phone && <span dir="ltr"> · {owner.phone}</span>}
+              {owner.last4 && (
+                <div className="mt-1 text-xs">
+                  ⚠️ הכרטיס הנוכחי בחשבון (מסתיים ב-<span dir="ltr">{owner.last4}</span>) יוחלף בכרטיס החדש.
+                </div>
+              )}
+            </div>
+          )}
           {status === "success" ? (
             // מסך הצלחה
             <div className="text-center py-8">

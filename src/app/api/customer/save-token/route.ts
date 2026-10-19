@@ -6,6 +6,8 @@ import { chargeToken } from "@/lib/nedarim-lib";
 import { ensureLoginCode } from "@/lib/login-code";
 // §395: השקל שנזקף — מתקזז מיד בהזמנה פתוחה
 import { reapplyBalanceToOpenOrders } from "@/lib/credit-balance-lib";
+import { audit } from "@/lib/audit";
+import { sendTokenSavedEmail, sendCardSecurityAlert } from "@/lib/nedarim-emails";
 
 // POST /api/customer/save-token
 //
@@ -75,6 +77,35 @@ export async function POST(req: Request) {
 
     const token = String(body?.token || "").trim();
     const lastNum = String(body?.lastNum || "").trim();
+    const actorName = ((session.user as any).name as string | undefined) ?? null;
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🔒 הכרטיס שחזר מנדרים חייב להיות של **הבקשה הזו**
+    // ═══════════════════════════════════════════════════════════════
+    // המקרה שגרם לזה: כרטיס של לקוח אחד נשמר בחשבון של לקוח אחר, מטלפונים
+    // שונים. לכל בקשה ל-iframe מצורף מספר הלקוח (Param1/Comment); כשנדרים
+    // מחזירים אותו בתשובה — הלקוח (המסך) מעביר אותו לכאן, ואם הוא שונה
+    // מהחשבון שאליו עומדים לשמור, לא שומרים ולא מחייבים.
+    const responseParam1 = String(body?.responseParam1 || "").trim();
+    if (responseParam1 && responseParam1 !== targetCustomerId) {
+      console.error(
+        `[save-token] 🚨 MISMATCH: card response belongs to customer=${responseParam1}, ` +
+          `but would be saved to customer=${targetCustomerId} (session=${sessionUserId}). Rejected.`
+      );
+      await audit({
+        actorId: sessionUserId,
+        actorRole: String(role || "CUSTOMER"),
+        actorName,
+        action: "CARD_REJECTED",
+        targetId: targetCustomerId,
+        meta: { reason: "response-customer-mismatch", responseCustomerId: responseParam1, last4: lastNum || null, via: body?.via ?? null },
+        req,
+      });
+      return NextResponse.json(
+        { error: "פרטי הכרטיס שהתקבלו לא שייכים לחשבון הזה ולכן לא נשמרו. יש לסגור את החלון ולנסות שוב." },
+        { status: 409 }
+      );
+    }
     // Tokef בפורמט MMYY - חובה בחיוב עתידי לפי תיעוד DebitCard!
     const tokef = String(body?.tokef || "").trim();
 
@@ -114,11 +145,16 @@ export async function POST(req: Request) {
         email: true,
         creditVerificationCharged: true,
         paymentToken: true,
+        cardLast4: true,
       },
     });
     if (!customer) {
       return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 404 });
     }
+    // מה היה בחשבון לפני — ליומן, למייל ללקוח ולהתראה למנהל
+    const previousToken = customer.paymentToken;
+    const previousLast4 = customer.cardLast4;
+    const isReplacement = !!previousToken && previousToken !== token;
 
     // מחייבים פעם אחת בלבד בחיי הלקוח. החלפת כרטיס אצל לקוח שכבר
     // אומת לא מחייבת שוב - אחרת היו נצברים קיזוזים כפולים.
@@ -236,6 +272,56 @@ export async function POST(req: Request) {
         ...(verificationTxnId ? { creditVerificationCharged: true } : {}),
       },
     });
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🔒 יומן + הודעה לבעל החשבון + התראה למנהל
+    // ═══════════════════════════════════════════════════════════════
+    // כרטיס שכבר שמור אצל לקוח אחר — לפעמים לגיטימי (בני זוג, אותו אדם
+    // שנרשם פעמיים), ולפעמים בדיוק התקלה שאנחנו רוצים לתפוס. לא חוסמים,
+    // אבל המנהל מקבל התראה עם השמות ומחליט.
+    const sharedWith = await prisma.customer.findMany({
+      where: { paymentToken: token, id: { not: targetCustomerId } },
+      select: { id: true, name: true, phone: true },
+      take: 5,
+    });
+    await audit({
+      actorId: sessionUserId,
+      actorRole: String(role || "CUSTOMER"),
+      actorName,
+      action: isReplacement ? "CARD_REPLACED" : "CARD_SAVED",
+      targetId: targetCustomerId,
+      targetName: customer.name,
+      meta: {
+        last4: lastNum || null,
+        previousLast4: isReplacement ? previousLast4 : null,
+        byOther: sessionUserId !== targetCustomerId,
+        verificationTxn: verificationTxnId,
+        sharedWith: sharedWith.map((c) => `${c.name} (${c.phone ?? "—"})`),
+        via: body?.via ?? null,
+      },
+      req,
+    });
+    // ⚠️ לא חוסמים את השמירה על כשל במייל
+    if (customer.email) {
+      const r = await sendTokenSavedEmail({
+        to: customer.email,
+        customerName: customer.name,
+        last4: lastNum,
+        isCardUpdate: !!previousToken,
+      });
+      if (!r.ok) console.error("[save-token] owner email failed:", r.error);
+    }
+    if (isReplacement || sharedWith.length > 0) {
+      const r = await sendCardSecurityAlert({
+        customerName: customer.name,
+        customerPhone: customer.phone,
+        last4: lastNum,
+        previousLast4: isReplacement ? previousLast4 : null,
+        savedBy: sessionUserId === targetCustomerId ? "הלקוח עצמו" : `${actorName ?? sessionUserId} (${role})`,
+        sharedWith: sharedWith.map((c) => `${c.name} (${c.phone ?? "—"})`),
+      });
+      if (!r.ok) console.error("[save-token] admin alert failed:", r.error);
+    }
 
     // §395: 💸 השקל שנזקף עכשיו — מקוזז **מיד** מהזמנה פתוחה שכבר
     // נשקלה. בלי זה הוא חיכה ל"הזמנה הבאה", והחיוב שמגיע תוך דקות

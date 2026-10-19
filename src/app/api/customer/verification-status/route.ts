@@ -35,6 +35,9 @@ export async function GET(req: Request) {
   const customer = await prisma.customer.findUnique({
     where: { id: targetCustomerId },
     select: {
+      // שם וטלפון — כדי שמסך הכרטיס יציג בבירור לאיזה חשבון הוא נשמר
+      name: true,
+      phone: true,
       paymentToken: true,
       cardLast4: true,
       cardExpiry: true,
@@ -49,6 +52,8 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     verified: !!customer.paymentToken,
+    name: customer.name,
+    phone: customer.phone,
     cardLast4: customer.cardLast4,
     cardExpiry: customer.cardExpiry,
     cardVerifiedAt: customer.cardVerifiedAt,
