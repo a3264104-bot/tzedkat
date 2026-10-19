@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { Resend } from "resend";
+// שליחת מיילים: SES עם Resend כגיבוי (EMAIL_PROVIDER)
+import { createMailer } from "@/lib/mailer";
 import crypto from "crypto";
 import { PAYMENT_METHOD_LABELS } from "@/lib/pricing";
 import { orderStageLabel } from "@/lib/order-display";
@@ -213,7 +214,7 @@ export async function PATCH(req: Request) {
     });
     try {
       const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://tzidkat.com"}/reset-password?token=${token}`;
-      const resend = new Resend(process.env.RESEND_API_KEY);
+      const resend = createMailer();
       await resend.emails.send({
         from: "צדקת רבותינו <orders@tzidkat.com>",
         to: customer.email,

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+// שליחת מיילים: SES עם Resend כגיבוי (EMAIL_PROVIDER)
+import { createMailer } from "@/lib/mailer";
 
 // §9: הודעות בבקשה אישית
 // GET /api/personal-request/[id]/messages - טעינת כל ההודעות (וסימון כנקראו)
@@ -126,8 +128,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const apiKey = process.env.RESEND_API_KEY;
 
       if (to && apiKey) {
-        const { Resend } = await import("resend");
-        const resend = new Resend(apiKey);
+        const resend = createMailer();
         const name = reqRow?.customer?.name || reqRow?.customerName || "";
         // ⚠️ ההודעה עצמה **לא** במייל: היא עשויה להכיל מחירים
         // ופרטים, והמייל אינו ערוץ מאובטח. הלקוח נכנס ורואה.

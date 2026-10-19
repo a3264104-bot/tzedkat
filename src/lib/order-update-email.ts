@@ -1,4 +1,5 @@
-import { Resend } from "resend";
+// שליחת מיילים: SES עם Resend כגיבוי (EMAIL_PROVIDER)
+import { createMailer } from "@/lib/mailer";
 import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/pricing";
 
@@ -16,7 +17,7 @@ import { fmt } from "@/lib/pricing";
 const FROM_ADDRESS = "צדקת רבותינו <orders@tzidkat.com>";
 
 function getResend() {
-  return new Resend(process.env.RESEND_API_KEY);
+  return createMailer();
 }
 
 async function getSettings() {

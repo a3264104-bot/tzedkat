@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
-import { Resend } from "resend";
-
+// שליחת מיילים: SES עם Resend כגיבוי (EMAIL_PROVIDER)
+import { createMailer } from "@/lib/mailer";
 const FROM_ADDRESS = "צדקת רבותינו <orders@tzidkat.com>";
 
 export async function POST(req: Request) {
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
           );
         } else {
           try {
-            const resend = new Resend(process.env.RESEND_API_KEY);
+            const resend = createMailer();
             const result = await resend.emails.send({
               from: FROM_ADDRESS,
               to: normalizedEmail,

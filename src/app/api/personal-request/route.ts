@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 // §396: חסימת הזמנה אישית בנקודה שבועית
 import { isWeeklyPoint } from "@/lib/weekly-sales";
 import { auth } from "@/lib/auth";
-import { Resend } from "resend";
+// שליחת מיילים: SES עם Resend כגיבוי (EMAIL_PROVIDER)
+import { createMailer } from "@/lib/mailer";
 // §248: בדיקת תוקף כרטיס (§202)
 import { canChargeCard } from "@/lib/card-expiry-lib";
 
@@ -15,7 +16,7 @@ const FROM_ADDRESS = "צדקת רבותינו <orders@tzidkat.com>";
 const ADMIN_EMAIL = "m5402088@gmail.com";
 
 function getResend() {
-  return new Resend(process.env.RESEND_API_KEY);
+  return createMailer();
 }
 
 export async function POST(req: Request) {
