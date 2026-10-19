@@ -216,11 +216,25 @@ async function sendManyViaSes(payload: MailOptions[]) {
   return { data: { data, errors }, error: null };
 }
 
+/**
+ * 🐛 רוב פונקציות המייל לא בודקות את התשובה (await …emails.send() בלי
+ * לבדוק error), ולכן מייל שנדחה "נבלע" — כך נעלמו אישורי ההזמנה כשנגמרה
+ * המכסה ב-Resend. עכשיו כל שליחה נרשמת בלוג: הצלחה בשורה קצרה, כישלון
+ * כשגיאה עם הסיבה — גם אם הקוד שקרא לא בודק.
+ */
+async function sendOneLogged(o: MailOptions): Promise<MailResult> {
+  const r = await sendOne(o);
+  const to = list(o.to)?.join(",") ?? "";
+  if (r.error) console.error(`[mailer] FAILED to=${to} subject="${o.subject}" ${r.error.name}: ${r.error.message}`);
+  else console.log(`[mailer] sent via ${emailProvider()} to=${to} id=${r.data?.id}`);
+  return r;
+}
+
 /** תחליף ל-new Resend(key) — אותו ממשק, הספק נבחר לפי EMAIL_PROVIDER */
 export function createMailer() {
   return {
     emails: {
-      send: (o: MailOptions) => sendOne(o),
+      send: (o: MailOptions) => sendOneLogged(o),
     },
     batch: {
       send: async (payload: MailOptions[], options?: { batchValidation?: "strict" | "permissive" }) => {
