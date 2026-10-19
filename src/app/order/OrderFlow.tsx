@@ -6,6 +6,7 @@ import { Logo } from "@/components/Logo";
 import { effectiveUnitPrice, lineEstimate, smartLineEstimate, fmt } from "@/lib/pricing";
 // §400: משבצת לכל קרטון — אותו מספר כמו בטבלת המשקלים ובסימון V
 import { cartonBoxCount } from "@/lib/order-display";
+import { responseCustomerId } from "@/lib/nedarim-response";
 type Point = {
   id: string;
   name: string;
@@ -187,6 +188,8 @@ export function OrderFlow({
   // 2. polling כל 3 שניות של /api/customer/verification-status
   // בלי מנעול, שני הם קוראים לdoSubmit ו-נוצרות 2 הזמנות!
   const submitLockRef = useRef<boolean>(false);
+  // 🔒 תשובת כרטיס מנדרים מתקבלת רק אחרי לחיצה על "שמור כרטיס" כאן
+  const awaitingCardResponseRef = useRef<boolean>(false);
   const [orderNumber, setOrderNumber] = useState<number | null>(null);
   const [error, setError] = useState("");
   // §4: הודעת תנאים לפני תחילת ההזמנה
@@ -656,6 +659,8 @@ export function OrderFlow({
       // אבטחה: מקבלים רק הודעות מ-matara.pro
       const origin = String(event.origin || "").toLowerCase();
       if (!origin.includes("matara.pro")) return;
+      // 🔒 רק מה-iframe של המסך הזה — לא מטאב/חלון/iframe אחר
+      if (iframeRef.current && event.source !== iframeRef.current.contentWindow) return;
       const data = event.data;
       if (!data || typeof data !== "object") return;
       const name = data.Name;
@@ -673,6 +678,20 @@ export function OrderFlow({
       // ── TransactionResponse: תוצאת החיוב ──
       if (name === "TransactionResponse") {
         console.log("[nedarim iframe] TransactionResponse:", value);
+        // 🔒 תשובה אחת לכל לחיצה, ורק אחרי לחיצה
+        if (!awaitingCardResponseRef.current) {
+          console.warn("[nedarim iframe] TransactionResponse ignored — no pending submit");
+          return;
+        }
+        awaitingCardResponseRef.current = false;
+        // 🔒 התשובה חייבת להיות של החשבון המחובר (Param1/Comment שנשלחו)
+        const respCustomer = responseCustomerId(value);
+        if (respCustomer && customerId && respCustomer !== customerId) {
+          console.error("[nedarim iframe] response customer mismatch:", respCustomer, "!=", customerId);
+          setIframeSubmitting(false);
+          setIframeError("פרטי הכרטיס שהתקבלו לא שייכים לחשבון הזה ולכן לא נשמרו. רעננו את הדף ונסו שוב.");
+          return;
+        }
         const status = String(value?.Status || "").toLowerCase();
         const isError = status === "error" || status === "err" || status === "fail";
         const isOk = status === "ok" || status === "success";
@@ -704,6 +723,11 @@ export function OrderFlow({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                  // 🔒 החשבון שאליו נשלחה הבקשה — השרת דוחה אם ה-session
+                  // שייך לחשבון אחר (למשל התחברו בינתיים בטאב אחר)
+                  customerId,
+                  responseParam1: respCustomer,
+                  via: "order-flow",
                   token: receivedToken,
                   lastNum: receivedLast4,
                   tokef: receivedTokef,
@@ -797,6 +821,7 @@ export function OrderFlow({
     }
     setIframeError(null);
     setIframeSubmitting(true);
+    awaitingCardResponseRef.current = true;
     try {
       iframeRef.current.contentWindow.postMessage(
         {
@@ -2528,6 +2553,11 @@ export function OrderFlow({
                 {/* §46: הניסוח מדויק - החיוב אכן מתבצע ומקוזז בהזמנה */}
                 <p className="text-xs text-zinc-500 mt-0.5">
                   יחויב 1 ש&quot;ח לאימות — יקוזז מההזמנה
+                </p>
+                {/* 🔒 לאיזה חשבון הכרטיס נשמר */}
+                <p className="mt-1 text-xs font-bold text-amber-800">
+                  הכרטיס יישמר בחשבון של: {customer.name}
+                  {customer.phone ? <span dir="ltr"> · {customer.phone}</span> : null}
                 </p>
               </div>
               <button

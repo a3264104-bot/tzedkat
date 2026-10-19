@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendPaymentConfirmedEmail } from "@/lib/email";
-import { sendTokenSavedEmail } from "@/lib/nedarim-emails";
+import { audit } from "@/lib/audit";
 import { PAYMENT_METHOD_LABELS } from "@/lib/pricing";
 
 // webhook שנדרים פלוס קוראים אחרי כל עסקה מוצלחת.
@@ -189,105 +189,32 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "missing param1", receivedKeys: Object.keys(data) }, { status: 400 });
     }
 
-    // === אימות הרשמה (חיוב 1₪) ===
+    // === אימות הרשמה (יצירת טוקן) ===
+    //
+    // 🔒 הכתובת הזו פתוחה לכל העולם (נדרים קוראים לה מהדפדפן/שרת שלהם,
+    // ואי אפשר לשים בה סוד). עד עכשיו היא **שמרה כרטיס** לכל לקוח
+    // שמספרו הגיע ב-param1 — כלומר מי שמכיר את הכתובת יכול היה לחבר
+    // מספר-כרטיס (טוקן, 6 ספרות עוקבות) לכל חשבון. בדיקת Mosad לא
+    // עוזרת: מספר המוסד גלוי בכתובת ה-iframe.
+    //
+    // ✅ כרטיס נשמר עכשיו **רק** דרך /api/customer/save-token: שם יש
+    // משתמש מחובר, בדיקת הרשאה, חיוב אימות של ₪1 על הכרטיס, יומן,
+    // ומייל לבעל החשבון. בדקנו: כל 126 הכרטיסים שנשמרו מאז 9.9 עברו
+    // שם — המסלול כאן לא נדרש לאף לקוח אמיתי.
     if (param2 === "registration" || !param2) {
-      const customer = await prisma.customer.findUnique({ where: { id: param1 } });
-      if (!customer) {
-        console.log("WEBHOOK ERROR: customer not found for id", param1);
-        return NextResponse.json({ error: "customer not found" }, { status: 404 });
-      }
-
-      const isCardUpdate = !!customer.paymentToken;
-
-      // עדכון פרטי הכרטיס אצל הלקוח.
-      // cardNeedsUpdate מתאפס תמיד כאשר נשמר טוקן חדש.
-      //
-      // §60: לקוח ששמר טוקן הוא משלם באשראי - בדיוק כמו ב-save-token.
-      // בלי זה נפערת דלת אחורית: לקוח מזומן שעדכן כרטיס דרך מסלול
-      // ה-webhook (ולא דרך postMessage) היה נשאר CASH *עם* טוקן, ואז
-      // גם החיוב האוטומטי מדלג עליו וגם הוא חסום באתר - לקוח תקוע
-      // בלי שאיש רואה למה.
-      //
-      // מותנה ב-token: קריאה בלי טוקן לא אמורה לשנות אופן תשלום.
-      await prisma.customer.update({
-        where: { id: param1 },
-        data: {
-          paymentToken: token || null,
-          cardLast4: last4 || null,
-          cardExpiry: cardExpiry || null,
-          cardVerifiedAt: new Date(),
-          cardNeedsUpdate: false,
-          ...(token ? { paymentPreference: "CREDIT" } : {}),
-        },
-      });
-
-      // §19: קידום הזמנות של הלקוח שממתינות לטוקן / שנכשלו בעבר.
-      // כולל ניקוי של שגיאות ישנות כדי שהמנהל יראה שאפשר לחייב שוב.
-      let promotedCount = 0;
-      if (token) {
-        const pendingOrders = await prisma.order.findMany({
-          where: {
-            customerId: param1,
-            paymentStatus: {
-              in: ["PENDING", "PAYMENT_PENDING", "CARD_UPDATE_NEEDED", "FAILED"],
-            },
-          },
-          select: { id: true, paymentStatus: true, finalTotal: true },
-        });
-
-        for (const o of pendingOrders) {
-          const nextStatus =
-            o.finalTotal !== null && o.finalTotal !== undefined
-              ? "READY_TO_CHARGE"
-              : "TOKEN_CREATED";
-          await prisma.order.update({
-            where: { id: o.id },
-            data: {
-              paymentStatus: nextStatus,
-              lastChargeError: null, // 🆕 מנקים שגיאה ישנה
-            },
-          });
-          promotedCount++;
-        }
-
-        // 🆕 מנקים גם את lastChargeError של הזמנות אחרות של הלקוח
-        // (למשל: הזמנות במצב READY_TO_CHARGE שהיתה עליהן שגיאה ישנה)
-        await prisma.order.updateMany({
-          where: {
-            customerId: param1,
-            lastChargeError: { not: null },
-          },
-          data: {
-            lastChargeError: null,
-          },
-        });
-      }
-
-      console.log(
-        `WEBHOOK OK (registration): customer=${param1} tokenSaved=${!!token} tokenSource=${tokenSource || "none"} last4=${last4 || "none"} tokef=${cardExpiry || "none"} cardUpdate=${isCardUpdate} promotedOrders=${promotedCount}`
+      console.warn(
+        `[webhook] registration callback IGNORED (cards are saved only via save-token): ` +
+          `param1=${param1} tokenPresent=${!!token} last4=${last4 || "none"}`
       );
-
-      // מייל §19 ללקוח
-      if (customer.email && token) {
-        const mailResult = await sendTokenSavedEmail({
-          to: customer.email,
-          customerName: customer.name,
-          last4: last4 || customer.cardLast4 || "",
-          isCardUpdate,
-        });
-        if (!mailResult.ok) {
-          console.error("sendTokenSavedEmail failed:", mailResult.error);
-        }
-      }
-
-      return NextResponse.json({
-        ok: true,
-        type: "registration",
-        tokenSaved: !!token,
-        tokefSaved: !!cardExpiry,
-        cardUpdate: isCardUpdate,
-        promotedOrders: promotedCount,
+      await audit({
+        actorId: "nedarim-webhook",
+        actorRole: "SYSTEM",
+        action: "CARD_WEBHOOK_IGNORED",
+        targetId: param1,
+        meta: { last4: last4 || null, tokenPresent: !!token, mosadOk: !!expectedMosad && providedMosad === expectedMosad },
+        req,
       });
+      return NextResponse.json({ ok: true, type: "registration", tokenSaved: false, note: "cards are saved via save-token only" });
     }
 
     // === תשלום הזמנה ===
@@ -325,22 +252,9 @@ export async function POST(req: Request) {
             paymentProvider: "nedarim_plus",
           },
         }),
-        ...(token && !customer.paymentToken
-          ? [
-              prisma.customer.update({
-                where: { id: customer.id },
-                data: {
-                  paymentToken: token,
-                  cardLast4: last4 || customer.cardLast4,
-                  cardExpiry: cardExpiry || customer.cardExpiry,
-                  // §60: גם כאן נשמר טוקן - אותו כלל כמו ב-registration
-                  // וב-save-token. לקוח מזומן ששילם אונליין והשאיר
-                  // כרטיס הוא משלם באשראי מכאן והלאה.
-                  paymentPreference: "CREDIT",
-                },
-              }),
-            ]
-          : []),
+        // 🔒 כאן היה גם "שמירת הטוקן ללקוח אם אין לו" — אותה דלת: קריאה
+        // מזויפת לכתובת הפתוחה הייתה מחברת כרטיס לחשבון. כרטיס נשמר רק
+        // דרך save-token.
       ]);
 
       console.log(`WEBHOOK OK (order): order=${param1} amount=${amount}`);

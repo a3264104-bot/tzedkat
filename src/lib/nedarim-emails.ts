@@ -95,6 +95,10 @@ export async function sendTokenSavedEmail(params: {
       <p style="color:#888;font-size:13px;margin-top:16px;">
         החיוב בפועל יתבצע רק לאחר שקילת ההזמנה וקביעת המחיר הסופי.
         תקבל/י מייל אישור נפרד כשהחיוב יבוצע.
+      </p>
+      <p style="background:#fde8e8;border-radius:10px;padding:12px 16px;margin-top:16px;font-size:14px;color:#8a1c1c;">
+        <strong>לא את/ה הוספת את הכרטיס הזה, או שהוא לא שלך?</strong>
+        יש להשיב למייל הזה או לפנות אלינו מיד — לא נחייב את הכרטיס עד לבירור.
       </p>`;
 
     await getResend().emails.send({
@@ -102,6 +106,51 @@ export async function sendTokenSavedEmail(params: {
       to,
       subject,
       html: baseTemplate(title, body),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 🔒 התראה למנהל: כרטיס הוחלף בחשבון, או שאותו כרטיס שמור אצל לקוח אחר
+// ═══════════════════════════════════════════════════════════════════
+// נשלח תמיד (גם כש-sendEmailToAdmin כבוי) — זו התראת אבטחה, לא עדכון
+// הזמנה. כך נתפס מוקדם מקרה של "כרטיס של ראובן בחשבון של שמעון".
+export async function sendCardSecurityAlert(params: {
+  customerName: string;
+  customerPhone: string | null;
+  last4: string;
+  previousLast4: string | null;
+  savedBy: string;
+  sharedWith: string[];
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+    if (!settings.adminEmail) return { ok: true };
+    const { customerName, customerPhone, last4, previousLast4, savedBy, sharedWith } = params;
+    const rows = [
+      `<li>לקוח: <strong>${escapeHtml(customerName)}</strong>${customerPhone ? ` · ${escapeHtml(customerPhone)}` : ""}</li>`,
+      `<li>כרטיס שנשמר: מסתיים ב-<strong>${escapeHtml(last4 || "?")}</strong></li>`,
+      previousLast4 ? `<li>⚠️ הכרטיס הקודם (מסתיים ב-${escapeHtml(previousLast4)}) <strong>הוחלף</strong></li>` : "",
+      sharedWith.length
+        ? `<li>⚠️ <strong>אותו כרטיס שמור גם אצל:</strong> ${sharedWith.map(escapeHtml).join(", ")}</li>`
+        : "",
+      `<li>נשמר על ידי: ${escapeHtml(savedBy)}</li>`,
+    ].join("");
+    const body = `
+      <p>נשמר כרטיס אשראי שדורש תשומת לב:</p>
+      <ul style="font-size:15px;line-height:1.8;">${rows}</ul>
+      <p style="color:#555;font-size:14px;">
+        אם בני משפחה חולקים כרטיס — זה תקין. אם לא — כדאי לבדוק עם הלקוחות
+        לפני החיוב הבא. כל שמירת כרטיס נרשמת ביומן הפעולות (מי, מתי, מאיזה מכשיר).
+      </p>`;
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: settings.adminEmail,
+      subject: `🔒 כרטיס אשראי לבדיקה — ${customerName}`,
+      html: baseTemplate("כרטיס אשראי לבדיקה", body),
     });
     return { ok: true };
   } catch (e: any) {

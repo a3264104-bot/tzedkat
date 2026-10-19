@@ -20,7 +20,13 @@ export type AuditAction =
   | "IMPERSONATE_STOP"
   | "UPDATE_CUSTOMER"
   | "TOGGLE_ACTIVE"
-  | "CHANGE_PAYMENT_PREF";
+  | "CHANGE_PAYMENT_PREF"
+  // שמירת כרטיס אשראי — מי, לאיזה חשבון, מאיזה מכשיר, ומה היה קודם.
+  // בלי זה אי אפשר היה לשחזר איך כרטיס של לקוח אחד הגיע לחשבון של אחר.
+  | "CARD_SAVED"
+  | "CARD_REPLACED"
+  | "CARD_REJECTED"
+  | "CARD_WEBHOOK_IGNORED";
 
 type AuditInput = {
   actorId: string;
