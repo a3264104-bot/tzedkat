@@ -616,7 +616,9 @@ export default function SaleSummaryPage() {
           הוחלפה הטבלה הישנה (מוצר × נקודה) שהציגה "מה הוזמן" אך לא
           ענתה על "כמה קרטונים להזמין" - ההמרה מיחידות/בודדים
           לקרטונים היא החלטה של המנהל, ועכשיו היא נשמרת. */}
-      <SupplierOrderPlanner pricelistId={data.pricelist.id} />
+      <div id="supplier-order">
+        <SupplierOrderPlanner pricelistId={data.pricelist.id} />
+      </div>
 
       {/* פירוט לפי נקודה */}
       <div>

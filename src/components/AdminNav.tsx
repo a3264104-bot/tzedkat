@@ -59,8 +59,11 @@ const NAV_GROUPS: NavGroup[] = [
     label: "אחרי הסגירה",
     icon: "⚖️",
     step: 3,
-    hint: "קליטת סחורה ושקילה",
+    hint: "הזמנה מהספק, הדפסה ושקילה",
     items: [
+      // הזמנה לספק ודפי החלוקה — מסכים משלהם (היו חבויים בסיכום ובבקרה)
+      { href: "/admin/supplier-order", label: "הזמנה לספק", icon: "🚚" },
+      { href: "/admin/distribution-sheets", label: "דפי חלוקה להדפסה", icon: "🖨️" },
       { href: "/admin/delivery-notes", label: "תעודות משלוח", icon: "📄" },
       { href: "/admin/pending-weights", label: "משקלים ממתינים", icon: "⚖️" },
       // בקרת מכירה משווה תעודות משלוח מול מה שחולק בפועל - ולכן היא

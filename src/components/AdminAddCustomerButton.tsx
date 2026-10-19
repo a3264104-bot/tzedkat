@@ -109,7 +109,8 @@ function Modal({
   // 🐛 מה שהיה: המנהל הקים לקוח, ראה את הסיסמה, ולחץ "סיום" -
   // ואז נאלץ לחפש אותו ברשימה ולפתוח את הכרטיס כדי להזין אשראי.
   // אצל הנציג (§60) זה עבד מזמן; מסך המנהל פשוט לא קיבל את זה.
-  const [payMethod, setPayMethod] = useState<"" | "CASH" | "CREDIT">("");
+  // CASH_SALE = 💵 מזומן רק במכירה הנוכחית (כמו אצל הנציג)
+  const [payMethod, setPayMethod] = useState<"" | "CASH" | "CASH_SALE" | "CREDIT">("");
   // הלקוח שנוצר וממתין להזנת כרטיס
   const [cardForCustomerId, setCardForCustomerId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -119,6 +120,8 @@ function Modal({
     phone: string;
     password: string;
     pointName: string;
+    // 💵 מזומן למכירה: באיזו מכירה (null = אין מכירה פתוחה — נשאר אשראי)
+    cashSale?: { name: string | null } | null;
   } | null>(null);
   const timer = useRef<any>(null);
   // §171: מזהה הלקוח שנוצר - כדי לפתוח את מסך הכרטיס גם אחרי
@@ -208,7 +211,8 @@ function Modal({
           // §161: טלפון נוסף
           phone2: phone2.trim() || null,
           // §171: אופן התשלום שנבחר
-          paymentPreference: payMethod || "CREDIT",
+          paymentPreference: payMethod === "CASH_SALE" ? "CASH" : payMethod || "CREDIT",
+          cashScope: payMethod === "CASH_SALE" ? "SALE" : "ALWAYS",
           defaultPointId: pointId,
         }),
       });
@@ -224,6 +228,7 @@ function Modal({
         phone: j.customer.phone,
         password: j.password,
         pointName: j.pointName,
+        cashSale: j.cashScope === "SALE" ? { name: j.cashSaleName ?? null } : null,
       });
 
       createdIdRef.current = j.customer.id;
@@ -267,6 +272,13 @@ function Modal({
               <p className="text-sm text-emerald-700 mt-1">
                 📍 שויך לנקודה: {done.pointName}
               </p>
+              {done.cashSale && (
+                <p className={`text-sm mt-1 font-bold ${done.cashSale.name ? "text-lime-800" : "text-amber-800"}`}>
+                  {done.cashSale.name
+                    ? `💵 מזומן רק ב${done.cashSale.name}`
+                    : "⚠️ אין כרגע מכירה פתוחה לנקודה הזו — הלקוח נשמר כאשראי. אפשר לסמן מזומן למכירה מכרטיס הלקוח כשתיפתח."}
+                </p>
+              )}
             </div>
             <div className="border border-zinc-200 rounded-xl divide-y divide-zinc-100">
               <div className="flex items-center justify-between p-3">
@@ -534,7 +546,21 @@ function Modal({
                   <label className="text-xs font-bold text-zinc-500 block mb-1">
                     איך הלקוח משלם? *
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod("CASH_SALE")}
+                      className={`py-3 px-2 rounded-xl border-2 font-bold text-sm transition-colors ${
+                        payMethod === "CASH_SALE"
+                          ? "border-lime-600 bg-lime-50 text-lime-800"
+                          : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-400"
+                      }`}
+                    >
+                      💵 מזומן — במכירה הזו
+                      <div className="text-[10px] font-normal mt-0.5">
+                        רק המכירה הנוכחית, אחר כך אשראי
+                      </div>
+                    </button>
                     <button
                       type="button"
                       onClick={() => setPayMethod("CASH")}
@@ -572,9 +598,13 @@ function Modal({
                   )}
                   {payMethod === "CASH" && (
                     <p className="text-[10px] text-lime-700 mt-1 leading-relaxed">
-                      ⭐ לקוח מזומן קבוע: בכל המכירות עד שמבטלים. למזומן במכירה
-                      אחת בלבד — צור כאשראי, והנציג יבחר &quot;מזומן — במכירה הזו&quot;
-                      בזמן ההזמנה.
+                      ⭐ לקוח מזומן קבוע: בכל המכירות עד שמבטלים.
+                    </p>
+                  )}
+                  {payMethod === "CASH_SALE" && (
+                    <p className="text-[10px] text-lime-700 mt-1 leading-relaxed">
+                      💵 מזומן רק במכירה שהנקודה של הלקוח רואה עכשיו. במכירה הבאה
+                      הלקוח יתבקש להוסיף כרטיס (או לסמן שוב מזומן).
                     </p>
                   )}
                 </div>

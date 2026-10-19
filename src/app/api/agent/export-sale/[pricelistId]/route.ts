@@ -264,6 +264,20 @@ export async function GET(
 // והשאר גולשים לשורה שנייה - צר וקריא, במקום דף רחב שרובו ריק.
 const ITEMS_PER_ROW = 4;
 
+// 🐛 גובה שורה קבוע (30) חתך טקסט: שם מוצר ארוך ("נקניקיות עוף - רגיל -
+// 400 ג'") נשבר לשתי שורות + שורת הכמות = שלוש, והשלישית נבלעה — גם
+// במסך וגם בהדפסה. עכשיו הגובה מחושב לפי הטקסט הארוך בשורה.
+// הערכה שמרנית: כמה תווים נכנסים בשורה אחת בתא ברוחב הנתון.
+function linesFor(text: string, colWidth: number, fontSize: number): number {
+  const perLine = Math.max(6, Math.floor((colWidth * 10) / fontSize) - 2);
+  return String(text)
+    .split("\n")
+    .reduce((n, part) => n + Math.max(1, Math.ceil(part.length / perLine)), 0);
+}
+function rowHeightFor(lines: number, fontSize: number): number {
+  return Math.max(30, Math.ceil(lines * (fontSize + 3.5) + 4));
+}
+
 // §161: צבע למוצרי **בשר בקר בלבד**.
 //
 // הבקשה מהשטח: "כל הבשרים נראים אותו דבר, ואם אני לא עובד לפי
@@ -494,10 +508,14 @@ function buildDistributionSheet(
     //
     // ⚠️ נציג שרואה ⬤ בלי מקרא לא יודע שזה עוף. הסימן עוזר רק
     // אם ברור מה הוא אומר.
-    " · ${CATEGORY_LEGEND}" +
+    // 🐛 היה במירכאות רגילות — בדף הודפס "${CATEGORY_LEGEND}" כטקסט
+    ` · ${CATEGORY_LEGEND}` +
     ` · לקוח ששילם במזומן — לסמן בעמודת "מזומן" ולעדכן במערכת`;
   sub.font = { size: 9, color: { argb: "FF666666" } };
-  sub.alignment = { horizontal: "center" };
+  // שורת המשנה ארוכה (מציג · לקוחות · הופק · מקרא · מזומן) — בלי גלישה
+  // היא נחתכה בצדדים, ובהדפסה המקרא לא נראה
+  sub.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  ws.getRow(2).height = 26;
 
   // §208: מקרא בולט - רק כשיש הזמנות מאוחרות.
   //
@@ -621,8 +639,8 @@ function buildDistributionSheet(
     const stripe = idx % 2 === 1;
 
     chunks.forEach((chunk, ci) => {
-      // גובה נדיב: שתי שורות טקסט בתא (מוצר + מקום למשקל)
-      ws.getRow(r).height = 30;
+      // גובה: נקבע בסוף השורה — לפי התא עם הכי הרבה שורות טקסט
+      let maxLines = 2;
 
       // שם וטלפון רק בשורה הראשונה של הלקוח
       if (ci === 0) {
@@ -654,6 +672,7 @@ function buildDistributionSheet(
           `#${o.orderNumber}  ` +
           (o.customer?.name || o.customerName) +
           "\n☐ הכל מוכן";
+        maxLines = Math.max(maxLines, linesFor(String(nameCell.value), 18, 10));
         nameCell.font = {
           bold: true,
           size: 10,
@@ -749,6 +768,7 @@ function buildDistributionSheet(
             it.product?.category?.name ?? (it as any).categoryName
           );
           cell.value = `${catMark ? catMark + " " : ""}${name}${partTag}\n${cartonMark}${qty}   ______`;
+          maxLines = Math.max(maxLines, linesFor(String(cell.value), 17, 9));
           cell.font = {
             size: 9,
             // ⚠️ קרטון מודגש: גם בהדפסה בשחור-לבן ההבדל נראה.
@@ -820,6 +840,7 @@ function buildDistributionSheet(
       }
       ws.getCell(r, 1).border = cellBorder;
       ws.getCell(r, 2).border = cellBorder;
+      ws.getRow(r).height = rowHeightFor(maxLines, 9);
 
       r++;
     });
