@@ -6,6 +6,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
+import { PRICELIST_STATUS } from "@/lib/pricing";
 type Pricelist = {
   id: string;
   name: string;
@@ -162,20 +164,10 @@ export default function AdminDeliveryNotesClient({
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
-      {/* Header */}
-      <header className="bg-brand-yellow border-b-4 border-brand-rust/20">
-        <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-          <Link href="/admin" className="text-brand-slate font-medium text-sm">
-            ← חזרה לניהול
-          </Link>
-          <h1 className="font-extrabold text-brand-slatedark">
-            📄 תעודות משלוח
-          </h1>
-        </div>
-      </header>
+    <div dir="rtl" className="pb-20">
+      <AdminPageHeader title="📄 תעודות משלוח" />
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
+      <main className="">
         {/* בחירת מחירון + העלאה */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-5 mb-5">
           <div className="grid md:grid-cols-2 gap-4">
@@ -191,7 +183,7 @@ export default function AdminDeliveryNotesClient({
                 >
                   {pricelists.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} · {p.status}
+                      {p.name} · {PRICELIST_STATUS[p.status] ?? p.status}
                     </option>
                   ))}
                 </select>

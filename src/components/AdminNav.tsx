@@ -35,7 +35,7 @@ const NAV_GROUPS: NavGroup[] = [
     step: 1,
     hint: "פתיחת מכירה חדשה",
     items: [
-      { href: "/admin/pricelists", label: "מחירונים / מכירות", icon: "💵" },
+      { href: "/admin/pricelists", label: "מכירות", icon: "💵" },
       // §396: סדרות שבועיות — נפתחות לבד כל שבוע
       { href: "/admin/weekly-series", label: "מכירות שבועיות", icon: "🔁" },
       { href: "/admin/points", label: "נקודות חלוקה", icon: "📍" },

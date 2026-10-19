@@ -11,6 +11,7 @@ import { useMemo, useRef, useState } from "react";
 import FavoritePriceEditor from "@/components/FavoritePriceEditor";
 import Link from "next/link";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 type Row = {
   id: string;
   orderId: string;
@@ -87,25 +88,11 @@ export default function PendingWeightsClient({
   };
 
   return (
-    <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
-      <header className="bg-brand-yellow border-b-4 border-brand-rust/20 sticky top-0 z-30">
-        <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
-          <Link href="/admin" className="text-brand-slate font-medium text-sm">
-            ← ניהול
-          </Link>
-          <div className="text-right">
-            <h1 className="font-extrabold text-brand-slatedark">
-              ⚖️ משקלים ממתינים
-            </h1>
-            <div className="text-xs text-brand-slate mt-0.5">
-              {filteredCount} מתוך {totalCount} פריטים
-            </div>
-          </div>
-        </div>
-      </header>
+    <div dir="rtl" className="pb-20">
+      <AdminPageHeader title="⚖️ משקלים ממתינים" subtitle={`${filteredCount} מתוך ${totalCount} פריטים`} />
 
       {/* Toolbar */}
-      <div className="sticky top-[52px] z-20 bg-white border-b border-zinc-200 shadow-sm">
+      <div className="sticky top-14 md:top-0 z-20 bg-white border-b border-zinc-200 shadow-sm">
         <div className="mx-auto max-w-7xl px-4 py-3 space-y-2">
           <div className="flex gap-2 items-stretch flex-wrap">
             <input
@@ -166,7 +153,7 @@ export default function PendingWeightsClient({
         </div>
       </div>
 
-      <main className="mx-auto max-w-7xl px-4 py-5">
+      <main className="">
         {filteredRows.length === 0 ? (
           <div className="bg-white rounded-2xl border border-zinc-200 p-8 text-center">
             <p className="text-brand-slatedark font-semibold">

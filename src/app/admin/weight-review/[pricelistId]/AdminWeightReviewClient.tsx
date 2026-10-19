@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 type Item = {
   id: string;
   productId: string;
@@ -227,28 +228,15 @@ export default function AdminWeightReviewClient({
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
-      <header className="bg-brand-yellow border-b-4 border-brand-rust/20 sticky top-0 z-30">
-        <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
-          <Link
-            href={`/admin/sale-control/${pricelistId}`}
-            className="text-brand-slate font-medium text-sm"
-          >
-            ← בקרת מכירה
-          </Link>
-          <div className="text-right">
-            <h1 className="font-extrabold text-brand-slatedark">
-              ⚖️ בקרת משקלים
-            </h1>
-            <div className="text-xs text-brand-slate mt-0.5">
-              {data.pricelist.name}
-            </div>
-          </div>
-        </div>
-      </header>
+    <div dir="rtl" className="pb-20">
+      <AdminPageHeader
+        back={{ href: `/admin/sale-control/${pricelistId}`, label: "בקרת מכירה" }}
+        title="⚖️ בקרת משקלים"
+        subtitle={data.pricelist.name}
+      />
 
       {/* סרגל סטטיסטיקות + חיפוש */}
-      <div className="sticky top-[52px] z-20 bg-white border-b border-zinc-200 shadow-sm">
+      <div className="sticky top-14 md:top-0 z-20 bg-white border-b border-zinc-200 shadow-sm">
         <div className="mx-auto max-w-7xl px-4 py-3">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
             <StatMini label="סה״כ פריטים" value={String(stats.total)} color="slate" />
@@ -295,7 +283,7 @@ export default function AdminWeightReviewClient({
         </div>
       </div>
 
-      <main className="mx-auto max-w-7xl px-4 py-5">
+      <main className="">
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

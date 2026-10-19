@@ -300,9 +300,14 @@ export default function PricelistsPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
+                  {/* "הפוך לפעיל" צהוב ובולט רק בטיוטה — שם זה הצעד הבא.
+                      במכירה סגורה זו פעולה נדירה (פתיחה מחדש), ולכן רגילה. */}
                   {l.status !== "ACTIVE" && (
-                    <button onClick={() => setStatus(l, "ACTIVE")} className="btn-yellow btn-sm">
-                      הפוך לפעיל
+                    <button
+                      onClick={() => setStatus(l, "ACTIVE")}
+                      className={l.status === "DRAFT" ? "btn-yellow btn-sm" : "btn-ghost btn-sm"}
+                    >
+                      {l.status === "DRAFT" ? "הפוך לפעיל" : "פתח מחדש"}
                     </button>
                   )}
                   {/* §227: 🐛 "סגור הזמנות" לא אמר למי.
@@ -360,24 +365,7 @@ export default function PricelistsPage() {
                         🔶 סגור ללקוחות
                       </button>
                     )}
-                  {l.status === "ACTIVE" && (
-                    <button
-                      onClick={() => {
-                        if (
-                          !window.confirm(
-                            `לסגור סופית את "${l.name}"?\n\n` +
-                              "אחרי הסגירה הסופית **גם אתה וגם הנציגים** לא תוכלו להזין הזמנות.\n\n" +
-                              "⚠️ אם רק רצית לחסום לקוחות — אין צורך בזה. שעת הסגירה כבר עושה את זה, ואתם ממשיכים לעבוד."
-                          )
-                        )
-                          return;
-                        setStatus(l, "CLOSED");
-                      }}
-                      className="btn-ghost btn-sm"
-                    >
-                      🔒 סגירה סופית
-                    </button>
-                  )}
+
                   {/* §116: הקישור למסך "מצב המכירה" הוסר.
                       הוא הוביל ל-/admin/sale-status, מסך שנבנה
                       בכפילות ל-/admin/sale-control הקיים ונמחק.
@@ -456,6 +444,27 @@ export default function PricelistsPage() {
                   >
                     ייצוא לאקסל
                   </button>
+                  {/* סגירה סופית — בסוף השורה, אחרי מפריד ובאדום: היא חוסמת
+                      גם את הצוות, ולא צריכה לשבת בין כפתורי היום-יום. */}
+                  {l.status === "ACTIVE" && <span className="w-px h-6 bg-zinc-300 mx-1 self-center" />}
+                  {l.status === "ACTIVE" && (
+                    <button
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `לסגור סופית את "${l.name}"?\n\n` +
+                              "אחרי הסגירה הסופית **גם אתה וגם הנציגים** לא תוכלו להזין הזמנות.\n\n" +
+                              "⚠️ אם רק רצית לחסום לקוחות — אין צורך בזה. שעת הסגירה כבר עושה את זה, ואתם ממשיכים לעבוד."
+                          )
+                        )
+                          return;
+                        setStatus(l, "CLOSED");
+                      }}
+                      className="btn-ghost btn-sm text-red-700 border-red-200"
+                    >
+                      🔒 סגירה סופית
+                    </button>
+                  )}
                   {l._count.orders === 0 && (
                     <button onClick={() => remove(l)} className="btn-ghost btn-sm text-red-600">
                       מחק

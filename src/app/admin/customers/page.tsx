@@ -717,7 +717,9 @@ export default function AdminCustomersPage() {
         <div>
           <h1 className="text-2xl font-extrabold text-brand-slatedark">לקוחות</h1>
           <p className="text-sm text-zinc-500">
-            {customers.length} לקוחות{pointFilter ? ` · ${pointFilter}` : ""}
+            {/* 🐛 הכותרת הציגה את מספר המוצגים (500) כאילו זה כל הלקוחות
+                (924). המספר האמיתי — כמה יש במערכת. */}
+            {(totalCount || customers.length)} לקוחות{pointFilter ? ` · ${pointFilter}` : ""}
             {inactiveCount > 0 && ` · ${inactiveCount} לא פעילים`}
           </p>
           {/* §213: התראה על לקוחות תקועים.

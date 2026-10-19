@@ -322,10 +322,16 @@ export default function Dashboard() {
                   tone={money.collected > 0 ? "good" : "neutral"}
                   progress={collectedPct}
                 />
+                {/* לפני השקילה אין מה לחייב — הסכום הוא הערכה לפי ההזמנות.
+                    "ממתין לחיוב ₪116,000" כשאף הזמנה לא נשקלה בלבל. */}
                 <Kpi
-                  label="ממתין לחיוב"
+                  label={pricedCount === 0 ? "טרם נגבה (משוער)" : "ממתין לחיוב"}
                   value={money.pending}
-                  sub={`${money.pendingCount} הזמנות במכירה הזו`}
+                  sub={
+                    pricedCount === 0
+                      ? `${money.pendingCount} הזמנות · עוד לא נשקלו, הסכום ישתנה`
+                      : `${money.pendingCount} הזמנות במכירה הזו`
+                  }
                   tone={money.pending > 0 ? "warn" : "neutral"}
                   href="/admin/payments"
                 />

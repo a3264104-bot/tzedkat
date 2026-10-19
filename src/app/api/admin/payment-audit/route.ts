@@ -45,6 +45,29 @@ export async function GET(req: Request) {
     : [];
   const orderMap = new Map(orders.map((o) => [o.id, o]));
 
+  // "מי קיבל" נשמר כמזהה/מייל של המשתמש (actorLabel) — במסך הופיע
+  // ab7678894@gmail.com במקום שם. מתרגמים לשם מטבלת המנהלים והלקוחות
+  // (נציגים הם לקוחות עם role AGENT); אם לא נמצא — נשאר מה שנשמר.
+  const actors = Array.from(new Set(logs.map((l) => l.receivedByUserId).filter(Boolean))) as string[];
+  const [admins, people] = actors.length
+    ? await Promise.all([
+        prisma.admin.findMany({
+          where: { OR: [{ email: { in: actors } }, { id: { in: actors } }] },
+          select: { id: true, email: true, name: true },
+        }),
+        prisma.customer.findMany({
+          where: { OR: [{ email: { in: actors } }, { id: { in: actors } }] },
+          select: { id: true, email: true, name: true },
+        }),
+      ])
+    : [[], []];
+  const actorName = new Map<string, string>();
+  for (const u of [...people, ...admins]) {
+    if (!u.name) continue;
+    actorName.set(u.id, u.name);
+    if (u.email) actorName.set(u.email, u.name);
+  }
+
   let rows = logs.map((l) => {
     const o = orderMap.get(l.orderId) || null;
     const amountPaid = Number(l.amountPaid);
@@ -67,6 +90,7 @@ export async function GET(req: Request) {
       difference: Math.round((amountPaid - finalTotalAtTime) * 100) / 100,
       paymentMethod: l.paymentMethod,
       receivedByUserId: l.receivedByUserId,
+      receivedByName: (l.receivedByUserId && actorName.get(l.receivedByUserId)) || l.receivedByUserId,
       note: l.note,
       createdAt: l.createdAt.toISOString(),
     };
@@ -85,7 +109,8 @@ export async function GET(req: Request) {
         (r.customerName || "").toLowerCase().includes(lower) ||
         (r.phone || "").includes(q) ||
         String(r.orderNumber ?? "").includes(q) ||
-        (r.receivedByUserId || "").toLowerCase().includes(lower)
+        (r.receivedByUserId || "").toLowerCase().includes(lower) ||
+        (r.receivedByName || "").toLowerCase().includes(lower)
     );
   }
 

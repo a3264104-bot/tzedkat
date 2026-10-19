@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 type Data = {
   agent: {
     id: string;
@@ -233,27 +234,14 @@ export default function AgentSaleDetailClient({
     : walkins;
 
   return (
-    <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
-      <header className="bg-brand-yellow border-b-4 border-brand-rust/20 sticky top-0 z-30">
-        <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-          <Link
-            href={`/admin/sale-control/${pricelistId}`}
-            className="text-brand-slate font-medium text-sm"
-          >
-            ← בקרת מכירה
-          </Link>
-          <div className="text-right">
-            <h1 className="font-extrabold text-brand-slatedark">
-              👤 פעילות נציג
-            </h1>
-            <div className="text-xs text-brand-slate mt-0.5">
-              {pricelist.name}
-            </div>
-          </div>
-        </div>
-      </header>
+    <div dir="rtl" className="pb-20">
+      <AdminPageHeader
+        back={{ href: `/admin/sale-control/${pricelistId}`, label: "בקרת מכירה" }}
+        title="👤 פעילות נציג"
+        subtitle={pricelist.name}
+      />
 
-      <main className="mx-auto max-w-6xl px-4 py-5 space-y-4">
+      <main className="space-y-4">
         {/* פרטי הנציג + כפתור איפוס */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-5">
           <div className="flex items-start gap-4 flex-wrap">

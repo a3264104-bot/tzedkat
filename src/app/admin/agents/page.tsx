@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { AddAgentButton } from "./AddAgentButton";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 export const dynamic = "force-dynamic";
 
 export default async function AdminAgentsPage() {
@@ -52,20 +53,10 @@ export default async function AdminAgentsPage() {
   const admins = agents.filter((a) => a.role === "ADMIN");
 
   return (
-    <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
-      <header className="bg-brand-yellow border-b-4 border-brand-rust/20">
-        <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-          <Link href="/admin" className="text-brand-slate font-medium text-sm">
-            ← חזרה לניהול
-          </Link>
-          <h1 className="font-extrabold text-brand-slatedark">
-            👥 נציגים ומנהלים
-          </h1>
-          <AddAgentButton />
-        </div>
-      </header>
+    <div dir="rtl" className="pb-20">
+      <AdminPageHeader title="👥 נציגים ומנהלים" actions={<AddAgentButton />} />
 
-      <main className="mx-auto max-w-6xl px-4 py-5 space-y-5">
+      <main className="space-y-5">
         {/* בנר מידע */}
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm text-blue-900">
           <strong>לחץ על נציג</strong> לפתיחת פרופיל מלא, עריכת פרטים, איפוס סיסמא והצגת היסטוריית מכירות ותשלומים.

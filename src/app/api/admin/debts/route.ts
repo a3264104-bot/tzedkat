@@ -25,8 +25,17 @@ export async function GET() {
   });
 
   const now = Date.now();
+  // 🐛 הזמנות ישנות (לפני שנשמר finalPriceSetAt) הציגו "ממתין: היום" —
+  // 0 ימים כשאין תאריך. עכשיו: מתי נקבע המחיר, ואם אין — מתי נמסרה,
+  // ואם גם זה חסר — מתי נוצרה ההזמנה.
+  const since = (o: (typeof orders)[number]) =>
+    o.finalPriceSetAt ?? o.deliveredAt ?? o.createdAt;
   return NextResponse.json(
-    orders.map((o) => ({
+    orders
+      .map((o) => ({ o, days: Math.max(0, Math.floor((now - new Date(since(o)).getTime()) / (1000 * 60 * 60 * 24))) }))
+      // הממתינים הכי הרבה זמן קודם
+      .sort((a, b) => b.days - a.days)
+      .map(({ o, days }) => ({
       id: o.id,
       orderNumber: o.orderNumber,
       customerName: o.customerName,
@@ -41,9 +50,7 @@ export async function GET() {
       isCashCustomer: o.customer?.paymentPreference === "CASH",
       finalPriceSetAt: o.finalPriceSetAt,
       // כמה ימים ההזמנה ממתינה לתשלום
-      daysWaiting: o.finalPriceSetAt
-        ? Math.floor((now - new Date(o.finalPriceSetAt).getTime()) / (1000 * 60 * 60 * 24))
-        : 0,
+      daysWaiting: days,
       customerNotifiedAt: o.customerNotifiedAt,
     }))
   );

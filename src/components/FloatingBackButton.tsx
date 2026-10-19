@@ -78,7 +78,12 @@ export function FloatingBackButton() {
     router.push(fallback);
   }
 
-  return (
+  // בניהול, במחשב, יש תפריט צד קבוע — והכפתור הצף ישב מעל החלק
+  // התחתון שלו (שם נמצאים "מסך הנציג" וההתנתקות). בטלפון התפריט
+  // נסגר במגירה, ושם הכפתור עדיין שימושי.
+  const hideOnDesktop = pathname.startsWith("/admin");
+
+  const button = (
     // §142: ניתן להזזה בלחיצה ארוכה.
     //
     // 🐛 הבעיה: הכפתור ישב קבוע בפינה ימנית-תחתונה, ובמסכים
@@ -122,4 +127,6 @@ export function FloatingBackButton() {
       </button>
     </DraggableFloating>
   );
+
+  return hideOnDesktop ? <div className="md:hidden">{button}</div> : button;
 }

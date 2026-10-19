@@ -27,6 +27,7 @@ type Row = {
   difference: number;
   paymentMethod: string;
   receivedByUserId: string;
+  receivedByName?: string;
   note: string | null;
   createdAt: string;
 };
@@ -229,7 +230,7 @@ export default function PaymentAuditPage() {
                       )}
                     </td>
                     <td className="text-zinc-600 text-xs" dir="ltr">
-                      {r.receivedByUserId}
+                      {r.receivedByName || r.receivedByUserId}
                     </td>
                     <td className="text-zinc-600 text-xs">{r.note || "—"}</td>
                   </tr>
