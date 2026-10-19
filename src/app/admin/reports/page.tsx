@@ -73,6 +73,15 @@ export default function ReportsPage() {
     return `/api/admin/export?${q.toString()}`;
   }
 
+  // כשנבחרה מכירה אחת, "סיכום מוצרים להכנה" ו"לפי נקודת חלוקה" הם
+  // תקציר של סיכום המכירה — שתי גרסאות של אותו נתון. אז מסתירים אותן
+  // ומקשרים לסיכום. ב"כל המכירות" הן נשארות: סיכום המכירה הוא למכירה
+  // אחת בלבד, וכאן זה המקום היחיד לצבירה על פני כמה מכירות.
+  const visibleTabs = pricelistId ? TABS.filter((t) => t.id !== "products" && t.id !== "bypoint") : TABS;
+  useEffect(() => {
+    if (pricelistId && (tab === "products" || tab === "bypoint")) setTab("summary");
+  }, [pricelistId, tab]);
+
   return (
     <div className="space-y-5">
       {/* §397: 🧭 שלושת מסכי הסיכום */}
@@ -106,7 +115,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="no-print flex flex-wrap gap-2">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -119,6 +128,14 @@ export default function ReportsPage() {
             {t.label}
           </button>
         ))}
+        {pricelistId && (
+          <a
+            href={`/admin/sale-summary?pricelistId=${pricelistId}`}
+            className="btn-sm rounded-lg border bg-white text-brand-slate border-zinc-200 hover:bg-zinc-50"
+          >
+            📦 לפי מוצר / לפי נקודה ← בסיכום מכירה
+          </a>
+        )}
       </div>
 
       {loading || !data ? (
