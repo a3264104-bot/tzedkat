@@ -22,6 +22,8 @@ type Log = {
   failed: number;
   pending: number;
   state: "DONE" | "SENDING" | "INCOMPLETE";
+  /** ⛔ נגמרה מכסת המיילים ב-Resend בזמן השליחה */
+  quotaHit?: boolean;
   finishedAt: string | null;
 };
 
@@ -169,6 +171,17 @@ export default function BroadcastHistoryPage() {
                     </div>
                   )}
                 </button>
+                {l.quotaHit && (
+                  <div className="mx-4 mb-3 rounded-xl border-2 border-red-300 bg-red-50 p-3 text-sm text-red-900">
+                    <p className="font-extrabold">⛔ נגמרה מכסת המיילים בחבילת Resend</p>
+                    <p className="mt-1 leading-relaxed">
+                      השליחה נעצרה. המכסה משותפת לכל המיילים של האתר — עד שהיא מתחדשת
+                      גם <b>אישורי הזמנה, קבלות ושחזור סיסמה לא יוצאים</b>. כדי שזה לא
+                      יחזור: שדרוג החבילה ב-resend.com (Settings ← Billing). אחרי
+                      שהמכסה מתחדשת — "שלח שוב" למטה.
+                    </p>
+                  </div>
+                )}
                 {/* שליחה חוזרת רק למי שלא קיבל — פותח את מסך השליחה עם הנמענים מסומנים */}
                 {l.state !== "SENDING" && l.failed + l.pending > 0 && (
                   <div className="px-4 pb-4 -mt-1">

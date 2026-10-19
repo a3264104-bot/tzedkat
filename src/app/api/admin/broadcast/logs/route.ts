@@ -26,6 +26,21 @@ export async function GET() {
 
   const staleBefore = Date.now() - STALE_MIN * 60 * 1000;
 
+  // ⛔ שליחות שנעצרו כי נגמרה המכסה ב-Resend — לפי סיבת הכישלון שנשמרה
+  // לנמענים (Resend: daily_quota_exceeded / monthly_quota_exceeded)
+  const quotaRows = logs.length
+    ? await prisma.broadcastRecipient.groupBy({
+        by: ["broadcastId"],
+        where: {
+          broadcastId: { in: logs.map((l) => l.id) },
+          status: "FAILED",
+          OR: [{ error: { contains: "quota" } }, { error: { contains: "מכסת" } }],
+        },
+        _count: true,
+      })
+    : [];
+  const quotaHit = new Set(quotaRows.map((q) => q.broadcastId));
+
   return NextResponse.json({
     logs: logs.map((l) => {
       const pending = Math.max(0, l.total - l.sent - l.failed);
@@ -48,6 +63,7 @@ export async function GET() {
         failed: l.failed,
         pending,
         state,
+        quotaHit: quotaHit.has(l.id),
         finishedAt: l.finishedAt?.toISOString() ?? null,
       };
     }),
