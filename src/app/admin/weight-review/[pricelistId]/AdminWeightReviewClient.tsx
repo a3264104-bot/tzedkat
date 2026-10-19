@@ -281,6 +281,16 @@ export default function AdminWeightReviewClient({
             <FilterChip active={filterMode === "conflicts"} onClick={() => setFilterMode("conflicts")} color="red">
               🚩 חשודים · {stats.conflicts}
             </FilterChip>
+            {/* כאן בודקים ומתקנים. הזנה של הרבה משקלים חסרים — במסך
+                המשקלים הממתינים (טבלה מהירה עם Tab/Enter), לא פה. */}
+            {stats.pending > 0 && (
+              <a
+                href="/admin/pending-weights"
+                className="shrink-0 self-center px-2 text-xs font-bold text-amber-800 hover:underline whitespace-nowrap"
+              >
+                ⚖️ להזנה מהירה של {stats.pending} חסרים ←
+              </a>
+            )}
           </div>
         </div>
       </div>

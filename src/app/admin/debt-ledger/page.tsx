@@ -144,6 +144,13 @@ export default function DebtLedgerPage() {
           </div>
         </a>
       )}
+      {/* אותן הזמנות, אחת-אחת, עם תזכורת בוואטסאפ/מייל — במסך החובות.
+          כאן רק הסכום, כדי שלא יהיו שתי רשימות של אותו דבר. */}
+      {unpaid && unpaid.count > 0 && (
+        <a href="/admin/debts" className="-mt-2 block text-xs text-amber-800 hover:underline">
+          📲 לשליחת תזכורת לכל לקוח — חובות לקוחות ותזכורות ←
+        </a>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <div className="rounded-xl border-2 border-red-300 bg-red-50 p-3">
