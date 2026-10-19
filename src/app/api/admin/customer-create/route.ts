@@ -20,6 +20,7 @@ import { normalizePhone, isValidPhone, cleanName } from "@/lib/identity";
 import { validatePhone2 } from "@/lib/phone2-lib";
 // §173: הרכבת שם מלא משם פרטי ומשפחה
 import { buildName } from "@/lib/name-lib";
+import { resolveCustomerSaleId } from "@/lib/weekly-sales";
 
 // סיסמה קריאה: בלי תווים שקל לבלבל (0/O, 1/l) - היא נמסרת בטלפון
 function generatePassword(): string {
@@ -145,6 +146,10 @@ const p2 = await validatePhone2(prisma, b.phone2);
   // §60: אופן תשלום. ברירת מחדל CREDIT - לקוח שהמנהל מקים בטלפון
   // אמור להוסיף כרטיס. CASH נבחר מפורשות ללקוח שמשלם בחלוקה.
   const paymentPreference = b.paymentPreference === "CASH" ? "CASH" : "CREDIT";
+  // §401: 💵 מזומן רק במכירה הזו — כמו בהקמה אצל הנציג. עד עכשיו מסך
+  // המנהל הציע רק "מזומן קבוע", ומזומן חד-פעמי דרש להקים כאשראי ולסמן
+  // אחר כך בכרטיס הלקוח.
+  const cashScope = b.cashScope === "SALE" ? "SALE" : "ALWAYS";
   if (
     b.paymentPreference != null &&
     b.paymentPreference !== "CASH" &&
@@ -251,6 +256,23 @@ const p2 = await validatePhone2(prisma, b.phone2);
   // רק ללוג.
   await closeOpenRequestsForPhone(prisma, phone, customer.id);
 
+  // 💵 מזומן למכירה אחת: ההעדפה נשארת אשראי, ו-cashPricelistId = המכירה
+  // שהנקודה של הלקוח רואה עכשיו (אותו כלל כמו אצל הנציג). בלי מכירה
+  // פתוחה — הלקוח נשאר אשראי, וזה מוחזר למסך כדי שהמנהל יידע.
+  let cashSaleName: string | null = null;
+  if (paymentPreference === "CASH" && cashScope === "SALE") {
+    const saleId = await resolveCustomerSaleId(defaultPointId);
+    await prisma.customer.update({
+      where: { id: customer.id },
+      data: { paymentPreference: "CREDIT", cashPricelistId: saleId },
+    });
+    customer.paymentPreference = "CREDIT";
+    if (saleId) {
+      cashSaleName =
+        (await prisma.pricelist.findUnique({ where: { id: saleId }, select: { name: true } }))?.name ?? null;
+    }
+  }
+
   // §121: קוד כניסה לכל לקוח, מרגע היצירה.
   //
   // 🐛 הפער: לקוח שנוצר כאן קיבל סיסמה אקראית שלא נשמרת בגלוי -
@@ -269,5 +291,7 @@ const p2 = await validatePhone2(prisma, b.phone2);
     customer,
     password,
     pointName: point.name,
+    cashScope: paymentPreference === "CASH" ? cashScope : null,
+    cashSaleName,
   });
 }

@@ -291,6 +291,33 @@ export default function Dashboard() {
         </div>
       </section>
 
+      {/* 🚚🖨️ שני הכלים שהמנהל מחפש כל מכירה — הזמנה לספק ודפי החלוקה.
+          קודם הם ישבו עמוק בתוך "סיכום מכירה" ו"בקרת מכירה". */}
+      {!aggregate && selected && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <a
+            href={`/admin/supplier-order?pricelistId=${selected}`}
+            className="card flex items-center gap-3 p-4 hover:border-brand-rust transition-colors"
+          >
+            <span className="text-2xl">🚚</span>
+            <span>
+              <span className="block font-extrabold text-brand-slatedark">הזמנה לספק</span>
+              <span className="block text-xs text-zinc-500">כמה קרטונים להזמין מכל מוצר</span>
+            </span>
+          </a>
+          <a
+            href={`/admin/distribution-sheets?pricelistId=${selected}`}
+            className="card flex items-center gap-3 p-4 hover:border-brand-rust transition-colors"
+          >
+            <span className="text-2xl">🖨️</span>
+            <span>
+              <span className="block font-extrabold text-brand-slatedark">דפי חלוקה להדפסה</span>
+              <span className="block text-xs text-zinc-500">דף חלוקה ודף מיון — לכל נקודה</span>
+            </span>
+          </a>
+        </div>
+      )}
+
       {loading && !data && <DashboardSkeleton />}
 
       {data && (

@@ -262,7 +262,8 @@ export async function GET(
     // ⚠️ ההסבר קצר בכוונה: דף שצריך לקרוא אותו לא נקרא ביום
     // חלוקה. שתי שורות זה הגבול.
     legend.value =
-      "סמן ☐ בכל מסירה. מה שנשאר לא מסומן בסוף — זה מה שנותר ולמי.   ${CATEGORY_LEGEND} · ⭐ נוסף אחרי הסגירה";
+      // 🐛 היה במירכאות רגילות — הודפס "${CATEGORY_LEGEND}" כטקסט
+      `סמן ☐ בכל מסירה. מה שנשאר לא מסומן בסוף — זה מה שנותר ולמי.   ${CATEGORY_LEGEND} · ⭐ נוסף אחרי הסגירה`;
     legend.font = { size: 9, italic: true, color: { argb: "FF1D4ED8" } };
     legend.fill = {
       type: "pattern",
