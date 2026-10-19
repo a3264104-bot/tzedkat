@@ -59,7 +59,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "אחרי הסגירה",
     icon: "⚖️",
     step: 3,
-    hint: "הזמנה מהספק, הדפסה ושקילה",
+    hint: "ספק, הדפסה ושקילה",
     items: [
       // הזמנה לספק ודפי החלוקה — מסכים משלהם (היו חבויים בסיכום ובבקרה)
       { href: "/admin/supplier-order", label: "הזמנה לספק", icon: "🚚" },
