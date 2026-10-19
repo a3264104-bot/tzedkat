@@ -7,7 +7,8 @@
 //   ③ אחרי הסגירה   - קליטת סחורה ושקילה
 //   ④ כספים         - חיוב וגבייה
 //   ⑤ סיכום         - סגירת המכירה
-// ומתחת: "ניהול שוטף" - דברים שלא תלויים במכירה ספציפית.
+// ומתחת: "ניהול שוטף" - לקוחות ונציגים, מוצרים, הודעות - דברים שלא
+// תלויים במכירה ספציפית.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -46,7 +47,12 @@ const NAV_GROUPS: NavGroup[] = [
     icon: "🧾",
     step: 2,
     hint: "לקוחות מזמינים",
-    items: [{ href: "/admin/orders", label: "הזמנות", icon: "🧾" }],
+    items: [
+      { href: "/admin/orders", label: "הזמנות", icon: "🧾" },
+      // הזמנה דרך אקסל יוצרת הזמנות במכירה פתוחה — מקומה ליד ההזמנות,
+      // לא בניהול השוטף.
+      { href: "/admin/excel-order", label: "הזמנה דרך אקסל", icon: "📎" },
+    ],
   },
   {
     id: "intake",
@@ -70,14 +76,17 @@ const NAV_GROUPS: NavGroup[] = [
     hint: "חיוב וגבייה",
     items: [
       { href: "/admin/payments", label: "תשלומים", icon: "💳" },
-      { href: "/admin/debts", label: "חובות לקוחות", icon: "💰" },
-      { href: "/admin/agent-debts", label: "חובות נציגים", icon: "🧮" },
-      // §401: כמה נכנס לכל נציג ונקודה — נטו, בלי דמי ההזמנה
-      { href: "/admin/agent-income", label: "כמה נכנס לפי נציג", icon: "📥" },
-      { href: "/admin/payment-audit", label: "יומן תשלומים", icon: "🧾" },
+      { href: "/admin/debts", label: "חובות לקוחות ותזכורות", icon: "💰" },
+      // §376: ספר החובות — עד עכשיו הגיעו אליו רק מקישור בדשבורד
+      { href: "/admin/debt-ledger", label: "ספר החובות", icon: "📒" },
       // §126: זיכויים ויתרות. שייך לשלב הכספים - זה כסף שיוצא
       // מהקופה, וכל נציג יכול לתת אותו בלי אישור מראש.
       { href: "/admin/credits", label: "זיכויים ויתרות", icon: "↩️" },
+      { href: "/admin/agent-debts", label: "חובות נציגים", icon: "🧮" },
+      // §401: כמה נכנס לכל נציג ונקודה — נטו, בלי דמי ההזמנה
+      { href: "/admin/agent-income", label: "כמה נכנס לפי נציג", icon: "📥" },
+      // היומן מציג רק סימוני תשלום במזומן (PaymentAuditLog) — השם אומר את זה
+      { href: "/admin/payment-audit", label: "יומן תשלומים במזומן", icon: "🗒️" },
     ],
   },
   {
@@ -91,23 +100,47 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/reports", label: "דוחות ויצוא", icon: "📈" },
     ],
   },
+  // ── מכאן: לא תלוי במכירה. היה קבוצה אחת ארוכה ("ניהול שוטף", 8
+  // פריטים) שערבבה לקוחות, מוצרים ומיילים — עכשיו שלוש קבוצות לפי נושא.
   {
-    id: "ongoing",
-    label: "ניהול שוטף",
+    id: "people",
+    label: "לקוחות ונציגים",
     icon: "👥",
     step: null,
-    hint: "לא תלוי במכירה",
+    hint: "חשבונות ובקשות",
+    items: [
+      { href: "/admin/customers", label: "לקוחות", icon: "🧑" },
+      // בקשות פתיחת חשבון של לקוחות חדשים מהמערכת הטלפונית (§24) —
+      // לא לבלבל עם "בקשות אישיות" של לקוחות קיימים
+      { href: "/admin/phone-signups", label: "בקשות הצטרפות מהטלפון", icon: "📞" },
+      { href: "/admin/personal-requests", label: "בקשות אישיות", icon: "💬" },
+      { href: "/admin/agents", label: "נציגים", icon: "🧑‍💼" },
+    ],
+  },
+  {
+    id: "catalog",
+    label: "מוצרים",
+    icon: "🥩",
+    step: null,
+    hint: "קטלוג קבוע",
     items: [
       // קטלוג המוצרים יציב ולא משתנה בכל מכירה, ולכן הוא ניהול שוטף
       // ולא חלק מהכנת המכירה.
       { href: "/admin/products", label: "מוצרים", icon: "🥩" },
       { href: "/admin/kashrut", label: "כשרויות", icon: "🏷️" },
-      { href: "/admin/customers", label: "לקוחות", icon: "🧑" },
-      { href: "/admin/phone-signups", label: "בקשות מהטלפון", icon: "📞" },
-      { href: "/admin/excel-order", label: "הזמנה דרך אקסל", icon: "📊" },
-      { href: "/admin/agents", label: "נציגים", icon: "🧑‍💼" },
-      { href: "/admin/personal-requests", label: "בקשות אישיות", icon: "💬" },
+    ],
+  },
+  {
+    id: "messages",
+    label: "הודעות ללקוחות",
+    icon: "📣",
+    step: null,
+    hint: "מייל וטלפון",
+    items: [
       { href: "/admin/broadcast", label: "שליחת מייל ללקוחות", icon: "📧" },
+      // §30: שליחת מייל יוצרת גם הודעה קולית למתקשרים (§32), אבל המסך
+      // שמציג ומוחק אותן לא היה בתפריט — לא הייתה דרך להוריד הודעה.
+      { href: "/admin/phone-announcements", label: "הודעות למתקשרים בטלפון", icon: "🔊" },
     ],
   },
 ];
