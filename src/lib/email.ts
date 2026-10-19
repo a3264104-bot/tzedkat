@@ -640,10 +640,25 @@ export function resendErrorText(error: unknown): string {
   return (parts.join(" · ") || JSON.stringify(error)).slice(0, 500);
 }
 
+/**
+ * נגמרה מכסת המיילים של החבילה ב-Resend (יומית/חודשית).
+ *
+ * ⚠️ גם היא מגיעה כ-429, אבל אין טעם לנסות שוב — עד שהמכסה מתחדשת כל
+ * מייל ייכשל. והמכסה **משותפת** לכל המיילים של האתר: אישורי הזמנה,
+ * קבלות ושחזור סיסמה נעצרים יחד איתה.
+ */
+export function quotaErrorKind(error: unknown): "daily" | "monthly" | null {
+  const name = (error as { name?: string } | null)?.name;
+  if (name === "daily_quota_exceeded") return "daily";
+  if (name === "monthly_quota_exceeded") return "monthly";
+  return null;
+}
+
 /** האם השגיאה היא חריגה ממגבלת הקצב של Resend (429) — כדאי לנסות שוב */
 export function isRateLimitError(error: unknown): boolean {
   const e = error as { statusCode?: number | null; name?: string } | null;
-  return !!e && (e.statusCode === 429 || e.name === "rate_limit_exceeded");
+  if (!e || quotaErrorKind(e)) return false;
+  return e.statusCode === 429 || e.name === "rate_limit_exceeded";
 }
 
 export async function sendBroadcastEmail(
@@ -706,7 +721,7 @@ export async function sendBroadcastBatch(
   attachments: BroadcastAttachment[] = []
 ): Promise<
   | { ok: true; results: ({ ok: true; id: string } | { ok: false; error: string })[] }
-  | { ok: false; error: string; rateLimited: boolean }
+  | { ok: false; error: string; rateLimited: boolean; quota: "daily" | "monthly" | null }
 > {
   try {
     const payload = recipients.map((r) => ({
@@ -717,7 +732,12 @@ export async function sendBroadcastBatch(
     }));
     const { data, error } = await getResend().batch.send(payload, { batchValidation: "permissive" });
     if (error) {
-      return { ok: false, error: resendErrorText(error), rateLimited: isRateLimitError(error) };
+      return {
+        ok: false,
+        error: resendErrorText(error),
+        rateLimited: isRateLimitError(error),
+        quota: quotaErrorKind(error),
+      };
     }
     const failed = new Map<number, string>();
     for (const f of (data as any)?.errors ?? []) failed.set(Number(f.index), String(f.message || "invalid"));
@@ -733,7 +753,7 @@ export async function sendBroadcastBatch(
     );
     return { ok: true, results };
   } catch (e: any) {
-    return { ok: false, error: String(e?.message || e).slice(0, 500), rateLimited: false };
+    return { ok: false, error: String(e?.message || e).slice(0, 500), rateLimited: false, quota: null };
   }
 }
 

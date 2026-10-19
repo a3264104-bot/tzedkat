@@ -327,6 +327,28 @@ async function sendBroadcastAsync(
       res = await sendBroadcastBatch(withEmail, subject, messageHtml, attachments);
     }
 
+    // ⛔ נגמרה המכסה ב-Resend: עוצרים כאן. כל השאר ייכשל באותה סיבה, וכל
+    // ניסיון נוסף רק מעכב. כל מי שלא נשלח מסומן "נכשל" עם הסיבה — כך
+    // היומן מציג אזהרה וכפתור "שלח שוב" למחר.
+    if (!res.ok && res.quota) {
+      const reason =
+        res.quota === "daily"
+          ? "⛔ נגמרה מכסת המיילים היומית של Resend — לא נשלח"
+          : "⛔ נגמרה מכסת המיילים החודשית של Resend — לא נשלח";
+      const rest = recipients.slice(i);
+      failed += rest.length;
+      console.error(`[broadcast] quota exceeded (${res.quota}) — stopping. ${rest.length} not sent.`);
+      if (logId) {
+        await prisma.broadcastRecipient
+          .updateMany({
+            where: { broadcastId: logId, status: "PENDING" },
+            data: { status: "FAILED", error: reason },
+          })
+          .catch((e) => console.error("[broadcast] failed to mark quota failures:", e));
+      }
+      break;
+    }
+
     const outcome = new Map<string, { ok: true; id: string } | { ok: false; error: string }>();
     for (const r of batch) if (!r.email) outcome.set(r.id, { ok: false, error: "אין כתובת מייל" });
     withEmail.forEach((r, j) => {
