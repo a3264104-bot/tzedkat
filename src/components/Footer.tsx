@@ -5,10 +5,19 @@
 //   - קישור להצהרת נגישות
 //   - אזור יצירת קשר ברור
 
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 export function Footer() {
+  const pathname = usePathname();
   const year = new Date().getFullYear();
+
+  // מסכי הניהול הם כלי עבודה פנימי עם תפריט צד משלהם — הפוטר של
+  // האתר הציבורי (מדיניות, תנאי שימוש) רק הוסיף גלילה בסוף כל מסך.
+  // במסך ההתחברות של המנהל הוא נשאר.
+  if (pathname?.startsWith("/admin") && pathname !== "/admin/login") return null;
 
   return (
     <footer

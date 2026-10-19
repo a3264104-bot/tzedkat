@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { fmtDate } from "@/lib/date-lib";
 import { PersonalRequestMessages } from "@/components/PersonalRequestMessages";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 // §9: עמוד ניהול בקשות אישיות למנהל
 // - רשימה עם בקשות
 // - סינון לפי סטטוס
@@ -111,24 +112,19 @@ export default function AdminPersonalRequestsClient() {
   const unreadCount = requests.filter((r) => r.hasUnreadForAdmin).length;
 
   return (
-    <div className="min-h-screen bg-brand-cream">
-      <header className="bg-brand-yellow border-b-4 border-brand-rust/20 sticky top-0 z-20">
-        <div className="mx-auto max-w-md md:max-w-6xl px-4 py-2.5 flex items-center justify-between">
-          <a href="/admin" className="text-brand-slate font-medium text-sm">
-            ← ניהול
-          </a>
-          <div className="font-extrabold text-brand-slatedark flex items-center gap-2">
+    <div>
+      <AdminPageHeader
+        title={
+          <span className="flex items-center gap-2">
             בקשות אישיות
             {unreadCount > 0 && (
-              <span className="bg-brand-rust text-white text-xs px-2 py-0.5 rounded-full">
-                {unreadCount}
-              </span>
+              <span className="bg-brand-rust text-white text-xs px-2 py-0.5 rounded-full">{unreadCount}</span>
             )}
-          </div>
-        </div>
-      </header>
+          </span>
+        }
+      />
 
-      <div className="mx-auto max-w-md md:max-w-6xl px-4 pt-4 space-y-3">
+      <div className="space-y-3">
         {/* פילטרים */}
         <div className="card p-3">
           <div className="flex gap-2 flex-wrap">

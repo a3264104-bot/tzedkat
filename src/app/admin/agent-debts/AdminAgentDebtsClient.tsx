@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 type AgentData = {
   agent: {
     id: string;
@@ -105,23 +106,18 @@ export default function AdminAgentDebtsClient() {
   }, [load]);
 
   return (
-    <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
-      <header className="bg-brand-yellow border-b-4 border-brand-rust/20">
-        <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-          <Link href="/admin" className="text-brand-slate font-medium text-sm">
-            ← חזרה לניהול
-          </Link>
-          <h1 className="font-extrabold text-brand-slatedark">
-            💰 חובות ותשלומים לנציגים
-          </h1>
-          {/* §401: הסכום לאקסל — נטו, בלי דמי ההזמנה */}
+    <div dir="rtl" className="pb-20">
+      <AdminPageHeader
+        title="💰 חובות ותשלומים לנציגים"
+        actions={
+          // §401: הסכום לאקסל — נטו, בלי דמי ההזמנה
           <Link href="/admin/agent-income" className="text-sm font-bold text-brand-rust">
             📥 כמה נכנס (נטו) ←
           </Link>
-        </div>
-      </header>
+        }
+      />
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
+      <main className="">
         {loading ? (
           <div className="text-center text-zinc-500 py-10">טוען...</div>
         ) : data.length === 0 ? (

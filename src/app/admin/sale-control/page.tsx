@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 export const dynamic = "force-dynamic";
 
 export default async function SaleControlIndexPage() {
@@ -57,19 +58,10 @@ export default async function SaleControlIndexPage() {
   ]);
 
   return (
-    <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
-      <header className="bg-brand-yellow border-b-4 border-brand-rust/20">
-        <div className="mx-auto max-w-4xl px-4 py-3 flex items-center justify-between">
-          <Link href="/admin" className="text-brand-slate font-medium text-sm">
-            ← חזרה לניהול
-          </Link>
-          <h1 className="font-extrabold text-brand-slatedark">
-            📊 בקרת מכירה
-          </h1>
-        </div>
-      </header>
+    <div dir="rtl" className="pb-20">
+      <AdminPageHeader title="📊 בקרת מכירה" />
 
-      <main className="mx-auto max-w-4xl px-4 py-6">
+      <main className="">
         <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm text-blue-900">
           <strong>בחר מכירה</strong> כדי לראות דו״ח מלא: פערי משקלים בין תעודות למה שחולק, נציגים, כספים, חובות והתראות.
         </div>

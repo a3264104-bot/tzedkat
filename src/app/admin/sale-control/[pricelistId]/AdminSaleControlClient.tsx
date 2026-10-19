@@ -7,6 +7,7 @@ import Link from "next/link";
 // §397: ניווט בין מסכי הסיכום
 import { ReportsNav, SaleLink, rememberSale } from "@/components/ReportsNav";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 type Data = {
   pricelist: {
     id: string;
@@ -195,25 +196,14 @@ if (loading) {
   const pointQS = printPointId ? `?pointId=${printPointId}` : "";
 
   return (
-    <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
-      <header className="bg-brand-yellow border-b-4 border-brand-rust/20">
-        <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
-          <Link href="/admin/pricelists" className="text-brand-slate font-medium text-sm">
-            ← חזרה למחירונים
-          </Link>
-          <div className="text-right">
-            <h1 className="font-extrabold text-brand-slatedark">
-              📊 בקרת מכירה — מה קרה בפועל
-            </h1>
-            <div className="text-xs text-brand-slate mt-0.5">
-              {data.pricelist.name}
-              {data.pricelist.deliveryDateText && ` · ${data.pricelist.deliveryDateText}`}
-            </div>
-          </div>
-        </div>
-      </header>
+    <div dir="rtl" className="pb-20">
+      <AdminPageHeader
+        back={{ href: "/admin/sale-control", label: "כל המכירות" }}
+        title="📊 בקרת מכירה — מה קרה בפועל"
+        subtitle={`${data.pricelist.name}${data.pricelist.deliveryDateText ? ` · ${data.pricelist.deliveryDateText}` : ""}`}
+      />
 
-      <main className="mx-auto max-w-7xl px-4 py-5 space-y-5">
+      <main className="space-y-5">
         {/* §397: 🧭 שלושת מסכי הסיכום */}
         <ReportsNav current="control" pricelistId={pricelistId} />
         {/* §397: מכאן לרשימות עצמן — על אותה מכירה */}

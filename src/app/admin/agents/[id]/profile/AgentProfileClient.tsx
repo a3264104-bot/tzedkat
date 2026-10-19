@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ImpersonateButton } from "@/components/ImpersonateButton";
 import Link from "next/link";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 type Data = {
   agent: {
     id: string;
@@ -317,19 +318,10 @@ export default function AgentProfileClient({ agentId }: { agentId: string }) {
       : "from-zinc-400 to-zinc-500";
 
   return (
-    <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
-      <header className="bg-brand-yellow border-b-4 border-brand-rust/20 sticky top-0 z-30">
-        <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
-          <Link href="/admin/agents" className="text-brand-slate font-medium text-sm">
-            ← לרשימת נציגים
-          </Link>
-          <h1 className="font-extrabold text-brand-slatedark">
-            👤 פרופיל נציג
-          </h1>
-        </div>
-      </header>
+    <div dir="rtl" className="pb-20">
+      <AdminPageHeader back={{ href: "/admin/agents", label: "לרשימת הנציגים" }} title="👤 פרופיל נציג" />
 
-      <main className="mx-auto max-w-5xl px-4 py-5 space-y-4">
+      <main className="space-y-4">
         {/* פרטי הנציג + כפתורים */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-5">
           <div className="flex items-start gap-4 flex-wrap">

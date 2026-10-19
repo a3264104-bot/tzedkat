@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import PendingWeightsClient from "./PendingWeightsClient";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 export const dynamic = "force-dynamic";
 
 export default async function AdminPendingWeightsPage() {
@@ -79,16 +80,9 @@ export default async function AdminPendingWeightsPage() {
   // אם אין פריטים, מציגים הודעה נקייה
   if (items.length === 0) {
     return (
-      <div dir="rtl" className="min-h-screen bg-brand-cream pb-20">
-        <header className="bg-brand-yellow border-b-4 border-brand-rust/20">
-          <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
-            <Link href="/admin" className="text-brand-slate font-medium text-sm">
-              ← ניהול
-            </Link>
-            <h1 className="font-extrabold text-brand-slatedark">⚖️ משקלים ממתינים</h1>
-          </div>
-        </header>
-        <main className="mx-auto max-w-5xl px-4 py-8">
+      <div dir="rtl" className="pb-20">
+        <AdminPageHeader title="⚖️ משקלים ממתינים" />
+        <main className="">
           <div className="bg-white rounded-2xl border border-zinc-200 p-8 text-center">
             <div className="text-4xl mb-3">✅</div>
             <p className="text-brand-slatedark font-semibold">אין משקלים ממתינים</p>
