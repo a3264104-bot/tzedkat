@@ -15,6 +15,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1152.0",
     "@google/generative-ai": "^0.24.1",
     "@hebcal/core": "^6.7.0",
     "@prisma/client": "^6.1.0",

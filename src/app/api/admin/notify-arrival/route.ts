@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
-import { Resend } from "resend";
-
+// שליחת מיילים: SES עם Resend כגיבוי (EMAIL_PROVIDER)
+import { createMailer } from "@/lib/mailer";
 // POST /api/admin/notify-arrival
 //
 // ח5: שליחת מייל "הסחורה הגיעה לנקודת חלוקה" ללקוחות.
@@ -13,7 +13,7 @@ import { Resend } from "resend";
 const FROM_ADDRESS = "צדקת רבותינו <orders@tzidkat.com>";
 
 function getResend() {
-  return new Resend(process.env.RESEND_API_KEY);
+  return createMailer();
 }
 
 export async function POST(req: Request) {

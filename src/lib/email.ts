@@ -1,5 +1,6 @@
 import { attachmentsHtml, type BroadcastAttachment } from "@/lib/broadcast-attachments";
-import { Resend } from "resend";
+// שליחת מיילים: SES עם Resend כגיבוי (EMAIL_PROVIDER)
+import { createMailer } from "@/lib/mailer";
 import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/pricing";
 import { hebrewDateFull } from "@/lib/hebrew-date-lib";
@@ -9,7 +10,7 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://tzidkat.com";
 
 // יצירת client בתוך הפונקציות (לא ברמת module) כדי שה-build לא ייכשל כשאין API key
 function getResend() {
-  return new Resend(process.env.RESEND_API_KEY);
+  return createMailer();
 }
 
 // קריאת הגדרות מערכת (singleton). אם אין - יוצרים עם ברירות מחדל.

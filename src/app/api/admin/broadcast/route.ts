@@ -333,8 +333,8 @@ async function sendBroadcastAsync(
     if (!res.ok && res.quota) {
       const reason =
         res.quota === "daily"
-          ? "⛔ נגמרה מכסת המיילים היומית של Resend — לא נשלח"
-          : "⛔ נגמרה מכסת המיילים החודשית של Resend — לא נשלח";
+          ? "⛔ נגמרה מכסת המיילים היומית של ספק המיילים — לא נשלח"
+          : "⛔ נגמרה מכסת המיילים החודשית של ספק המיילים — לא נשלח";
       const rest = recipients.slice(i);
       failed += rest.length;
       console.error(`[broadcast] quota exceeded (${res.quota}) — stopping. ${rest.length} not sent.`);

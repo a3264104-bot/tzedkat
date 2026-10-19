@@ -8,8 +8,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAgent } from "@/lib/agent-guard";
-import { Resend } from "resend";
-
+// שליחת מיילים: SES עם Resend כגיבוי (EMAIL_PROVIDER)
+import { createMailer } from "@/lib/mailer";
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "צדקת רבותינו <noreply@tzidkat.com>";
 
@@ -66,7 +66,7 @@ export async function POST(
   const subject = `סיכום רכישה #${walkin.walkinNumber} - צדקת רבותינו`;
 
   try {
-    const resend = new Resend(RESEND_API_KEY);
+    const resend = createMailer();
     await resend.emails.send({
       from: FROM_EMAIL,
       to: [targetEmail],
