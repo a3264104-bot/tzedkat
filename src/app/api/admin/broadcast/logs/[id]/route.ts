@@ -12,7 +12,7 @@ export async function GET(
   if (!g.ok) return g.res;
   const { id } = await params;
 
-  const log = await prisma.broadcastLog.findUnique({ where: { id }, select: { id: true } });
+  const log = await prisma.broadcastLog.findUnique({ where: { id }, select: { id: true, subject: true } });
   if (!log) return NextResponse.json({ error: "השליחה לא נמצאה" }, { status: 404 });
 
   const recipients = await prisma.broadcastRecipient.findMany({
@@ -32,6 +32,7 @@ export async function GET(
   });
 
   return NextResponse.json({
+    subject: log.subject,
     recipients: recipients.map((r) => ({ ...r, sentAt: r.sentAt?.toISOString() ?? null })),
   });
 }

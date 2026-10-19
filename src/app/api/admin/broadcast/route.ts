@@ -33,14 +33,18 @@ import {
   cleanBroadcastAttachments,
   type BroadcastAttachment,
 } from "@/lib/broadcast-attachments";
-import { sendBroadcastEmail } from "@/lib/email";
+import { sendBroadcastBatch } from "@/lib/email";
 import {
   createPhoneAnnouncement,
   expiryForDelivery,
 } from "@/lib/announcement-helper";
 
-const BATCH_SIZE = 8; // מיילים בבת אחת
-const BATCH_DELAY_MS = 1200; // המתנה בין batches (Resend rate limit)
+// 🐛 Resend מגביל ל-2 בקשות בשנייה. 8 מיילים במקביל כל 1.2 שניות חרגו
+// פי 3 — בהודעת הפתיחה של חשון נכשלו 575 מתוך 743. עכשיו: Batch API
+// (100 מיילים בבקשה אחת), בקשה אחת כל 0.7 שניות, וניסיון חוזר על 429.
+const BATCH_SIZE = 100;
+const BATCH_DELAY_MS = 700;
+const RATE_LIMIT_RETRIES = 4;
 
 export async function POST(req: Request) {
   const g = await requireAdmin();
@@ -314,45 +318,47 @@ async function sendBroadcastAsync(
 
   for (let i = 0; i < total; i += BATCH_SIZE) {
     const batch = recipients.slice(i, i + BATCH_SIZE);
+    const withEmail = batch.filter((r) => !!r.email) as { id: string; name: string; email: string }[];
 
-    // שליחה מקבילית של הbatch הנוכחי
-    const results = await Promise.allSettled(
-      batch.map((r) => {
-        if (!r.email) return Promise.resolve({ ok: false as const, error: "no email" });
-        return sendBroadcastEmail(r.name, r.email, subject, messageHtml, attachments);
-      })
-    );
+    // ניסיון חוזר עם המתנה גדלה כשחורגים ממגבלת הקצב
+    let res = await sendBroadcastBatch(withEmail, subject, messageHtml, attachments);
+    for (let attempt = 1; !res.ok && res.rateLimited && attempt <= RATE_LIMIT_RETRIES; attempt++) {
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+      res = await sendBroadcastBatch(withEmail, subject, messageHtml, attachments);
+    }
+
+    const outcome = new Map<string, { ok: true; id: string } | { ok: false; error: string }>();
+    for (const r of batch) if (!r.email) outcome.set(r.id, { ok: false, error: "אין כתובת מייל" });
+    withEmail.forEach((r, j) => {
+      outcome.set(r.id, res.ok ? res.results[j] : { ok: false, error: res.error });
+    });
 
     const updates: Promise<unknown>[] = [];
-    results.forEach((res, j) => {
-      const r = batch[j];
-      if (res.status === "fulfilled" && res.value.ok) {
+    for (const r of batch) {
+      const o = outcome.get(r.id)!;
+      if (o.ok) {
         sent++;
         if (logId) {
           updates.push(
             prisma.broadcastRecipient.updateMany({
               where: { broadcastId: logId, customerId: r.id },
-              data: { status: "SENT", resendId: res.value.id, sentAt: new Date() },
+              data: { status: "SENT", resendId: o.id, sentAt: new Date(), error: null },
             })
           );
         }
       } else {
         failed++;
-        const err =
-          res.status === "rejected"
-            ? String(res.reason)
-            : (res.value as any)?.error || "unknown";
-        console.error("[broadcast] send failed:", err);
+        console.error("[broadcast] send failed:", r.email, o.error);
         if (logId) {
           updates.push(
             prisma.broadcastRecipient.updateMany({
               where: { broadcastId: logId, customerId: r.id },
-              data: { status: "FAILED", error: String(err).slice(0, 500) },
+              data: { status: "FAILED", error: o.error.slice(0, 500) },
             })
           );
         }
       }
-    });
+    }
     // ⚠️ המונים מתעדכנים בכל batch ולא רק בסוף: שליחה שנקטעה תראה
     // כמה כבר יצאו, ולא 0.
     if (logId) {

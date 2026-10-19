@@ -169,6 +169,17 @@ export default function BroadcastHistoryPage() {
                     </div>
                   )}
                 </button>
+                {/* שליחה חוזרת רק למי שלא קיבל — פותח את מסך השליחה עם הנמענים מסומנים */}
+                {l.state !== "SENDING" && l.failed + l.pending > 0 && (
+                  <div className="px-4 pb-4 -mt-1">
+                    <a
+                      href={`/admin/broadcast?retryLog=${l.id}`}
+                      className="inline-flex items-center gap-2 rounded-xl bg-brand-rust text-white font-bold text-sm px-4 py-2.5 hover:bg-brand-rustdark transition-colors"
+                    >
+                      🔁 שלח שוב ל-{l.failed + l.pending} שלא קיבלו
+                    </a>
+                  </div>
+                )}
                 {isOpen && <Recipients logId={l.id} refreshKey={`${l.sent}-${l.failed}`} />}
               </li>
             );
