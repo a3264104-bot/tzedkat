@@ -116,6 +116,7 @@ function Modal({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState<{
+    id: string;
     name: string;
     phone: string;
     password: string;
@@ -224,6 +225,7 @@ function Modal({
         return;
       }
       setDone({
+        id: j.customer.id,
         name: j.customer.name,
         phone: j.customer.phone,
         password: j.password,
@@ -323,11 +325,19 @@ function Modal({
                 💳 הזנת כרטיס אשראי
               </button>
             )}
+            {/* 🛒 הזמנה מיד אחרי ההקמה — רוב הלקוחות שמנהל מקים בטלפון
+                מקימים כדי להזמין. קודם היה צריך לחפש אותם ברשימה. */}
+            <a
+              href={`/agent/order/${done.id}`}
+              className="block w-full py-3 rounded-xl bg-brand-yellow text-brand-slatedark text-center font-extrabold hover:opacity-90"
+            >
+              🛒 להזמין עבורו עכשיו
+            </a>
             <button
               onClick={onCreated}
-              className="w-full py-3 rounded-xl bg-brand-rust text-white font-bold"
+              className="w-full py-2.5 rounded-xl border border-zinc-300 text-brand-slatedark font-bold hover:bg-zinc-50"
             >
-              סיום
+              סיום — בלי הזמנה
             </button>
           </div>
         ) : (
