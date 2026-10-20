@@ -79,6 +79,11 @@ export async function GET(req: Request) {
     "עודף / חוסר",
   ];
 
+  // התוכנית של כל נקודה — לגיליון שלה, ולפירוט בגיליון המרכז
+  const perPoint = await Promise.all(
+    points.map(async (pt) => ({ pt, rows: (await collectPlan(pricelistId, pt.id)).rows as PlanRowLike[] }))
+  );
+
   // גיליון מרכז ראשון - זה מה שפותחים כדי לשדר לחברה.
   // מוצג רק כשיש יותר מנקודה אחת, אחרת זו כפילות.
   if (points.length > 1) {
@@ -86,12 +91,44 @@ export async function GET(req: Request) {
     const ws = wb.addWorksheet("סיכום כל הנקודות", {
       views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }],
     });
-    buildSheet(ws, HEAD, "כל נקודות החלוקה", pricelist, all.rows as PlanRowLike[]);
+    // 🆕 "ממה מורכב המספר": "34 קרטונים" → "15 — בית אהרן (ביתר), 19 — ...".
+    // בלי זה, כשהסחורה מגיעה, צריך לפתוח גיליון-גיליון כדי לדעת כמה
+    // לשים בצד לכל נקודה.
+    // שורה ראשונה: לפי עיר ("ביתר עילית 13 · בני ברק 5"), ומתחתיה שורה
+    // לכל נקודה — לפיצול הסחורה בפועל.
+    const pointLines = new Map<string, string[]>();
+    const cityTotals = new Map<string, Map<string, PlanRowLike>>();
+    for (const { pt, rows } of perPoint) {
+      for (const row of rows) {
+        const qty = qtyText(row);
+        if (!qty) continue;
+        if (!pointLines.has(row.productId)) pointLines.set(row.productId, []);
+        pointLines.get(row.productId)!.push(`${qty} — ${shortPointName(pt.name, pt.city)}`);
+        const city = pt.city || "ללא עיר";
+        if (!cityTotals.has(row.productId)) cityTotals.set(row.productId, new Map());
+        const byCity = cityTotals.get(row.productId)!;
+        const cur = byCity.get(city) ?? { ...row, cartons: 0, units: 0, singlesKg: 0 };
+        cur.cartons += row.cartons || 0;
+        cur.units += row.units || 0;
+        cur.singlesKg += row.singlesKg || 0;
+        byCity.set(city, cur);
+      }
+    }
+    const breakdown = new Map<string, string>();
+    for (const [productId, lines] of pointLines) {
+      const byCity = cityTotals.get(productId)!;
+      const cityLine =
+        byCity.size > 1
+          ? "לפי עיר: " + [...byCity].map(([city, t]) => `${city} ${qtyText(t)}`).join(" · ")
+          : null;
+      breakdown.set(productId, [cityLine, ...lines].filter(Boolean).join("\n"));
+    }
+    buildSheet(ws, [...HEAD, "פירוט לפי נקודה"], "כל נקודות החלוקה", pricelist, all.rows as PlanRowLike[], breakdown);
   }
 
   // גיליון לכל נקודה - לפיצול הסחורה אחרי שהיא מגיעה
-  for (const pt of points) {
-    const one = await collectPlan(pricelistId, pt.id);
+  for (const { pt, rows } of perPoint) {
+    const one = { rows };
     const ws = wb.addWorksheet(safeSheetName(pt.name), {
       views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }],
     });
@@ -127,6 +164,22 @@ type PlanRowLike = {
   unitsPerCarton: number | null;
 };
 
+// כמות לפירוט: קרטונים, ואם הוזמן גם ביחידות/בודדים — גם הם
+function qtyText(row: PlanRowLike): string {
+  const parts: string[] = [];
+  if (row.cartons) parts.push(`${row.cartons} קר׳`);
+  if (row.units) parts.push(`${row.units} יח׳`);
+  if (row.singlesKg) parts.push(`${Math.round(row.singlesKg * 100) / 100} ק"ג`);
+  return parts.join(" + ");
+}
+
+// '"בית אהרן" - ביתר B1 - פחד יצחק 5' → 'בית אהרן (ביתר עילית)'
+function shortPointName(name: string, city: string | null): string {
+  const quoted = name.match(/"([^"]+)"/)?.[1];
+  const base = (quoted || name.split(" - ")[0] || name).trim();
+  return city && !base.includes(city) ? `${base} (${city})` : base;
+}
+
 // שם גיליון חוקי: עד 31 תווים, בלי : \ / ? * [ ]
 function safeSheetName(name: string): string {
   return name.replace(/[:\\/?*[\]]/g, "-").slice(0, 31) || "נקודה";
@@ -137,24 +190,27 @@ function buildSheet(
   HEAD: string[],
   title: string,
   pricelist: { name: string; deliveryDateText: string | null },
-  rows: PlanRowLike[]
+  rows: PlanRowLike[],
+  // רק בגיליון המרכז: עמודה I — ממה מורכב המספר (לפי נקודה)
+  breakdown?: Map<string, string>
 ) {
+  const lastColLetter = breakdown ? "I" : "H";
   // ─── כותרת ───
-  ws.mergeCells("A1:H1");
+  ws.mergeCells(`A1:${lastColLetter}1`);
   const t = ws.getCell("A1");
   t.value = `${pricelist.name} — הזמנה לספק`;
   t.font = { name: "Arial", size: 14, bold: true, color: { argb: "FF7C2D12" } };
   t.alignment = { horizontal: "center", vertical: "middle" };
   ws.getRow(1).height = 26;
 
-  ws.mergeCells("A2:H2");
+  ws.mergeCells(`A2:${lastColLetter}2`);
   const sub = ws.getCell("A2");
   sub.value =
     `📍 ${title}` + (pricelist.deliveryDateText ? ` · חלוקה: ${pricelist.deliveryDateText}` : "");
   sub.font = { name: "Arial", size: 11, bold: true };
   sub.alignment = { horizontal: "center" };
 
-  ws.mergeCells("A3:H3");
+  ws.mergeCells(`A3:${lastColLetter}3`);
   const ins = ws.getCell("A3");
   ins.value =
     'מלא את עמודה E (קרטונים להשלמה) — עמודה F מתעדכנת לבד וזו הכמות להזמנה מהחברה.';
@@ -197,7 +253,7 @@ function buildSheet(
   for (const row of sorted) {
     // כותרת קטגוריה - עוזרת למצוא מוצר מהר ברשימה ארוכה
     if (row.categoryName && row.categoryName !== lastCategory) {
-      ws.mergeCells(`A${r}:H${r}`);
+      ws.mergeCells(`A${r}:${lastColLetter}${r}`);
       const c = ws.getCell(r, 1);
       c.value = row.categoryName;
       c.font = { name: "Arial", size: 11, bold: true, color: { argb: "FF3F3F46" } };
@@ -277,6 +333,17 @@ function buildSheet(
       ws.getCell(r, c).alignment = { horizontal: c === 1 ? "right" : "center" };
       ws.getCell(r, c).font = { name: "Arial", size: 10 };
     }
+
+    // I — פירוט לפי נקודה, שורה לכל נקודה (והשורה גדלה בהתאם)
+    if (breakdown) {
+      const text = breakdown.get(row.productId) ?? "";
+      const cell = ws.getCell(r, 9);
+      cell.value = text || null;
+      cell.font = { name: "Arial", size: 10 };
+      cell.alignment = { horizontal: "right", vertical: "top", wrapText: true };
+      const lines = text ? text.split("\n").length : 1;
+      if (lines > 1) ws.getRow(r).height = Math.max(15, lines * 14);
+    }
     r++;
   }
 
@@ -309,6 +376,7 @@ function buildSheet(
   ws.getColumn(6).width = 16;
   ws.getColumn(7).width = 12;
   ws.getColumn(8).width = 12;
+  if (breakdown) ws.getColumn(9).width = 40;
 
   // נעילה: רק E ו-G פתוחות. מונע מחיקה בשוגג של הנוסחה ב-F,
   // שהיא הנתון שממנו משדרים את ההזמנה.

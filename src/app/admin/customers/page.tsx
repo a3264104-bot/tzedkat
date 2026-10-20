@@ -1000,7 +1000,7 @@ export default function AdminCustomersPage() {
                         href={
                           c.activeOrderId
                             ? `/agent/orders/${c.activeOrderId}`
-                            : `/agent/customer/${c.id}`
+                            : `/agent/order/${c.id}`
                         }
                         className={`text-xs font-bold rounded-lg px-2 py-1 whitespace-nowrap ${
                           c.activeOrderId
@@ -1127,7 +1127,7 @@ export default function AdminCustomersPage() {
                               href={
                                 c.activeOrderId
                                   ? `/agent/orders/${c.activeOrderId}`
-                                  : `/agent/customer/${c.id}`
+                                  : `/agent/order/${c.id}`
                               }
                               className={`text-xs font-bold rounded-lg px-2 py-1 whitespace-nowrap ${
                                 c.activeOrderId
@@ -1185,7 +1185,7 @@ export default function AdminCustomersPage() {
               href={
                 editing.activeOrderId
                   ? `/agent/orders/${editing.activeOrderId}`
-                  : `/agent/customer/${editing.id}`
+                  : `/agent/order/${editing.id}`
               }
               className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-sm ${
                 editing.activeOrderId
