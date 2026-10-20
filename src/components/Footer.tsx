@@ -103,12 +103,12 @@ export function Footer() {
           {!pathname?.startsWith("/admin") && (
             <div className="mt-2">
               <a
-                href="https://gershon-dev.vercel.app"
+                href="https://gr-systems-ai.vercel.app"
                 target="_blank"
                 rel="noopener"
                 className="text-[11px] text-white/40 hover:text-white/80 transition-colors focus:outline-none focus:ring-2 focus:ring-white/50 rounded"
               >
-                פותח ע״י גרשון
+                פותח ע״י GR מערכות
               </a>
             </div>
           )}
