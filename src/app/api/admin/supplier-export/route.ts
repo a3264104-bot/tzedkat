@@ -90,38 +90,42 @@ export async function GET(req: Request) {
     const all = await collectPlan(pricelistId, null);
     const ws = wb.addWorksheet("סיכום כל הנקודות", {
       views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }],
+      pageSetup: PRINT_SETUP,
     });
     // 🆕 "ממה מורכב המספר": "34 קרטונים" → "15 — בית אהרן (ביתר), 19 — ...".
     // בלי זה, כשהסחורה מגיעה, צריך לפתוח גיליון-גיליון כדי לדעת כמה
     // לשים בצד לכל נקודה.
-    // שורה ראשונה: לפי עיר ("ביתר עילית 13 · בני ברק 5"), ומתחתיה שורה
-    // לכל נקודה — לפיצול הסחורה בפועל.
-    const pointLines = new Map<string, string[]>();
-    const cityTotals = new Map<string, Map<string, PlanRowLike>>();
+    // שורה לכל עיר: "ביתר עילית — 12 קר׳: בית אהרן 2 · תפארת א״א 8".
+    // קודם: שורת ערים + שורה לכל נקודה — אותו מידע פעמיים, ותא של 12
+    // שורות שלא נכנס בהדפסה.
+    type CityAgg = { total: PlanRowLike; points: { name: string; row: PlanRowLike }[] };
+    const byProduct = new Map<string, Map<string, CityAgg>>();
     for (const { pt, rows } of perPoint) {
       for (const row of rows) {
-        const qty = qtyText(row);
-        if (!qty) continue;
-        if (!pointLines.has(row.productId)) pointLines.set(row.productId, []);
-        pointLines.get(row.productId)!.push(`${qty} — ${shortPointName(pt.name, pt.city)}`);
+        if (!qtyText(row)) continue;
         const city = pt.city || "ללא עיר";
-        if (!cityTotals.has(row.productId)) cityTotals.set(row.productId, new Map());
-        const byCity = cityTotals.get(row.productId)!;
-        const cur = byCity.get(city) ?? { ...row, cartons: 0, units: 0, singlesKg: 0 };
-        cur.cartons += row.cartons || 0;
-        cur.units += row.units || 0;
-        cur.singlesKg += row.singlesKg || 0;
-        byCity.set(city, cur);
+        if (!byProduct.has(row.productId)) byProduct.set(row.productId, new Map());
+        const cities = byProduct.get(row.productId)!;
+        const agg = cities.get(city) ?? { total: { ...row, cartons: 0, units: 0, singlesKg: 0 }, points: [] };
+        agg.total.cartons += row.cartons || 0;
+        agg.total.units += row.units || 0;
+        agg.total.singlesKg += row.singlesKg || 0;
+        agg.points.push({ name: shortPointName(pt.name, null), row });
+        cities.set(city, agg);
       }
     }
-    const breakdown = new Map<string, string>();
-    for (const [productId, lines] of pointLines) {
-      const byCity = cityTotals.get(productId)!;
-      const cityLine =
-        byCity.size > 1
-          ? "לפי עיר: " + [...byCity].map(([city, t]) => `${city} ${qtyText(t)}`).join(" · ")
-          : null;
-      breakdown.set(productId, [cityLine, ...lines].filter(Boolean).join("\n"));
+    const breakdown = new Map<string, BreakdownLine[]>();
+    for (const [productId, cities] of byProduct) {
+      const lines = [...cities]
+        .sort((a, b) => b[1].total.cartons - a[1].total.cartons || a[0].localeCompare(b[0], "he"))
+        .map(([city, agg]) => ({
+          head: `${city} — ${qtyText(agg.total)}`,
+          detail:
+            agg.points.length === 1
+              ? ` (${agg.points[0].name})`
+              : ": " + agg.points.map((x) => `${x.name} ${qtyShort(x.row)}`).join(" · "),
+        }));
+      breakdown.set(productId, lines);
     }
     buildSheet(ws, [...HEAD, "פירוט לפי נקודה"], "כל נקודות החלוקה", pricelist, all.rows as PlanRowLike[], breakdown);
   }
@@ -131,6 +135,7 @@ export async function GET(req: Request) {
     const one = { rows };
     const ws = wb.addWorksheet(safeSheetName(pt.name), {
       views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }],
+      pageSetup: PRINT_SETUP,
     });
     buildSheet(
       ws,
@@ -164,6 +169,13 @@ type PlanRowLike = {
   unitsPerCarton: number | null;
 };
 
+type BreakdownLine = { head: string; detail: string };
+
+// כמות בתוך רשימת הנקודות: מספר בלבד כשיש רק קרטונים ("2"), אחרת מלא
+function qtyShort(row: PlanRowLike): string {
+  return row.cartons && !row.units && !row.singlesKg ? String(row.cartons) : qtyText(row);
+}
+
 // כמות לפירוט: קרטונים, ואם הוזמן גם ביחידות/בודדים — גם הם
 function qtyText(row: PlanRowLike): string {
   const parts: string[] = [];
@@ -180,6 +192,18 @@ function shortPointName(name: string, city: string | null): string {
   return city && !base.includes(city) ? `${base} (${city})` : base;
 }
 
+// 🖨️ הדפסה: לרוחב, כל העמודות בעמוד אחד, כותרות העמודות בכל עמוד.
+// בלי זה הגיליון (9 עמודות, ~190 תווים) נחתך לשני עמודים לרוחב.
+const PRINT_SETUP: Partial<ExcelJS.PageSetup> = {
+  paperSize: 9,
+  orientation: "landscape",
+  fitToPage: true,
+  fitToWidth: 1,
+  fitToHeight: 0,
+  margins: { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
+  printTitlesRow: "4:4",
+};
+
 // שם גיליון חוקי: עד 31 תווים, בלי : \ / ? * [ ]
 function safeSheetName(name: string): string {
   return name.replace(/[:\\/?*[\]]/g, "-").slice(0, 31) || "נקודה";
@@ -191,8 +215,8 @@ function buildSheet(
   title: string,
   pricelist: { name: string; deliveryDateText: string | null },
   rows: PlanRowLike[],
-  // רק בגיליון המרכז: עמודה I — ממה מורכב המספר (לפי נקודה)
-  breakdown?: Map<string, string>
+  // רק בגיליון המרכז: עמודה I — ממה מורכב המספר (לפי עיר ונקודה)
+  breakdown?: Map<string, BreakdownLine[]>
 ) {
   const lastColLetter = breakdown ? "I" : "H";
   // ─── כותרת ───
@@ -283,7 +307,9 @@ function buildSheet(
     // F - סה"כ להזמנה. הנוסחה ולא ערך קבוע, כדי שהמספר יתעדכן
     // ברגע שהמנהל ממלא את E.
     const f = ws.getCell(r, 6);
-    f.value = { formula: `SUM(B${r},E${r})` };
+    // ⚠️ result: הערך המחושב נשמר בקובץ. בלי זה, בתצוגה מוגנת של אקסל
+    // (לפני "הפעל עריכה") ובמציגים בטלפון העמודה החשובה ביותר נראתה ריקה.
+    f.value = { formula: `SUM(B${r},E${r})`, result: (row.cartons || 0) + (row.extraCartons || 0) };
     f.font = { name: "Arial", size: 12, bold: true, color: { argb: "FFC0461E" } };
     f.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF7ED" } };
     f.alignment = { horizontal: "center" };
@@ -299,7 +325,12 @@ function buildSheet(
     // H - עודף/חוסר. חיובי = נשאר לי, שלילי = חסר לי.
     // מוצג רק אם יש הזמנות ביחידות או בבודדים - בקרטון שלם אין המרה.
     const h = ws.getCell(r, 8);
+    const ordered = row.units || row.singlesKg || 0;
     h.value = {
+      result:
+        !row.unitsPerCarton || (!row.units && !row.singlesKg)
+          ? ""
+          : Math.round(((row.extraCartons || 0) * row.unitsPerCarton - ordered) * 100) / 100,
       // ⚠️ ISBLANK ולא ="" - תא שנכתב אליו null נחשב ריק באקסל,
       // והשוואה למחרוזת ריקה לא תופסת אותו.
       // N() ממיר ריק ל-0 כדי שהחישוב לא ייתן #VALUE.
@@ -334,15 +365,31 @@ function buildSheet(
       ws.getCell(r, c).font = { name: "Arial", size: 10 };
     }
 
-    // I — פירוט לפי נקודה, שורה לכל נקודה (והשורה גדלה בהתאם)
+    // כשהשורה גבוהה (פירוט ארוך) — המוצר והמספרים למעלה, ליד תחילת הפירוט
     if (breakdown) {
-      const text = breakdown.get(row.productId) ?? "";
+      for (let c = 1; c <= 8; c++) {
+        const cell = ws.getCell(r, c);
+        cell.alignment = { ...(cell.alignment ?? {}), vertical: "top" };
+      }
+    }
+
+    // I — פירוט: שורה לכל עיר, העיר והסה״כ מודגשים
+    if (breakdown) {
+      const lines = breakdown.get(row.productId) ?? [];
       const cell = ws.getCell(r, 9);
-      cell.value = text || null;
-      cell.font = { name: "Arial", size: 10 };
+      if (lines.length) {
+        cell.value = {
+          richText: lines.flatMap((l, i) => [
+            { text: (i ? "\n" : "") + l.head, font: { name: "Arial", size: 10, bold: true } },
+            { text: l.detail, font: { name: "Arial", size: 9, color: { argb: "FF52525B" } } },
+          ]),
+        };
+      }
       cell.alignment = { horizontal: "right", vertical: "top", wrapText: true };
-      const lines = text ? text.split("\n").length : 1;
-      if (lines > 1) ws.getRow(r).height = Math.max(15, lines * 14);
+      // 🐛 הגובה חושב לפי מספר השורות בלבד — שורה ארוכה שנשברה בתא
+      // לא נספרה, והסוף נחתך. עכשיו גם השבירה נספרת (רוחב עמודה ~60 תווים).
+      const visual = lines.reduce((n, l) => n + Math.max(1, Math.ceil((l.head.length + l.detail.length) / 62)), 0);
+      if (visual > 1) ws.getRow(r).height = visual * 14 + 6;
     }
     r++;
   }
@@ -353,9 +400,19 @@ function buildSheet(
   r++;
   ws.getCell(r, 1).value = "סה״כ";
   ws.getCell(r, 1).font = { name: "Arial", size: 12, bold: true };
+  const totals: Record<number, number> = {
+    2: rows.reduce((t, x) => t + (x.cartons || 0), 0),
+    3: rows.reduce((t, x) => t + (x.units || 0), 0),
+    4: Math.round(rows.reduce((t, x) => t + (x.singlesKg || 0), 0) * 100) / 100,
+    5: rows.reduce((t, x) => t + (x.extraCartons || 0), 0),
+  };
+  totals[6] = totals[2] + totals[5];
   for (const col of [2, 3, 4, 5, 6]) {
     const c = ws.getCell(r, col);
-    c.value = { formula: `SUM(${colLetter(col)}${firstData}:${colLetter(col)}${lastData})` };
+    c.value = {
+      formula: `SUM(${colLetter(col)}${firstData}:${colLetter(col)}${lastData})`,
+      result: totals[col],
+    };
     c.font = { name: "Arial", size: 12, bold: true };
     c.alignment = { horizontal: "center" };
     c.border = { top: { style: "double" } };
@@ -376,7 +433,7 @@ function buildSheet(
   ws.getColumn(6).width = 16;
   ws.getColumn(7).width = 12;
   ws.getColumn(8).width = 12;
-  if (breakdown) ws.getColumn(9).width = 40;
+  if (breakdown) ws.getColumn(9).width = 60;
 
   // נעילה: רק E ו-G פתוחות. מונע מחיקה בשוגג של הנוסחה ב-F,
   // שהיא הנתון שממנו משדרים את ההזמנה.
