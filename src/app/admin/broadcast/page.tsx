@@ -32,6 +32,8 @@ export default function AdminBroadcastPage() {
   // דלוק כברירת מחדל - רוב הברודקסטים הם עדכונים תפעוליים שרלוונטיים
   // גם ללקוחות הטלפוניים, שאין להם מייל בכלל.
   const [alsoPhone, setAlsoPhone] = useState(true);
+  // §inbound: 📎 קובץ הזמנה אישי לכל לקוח בהודעת פתיחה
+  const [attachExcel, setAttachExcel] = useState(true);
 
   // §330: 🚚 תזכורת חלוקה — הועברה לכאן מסיכום המכירה.
   //
@@ -416,6 +418,7 @@ export default function AdminBroadcastPage() {
       `כותרת: ${subject}\n\n` +
       (launchId && alsoPhone ? `📞 בטלפון: כל מתקשר ישמע את ההודעה פעם אחת.\n\n` : "") +
       (attachments.length > 0 ? `📎 מצורפים: ${attachments.map((a) => a.filename).join(", ")}\n\n` : "") +
+      (launchId && attachExcel ? `📊 לכל לקוח יצורף קובץ הזמנה אישי של המכירה.\n\n` : "") +
       `המשלוח יתבצע ברקע ועשוי לקחת כמה דקות (בהתאם למספר הנמענים).`;
     if (!force && !confirm(confirmMsg)) return;
 
@@ -437,6 +440,8 @@ export default function AdminBroadcastPage() {
           // ⚠️ לא בשליחה חוזרת לנכשלים: היא הייתה מסמנת שוב "נשלחה הודעת פתיחה"
           // עם מספר הנמענים החלקי, ויוצרת הודעה טלפונית חדשה שכולם ישמעו שוב.
           ...(launchId && !retry ? { launchPricelistId: launchId, phoneText: phoneText.trim(), force } : {}),
+          // §inbound: 📊 קובץ ההזמנה — רק בהודעת פתיחה
+          attachSaleExcel: !!launchId && attachExcel && !retry,
           // §404: 📎
           attachments,
         }),
@@ -704,6 +709,32 @@ export default function AdminBroadcastPage() {
             </div>
           )}
         </div>
+
+        {/* §inbound: 📊 קובץ ההזמנה של המכירה — אישי לכל לקוח. מי שמחזיר אותו
+            מלא ב"השב" מקבל הזמנה אוטומטית ומייל אישור. */}
+        {launchId ? (
+          <label className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-50 border border-emerald-200 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={attachExcel}
+              onChange={(e) => setAttachExcel(e.target.checked)}
+              className="w-4 h-4 mt-0.5 shrink-0 accent-brand-rust"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-brand-slatedark">
+                📊 לצרף לכל לקוח את קובץ ההזמנה של המכירה
+              </span>
+              <span className="block text-xs text-zinc-600 mt-0.5">
+                קובץ אישי (שם, נקודת חלוקה וכל מוצרי המכירה). הלקוח ממלא כמויות ולוחץ &quot;השב&quot; —
+                ההזמנה נוצרת לבד ונשלח לו אישור. בלי כרטיס אשראי — הוא מקבל תשובה שצריך להסדיר תשלום.
+              </span>
+            </span>
+          </label>
+        ) : (
+          <p className="px-1 text-xs text-zinc-500">
+            💡 בהודעת פתיחת מכירה (📣 בחירת מכירה למעלה) אפשר לצרף לכל לקוח את קובץ ההזמנה האישי שלו.
+          </p>
+        )}
 
         {/* §32: הודעה קולית מקבילה. לקוחות שנרשמו בטלפון לרוב אין להם
             מייל, וזו הדרך היחידה שהעדכון יגיע אליהם. */}

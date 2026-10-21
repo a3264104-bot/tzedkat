@@ -34,6 +34,8 @@ import {
   type BroadcastAttachment,
 } from "@/lib/broadcast-attachments";
 import { sendBroadcastBatch } from "@/lib/email";
+// §inbound: קובץ הזמנה אישי מצורף להודעת פתיחה
+import { loadSaleExcelBase, buildCustomerSaleFile, saleFileName, type SaleExcelBase } from "@/lib/excel-sale-file";
 import {
   createPhoneAnnouncement,
   expiryForDelivery,
@@ -203,8 +205,11 @@ export async function POST(req: Request) {
     console.error("[broadcast] failed to create send log:", e);
   }
 
+  // 📎 קובץ ההזמנה — רק בהודעת פתיחה (יש מכירה), ורק אם סומן
+  const excelBase: SaleExcelBase | null =
+    body?.attachSaleExcel && launchSale ? await loadSaleExcelBase(launchSale.id) : null;
   waitUntil(
-    sendBroadcastAsync(recipients, subject, messageHtml, attachments, logId).catch((err) => {
+    sendBroadcastAsync(recipients, subject, messageHtml, attachments, logId, excelBase).catch((err) => {
       console.error("[broadcast] async send error:", err);
     })
   );
@@ -308,7 +313,9 @@ async function sendBroadcastAsync(
   messageHtml: string,
   attachments: BroadcastAttachment[] = [],
   /** יומן השליחה — null אם הרישום נכשל (השליחה ממשיכה בכל זאת) */
-  logId: string | null = null
+  logId: string | null = null,
+  /** §inbound: אם צורף — קובץ הזמנה אישי לכל נמען */
+  excelBase: SaleExcelBase | null = null
 ) {
   const total = recipients.length;
   let sent = 0;
@@ -318,7 +325,35 @@ async function sendBroadcastAsync(
 
   for (let i = 0; i < total; i += BATCH_SIZE) {
     const batch = recipients.slice(i, i + BATCH_SIZE);
-    const withEmail = batch.filter((r) => !!r.email) as { id: string; name: string; email: string }[];
+    let withEmail = batch.filter((r) => !!r.email) as {
+      id: string;
+      name: string;
+      email: string;
+      file?: { filename: string; content: Buffer };
+    }[];
+
+    // 📎 קובץ אישי לכל נמען (שם, טלפון, נקודה, חתימה) — נבנה לכל batch
+    if (excelBase && withEmail.length) {
+      const info = await prisma.customer.findMany({
+        where: { id: { in: withEmail.map((r) => r.id) } },
+        select: { id: true, name: true, phone: true, defaultPoint: { select: { name: true } } },
+      });
+      const byId = new Map(info.map((c) => [c.id, c]));
+      const filename = saleFileName(excelBase.pricelist.name);
+      withEmail = await Promise.all(
+        withEmail.map(async (r) => {
+          const c = byId.get(r.id);
+          if (!c) return r;
+          const content = await buildCustomerSaleFile(excelBase, {
+            id: c.id,
+            name: c.name,
+            phone: c.phone,
+            pointName: c.defaultPoint?.name ?? null,
+          });
+          return { ...r, file: { filename, content } };
+        })
+      );
+    }
 
     // ניסיון חוזר עם המתנה גדלה כשחורגים ממגבלת הקצב
     let res = await sendBroadcastBatch(withEmail, subject, messageHtml, attachments);

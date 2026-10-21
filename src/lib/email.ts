@@ -612,7 +612,19 @@ export async function sendDeliveryReminderEmail(params: {
 }
 
 // גוף המייל של הודעה ללקוחות — משותף לשליחה בודדת ולשליחה ב-batch
-function broadcastBody(customerName: string, messageHtml: string, attachments: BroadcastAttachment[]) {
+// §inbound: הסבר קצר כשמצורף קובץ הזמנה אישי להודעה
+function saleExcelNote(replyTo: string, adminEmail: string) {
+  const automatic = replyTo !== adminEmail;
+  return `<div style="background:#fffbef;border:2px solid #d4a017;border-radius:12px;padding:14px;margin:16px 0;font-size:14px;color:#5a4a2a;line-height:1.8;">
+    <strong>📎 מצורף קובץ הזמנה אישי</strong><br/>
+    ממלאים כמות בעמודה &quot;כמות&quot; בלבד, שומרים, לוחצים <strong>&quot;השב&quot;</strong>, מצרפים את הקובץ ושולחים.
+    ${automatic ? "תוך דקות יגיע מייל אישור עם פירוט ההזמנה. שליחה חוזרת של הקובץ מחליפה את ההזמנה (עד שעת הסגירה)." : ""}
+    <div style="font-size:12px;color:#8b5a00;margin-top:6px;">ההזמנה דרך הקובץ אפשרית עם כרטיס אשראי שמור בחשבון (או ללקוח מזומן).
+    לשאלות: <a href="mailto:${escapeHtml(adminEmail)}" style="color:#C0461E;">${escapeHtml(adminEmail)}</a></div>
+  </div>`;
+}
+
+function broadcastBody(customerName: string, messageHtml: string, attachments: BroadcastAttachment[], extraHtml = "") {
   return `
       <div style="padding: 8px 0;">
         <p style="font-size: 15px; color: #27272A; margin: 0 0 12px;">
@@ -622,6 +634,7 @@ function broadcastBody(customerName: string, messageHtml: string, attachments: B
           ${messageHtml}
         </div>
         ${attachmentsHtml(attachments)}
+        ${extraHtml}
         <p style="font-size: 13px; color: #71717A; margin-top: 20px;">
           בברכה,<br/>צדקת רבותינו
         </p>
@@ -716,7 +729,8 @@ export async function sendBroadcastEmail(
  * התוצאה מוחזרת לפי סדר הנמענים.
  */
 export async function sendBroadcastBatch(
-  recipients: { name: string; email: string }[],
+  // file — §inbound: קובץ הזמנה אישי (אם צורף להודעת פתיחה)
+  recipients: { name: string; email: string; file?: { filename: string; content: Buffer } }[],
   subject: string,
   messageHtml: string,
   attachments: BroadcastAttachment[] = []
@@ -725,11 +739,19 @@ export async function sendBroadcastBatch(
   | { ok: false; error: string; rateLimited: boolean; quota: "daily" | "monthly" | null }
 > {
   try {
+    const anyFile = recipients.some((r) => r.file);
+    const settings = anyFile ? await getSettings() : null;
+    const replyTo = settings ? excelReplyAddress(settings.adminEmail) : undefined;
     const payload = recipients.map((r) => ({
       from: FROM_ADDRESS,
       to: r.email,
       subject,
-      html: baseTemplate(subject, broadcastBody(r.name, messageHtml, attachments)),
+      html: baseTemplate(
+        subject,
+        broadcastBody(r.name, messageHtml, attachments, r.file && settings ? saleExcelNote(replyTo!, settings.adminEmail) : "")
+      ),
+      // §inbound: עם קובץ — "השב" מגיע לכתובת הקליטה, וההזמנה נוצרת לבד
+      ...(r.file ? { attachments: [r.file], replyTo } : {}),
     }));
     const { data, error } = await getResend().batch.send(payload, { batchValidation: "permissive" });
     if (error) {
