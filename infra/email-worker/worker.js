@@ -8,7 +8,7 @@
 // משתנים (Worker → Settings → Variables and Secrets):
 //   INBOUND_URL     = https://tzidkat.com/api/inbound/email
 //   INBOUND_SECRET  = אותו ערך כמו INBOUND_EMAIL_SECRET ב-Vercel (Secret)
-//   FORWARD_TO      = מייל המנהל (חייב להיות מאומת ב-Email Routing → Destination addresses)
+//   FORWARD_TO      = (לא בשימוש) — העותק למנהל נשלח מהאתר דרך אמזון
 //
 // מה הוא עושה עם כל מייל:
 //   1. שולח את המייל המלא לאתר — שם, אם יש קובץ אקסל, נוצרת הזמנה ונשלחת תשובה.

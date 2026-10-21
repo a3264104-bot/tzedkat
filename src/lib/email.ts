@@ -1474,6 +1474,46 @@ export async function sendExcelOrderConfirmation(params: {
   }
 }
 
+/**
+ * §inbound: עותק למנהל של מייל שהגיע ל-orders@ (שאלה, תשובה, קובץ שלא נקלט).
+ *
+ * 🐛 ההעברה של Cloudflare ל-Gmail דורשת אימות של כתובת היעד — ועד שהוא
+ * נעשה, מיילים של לקוחות ל-orders@ לא הגיעו לאף אחד. עכשיו העותק יוצא
+ * דרך אמזון (כמו כל מיילי האתר), עם "השב" ישירות ללקוח.
+ */
+export async function forwardInboundToAdmin(params: {
+  from: string;
+  fromName?: string | null;
+  subject: string;
+  html?: string | null;
+  text?: string | null;
+  note: string;
+  attachments?: { filename: string; content: Buffer }[];
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+    if (!settings.adminEmail) return { ok: true };
+    const header = `<div dir="rtl" style="font-family:Arial;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#1e3a8a;">
+      📨 מייל שהגיע ל-orders@tzidkat.com מ-<b>${escapeHtml(params.fromName ? `${params.fromName} <${params.from}>` : params.from)}</b><br/>
+      ${escapeHtml(params.note)} · לחיצה על &quot;השב&quot; עונה ישירות ללקוח.
+    </div>`;
+    const bodyHtml = params.html
+      ? params.html
+      : `<pre dir="auto" style="white-space:pre-wrap;font-family:Arial;font-size:14px;">${escapeHtml(params.text || "(ללא תוכן)")}</pre>`;
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: settings.adminEmail,
+      replyTo: params.from,
+      subject: `📨 ${params.subject || "(ללא נושא)"} — מ-${params.fromName || params.from}`,
+      html: header + bodyHtml,
+      ...(params.attachments?.length ? { attachments: params.attachments } : {}),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}
+
 export type ExcelProblemKind =
   | "payment"
   | "closed"
