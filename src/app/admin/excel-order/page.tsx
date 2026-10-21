@@ -162,7 +162,7 @@ export default function ExcelOrderPage() {
       <div>
         <h1 className="text-2xl font-extrabold text-brand-slatedark">הזמנה דרך אקסל</h1>
         <p className="text-sm text-zinc-500 mt-1">
-          מפיקים קובץ ללקוח, שולחים במייל, ומעלים אותו חזרה כשהוא ממולא.
+          הלקוחות המסומנים מקבלים קובץ במייל, ממלאים ועונים — וההזמנה נוצרת לבד.
         </p>
       </div>
 
@@ -176,6 +176,16 @@ export default function ExcelOrderPage() {
           ✓ {msg}
         </div>
       )}
+
+      {/* §inbound: העיקר — מי מקבל את הקובץ, ומה חזר */}
+      <ExcelEmailPanel />
+
+      {/* העלאה ידנית — רק כגיבוי (קובץ שהגיע ל-Gmail, או ללקוח ספציפי) */}
+      <details className="card p-0">
+        <summary className="cursor-pointer select-none px-5 py-3 text-sm font-bold text-zinc-600">
+          🛠️ ידני (גיבוי): הורדת קובץ ללקוח / העלאת קובץ שהגיע למייל שלך
+        </summary>
+        <div className="space-y-5 p-4 pt-0">
 
       {/* ─── 1. בחירה ─── */}
       <div className="card p-5 space-y-3">
@@ -411,8 +421,8 @@ export default function ExcelOrderPage() {
           </p>
         </div>
       )}
-      {/* §inbound: מי מקבל את הקובץ במייל, ומה חזר */}
-      <ExcelEmailPanel />
+        </div>
+      </details>
     </main>
   );
 }

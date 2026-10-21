@@ -33,7 +33,7 @@ import {
   cleanBroadcastAttachments,
   type BroadcastAttachment,
 } from "@/lib/broadcast-attachments";
-import { sendBroadcastBatch } from "@/lib/email";
+import { sendBroadcastBatch, type SaleExcelInfo } from "@/lib/email";
 // §inbound: קובץ הזמנה אישי מצורף להודעת פתיחה
 import { loadSaleExcelBase, buildCustomerSaleFile, saleFileName, type SaleExcelBase } from "@/lib/excel-sale-file";
 import {
@@ -205,9 +205,19 @@ export async function POST(req: Request) {
     console.error("[broadcast] failed to create send log:", e);
   }
 
-  // 📎 קובץ ההזמנה — רק בהודעת פתיחה (יש מכירה), ורק אם סומן
-  const excelBase: SaleExcelBase | null =
-    body?.attachSaleExcel && launchSale ? await loadSaleExcelBase(launchSale.id) : null;
+  // 📎 קובץ ההזמנה האישי — לכל מכירה פעילה שנבחרה (ובהודעת פתיחה: המכירה שלה)
+  const excelSaleId = body?.attachSaleExcel ? String(body?.excelPricelistId || launchSale?.id || "") : "";
+  let excelBase: SaleExcelBase | null = null;
+  if (excelSaleId) {
+    const sale = await prisma.pricelist.findUnique({
+      where: { id: excelSaleId },
+      select: { status: true, agentOnly: true },
+    });
+    if (!sale || sale.status !== "ACTIVE" || sale.agentOnly) {
+      return NextResponse.json({ error: "אפשר לצרף קובץ הזמנה רק של מכירה פעילה ללקוחות" }, { status: 400 });
+    }
+    excelBase = await loadSaleExcelBase(excelSaleId);
+  }
   waitUntil(
     sendBroadcastAsync(recipients, subject, messageHtml, attachments, logId, excelBase).catch((err) => {
       console.error("[broadcast] async send error:", err);
@@ -329,7 +339,7 @@ async function sendBroadcastAsync(
       id: string;
       name: string;
       email: string;
-      file?: { filename: string; content: Buffer };
+      file?: { filename: string; content: Buffer; info: SaleExcelInfo };
     }[];
 
     // 📎 קובץ אישי לכל נמען (שם, טלפון, נקודה, חתימה) — נבנה לכל batch
@@ -350,7 +360,19 @@ async function sendBroadcastAsync(
             phone: c.phone,
             pointName: c.defaultPoint?.name ?? null,
           });
-          return { ...r, file: { filename, content } };
+          return {
+            ...r,
+            file: {
+              filename,
+              content,
+              info: {
+                pointName: c.defaultPoint?.name ?? null,
+                saleName: excelBase.pricelist.name,
+                deliveryDateText: excelBase.pricelist.deliveryDateText,
+                closeText: excelBase.closeText,
+              },
+            },
+          };
         })
       );
     }
