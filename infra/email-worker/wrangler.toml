@@ -4,6 +4,8 @@
 name = "tzidkat-inbound"
 main = "worker.js"
 compatibility_date = "2026-10-01"
+# אין צורך בכתובת workers.dev — ה-Worker מופעל רק ממיילים
+workers_dev = false
 
 [vars]
 INBOUND_URL = "https://tzidkat.com/api/inbound/email"
