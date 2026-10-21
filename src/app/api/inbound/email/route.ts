@@ -31,6 +31,7 @@ import { createExcelOrder } from "@/lib/excel-order-create";
 import {
   sendExcelOrderConfirmation,
   sendExcelOrderProblem,
+  forwardInboundToAdmin,
   type ExcelProblemKind,
 } from "@/lib/email";
 
@@ -77,6 +78,27 @@ export async function POST(req: Request) {
   const subject = (email.subject || "").slice(0, 200);
   const header = (name: string) =>
     email.headers.find((h) => h.key.toLowerCase() === name)?.value?.toLowerCase() ?? "";
+
+  // עותק למנהל — כל מייל של לקוח שלא הפך להזמנה (שאלה, תשובה, קובץ שנדחה)
+  const copyToAdmin = (note: string) =>
+    forwardInboundToAdmin({
+      from,
+      fromName: email.from?.name ?? null,
+      subject,
+      html: email.html ?? null,
+      text: email.text ?? null,
+      note,
+      attachments: (email.attachments || [])
+        .filter((a) => a.filename)
+        .slice(0, 5)
+        .map((a) => ({
+          filename: a.filename!,
+          content:
+            typeof a.content === "string" ? Buffer.from(a.content, "base64") : Buffer.from(a.content as ArrayBuffer),
+        })),
+    }).then((r) => {
+      if (!r.ok) console.error("[inbound] admin copy failed:", r.error);
+    });
 
   const log = (result: string, extra: Record<string, unknown> = {}, customer?: { id: string; name: string } | null) =>
     audit({
@@ -141,7 +163,8 @@ export async function POST(req: Request) {
 
   const excel = (email.attachments || []).find(isExcelAttachment);
   if (!excel) {
-    // מייל רגיל (שאלה וכו') — ה-Worker כבר העביר אותו למנהל
+    // מייל רגיל (שאלה, תשובה להודעה) — עותק למנהל
+    await copyToAdmin("מייל רגיל (בלי קובץ הזמנה)");
     await log("no-attachment");
     return NextResponse.json({ ok: true, handled: false });
   }
@@ -164,11 +187,13 @@ export async function POST(req: Request) {
     parsed = await parseOrderExcel(content);
   } catch (e: any) {
     await reply("bad_file");
+    await copyToAdmin("קובץ שלא הצלחנו לקרוא — ללקוח נשלח הסבר");
     await log("bad-file", { error: String(e?.message || e).slice(0, 200), filename: excel.filename });
     return NextResponse.json({ ok: true, result: "bad-file" });
   }
   if (!parsed.pricelistId) {
     await reply("bad_file", { detail: "זה לא קובץ ההזמנה שנשלח מאיתנו" });
+    await copyToAdmin("קובץ אקסל שאינו קובץ ההזמנה שלנו — ללקוח נשלח הסבר");
     await log("bad-file", { reason: "no-pricelist", filename: excel.filename });
     return NextResponse.json({ ok: true, result: "bad-file" });
   }
@@ -187,6 +212,7 @@ export async function POST(req: Request) {
   }
   if (!customer) {
     await reply("unknown_sender");
+    await copyToAdmin("קובץ הזמנה מכתובת שלא תואמת לחשבון — לא נוצרה הזמנה");
     await log("unknown-sender", { fileCustomerId: parsed.customerId, emailMatches: byEmail.length });
     return NextResponse.json({ ok: true, result: "unknown-sender" });
   }
@@ -227,6 +253,7 @@ export async function POST(req: Request) {
       saleName: sale?.name,
       issues: parsed.issues,
     });
+    await copyToAdmin(`קובץ הזמנה שלא נקלט (${result.error}) — ללקוח נשלח הסבר`);
     await log(`refused:${result.code}`, { error: result.error }, customer);
     return NextResponse.json({ ok: true, result: result.code });
   }

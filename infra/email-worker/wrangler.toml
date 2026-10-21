@@ -9,4 +9,5 @@ workers_dev = false
 
 [vars]
 INBOUND_URL = "https://tzidkat.com/api/inbound/email"
-FORWARD_TO = "m5402088@gmail.com"
+# FORWARD_TO הוסר: העותק למנהל נשלח מהאתר דרך אמזון (forwardInboundToAdmin),
+# בלי תלות באימות כתובת היעד ב-Cloudflare. אם יוגדר שוב — יהיו עותקים כפולים.
