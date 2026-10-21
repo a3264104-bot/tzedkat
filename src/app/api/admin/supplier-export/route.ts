@@ -92,42 +92,18 @@ export async function GET(req: Request) {
       views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }],
       pageSetup: PRINT_SETUP,
     });
-    // 🆕 "ממה מורכב המספר": "34 קרטונים" → "15 — בית אהרן (ביתר), 19 — ...".
-    // בלי זה, כשהסחורה מגיעה, צריך לפתוח גיליון-גיליון כדי לדעת כמה
-    // לשים בצד לכל נקודה.
-    // שורה לכל עיר: "ביתר עילית — 12 קר׳: בית אהרן 2 · תפארת א״א 8".
-    // קודם: שורת ערים + שורה לכל נקודה — אותו מידע פעמיים, ותא של 12
-    // שורות שלא נכנס בהדפסה.
-    type CityAgg = { total: PlanRowLike; points: { name: string; row: PlanRowLike }[] };
-    const byProduct = new Map<string, Map<string, CityAgg>>();
-    for (const { pt, rows } of perPoint) {
-      for (const row of rows) {
-        if (!qtyText(row)) continue;
-        const city = pt.city || "ללא עיר";
-        if (!byProduct.has(row.productId)) byProduct.set(row.productId, new Map());
-        const cities = byProduct.get(row.productId)!;
-        const agg = cities.get(city) ?? { total: { ...row, cartons: 0, units: 0, singlesKg: 0 }, points: [] };
-        agg.total.cartons += row.cartons || 0;
-        agg.total.units += row.units || 0;
-        agg.total.singlesKg += row.singlesKg || 0;
-        agg.points.push({ name: shortPointName(pt.name, null), row });
-        cities.set(city, agg);
-      }
-    }
-    const breakdown = new Map<string, BreakdownLine[]>();
-    for (const [productId, cities] of byProduct) {
-      const lines = [...cities]
-        .sort((a, b) => b[1].total.cartons - a[1].total.cartons || a[0].localeCompare(b[0], "he"))
-        .map(([city, agg]) => ({
-          head: `${city} — ${qtyText(agg.total)}`,
-          detail:
-            agg.points.length === 1
-              ? ` (${agg.points[0].name})`
-              : ": " + agg.points.map((x) => `${x.name} ${qtyShort(x.row)}`).join(" · "),
-        }));
-      breakdown.set(productId, lines);
-    }
-    buildSheet(ws, [...HEAD, "פירוט לפי נקודה"], "כל נקודות החלוקה", pricelist, all.rows as PlanRowLike[], breakdown);
+    // 🆕 עמודה לכל נקודת חלוקה — **מספרים בלבד**, כותרת למעלה.
+    // קודם: כל הפירוט כטקסט בתא אחד — אי אפשר לסמן ולסכם. עכשיו בוחרים
+    // בעכבר את העמודות (ביתר א׳ + ביתר ב׳...) ואקסל מסכם בשורת המצב.
+    const pointCols: PointCol[] = perPoint
+      .map(({ pt, rows }) => ({
+        name: shortPointName(pt.name, pt.city),
+        city: pt.city,
+        values: new Map(rows.map((row) => [row.productId, row])),
+      }))
+      .filter((pc) => [...pc.values.values()].some((v) => primaryQty(v) > 0 || (v.singlesKg || 0) > 0))
+      .sort((x, y) => (x.city || "").localeCompare(y.city || "", "he") || x.name.localeCompare(y.name, "he"));
+    buildSheet(ws, HEAD, "כל נקודות החלוקה", pricelist, all.rows as PlanRowLike[], pointCols);
   }
 
   // גיליון לכל נקודה - לפיצול הסחורה אחרי שהיא מגיעה
@@ -169,11 +145,16 @@ type PlanRowLike = {
   unitsPerCarton: number | null;
 };
 
-type BreakdownLine = { head: string; detail: string };
+type PointCol = { name: string; city: string | null; values: Map<string, PlanRowLike> };
 
-// כמות בתוך רשימת הנקודות: מספר בלבד כשיש רק קרטונים ("2"), אחרת מלא
-function qtyShort(row: PlanRowLike): string {
-  return row.cartons && !row.units && !row.singlesKg ? String(row.cartons) : qtyText(row);
+// המספר בעמודת הנקודה בשורת המוצר: קרטונים + יחידות (לא ק"ג).
+// ⚠️ ק"ג בודדים — בשורה נפרדת מתחת ("בודדים ק"ג"), אחרת עמודה של נקודה
+// הייתה מערבבת קרטונים בנקודה אחת וקילו בנקודה אחרת, והסכום חסר משמעות.
+function primaryQty(row: PlanRowLike): number {
+  return (row.cartons || 0) + (row.units || 0);
+}
+function kgQty(row: PlanRowLike): number {
+  return Math.round((row.singlesKg || 0) * 100) / 100;
 }
 
 // כמות לפירוט: קרטונים, ואם הוזמן גם ביחידות/בודדים — גם הם
@@ -215,10 +196,12 @@ function buildSheet(
   title: string,
   pricelist: { name: string; deliveryDateText: string | null },
   rows: PlanRowLike[],
-  // רק בגיליון המרכז: עמודה I — ממה מורכב המספר (לפי עיר ונקודה)
-  breakdown?: Map<string, BreakdownLine[]>
+  // רק בגיליון המרכז: עמודה לכל נקודה (מ-I והלאה)
+  pointCols: PointCol[] = []
 ) {
-  const lastColLetter = breakdown ? "I" : "H";
+  const FIRST_POINT_COL = 9;
+  const lastCol = 8 + pointCols.length;
+  const lastColLetter = colLetter(lastCol);
   // ─── כותרת ───
   ws.mergeCells(`A1:${lastColLetter}1`);
   const t = ws.getCell("A1");
@@ -266,7 +249,17 @@ function buildSheet(
     };
     if (col === 6) c.font = { name: "Arial", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
   });
-  ws.getRow(HEAD_ROW).height = 34;
+  ws.getRow(HEAD_ROW).height = pointCols.length ? 120 : 34;
+
+  // כותרות הנקודות — טקסט אנכי, כמו בטבלה הידנית
+  pointCols.forEach((pc, i) => {
+    const c = ws.getCell(HEAD_ROW, FIRST_POINT_COL + i);
+    c.value = pc.name;
+    c.font = { name: "Arial", size: 10, bold: true };
+    c.alignment = { textRotation: 90, horizontal: "center", vertical: "bottom", wrapText: true };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
+    c.border = { bottom: { style: "medium" }, top: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } };
+  });
 
   // ─── שורות ───
   // הסדר כבר נקבע ב-collectPlan (קטגוריה ואז מוצר)
@@ -365,31 +358,31 @@ function buildSheet(
       ws.getCell(r, c).font = { name: "Arial", size: 10 };
     }
 
-    // כשהשורה גבוהה (פירוט ארוך) — המוצר והמספרים למעלה, ליד תחילת הפירוט
-    if (breakdown) {
-      for (let c = 1; c <= 8; c++) {
-        const cell = ws.getCell(r, c);
-        cell.alignment = { ...(cell.alignment ?? {}), vertical: "top" };
-      }
-    }
-
-    // I — פירוט: שורה לכל עיר, העיר והסה״כ מודגשים
-    if (breakdown) {
-      const lines = breakdown.get(row.productId) ?? [];
-      const cell = ws.getCell(r, 9);
-      if (lines.length) {
-        cell.value = {
-          richText: lines.flatMap((l, i) => [
-            { text: (i ? "\n" : "") + l.head, font: { name: "Arial", size: 10, bold: true } },
-            { text: l.detail, font: { name: "Arial", size: 9, color: { argb: "FF52525B" } } },
-          ]),
-        };
-      }
-      cell.alignment = { horizontal: "right", vertical: "top", wrapText: true };
-      // 🐛 הגובה חושב לפי מספר השורות בלבד — שורה ארוכה שנשברה בתא
-      // לא נספרה, והסוף נחתך. עכשיו גם השבירה נספרת (רוחב עמודה ~60 תווים).
-      const visual = lines.reduce((n, l) => n + Math.max(1, Math.ceil((l.head.length + l.detail.length) / 62)), 0);
-      if (visual > 1) ws.getRow(r).height = visual * 14 + 6;
+    // עמודות הנקודות — מספר בלבד (ריק = הנקודה לא הזמינה)
+    const pointCell = (rr: number, i: number, v: number) => {
+      const c = ws.getCell(rr, FIRST_POINT_COL + i);
+      c.value = v ? v : null;
+      c.font = { name: "Arial", size: 11 };
+      c.alignment = { horizontal: "center" };
+      c.border = { left: { style: "thin", color: { argb: "FFD4D4D8" } }, right: { style: "thin", color: { argb: "FFD4D4D8" } } };
+    };
+    pointCols.forEach((pc, i) => {
+      const pr = pc.values.get(row.productId);
+      // מוצר שהוזמן רק בבודדים — הק"ג בשורה עצמה
+      pointCell(r, i, pr ? (row.cartons || row.units ? primaryQty(pr) : kgQty(pr)) : 0);
+    });
+    // מוצר שהוזמן גם בבודדים (ק"ג) — שורה נוספת מתחתיו, רק בגיליון המרכז
+    if (pointCols.length && (row.singlesKg || 0) > 0 && (row.cartons || row.units)) {
+      r++;
+      const label = ws.getCell(r, 1);
+      label.value = `   ↳ ${row.productName} — בודדים (ק"ג)`;
+      label.font = { name: "Arial", size: 9, italic: true, color: { argb: "FF8B5A00" } };
+      label.alignment = { horizontal: "right" };
+      pointCols.forEach((pc, i) => {
+        const pr = pc.values.get(row.productId);
+        pointCell(r, i, pr ? kgQty(pr) : 0);
+        ws.getCell(r, FIRST_POINT_COL + i).font = { name: "Arial", size: 10, italic: true, color: { argb: "FF8B5A00" } };
+      });
     }
     r++;
   }
@@ -423,6 +416,7 @@ function buildSheet(
     bold: true,
     color: { argb: "FFC0461E" },
   };
+  // ⚠️ אין סה"כ לעמודות הנקודות: הן מערבבות מוצרים שונים. מסכמים בבחירה בעכבר.
 
   // ─── רוחב ונעילה ───
   ws.getColumn(1).width = 34;
@@ -433,7 +427,9 @@ function buildSheet(
   ws.getColumn(6).width = 16;
   ws.getColumn(7).width = 12;
   ws.getColumn(8).width = 12;
-  if (breakdown) ws.getColumn(9).width = 60;
+  pointCols.forEach((_, i) => {
+    ws.getColumn(FIRST_POINT_COL + i).width = 6;
+  });
 
   // נעילה: רק E ו-G פתוחות. מונע מחיקה בשוגג של הנוסחה ב-F,
   // שהיא הנתון שממנו משדרים את ההזמנה.
@@ -445,6 +441,13 @@ function buildSheet(
   });
 }
 
+// 1 → A, 26 → Z, 27 → AA (עם הרבה נקודות העמודות עוברות את Z)
 function colLetter(n: number): string {
-  return String.fromCharCode(64 + n);
+  let out = "";
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    out = String.fromCharCode(65 + m) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
 }
