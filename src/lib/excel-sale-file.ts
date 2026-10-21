@@ -41,6 +41,7 @@ export async function loadSaleExcelBase(pricelistId: string): Promise<SaleExcelB
               allowSingles: true,
               singlesMode: true,
               singleUnitPrice: true,
+              avgWeightPerUnit: true,
               kashrut: true,
               kashrutRef: { select: { name: true } },
               category: { select: { name: true } },
@@ -69,6 +70,10 @@ export async function loadSaleExcelBase(pricelistId: string): Promise<SaleExcelB
       // §313: saleType קובע אם זה קרטון (ולא priceType)
       unit: p.saleType === "PACKAGE" ? (p.priceType === "PER_KG" ? 'קרטון (מחיר לק"ג)' : "קרטון") : p.unit || "יחידה",
       unitPrice: base,
+      // מחיר לק"ג × משקל ממוצע לקרטון — אותו חישוב כמו בהזמנה באתר
+      ...(p.priceType === "PER_KG" && p.avgWeightPerUnit != null
+        ? { estimateFactor: Number(p.avgWeightPerUnit) }
+        : {}),
     });
     if (p.allowSingles) {
       rows.push({
