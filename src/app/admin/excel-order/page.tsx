@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/client";
 import { fmt } from "@/lib/pricing";
+import { ExcelEmailPanel } from "./ExcelEmailPanel";
 
 type Customer = { id: string; name: string; phone: string | null; pointName: string | null };
 type Pricelist = { id: string; name: string; status: string; agentOnly?: boolean };
@@ -410,6 +411,8 @@ export default function ExcelOrderPage() {
           </p>
         </div>
       )}
+      {/* §inbound: מי מקבל את הקובץ במייל, ומה חזר */}
+      <ExcelEmailPanel />
     </main>
   );
 }

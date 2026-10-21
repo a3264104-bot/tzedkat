@@ -1,0 +1,10 @@
+# Cloudflare Email Worker — קליטת מיילים ל-orders@tzidkat.com (ראו worker.js)
+# פריסה:  cd infra/email-worker && npx wrangler deploy
+# הסוד:   npx wrangler secret put INBOUND_SECRET   (אותו ערך כמו INBOUND_EMAIL_SECRET ב-Vercel)
+name = "tzidkat-inbound"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+INBOUND_URL = "https://tzidkat.com/api/inbound/email"
+FORWARD_TO = "m5402088@gmail.com"

@@ -158,6 +158,20 @@ export default function PricelistsPage() {
         body: JSON.stringify({ status }),
       });
       load();
+      // §inbound: 📧 פתיחת מכירה = הרגע לשלוח את קובץ ההזמנה למי שביקש.
+      // שאלה ולא שליחה אוטומטית: הפעלה בטעות לא תשלח מיילים למאות לקוחות.
+      if (status === "ACTIVE" && !l.agentOnly && !l.excelSentAt) {
+        try {
+          const r = await fetch(`/api/admin/excel-broadcast?pricelistId=${encodeURIComponent(l.id)}`);
+          const info = await r.json();
+          const n = info?.counts?.ready ?? 0;
+          if (n > 0 && window.confirm(`המכירה "${l.name}" נפתחה.\n\nלשלוח עכשיו את קובץ ההזמנה במייל ל-${n} הלקוחות שברשימה?`)) {
+            await sendExcel(l, true);
+          }
+        } catch {
+          // לא חוסם: אפשר תמיד לשלוח מהכפתור "📊 שלח אקסל"
+        }
+      }
     } catch (e: any) {
       alert(e.message || "שגיאה בעדכון הסטטוס");
     }

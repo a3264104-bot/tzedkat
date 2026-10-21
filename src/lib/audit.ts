@@ -26,7 +26,9 @@ export type AuditAction =
   | "CARD_SAVED"
   | "CARD_REPLACED"
   | "CARD_REJECTED"
-  | "CARD_WEBHOOK_IGNORED";
+  | "CARD_WEBHOOK_IGNORED"
+  // §inbound: קובץ אקסל שחזר במייל — מה התקבל ומה נעשה איתו
+  | "EXCEL_EMAIL_IN";
 
 type AuditInput = {
   actorId: string;

@@ -293,6 +293,7 @@ export async function POST(req: Request) {
     try {
       const buf = await buildOrderExcel(
         {
+          customerId: c.id,
           customerName: c.name,
           customerPhone: c.phone || "",
           pointName: c.defaultPoint?.name || "",
@@ -308,6 +309,7 @@ export async function POST(req: Request) {
         customerName: c.name,
         email: c.email!,
         saleName: pricelist.name,
+        pointName: c.defaultPoint?.name ?? null,
         deliveryDateText: pricelist.deliveryDateText,
         closeDateText: closeText,
         fileBuffer: buf,
