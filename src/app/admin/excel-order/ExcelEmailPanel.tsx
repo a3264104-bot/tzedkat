@@ -1,12 +1,14 @@
 "use client";
-// §inbound: ניהול ההזמנות במייל — מי מקבל את הקובץ, ומה חזר
-import { useCallback, useEffect, useState } from "react";
+// §inbound: ניהול ההזמנות במייל — מי מקבל את הקובץ (רשימה מלאה עם סימון), ומה חזר
+import { useEffect, useMemo, useState } from "react";
 
 type Person = {
   id: string;
   name: string;
   email: string | null;
   phone: string | null;
+  wants: boolean;
+  pointId: string | null;
   pointName: string | null;
   canOrder: boolean;
 };
@@ -28,107 +30,161 @@ const RESULT: Record<string, { text: string; cls: string }> = {
   "refused:CARD_PROBLEM": { text: "💳 כרטיס לא תקין — נשלחה בקשה לעדכן", cls: "bg-amber-50 text-amber-800" },
   "refused:SALE_CLOSED": { text: "🔒 אחרי הסגירה — נענה שההרשמה נסגרה", cls: "bg-zinc-100 text-zinc-700" },
   "refused:SALE_NOT_ACTIVE": { text: "מכירה לא פעילה", cls: "bg-zinc-100 text-zinc-700" },
+  "refused:NO_ITEMS": { text: "אף שורה לא נקלטה", cls: "bg-zinc-100 text-zinc-700" },
   "unknown-sender": { text: "❓ שולח לא מזוהה", cls: "bg-red-50 text-red-800" },
   "bad-file": { text: "📄 קובץ לא קריא", cls: "bg-red-50 text-red-800" },
   "no-items": { text: "אין כמויות בקובץ", cls: "bg-zinc-100 text-zinc-700" },
   "no-attachment": { text: "✉️ מייל בלי קובץ (הועבר אליך)", cls: "bg-blue-50 text-blue-800" },
   "ignored-auto": { text: "תשובה אוטומטית — התעלמנו", cls: "bg-zinc-100 text-zinc-500" },
-  "rejected-spoof": { text: "🚫 שולח מזויף — נחסם", cls: "bg-red-50 text-red-800" },
+  "rejected-spoof": { text: "🚫 שולח לא מאומת — נחסם", cls: "bg-red-50 text-red-800" },
 };
 
 export function ExcelEmailPanel() {
-  const [list, setList] = useState<Person[]>([]);
-  const [found, setFound] = useState<Person[]>([]);
+  const [people, setPeople] = useState<Person[] | null>(null);
   const [q, setQ] = useState("");
+  const [point, setPoint] = useState("");
+  const [onlyMarked, setOnlyMarked] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [inbox, setInbox] = useState<{ address: string | null; rows: InboxRow[] } | null>(null);
   const [err, setErr] = useState("");
 
-  const load = useCallback(async (query: string) => {
-    const r = await fetch(`/api/admin/excel-recipients${query ? `?q=${encodeURIComponent(query)}` : ""}`);
+  async function load() {
+    const r = await fetch("/api/admin/excel-recipients");
     const j = await r.json();
-    setList(j.list ?? []);
-    setFound(j.found ?? []);
-  }, []);
+    setPeople(j.customers ?? []);
+  }
 
   useEffect(() => {
+    load();
     fetch("/api/admin/excel-inbox")
       .then((r) => r.json())
       .then(setInbox)
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    const t = setTimeout(() => load(q.trim()), 300);
-    return () => clearTimeout(t);
-  }, [q, load]);
+  const points = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of people ?? []) if (p.pointId) m.set(p.pointId, p.pointName ?? "");
+    return [...m].sort((a, b) => a[1].localeCompare(b[1], "he"));
+  }, [people]);
 
-  async function toggle(p: Person, wants: boolean) {
+  const shown = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    const digits = q.replace(/\D/g, "");
+    return (people ?? []).filter(
+      (p) =>
+        (!onlyMarked || p.wants) &&
+        (!point || p.pointId === point) &&
+        (!t ||
+          p.name.toLowerCase().includes(t) ||
+          (p.email ?? "").toLowerCase().includes(t) ||
+          (!!digits && (p.phone ?? "").includes(digits)))
+    );
+  }, [people, q, point, onlyMarked]);
+
+  const markedCount = (people ?? []).filter((p) => p.wants).length;
+  const shownMarked = shown.filter((p) => p.wants).length;
+
+  async function setWants(ids: string[], wants: boolean) {
+    if (!ids.length) return;
     setErr("");
-    const r = await fetch("/api/admin/excel-recipients", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customerId: p.id, wants }),
-    });
-    const j = await r.json();
-    if (!r.ok) setErr(j.error || "שגיאה");
-    load(q.trim());
+    setBusy(true);
+    // עדכון מיידי במסך, ואז שמירה
+    setPeople((list) => (list ?? []).map((p) => (ids.includes(p.id) ? { ...p, wants } : p)));
+    try {
+      const r = await fetch("/api/admin/excel-recipients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerIds: ids, wants }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "שגיאה");
+    } catch (e: any) {
+      setErr(e.message);
+      load();
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <div className="space-y-5 mt-8">
+    <div className="space-y-5">
       <section className="card p-5 space-y-3">
-        <div>
-          <h2 className="text-lg font-extrabold text-brand-slatedark">
-            📧 מקבלי קובץ ההזמנה במייל ({list.length})
-          </h2>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            בכל פתיחת מכירה הם מקבלים מייל עם קובץ כל המוצרים. מי שמחזיר את הקובץ מלא — מקבל הזמנה
-            אוטומטית{inbox?.address ? "" : " (אחרי שתוגדר כתובת הקליטה)"} ואישור במייל.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-extrabold text-brand-slatedark">
+              📧 מי מקבל את קובץ ההזמנה במייל — {markedCount} מסומנים
+            </h2>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              המסומנים מקבלים את הקובץ בכל פתיחת מכירה (או מ&quot;📊 שלח אקסל&quot; במסך המכירות, או בצירוף להודעה
+              ב&quot;שליחת מייל ללקוחות&quot;). מי שמחזיר את הקובץ מלא — מקבל הזמנה ואישור במייל, אוטומטית.
+            </p>
+          </div>
         </div>
 
-        <input
-          className="input"
-          placeholder="הוספת לקוח: חיפוש לפי שם, מייל או טלפון…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        {found.length > 0 && (
-          <div className="rounded-xl border border-zinc-200 divide-y">
-            {found.map((p) => (
-              <div key={p.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                <span className="min-w-0 truncate">
-                  <b>{p.name}</b> · {p.email || <span className="text-red-600">אין מייל</span>}
-                  {p.pointName && <span className="text-zinc-500"> · {p.pointName}</span>}
-                </span>
-                <button
-                  onClick={() => toggle(p, true)}
-                  disabled={!p.email}
-                  className="btn-sm rounded-lg bg-brand-rust px-3 font-bold text-white disabled:opacity-40"
-                >
-                  + הוסף
-                </button>
-              </div>
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+          <input className="input" placeholder="חיפוש לפי שם, מייל או טלפון…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <select className="input" value={point} onChange={(e) => setPoint(e.target.value)} aria-label="נקודת חלוקה">
+            <option value="">📍 כל הנקודות</option>
+            {points.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
             ))}
-          </div>
-        )}
+          </select>
+          <label className="flex items-center gap-1.5 text-sm px-2">
+            <input type="checkbox" checked={onlyMarked} onChange={(e) => setOnlyMarked(e.target.checked)} />
+            רק מסומנים
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-zinc-500">
+            מוצגים {shown.length} · מסומנים מתוכם {shownMarked}
+          </span>
+          <button
+            disabled={busy || shown.length === 0}
+            onClick={() => setWants(shown.filter((p) => !p.wants).map((p) => p.id), true)}
+            className="rounded-lg border border-emerald-400 px-2 py-1 font-bold text-emerald-800 hover:bg-emerald-50 disabled:opacity-40"
+          >
+            ✓ סמן את כל המוצגים
+          </button>
+          <button
+            disabled={busy || shownMarked === 0}
+            onClick={() => {
+              if (window.confirm(`להסיר ${shownMarked} לקוחות מהרשימה?`)) setWants(shown.filter((p) => p.wants).map((p) => p.id), false);
+            }}
+            className="rounded-lg border border-zinc-300 px-2 py-1 text-zinc-600 hover:bg-zinc-50 disabled:opacity-40"
+          >
+            בטל סימון למוצגים
+          </button>
+        </div>
         {err && <p className="text-sm text-red-700">{err}</p>}
 
-        <div className="rounded-xl border border-zinc-200 divide-y max-h-80 overflow-y-auto">
-          {list.length === 0 && <p className="p-4 text-center text-sm text-zinc-400">עדיין אין לקוחות ברשימה.</p>}
-          {list.map((p) => (
-            <div key={p.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-              <span className="min-w-0 truncate">
+        <div className="rounded-xl border border-zinc-200 divide-y max-h-[28rem] overflow-y-auto">
+          {people === null && <p className="p-4 text-center text-sm text-zinc-400">טוען…</p>}
+          {people !== null && shown.length === 0 && <p className="p-4 text-center text-sm text-zinc-400">אין לקוחות להצגה.</p>}
+          {shown.map((p) => (
+            <label
+              key={p.id}
+              className={`flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-zinc-50 ${p.wants ? "bg-emerald-50/50" : ""}`}
+            >
+              <input
+                type="checkbox"
+                checked={p.wants}
+                onChange={(e) => setWants([p.id], e.target.checked)}
+                className="h-4 w-4 shrink-0 accent-emerald-600"
+              />
+              <span className="min-w-0 flex-1 truncate">
                 <b>{p.name}</b> · <span dir="ltr">{p.email}</span>
                 {p.pointName && <span className="text-zinc-500"> · {p.pointName}</span>}
-                {!p.canOrder && (
-                  <span className="mr-1 rounded bg-amber-100 px-1.5 text-[11px] text-amber-800">אין כרטיס</span>
-                )}
               </span>
-              <button onClick={() => toggle(p, false)} className="text-xs text-zinc-500 hover:text-red-700">
-                הסר
-              </button>
-            </div>
+              {!p.canOrder && (
+                <span className="shrink-0 rounded bg-amber-100 px-1.5 text-[11px] text-amber-800" title="הקובץ יישלח, אבל הזמנה ממנו תידחה עד שיוסיף כרטיס">
+                  אין כרטיס
+                </span>
+              )}
+            </label>
           ))}
         </div>
       </section>
@@ -139,10 +195,10 @@ export function ExcelEmailPanel() {
           <p className="text-xs text-zinc-500 mt-0.5">
             {inbox?.address ? (
               <>
-                כתובת הקליטה: <b dir="ltr">{inbox.address}</b> — כל מייל מגיע גם אליך ל-Gmail.
+                הלקוחות עונים לכתובת <b dir="ltr">{inbox.address}</b> — המערכת קולטת את הקובץ ויוצרת את ההזמנה לבד.
               </>
             ) : (
-              "כתובת הקליטה עוד לא הוגדרה — הלקוחות מחזירים את הקובץ למייל שלך, ואתה מעלה אותו למעלה."
+              "כתובת הקליטה עוד לא הוגדרה — הלקוחות מחזירים את הקובץ למייל שלך."
             )}
           </p>
         </div>

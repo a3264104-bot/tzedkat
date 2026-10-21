@@ -612,16 +612,63 @@ export async function sendDeliveryReminderEmail(params: {
 }
 
 // גוף המייל של הודעה ללקוחות — משותף לשליחה בודדת ולשליחה ב-batch
-// §inbound: הסבר קצר כשמצורף קובץ הזמנה אישי להודעה
-function saleExcelNote(replyTo: string, adminEmail: string) {
+export type SaleExcelInfo = {
+  pointName?: string | null;
+  saleName?: string | null;
+  deliveryDateText?: string | null;
+  closeText?: string | null;
+};
+
+/**
+ * §inbound: ההוראות המלאות שמצורפות לכל מייל עם קובץ הזמנה — במבנה של
+ * מערכות הזמנה דומות: הנקודה שלך, מתי החלוקה, עד מתי מזמינים, ואז
+ * הוראות ממוספרות. אותו בלוק בשני המקומות ששולחים קובץ (שלח אקסל /
+ * הודעת פתיחה), כדי שהלקוח יקבל תמיד את אותו הסבר.
+ */
+export function excelInstructionsHtml(info: SaleExcelInfo, replyTo: string, adminEmail: string) {
   const automatic = replyTo !== adminEmail;
-  return `<div style="background:#fffbef;border:2px solid #d4a017;border-radius:12px;padding:14px;margin:16px 0;font-size:14px;color:#5a4a2a;line-height:1.8;">
-    <strong>📎 מצורף קובץ הזמנה אישי</strong><br/>
-    ממלאים כמות בעמודה &quot;כמות&quot; בלבד, שומרים, לוחצים <strong>&quot;השב&quot;</strong>, מצרפים את הקובץ ושולחים.
-    ${automatic ? "תוך דקות יגיע מייל אישור עם פירוט ההזמנה. שליחה חוזרת של הקובץ מחליפה את ההזמנה (עד שעת הסגירה)." : ""}
-    <div style="font-size:12px;color:#8b5a00;margin-top:6px;">ההזמנה דרך הקובץ אפשרית עם כרטיס אשראי שמור בחשבון (או ללקוח מזומן).
-    לשאלות: <a href="mailto:${escapeHtml(adminEmail)}" style="color:#C0461E;">${escapeHtml(adminEmail)}</a></div>
-  </div>`;
+  const admin = `<a href="mailto:${escapeHtml(adminEmail)}" style="color:#C0461E;font-weight:bold;">${escapeHtml(adminEmail)}</a>`;
+  const steps = [
+    "שמרו את קובץ האקסל המצורף במחשב ופתחו אותו.",
+    "ודאו שהשם ונקודת החלוקה הרשומים בראש הקובץ הם שלכם.",
+    'הזינו את הכמות הרצויה בעמודה <strong>&quot;כמות&quot;</strong> בלבד — שאר העמודות נעולות ואין לשנות אותן.',
+    'קרטונים ויחידות — במספר שלם. בודדים בק&quot;ג — מינימום 2 ק&quot;ג, בקפיצות של חצי ק&quot;ג.',
+    'שימו לב: הסכום בתחתית הקובץ <strong>משוער</strong>. מוצרים במשקל נשקלים בחלוקה, והמחיר הסופי נקבע לפי המשקל בפועל.',
+    automatic
+      ? `שמרו את הקובץ, לחצו <strong>&quot;השב&quot;</strong> (Reply) למייל הזה, צרפו את הקובץ ושלחו. <strong>לידיעתכם:</strong> כתובת ההשבה היא כתובת קליטה אוטומטית — לשאלות ובירורים כתבו ל-${admin}.`
+      : `שמרו את הקובץ, לחצו <strong>&quot;השב&quot;</strong> (Reply) למייל הזה, צרפו את הקובץ ושלחו.`,
+    ...(automatic
+      ? [
+          "תוך מספר דקות יגיע אליכם <strong>מייל אישור עם פירוט ההזמנה</strong>. לא הגיע אישור תוך שעה? שלחו שוב, ואם עדיין לא — פנו אלינו.",
+          "רוצים לשנות? בצעו את השינוי באותו קובץ ושלחו אותו שוב. <strong>הקובץ החדש מחליף את ההזמנה הקודמת</strong> (עד שעת הסגירה).",
+          "ההזמנה דרך הקובץ מחייבת כרטיס אשראי שמור בחשבון (או לקוח מזומן). אין כרטיס תקין? תקבלו תשובה אוטומטית איך להסדיר.",
+        ]
+      : []),
+    `אחרי ההזמנה אפשר לראות אותה ב<a href="${APP_URL}/account" style="color:#C0461E;">אזור האישי באתר</a> ובמערכת הטלפונית.`,
+    info.closeText
+      ? `<strong>ההזמנות נסגרות ${escapeHtml(info.closeText)}.</strong> קבצים שיתקבלו אחרי שעה זו לא ייקלטו.`
+      : "קבצים שיתקבלו אחרי שעת הסגירה לא ייקלטו.",
+  ];
+  return `
+    <div style="margin:16px 0;">
+      ${
+        info.pointName
+          ? `<p style="font-size:20px;font-weight:bold;color:#5b21b6;text-align:center;margin:8px 0;">הנכם רשומים בנקודת החלוקה: ${escapeHtml(info.pointName)}</p>`
+          : ""
+      }
+      ${
+        info.deliveryDateText
+          ? `<p style="font-size:16px;font-weight:bold;color:#5b21b6;text-align:center;margin:4px 0;">מועד החלוקה: ${escapeHtml(info.deliveryDateText)}</p>`
+          : ""
+      }
+      <div style="background:#fffbef;border:2px solid #d4a017;border-radius:12px;padding:16px;margin:14px 0;">
+        <div style="font-weight:bold;font-size:16px;color:#b45309;margin-bottom:8px;">כדי לבצע את ההזמנה בהצלחה, מלאו אחרי ההוראות הבאות:</div>
+        <ol style="margin:0;padding-right:20px;color:#3f3f46;font-size:14px;line-height:1.9;">
+          ${steps.map((t) => `<li>${t}</li>`).join("")}
+        </ol>
+      </div>
+      <p style="font-size:13px;color:#444;">לכל שאלה ועזרה: ${admin}</p>
+    </div>`;
 }
 
 function broadcastBody(customerName: string, messageHtml: string, attachments: BroadcastAttachment[], extraHtml = "") {
@@ -730,7 +777,7 @@ export async function sendBroadcastEmail(
  */
 export async function sendBroadcastBatch(
   // file — §inbound: קובץ הזמנה אישי (אם צורף להודעת פתיחה)
-  recipients: { name: string; email: string; file?: { filename: string; content: Buffer } }[],
+  recipients: { name: string; email: string; file?: { filename: string; content: Buffer; info: SaleExcelInfo } }[],
   subject: string,
   messageHtml: string,
   attachments: BroadcastAttachment[] = []
@@ -748,10 +795,10 @@ export async function sendBroadcastBatch(
       subject,
       html: baseTemplate(
         subject,
-        broadcastBody(r.name, messageHtml, attachments, r.file && settings ? saleExcelNote(replyTo!, settings.adminEmail) : "")
+        broadcastBody(r.name, messageHtml, attachments, r.file && settings ? excelInstructionsHtml(r.file.info, replyTo!, settings.adminEmail) : "")
       ),
       // §inbound: עם קובץ — "השב" מגיע לכתובת הקליטה, וההזמנה נוצרת לבד
-      ...(r.file ? { attachments: [r.file], replyTo } : {}),
+      ...(r.file ? { attachments: [{ filename: r.file.filename, content: r.file.content }], replyTo } : {}),
     }));
     const { data, error } = await getResend().batch.send(payload, { batchValidation: "permissive" });
     if (error) {
@@ -1303,36 +1350,12 @@ export async function sendExcelOrderEmail(params: {
         }
       </table>
 
-      <div style="background:#fffbef;border:2px solid #d4a017;border-radius:12px;padding:16px;margin:16px 0;">
-        <div style="font-weight:bold;color:#8b5a00;margin-bottom:8px;">איך מזמינים</div>
-        <ol style="margin:0;padding-right:20px;color:#5a4a2a;font-size:14px;line-height:1.9;">
-          <li>שומרים את הקובץ המצורף ופותחים אותו.</li>
-          <li>בודקים שהשם ונקודת החלוקה בראש הקובץ נכונים.</li>
-          <li>ממלאים כמות בעמודה <strong>&quot;כמות&quot;</strong> בלבד — לא משנים עמודות אחרות.</li>
-          <li>שומרים את הקובץ.</li>
-          <li>לוחצים <strong>&quot;השב&quot;</strong> למייל הזה, מצרפים את הקובץ ושולחים.</li>
-          ${
-            automatic
-              ? `<li>תוך דקות יגיע אליך מייל אישור עם פירוט ההזמנה. <strong>לא הגיע אישור?</strong> פנו אלינו בכתובת למטה.</li>
-          <li>רוצים לשנות? שלחו את הקובץ שוב — <strong>הקובץ החדש מחליף את ההזמנה הקודמת</strong> (עד שעת הסגירה).</li>`
-              : ""
-          }
-        </ol>
-      </div>
+      ${excelInstructionsHtml(
+        { pointName: null, deliveryDateText: null, closeText: params.closeDateText },
+        replyTo,
+        settings.adminEmail
+      )}
 
-      <p style="background:#f9fafb;border-right:3px solid #C0461E;padding:12px;font-size:13px;color:#444;">
-        <strong>⚖️ שימו לב:</strong> המחירים בקובץ משוערים. מוצרים הנמכרים
-        לפי משקל נשקלים בחלוקה, והמחיר הסופי נקבע לפי המשקל בפועל.
-        ההזמנה דרך הקובץ אפשרית רק עם כרטיס אשראי שמור בחשבון (או ללקוח מזומן).
-      </p>
-
-      <p style="font-size:13px;color:#444;">
-        ${
-          automatic
-            ? `לשאלות ובירורים (לא לשליחת הקובץ): <a href="mailto:${escapeHtml(settings.adminEmail)}" style="color:#C0461E;font-weight:bold;">${escapeHtml(settings.adminEmail)}</a>`
-            : `שולחים את הקובץ ושאלות לכתובת: <a href="mailto:${escapeHtml(settings.adminEmail)}" style="color:#C0461E;font-weight:bold;">${escapeHtml(settings.adminEmail)}</a>`
-        }
-      </p>
       <p style="color:#888;font-size:12px;margin-top:16px;">
         ניתן גם להזמין ישירות ב<a href="${APP_URL}/order" style="color:#C0461E;">אתר</a> או במערכת הטלפונית.
       </p>`;

@@ -33,7 +33,8 @@ export default function AdminBroadcastPage() {
   // גם ללקוחות הטלפוניים, שאין להם מייל בכלל.
   const [alsoPhone, setAlsoPhone] = useState(true);
   // §inbound: 📎 קובץ הזמנה אישי לכל לקוח בהודעת פתיחה
-  const [attachExcel, setAttachExcel] = useState(true);
+  const [attachExcel, setAttachExcel] = useState(false);
+  const [excelSaleId, setExcelSaleId] = useState("");
 
   // §330: 🚚 תזכורת חלוקה — הועברה לכאן מסיכום המכירה.
   //
@@ -259,6 +260,11 @@ export default function AdminBroadcastPage() {
 
   /** §403: בחירת "פתיחת מכירה" — ממלא כותרת, תוכן וטלפון מהנוסח הקבוע */
   async function applyLaunch(id: string) {
+    // §inbound: הודעת פתיחה — מצרפים כברירת מחדל את קובץ ההזמנה של אותה מכירה
+    if (id) {
+      setAttachExcel(true);
+      setExcelSaleId(id);
+    }
     setLaunchId(id);
     setTplMsg("");
     setResult(null);
@@ -418,7 +424,7 @@ export default function AdminBroadcastPage() {
       `כותרת: ${subject}\n\n` +
       (launchId && alsoPhone ? `📞 בטלפון: כל מתקשר ישמע את ההודעה פעם אחת.\n\n` : "") +
       (attachments.length > 0 ? `📎 מצורפים: ${attachments.map((a) => a.filename).join(", ")}\n\n` : "") +
-      (launchId && attachExcel ? `📊 לכל לקוח יצורף קובץ הזמנה אישי של המכירה.\n\n` : "") +
+      (attachExcel && (excelSaleId || launchId) ? `📊 לכל לקוח יצורף קובץ הזמנה אישי + הוראות.\n\n` : "") +
       `המשלוח יתבצע ברקע ועשוי לקחת כמה דקות (בהתאם למספר הנמענים).`;
     if (!force && !confirm(confirmMsg)) return;
 
@@ -441,7 +447,8 @@ export default function AdminBroadcastPage() {
           // עם מספר הנמענים החלקי, ויוצרת הודעה טלפונית חדשה שכולם ישמעו שוב.
           ...(launchId && !retry ? { launchPricelistId: launchId, phoneText: phoneText.trim(), force } : {}),
           // §inbound: 📊 קובץ ההזמנה — רק בהודעת פתיחה
-          attachSaleExcel: !!launchId && attachExcel && !retry,
+          attachSaleExcel: attachExcel && !!(excelSaleId || launchId) && !retry,
+          excelPricelistId: excelSaleId || launchId || null,
           // §404: 📎
           attachments,
         }),
@@ -712,29 +719,42 @@ export default function AdminBroadcastPage() {
 
         {/* §inbound: 📊 קובץ ההזמנה של המכירה — אישי לכל לקוח. מי שמחזיר אותו
             מלא ב"השב" מקבל הזמנה אוטומטית ומייל אישור. */}
-        {launchId ? (
-          <label className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-50 border border-emerald-200 cursor-pointer">
+        <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 space-y-2">
+          <label className="flex items-start gap-2.5 cursor-pointer">
             <input
               type="checkbox"
               checked={attachExcel}
-              onChange={(e) => setAttachExcel(e.target.checked)}
+              onChange={(e) => {
+                setAttachExcel(e.target.checked);
+                if (e.target.checked && !excelSaleId) setExcelSaleId(launchId || launchSales[0]?.id || "");
+              }}
               className="w-4 h-4 mt-0.5 shrink-0 accent-brand-rust"
             />
             <span className="min-w-0">
               <span className="block text-sm font-medium text-brand-slatedark">
-                📊 לצרף לכל לקוח את קובץ ההזמנה של המכירה
+                📊 לצרף לכל לקוח קובץ הזמנה אקסל (אישי) + הוראות
               </span>
               <span className="block text-xs text-zinc-600 mt-0.5">
-                קובץ אישי (שם, נקודת חלוקה וכל מוצרי המכירה). הלקוח ממלא כמויות ולוחץ &quot;השב&quot; —
-                ההזמנה נוצרת לבד ונשלח לו אישור. בלי כרטיס אשראי — הוא מקבל תשובה שצריך להסדיר תשלום.
+                כל לקוח מקבל קובץ עם שמו, נקודת החלוקה וכל מוצרי המכירה, ומתחת להודעה — הוראות מלאות.
+                הוא ממלא כמויות ולוחץ &quot;השב&quot; — ההזמנה נוצרת לבד ונשלח לו אישור. בלי כרטיס אשראי — הוא מקבל תשובה שצריך להסדיר תשלום.
               </span>
             </span>
           </label>
-        ) : (
-          <p className="px-1 text-xs text-zinc-500">
-            💡 בהודעת פתיחת מכירה (📣 בחירת מכירה למעלה) אפשר לצרף לכל לקוח את קובץ ההזמנה האישי שלו.
-          </p>
-        )}
+          {attachExcel && (
+            <select
+              value={excelSaleId || launchId}
+              onChange={(e) => setExcelSaleId(e.target.value)}
+              className="w-full px-3 py-2 border-2 border-emerald-300 rounded-lg text-sm font-bold bg-white"
+            >
+              {launchSales.length === 0 && <option value="">אין מכירה פתוחה ללקוחות</option>}
+              {launchSales.map((sl) => (
+                <option key={sl.id} value={sl.id}>
+                  📊 קובץ של: {sl.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
 
         {/* §32: הודעה קולית מקבילה. לקוחות שנרשמו בטלפון לרוב אין להם
             מייל, וזו הדרך היחידה שהעדכון יגיע אליהם. */}
