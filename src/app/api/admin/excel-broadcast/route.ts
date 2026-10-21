@@ -132,6 +132,7 @@ export async function POST(req: Request) {
               allowSingles: true,
               singlesMode: true,
               singleUnitPrice: true,
+              avgWeightPerUnit: true,
               kashrut: true,
               kashrutRef: { select: { name: true } },
               category: { select: { name: true } },
@@ -240,6 +241,8 @@ export async function POST(req: Request) {
             : "קרטון"
           : p.unit || "יחידה",
       unitPrice: base,
+      // מחיר לק"ג × משקל ממוצע לקרטון — "סה"כ משוער" כמו באתר
+      ...(p.priceType === "PER_KG" && p.avgWeightPerUnit != null ? { estimateFactor: Number(p.avgWeightPerUnit) } : {}),
     });
 
     if (p.allowSingles) {

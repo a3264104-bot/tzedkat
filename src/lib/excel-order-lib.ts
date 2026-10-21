@@ -31,6 +31,8 @@ const COL = {
   price: 7,
   qty: 8,
   total: 9,
+  /** מוסתר: כמה פעמים המחיר נכנס בשורה (משקל ממוצע לקרטון במחיר לק"ג) */
+  factor: 10,
 } as const;
 
 /** השורה שבה מתחילים הנתונים. שלוש שורות כותרת מעליה. */
@@ -46,6 +48,10 @@ export type ExcelRowSpec = {
   unitPrice: number;
   /** כמות שהלקוח כבר הזמין - לעדכון הזמנה קיימת */
   existingQty?: number;
+  /** 🐛 "סה"כ משוער" חושב מחיר × כמות גם בקרטון שמתומחר לק"ג — 2 קרטוני
+   *  אסאדו (75.90 לק"ג) יצאו ₪151.80 במקום ~₪2,000. כאן: המשקל הממוצע
+   *  לקרטון (כמו באתר). ריק = 1. */
+  estimateFactor?: number;
 };
 
 export type ExcelHeader = {
@@ -121,13 +127,16 @@ export async function buildOrderExcel(
   ws.columns = [
     { key: "ref", width: 1, hidden: true },
     { key: "sig", width: 1, hidden: true },
-    { key: "category", width: 16 },
-    { key: "product", width: 28 },
-    { key: "kashrut", width: 12 },
-    { key: "unit", width: 10 },
-    { key: "price", width: 12 },
-    { key: "qty", width: 12 },
+    // רוחבים: "קרטון (מחיר לק"ג)", "בד"ץ העדה החרדית" ושמות עם "(בודדים)"
+    // נחתכו ברוחבים הקודמים
+    { key: "category", width: 13 },
+    { key: "product", width: 36 },
+    { key: "kashrut", width: 18 },
+    { key: "unit", width: 19 },
+    { key: "price", width: 13 },
+    { key: "qty", width: 10 },
     { key: "total", width: 14 },
+    { key: "factor", width: 1, hidden: true },
   ];
 
   // ─── זיהוי לקוח (עמודות מוסתרות) ───
@@ -206,7 +215,8 @@ export async function buildOrderExcel(
     };
 
     const totalCell = row.getCell(COL.total);
-    totalCell.value = { formula: `IF(H${rowNum}="",0,G${rowNum}*H${rowNum})` };
+    row.getCell(COL.factor).value = r.estimateFactor && r.estimateFactor > 0 ? r.estimateFactor : 1;
+    totalCell.value = { formula: `IF(H${rowNum}="",0,G${rowNum}*H${rowNum}*J${rowNum})` };
     totalCell.numFmt = '#,##0.00 ₪';
 
     // בודדים בגוון שונה - היחידה והמחיר שונים לגמרי, ולקוח שלא

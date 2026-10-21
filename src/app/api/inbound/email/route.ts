@@ -22,6 +22,7 @@
 // שהמנהל יראה במסך "הזמנה דרך אקסל" מה הגיע ומה קרה איתו.
 
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import PostalMime from "postal-mime";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/audit";
@@ -52,7 +53,13 @@ function isExcelAttachment(a: { filename?: string | null; mimeType?: string }) {
 export async function POST(req: Request) {
   // ─── אימות: רק ה-Worker שלנו ───
   const secret = (process.env.INBOUND_EMAIL_SECRET || "").trim();
-  if (!secret || req.headers.get("x-inbound-secret") !== secret) {
+  const given = req.headers.get("x-inbound-secret") || "";
+  // השוואה בזמן קבוע — לא מדליפה כמה תווים מהסוד נכונים
+  const ok =
+    !!secret &&
+    given.length === secret.length &&
+    crypto.timingSafeEqual(Buffer.from(given), Buffer.from(secret));
+  if (!ok) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -101,15 +108,35 @@ export async function POST(req: Request) {
     (autoSubmitted && autoSubmitted !== "no") ||
     ["bulk", "junk", "list", "auto_reply"].includes(header("precedence"))
   ) {
-    await log("ignored-auto");
+    await log("ignored-auto", {
+      // לאבחון: מה Cloudflare מוסיף לכותרות האימות
+      authResults: (header("authentication-results") + " | " + header("received-spf")).slice(0, 400),
+    });
     return NextResponse.json({ ok: true, ignored: "auto" });
   }
 
-  // ─── שולח מזויף? אם יש תוצאת אימות וגם SPF וגם DKIM נכשלו — לא נוגעים ───
-  const authResults = header("authentication-results") + " " + header("arc-authentication-results");
-  if (authResults.trim() && /spf=(fail|softfail)/.test(authResults) && !/dkim=pass/.test(authResults)) {
-    await log("rejected-spoof", { authResults: authResults.slice(0, 300) });
-    return NextResponse.json({ ok: true, ignored: "spoof" });
+  // ─── שולח מזויף? ───
+  // כתובת "From" אפשר לזייף. Cloudflare בודק את המייל (SPF/DKIM/DMARC)
+  // ומוסיף את התוצאה בכותרת. **הזמנה נוצרת רק ממייל שעבר אימות** —
+  // DKIM תקין של דומיין השולח, או SPF תקין. בלי זה, מי שיודע את המייל
+  // של לקוח היה יכול להזמין על הכרטיס שלו.
+  const authResults = [
+    header("authentication-results"),
+    header("arc-authentication-results"),
+    header("received-spf"),
+  ].join(" ");
+  const fromDomain = from.split("@")[1] || "";
+  const dkimPass = new RegExp(`dkim=pass[^;]*header\\.(d|i)=@?([a-z0-9.-]*\\.)?${fromDomain.replace(/\./g, "\\.")}(?![a-z0-9.-])`).test(authResults);
+  // ⚠️ SPF נחשב רק אם הוא של **אותו דומיין** כמו ה-From (יישור). אחרת
+  // תוקף שולח מהדומיין שלו (SPF תקין) עם From מזויף של לקוח.
+  const mailFrom = (authResults.match(/smtp\.mailfrom=([^\s;]+)/)?.[1] || "").split("@").pop() || "";
+  const spfPass =
+    /spf=pass/.test(authResults) && !!fromDomain && (mailFrom === fromDomain || mailFrom.endsWith(`.${fromDomain}`));
+  const dmarcFail = /dmarc=fail/.test(authResults);
+  const auth = { dkimPass, spfPass, dmarcFail, hasHeader: !!authResults.trim() };
+  if (dmarcFail || (!dkimPass && !spfPass)) {
+    await log("rejected-spoof", { auth, authResults: authResults.slice(0, 400) });
+    return NextResponse.json({ ok: true, ignored: "unauthenticated" });
   }
 
   const excel = (email.attachments || []).find(isExcelAttachment);
@@ -227,6 +254,7 @@ export async function POST(req: Request) {
       issues: parsed.issues.length,
       total: result.estimatedTotal,
       confirmationSent: mail.ok,
+      auth,
     },
     customer
   );
