@@ -15,6 +15,7 @@ import { canChargeCard, expiryMessage } from "@/lib/card-expiry-lib";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { buildOrderExcel, parseOrderExcel, type ExcelRowSpec } from "@/lib/excel-order-lib";
+import { createExcelOrder } from "@/lib/excel-order-create";
 
 // ═══════════════════════════════════════════════════════════════
 // GET — הפקת הקובץ
@@ -168,6 +169,7 @@ export async function GET(req: Request) {
 
   const buf = await buildOrderExcel(
     {
+      customerId: customer.id,
       customerName: customer.name,
       customerPhone: customer.phone || "",
       pointName: customer.defaultPoint.name,
@@ -426,234 +428,22 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "חסרים נתונים ליצירת ההזמנה" }, { status: 400 });
   }
 
-  const [customer, pricelist] = await Promise.all([
-    prisma.customer.findUnique({
-      where: { id: customerId },
-      select: {
-        id: true,
-        // §115: name ו-phone הם שדות **חובה** ב-Order - צילום מצב
-        // של פרטי הלקוח בזמן ההזמנה, כדי שדוח ישן יישאר נכון גם
-        // אחרי ששם או טלפון עודכנו.
-        name: true,
-        phone: true,
-        isActive: true,
-        paymentToken: true,
-        paymentPreference: true,
-        defaultPointId: true,
-        defaultPoint: { select: { id: true, name: true } },
-      },
-    }),
-    prisma.pricelist.findUnique({
-      where: { id: pricelistId },
-      select: {
-        id: true,
-        status: true,
-        closeDate: true,
-        orderFee: true,
-        singleSurcharge: true,
-        deliveryDateText: true,
-        products: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                unit: true,
-                cartonPrice: true,
-                priceType: true,
-                isActive: true,
-                allowSingles: true,
-                singlesMode: true,
-                singleUnitPrice: true,
-                avgWeightPerUnit: true,
-              },
-            },
-          },
-        },
-      },
-    }),
-  ]);
-
-  // ⚠️ **כל החסימות נבדקות שוב כאן.** התצוגה המקדימה היא ממשק,
-  // וממשק אפשר לעקוף. מנהל שהשאיר את המסך פתוח בזמן שהמכירה
-  // נסגרה, או שלקוח הושבת בינתיים, לא ייצור הזמנה שגויה.
-  if (!customer) return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 404 });
-  if (!pricelist) return NextResponse.json({ error: "מכירה לא נמצאה" }, { status: 404 });
-  if (customer.isActive === false) {
-    return NextResponse.json({ error: "הלקוח מושבת" }, { status: 400 });
+  // §inbound: אותה לוגיקה בדיוק כמו בקליטת קובץ מהמייל — מקור אחד
+  // (lib/excel-order-create). מנהל רשאי גם אחרי שעת הסגירה (§207).
+  const result = await createExcelOrder({ customerId, pricelistId, rows, enforceCloseTime: false });
+  if (!result.ok) {
+    const status = result.code === "NO_CUSTOMER" || result.code === "NO_SALE" ? 404 : 400;
+    return NextResponse.json({ error: result.error }, { status });
   }
-  if (!customer.defaultPointId || !customer.defaultPoint) {
-    return NextResponse.json({ error: "ללקוח לא הוגדרה נקודת חלוקה" }, { status: 400 });
-  }
-  if (!customer.paymentToken && customer.paymentPreference !== "CASH") {
-    return NextResponse.json(
-      { error: "ללקוח אין אמצעי תשלום. יש להזין כרטיס או לסמן כלקוח מזומן." },
-      { status: 400 }
-    );
-  }
-  // §202: כרטיס שפג - חסימה גם באישור ההזמנה, ולא רק בתצוגה
-  // המקדימה. שתי נקודות בדיקה, כי אפשר להגיע לכאן ישירות.
-  if (
-    customer.paymentPreference !== "CASH" &&
-    !canChargeCard((customer as any).cardExpiry)
-  ) {
-    return NextResponse.json(
-      {
-        error:
-          expiryMessage((customer as any).cardExpiry) ??
-          "תוקף כרטיס האשראי של הלקוח פג",
-      },
-      { status: 400 }
-    );
-  }
-  if (pricelist.status !== "ACTIVE") {
-    return NextResponse.json({ error: "המכירה אינה פעילה" }, { status: 400 });
-  }
-  // §207: החסימה הוסרה - זהו מסלול מנהל בלבד (requireAdmin), והוא
-  // רשאי להזין אחרי הסגירה בדיוק כמו במסך ההזמנה (§206).
-  //
-  // ⚠️ המכירה עדיין חייבת להיות ACTIVE - הבדיקה שמעל נשארת.
-  // מה שהוסר הוא **רק** מגבלת השעה.
-
-  const byId = new Map(pricelist.products.map((pp) => [pp.product.id, pp]));
-  const surcharge = Number(pricelist.singleSurcharge ?? 0);
-  const itemsData: any[] = [];
-
-  for (const r of rows) {
-    const pp = byId.get(r.productId);
-    if (!pp || !pp.product.isActive) continue;
-    if (r.isSingle && !pp.product.allowSingles) continue;
-    const qty = Number(r.quantity);
-    if (!Number.isFinite(qty) || qty <= 0) continue;
-
-    const base = Number(pp.price ?? pp.product.cartonPrice);
-    const unitPrice = r.isSingle
-      ? pp.product.singleUnitPrice != null
-        ? Number(pp.product.singleUnitPrice)
-        : base + surcharge
-      : base;
-    const avgW =
-      pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null;
-    const estimatedWeight = r.isSingle ? qty : avgW ? avgW * qty : null;
-    const estimatedPrice =
-      !r.isSingle && pp.product.priceType === "PER_KG" && avgW
-        ? unitPrice * avgW * qty
-        : unitPrice * qty;
-
-    itemsData.push({
-      productId: r.productId,
-      productName: pp.product.name,
-      unit: r.isSingle
-        ? pp.product.singlesMode === "UNITS"
-          ? "יחידות"
-          : 'ק"ג'
-        : pp.product.unit || "יחידה",
-      isSingle: r.isSingle,
-      quantity: qty,
-      unitPrice,
-      estimatedWeight,
-      estimatedPrice: Math.round(estimatedPrice * 100) / 100,
-    });
-  }
-
-  if (itemsData.length === 0) {
-    return NextResponse.json({ error: "אין פריטים תקינים ליצירת הזמנה" }, { status: 400 });
-  }
-
-  const itemsTotal = itemsData.reduce((s, i) => s + i.estimatedPrice, 0);
-  const orderFee = Number(pricelist.orderFee ?? 0);
-
-  // ⚠️ עדכון = מחיקה ויצירה, בטרנזקציה אחת.
-  //
-  // שליחה חוזרת של הקובץ מחליפה את ההזמנה הקודמת ולא מוסיפה לה.
-  // זו ההתנהגות שהלקוח מצפה לה: הוא מילא קובץ מלא, לא תוספת.
-  //
-  // הטרנזקציה חיונית - בלעדיה כשל באמצע היה משאיר את הלקוח בלי
-  // הזמנה בכלל, אחרי שהישנה כבר נמחקה.
-  const result = await prisma.$transaction(async (tx) => {
-    // §392: מחליפים רק הזמנה פתוחה (טרם שולמה). אם כל ההזמנות של
-    // הלקוח במכירה כבר שולמו / הועברו לחוב — נוצרת הזמנה נוספת לצדן,
-    // וההזמנות הסגורות לא נוגעות.
-    const existing = await tx.order.findFirst({
-      where: {
-        customerId,
-        pricelistId,
-        status: { notIn: ["CANCELLED"] },
-        paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "DEBT_CARRIED"] },
-      },
-      orderBy: { createdAt: "desc" },
-      // §375: החוב והיתרה — להחזרה לפני המחיקה
-      select: {
-        id: true,
-        orderNumber: true,
-        paymentStatus: true,
-        customerId: true,
-        appliedDebt: true,
-        appliedCreditBalance: true,
-      },
-    });
-
-    // הזמנה ששולמה כבר לא נמחקת - החלפתה הייתה מוחקת רישום כספי
-    // §392: + CHARGING — חיוב באמצע; מחיקה עכשיו הייתה מאבדת את תוצאתו
-    if (existing && (existing.paymentStatus === "PAID" || existing.paymentStatus === "PARTIALLY_PAID" || existing.paymentStatus === "CHARGING")) {
-      throw new Error(
-        `להזמנה #${existing.orderNumber} כבר בוצע תשלום ולכן לא ניתן להחליפה מקובץ. יש לערוך אותה ידנית.`
-      );
-    }
-
-    if (existing) {
-      // §375: 💸 החוב והיתרה חוזרים ללקוח לפני המחיקה.
-      //
-      // 🐛 הזמנה שהוחלפה מקובץ מחקה את appliedDebt ואת
-      // appliedCreditBalance איתה — הלקוח כבר בלי חוב, וההזמנה
-      // שגבתה אותו לא קיימת. הכסף נעלם מהספרים.
-      //
-      // ⚠️ ההזמנה החדשה תקזז אותם מחדש בשקילה (§124/§263), ולכן
-      // ההחזרה כאן היא נכונה ולא כפילות.
-      const d = Number((existing as any).appliedDebt ?? 0);
-      const b = Number((existing as any).appliedCreditBalance ?? 0);
-      if ((d > 0 || b > 0) && existing.customerId) {
-        await tx.customer.update({
-          where: { id: existing.customerId },
-          data: {
-            ...(d > 0 ? { debtBalance: { increment: d } } : {}),
-            ...(b > 0 ? { creditBalance: { increment: b } } : {}),
-          },
-        });
-      }
-      await tx.orderItem.deleteMany({ where: { orderId: existing.id } });
-      await tx.order.delete({ where: { id: existing.id } });
-    }
-
-    return tx.order.create({
-      data: {
-        customerId,
-        // צילום מצב - שדות חובה במודל
-        customerName: customer.name,
-        phone: customer.phone ?? "",
-        pricelistId,
-        pointId: customer.defaultPointId!,
-        pointNameSnapshot: customer.defaultPoint!.name,
-        deliveryDateSnapshot: pricelist.deliveryDateText,
-        source: "EXCEL",
-        status: "PENDING_REVIEW",
-        estimatedTotal: Math.round((itemsTotal + orderFee) * 100) / 100,
-        items: { create: itemsData },
-      },
-      select: { id: true, orderNumber: true },
-    });
-  }).catch((e: any) => {
-    throw e;
-  });
 
   console.log(
-    `[excel-order] created order #${result.orderNumber} for customer=${customerId} items=${itemsData.length}`
+    `[excel-order] created order #${result.orderNumber} for customer=${customerId} items=${result.items.length}`
   );
 
   return NextResponse.json({
     ok: true,
-    orderId: result.id,
+    orderId: result.orderId,
     orderNumber: result.orderNumber,
-    itemCount: itemsData.length,
+    itemCount: result.items.length,
   });
 }

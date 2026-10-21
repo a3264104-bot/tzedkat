@@ -1239,10 +1239,17 @@ export async function sendAgentReplyEmail(params: {
  * ⚠️ הקובץ מצורף כ-attachment ולא כקישור: לקוח שלא נוח לו עם
  * האתר גם לא ילחץ על קישור להורדה. הקובץ חייב להיות שם.
  */
+/** §inbound: הכתובת שאליה הלקוח מחזיר את הקובץ, והמערכת קולטת אותו לבד.
+ *  כל עוד לא הוגדרה (INBOUND_EXCEL_ADDRESS) — החזרה למייל המנהל, כמו קודם. */
+export function excelReplyAddress(adminEmail: string): string {
+  return (process.env.INBOUND_EXCEL_ADDRESS || "").trim() || adminEmail;
+}
+
 export async function sendExcelOrderEmail(params: {
   customerName: string;
   email: string;
   saleName: string;
+  pointName?: string | null;
   deliveryDateText: string | null;
   closeDateText: string | null;
   fileBuffer: Buffer;
@@ -1250,77 +1257,245 @@ export async function sendExcelOrderEmail(params: {
   try {
     const settings = await getSettings();
     if (!settings.sendEmailToCustomer) return { ok: true };
+    const replyTo = excelReplyAddress(settings.adminEmail);
+    const automatic = replyTo !== settings.adminEmail;
 
     const body = `
       <p>שלום ${escapeHtml(params.customerName)},</p>
-      <p>
-        נפתחה הזמנה חדשה — <strong>${escapeHtml(params.saleName)}</strong>.
-        מצורף קובץ להזמנה.
-      </p>
-
-      <div style="background:#fffbef;border:2px solid #d4a017;border-radius:12px;padding:16px;margin:16px 0;">
-        <div style="font-weight:bold;color:#8b5a00;margin-bottom:8px;">
-          איך מזמינים
-        </div>
-        <ol style="margin:0;padding-right:20px;color:#5a4a2a;font-size:14px;line-height:1.9;">
-          <li>פותחים את הקובץ המצורף</li>
-          <li>ממלאים כמות בעמודה <strong>&quot;כמות&quot;</strong> בלבד</li>
-          <li>
-            שומרים ושולחים את הקובץ בחזרה לכתובת:
-            <a href="mailto:${escapeHtml(settings.adminEmail)}" style="color:#C0461E;font-weight:bold;">
-              ${escapeHtml(settings.adminEmail)}
-            </a>
-          </li>
-        </ol>
-      </div>
-
+      <p>נפתחה מכירה חדשה — <strong>${escapeHtml(params.saleName)}</strong>. מצורף קובץ להזמנה.</p>
+      ${
+        params.pointName
+          ? `<p style="font-size:16px;font-weight:bold;color:#5b21b6;">📍 נקודת החלוקה שלך: ${escapeHtml(params.pointName)}</p>`
+          : ""
+      }
       <table style="width:100%;font-size:14px;margin-bottom:12px;">
         ${
           params.deliveryDateText
-            ? `<tr><td style="padding:4px 0;color:#666;width:110px;">תאריך חלוקה:</td><td><strong>${escapeHtml(params.deliveryDateText)}</strong></td></tr>`
+            ? `<tr><td style="padding:4px 0;color:#666;width:120px;">מועד החלוקה:</td><td><strong>${escapeHtml(params.deliveryDateText)}</strong></td></tr>`
             : ""
         }
         ${
           params.closeDateText
-            ? `<tr><td style="padding:4px 0;color:#666;">מועד אחרון:</td><td><strong>${escapeHtml(params.closeDateText)}</strong></td></tr>`
+            ? `<tr><td style="padding:4px 0;color:#666;">ההזמנות נסגרות:</td><td><strong>${escapeHtml(params.closeDateText)}</strong></td></tr>`
             : ""
         }
       </table>
 
+      <div style="background:#fffbef;border:2px solid #d4a017;border-radius:12px;padding:16px;margin:16px 0;">
+        <div style="font-weight:bold;color:#8b5a00;margin-bottom:8px;">איך מזמינים</div>
+        <ol style="margin:0;padding-right:20px;color:#5a4a2a;font-size:14px;line-height:1.9;">
+          <li>שומרים את הקובץ המצורף ופותחים אותו.</li>
+          <li>בודקים שהשם ונקודת החלוקה בראש הקובץ נכונים.</li>
+          <li>ממלאים כמות בעמודה <strong>&quot;כמות&quot;</strong> בלבד — לא משנים עמודות אחרות.</li>
+          <li>שומרים את הקובץ.</li>
+          <li>לוחצים <strong>&quot;השב&quot;</strong> למייל הזה, מצרפים את הקובץ ושולחים.</li>
+          ${
+            automatic
+              ? `<li>תוך דקות יגיע אליך מייל אישור עם פירוט ההזמנה. <strong>לא הגיע אישור?</strong> פנו אלינו בכתובת למטה.</li>
+          <li>רוצים לשנות? שלחו את הקובץ שוב — <strong>הקובץ החדש מחליף את ההזמנה הקודמת</strong> (עד שעת הסגירה).</li>`
+              : ""
+          }
+        </ol>
+      </div>
+
       <p style="background:#f9fafb;border-right:3px solid #C0461E;padding:12px;font-size:13px;color:#444;">
         <strong>⚖️ שימו לב:</strong> המחירים בקובץ משוערים. מוצרים הנמכרים
         לפי משקל נשקלים בחלוקה, והמחיר הסופי נקבע לפי המשקל בפועל.
+        ההזמנה דרך הקובץ אפשרית רק עם כרטיס אשראי שמור בחשבון (או ללקוח מזומן).
       </p>
 
+      <p style="font-size:13px;color:#444;">
+        ${
+          automatic
+            ? `לשאלות ובירורים (לא לשליחת הקובץ): <a href="mailto:${escapeHtml(settings.adminEmail)}" style="color:#C0461E;font-weight:bold;">${escapeHtml(settings.adminEmail)}</a>`
+            : `שולחים את הקובץ ושאלות לכתובת: <a href="mailto:${escapeHtml(settings.adminEmail)}" style="color:#C0461E;font-weight:bold;">${escapeHtml(settings.adminEmail)}</a>`
+        }
+      </p>
       <p style="color:#888;font-size:12px;margin-top:16px;">
-        ניתן גם להזמין ישירות ב<a href="${APP_URL}/order" style="color:#C0461E;">אתר</a>
-        או במערכת הטלפונית.
+        ניתן גם להזמין ישירות ב<a href="${APP_URL}/order" style="color:#C0461E;">אתר</a> או במערכת הטלפונית.
       </p>`;
 
-    const safeName =
-      params.saleName.replace(/[^\u0590-\u05FF\w\s-]/g, "").trim() || "order";
+    const safeName = params.saleName.replace(/[^\u0590-\u05FF\w\s-]/g, "").trim() || "order";
 
     await getResend().emails.send({
       from: FROM_ADDRESS,
       to: params.email,
-      // §145: 🐛 replyTo חיוני כאן.
-      //
-      // orders@tzidkat.com היא כתובת שליחה בלבד - אין מאחוריה
-      // תיבה. בלי replyTo, לקוח שלוחץ "השב" ומצרף את הקובץ
-      // שולח אותו לחלל, והוא בטוח שהזמין.
-      //
-      // ⚠️ הכתובת נלקחת מההגדרות ולא מקודדת: אם תשנה אותה במסך
-      // ההגדרות, גם היעד כאן משתנה - ולא תגלה חודש אחר כך
-      // שהזמנות הלכו לכתובת ישנה.
-      replyTo: settings.adminEmail,
+      // §145 + §inbound: לאן חוזר הקובץ. עם קליטה אוטומטית — לכתובת
+      // הקליטה; בלעדיה — למייל המנהל (נלקח מההגדרות).
+      replyTo,
       subject: `הזמנה חדשה: ${params.saleName} — קובץ למילוי`,
       html: baseTemplate("קובץ הזמנה", body),
-      attachments: [
-        {
-          filename: `הזמנה-${safeName}.xlsx`,
-          content: params.fileBuffer,
-        },
-      ],
+      attachments: [{ filename: `הזמנה-${safeName}.xlsx`, content: params.fileBuffer }],
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// §inbound: תשובות אוטומטיות לקובץ שחזר במייל
+// ═══════════════════════════════════════════════════════════════
+// ⚠️ נשלחות תמיד (גם כש-sendEmailToCustomer כבוי): הלקוח שלח הזמנה
+// וחייב לדעת אם היא נקלטה. שתיקה = לקוח שבטוח שהזמין.
+
+function helpLine(adminEmail: string) {
+  return `<p style="font-size:13px;color:#444;margin-top:16px;">לשאלות: <a href="mailto:${escapeHtml(adminEmail)}" style="color:#C0461E;font-weight:bold;">${escapeHtml(adminEmail)}</a></p>`;
+}
+
+function issuesHtml(issues: { productName: string; reason: string }[]) {
+  if (!issues.length) return "";
+  return `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:12px;margin:12px 0;font-size:13px;color:#7f1d1d;">
+    <strong>⚠️ שורות שלא נקלטו (${issues.length}):</strong>
+    <ul style="margin:6px 0 0;padding-right:18px;">${issues
+      .slice(0, 30)
+      .map((i) => `<li>${escapeHtml(i.productName)} — ${escapeHtml(i.reason)}</li>`)
+      .join("")}</ul>
+    <div style="margin-top:6px;">כדי להוסיף אותן — מלאו בקובץ המקורי ושלחו אותו שוב (הוא מחליף את ההזמנה).</div>
+  </div>`;
+}
+
+export async function sendExcelOrderConfirmation(params: {
+  to: string;
+  customerName: string;
+  orderNumber: number;
+  replacedOrderNumber: number | null;
+  saleName: string;
+  pointName: string;
+  deliveryDateText: string | null;
+  items: { name: string; quantity: number; unit: string; isSingle: boolean; estimatedPrice: number }[];
+  orderFee: number;
+  estimatedTotal: number;
+  isCash: boolean;
+  issues: { productName: string; reason: string }[];
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+    const rows = params.items
+      .map(
+        (i) => `<tr>
+          <td style="padding:6px;border-bottom:1px solid #eee;">${escapeHtml(i.name)}${i.isSingle ? " (בודדים)" : ""}</td>
+          <td style="padding:6px;border-bottom:1px solid #eee;text-align:center;white-space:nowrap;">${i.quantity} ${escapeHtml(i.unit)}</td>
+          <td style="padding:6px;border-bottom:1px solid #eee;text-align:left;white-space:nowrap;">${fmt(i.estimatedPrice)}</td>
+        </tr>`
+      )
+      .join("");
+    const body = `
+      <p>שלום ${escapeHtml(params.customerName)},</p>
+      <p style="font-size:16px;"><strong>✅ ההזמנה שלך נקלטה — מספר ${params.orderNumber}</strong></p>
+      ${
+        params.replacedOrderNumber
+          ? `<p style="font-size:13px;color:#8b5a00;">הקובץ החדש <strong>החליף</strong> את ההזמנה הקודמת (#${params.replacedOrderNumber}).</p>`
+          : ""
+      }
+      <div style="background:#f5f3ff;border-radius:12px;padding:14px;margin:12px 0;font-size:14px;line-height:1.9;">
+        <div>🛒 מכירה: <strong>${escapeHtml(params.saleName)}</strong></div>
+        <div>📍 נקודת חלוקה: <strong>${escapeHtml(params.pointName)}</strong></div>
+        ${params.deliveryDateText ? `<div>📅 מועד החלוקה: <strong>${escapeHtml(params.deliveryDateText)}</strong></div>` : ""}
+        <div>💳 תשלום: <strong>${params.isCash ? "במזומן בחלוקה" : "בכרטיס האשראי השמור, אחרי השקילה"}</strong></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead><tr style="background:#f4f4f5;">
+          <th style="padding:6px;text-align:right;">מוצר</th>
+          <th style="padding:6px;">כמות</th>
+          <th style="padding:6px;text-align:left;">משוער</th>
+        </tr></thead>
+        <tbody>${rows}
+          ${
+            params.orderFee
+              ? `<tr><td style="padding:6px;color:#666;" colspan="2">דמי הזמנה</td><td style="padding:6px;text-align:left;">${fmt(params.orderFee)}</td></tr>`
+              : ""
+          }
+          <tr><td style="padding:8px 6px;font-weight:bold;" colspan="2">סה״כ משוער</td>
+            <td style="padding:8px 6px;font-weight:bold;text-align:left;">${fmt(params.estimatedTotal)}</td></tr>
+        </tbody>
+      </table>
+      ${issuesHtml(params.issues)}
+      <p style="font-size:12px;color:#888;margin-top:12px;">
+        ⚖️ המחיר סופי נקבע לפי המשקל בפועל בחלוקה. רוצים לשנות? שלחו את הקובץ שוב עד שעת הסגירה —
+        הוא מחליף את ההזמנה. אפשר לראות את ההזמנה גם ב<a href="${APP_URL}/account" style="color:#C0461E;">אזור האישי</a>.
+      </p>
+      ${helpLine(settings.adminEmail)}`;
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: params.to,
+      replyTo: settings.adminEmail,
+      subject: `✅ ההזמנה נקלטה #${params.orderNumber} — ${params.saleName}`,
+      html: baseTemplate("ההזמנה נקלטה", body),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}
+
+export type ExcelProblemKind =
+  | "payment"
+  | "closed"
+  | "not_active"
+  | "no_items"
+  | "unknown_sender"
+  | "bad_file"
+  | "other";
+
+export async function sendExcelOrderProblem(params: {
+  to: string;
+  customerName?: string | null;
+  kind: ExcelProblemKind;
+  detail?: string | null;
+  saleName?: string | null;
+  issues?: { productName: string; reason: string }[];
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+    const messages: Record<ExcelProblemKind, { title: string; html: string }> = {
+      payment: {
+        title: "צריך להסדיר אמצעי תשלום",
+        html: `<p>קיבלנו את הקובץ, אבל <strong>ההזמנה לא נקלטה</strong> כי בחשבון שלך אין כרטיס אשראי תקין${
+          params.detail ? ` (${escapeHtml(params.detail)})` : ""
+        }.</p>
+        <p>איך מסדרים: נכנסים ל<a href="${APP_URL}/account" style="color:#C0461E;font-weight:bold;">אזור האישי באתר</a> ומוסיפים/מעדכנים כרטיס,
+        או פונים אלינו ונסדיר יחד. אחרי זה — שלחו את הקובץ שוב.</p>`,
+      },
+      closed: {
+        title: "ההרשמה למכירה נסגרה",
+        html: `<p>קיבלנו את הקובץ, אבל ההרשמה ל${params.saleName ? `<strong>${escapeHtml(params.saleName)}</strong>` : "מכירה"} כבר נסגרה, ולכן <strong>ההזמנה לא נקלטה</strong>.</p>`,
+      },
+      not_active: {
+        title: "המכירה לא פעילה",
+        html: `<p>הקובץ שייך למכירה שכבר לא פעילה, ולכן <strong>ההזמנה לא נקלטה</strong>. אם נפתחה מכירה חדשה — השתמשו בקובץ האחרון שנשלח אליכם.</p>`,
+      },
+      no_items: {
+        title: "לא נמצאו כמויות בקובץ",
+        html: `<p>קיבלנו את הקובץ, אבל לא מצאנו בו כמויות להזמנה. ממלאים כמות בעמודה <strong>&quot;כמות&quot;</strong>, שומרים, ושולחים שוב.</p>`,
+      },
+      unknown_sender: {
+        title: "לא זיהינו את החשבון",
+        html: `<p>קיבלנו קובץ הזמנה, אבל <strong>הכתובת שממנה נשלח לא תואמת לחשבון</strong> שהקובץ נשלח אליו. מטעמי אבטחה ההזמנה לא נקלטה.</p>
+        <p>שלחו את הקובץ מכתובת המייל הרשומה אצלנו, או פנו אלינו.</p>`,
+      },
+      bad_file: {
+        title: "לא הצלחנו לקרוא את הקובץ",
+        html: `<p>קיבלנו את המייל, אבל לא הצלחנו לקרוא את הקובץ המצורף${params.detail ? ` (${escapeHtml(params.detail)})` : ""}.
+        יש להשתמש בקובץ שנשלח אליכם, למלא רק את עמודת הכמות, ולשמור אותו כקובץ אקסל (xlsx).</p>`,
+      },
+      other: {
+        title: "ההזמנה לא נקלטה",
+        html: `<p>קיבלנו את הקובץ, אבל ההזמנה לא נקלטה${params.detail ? `: ${escapeHtml(params.detail)}` : ""}.</p>`,
+      },
+    };
+    const m = messages[params.kind];
+    const body = `
+      <p>שלום${params.customerName ? ` ${escapeHtml(params.customerName)}` : ""},</p>
+      ${m.html}
+      ${issuesHtml(params.issues ?? [])}
+      ${helpLine(settings.adminEmail)}`;
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: params.to,
+      replyTo: settings.adminEmail,
+      subject: `⚠️ ${m.title} — ההזמנה לא נקלטה`,
+      html: baseTemplate(m.title, body),
     });
     return { ok: true };
   } catch (e: any) {
