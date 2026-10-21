@@ -243,7 +243,7 @@ export async function POST(req: Request) {
     orderFee: result.orderFee,
     estimatedTotal: result.estimatedTotal,
     isCash: result.isCash,
-    issues: parsed.issues,
+    issues: [...parsed.issues, ...result.skipped],
   });
   await log(
     "order-created",
@@ -251,7 +251,7 @@ export async function POST(req: Request) {
       orderNumber: result.orderNumber,
       replaced: result.replacedOrderNumber,
       items: result.items.length,
-      issues: parsed.issues.length,
+      issues: parsed.issues.length + result.skipped.length,
       total: result.estimatedTotal,
       confirmationSent: mail.ok,
       auth,

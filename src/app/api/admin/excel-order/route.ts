@@ -16,6 +16,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { buildOrderExcel, parseOrderExcel, type ExcelRowSpec } from "@/lib/excel-order-lib";
 import { createExcelOrder } from "@/lib/excel-order-create";
+import { effectiveUnitPrice } from "@/lib/pricing";
 
 // ═══════════════════════════════════════════════════════════════
 // GET — הפקת הקובץ
@@ -141,7 +142,7 @@ export async function GET(req: Request) {
           : p.unit || "יחידה",
       unitPrice: base,
       // מחיר לק"ג × משקל ממוצע לקרטון — "סה"כ משוער" כמו באתר
-      ...(p.priceType === "PER_KG" && p.avgWeightPerUnit != null ? { estimateFactor: Number(p.avgWeightPerUnit) } : {}),
+      ...(p.priceType === "PER_KG" && (p.saleType === "PACKAGE" || p.saleType === "UNIT") && p.avgWeightPerUnit != null ? { estimateFactor: Number(p.avgWeightPerUnit) } : {}),
       existingQty: existingMap.get(`${p.id}|false`),
     });
 
@@ -149,7 +150,7 @@ export async function GET(req: Request) {
     // לשורה אחת היה גורם ללקוח להזמין 12 קרטונים במקום 12 ק"ג.
     if (p.allowSingles) {
       const singlePrice =
-        p.singleUnitPrice != null ? Number(p.singleUnitPrice) : base + surcharge;
+        effectiveUnitPrice(base, true, surcharge, p.singlesMode, p.singleUnitPrice != null ? Number(p.singleUnitPrice) : null);
       rows.push({
         productId: p.id,
         isSingle: true,
