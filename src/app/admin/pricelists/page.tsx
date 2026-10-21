@@ -81,55 +81,6 @@ export default function PricelistsPage() {
     load();
   }, []);
 
-  // §145: שליחת קבצי אקסל ללקוחות שביקשו.
-  //
-  // ⚠️ פעולה נפרדת ולא אוטומטית בהפעלה: המנהל לעיתים מפעיל
-  // מכירה כדי לבדוק אותה, ושליחה אוטומטית הייתה מציפה לקוחות
-  // בקובץ שעוד לא מוכן.
-  async function sendExcel(l: Pricelist, force = false) {
-    if (
-      !force &&
-      !window.confirm(
-        `לשלוח קבצי אקסל ללקוחות שסימנת ב"${l.name}"?\n\nכל לקוח יקבל קובץ עם המוצרים והמחירים, למילוי והחזרה במייל.`
-      )
-    )
-      return;
-
-    setBusy(true);
-    try {
-      const res = await fetch("/api/admin/excel-broadcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pricelistId: l.id, force }),
-      });
-      const data = await res.json();
-
-      // ⚠️ 409 = כבר נשלח. מציעים שליחה חוזרת במקום להיכשל -
-      // לפעמים באמת צריך (מוצר נוסף, מחיר שהשתנה).
-      if (res.status === 409) {
-        if (window.confirm(`${data.error}\n\nלשלוח שוב לכולם?`)) {
-          await sendExcel(l, true);
-        }
-        return;
-      }
-      if (!res.ok) throw new Error(data.error || "שגיאה");
-
-      alert(
-        `נשלחו ${data.sentCount} קבצים.` +
-          (data.failedCount > 0
-            ? `\n\n⚠️ ${data.failedCount} נכשלו:\n${data.failed
-                .map((f: any) => `${f.name} — ${f.error}`)
-                .join("\n")}`
-            : "")
-      );
-      await load();
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function setStatus(l: Pricelist, status: string) {
     // אזהרה: הפעלת מכירה ריקה תציג ללקוחות מכירה בלי מוצרים
     if (status === "ACTIVE" && (l._count.products === 0 || l._count.points === 0)) {
@@ -158,18 +109,12 @@ export default function PricelistsPage() {
         body: JSON.stringify({ status }),
       });
       load();
-      // §inbound: 📧 פתיחת מכירה = הרגע לשלוח את קובץ ההזמנה למי שביקש.
+      // 📣 פתיחת מכירה = הרגע להודיע ללקוחות. מקום אחד לשליחה: "שליחת מייל
+      // ללקוחות" — שם הנוסח מוכן, קובץ ההזמנה מצורף, ובוחרים למי לשלוח.
       // שאלה ולא שליחה אוטומטית: הפעלה בטעות לא תשלח מיילים למאות לקוחות.
-      if (status === "ACTIVE" && !l.agentOnly && !l.excelSentAt) {
-        try {
-          const r = await fetch(`/api/admin/excel-broadcast?pricelistId=${encodeURIComponent(l.id)}`);
-          const info = await r.json();
-          const n = info?.counts?.ready ?? 0;
-          if (n > 0 && window.confirm(`המכירה "${l.name}" נפתחה.\n\nלשלוח עכשיו את קובץ ההזמנה במייל ל-${n} הלקוחות שברשימה?`)) {
-            await sendExcel(l, true);
-          }
-        } catch {
-          // לא חוסם: אפשר תמיד לשלוח מהכפתור "📊 שלח אקסל"
+      if (status === "ACTIVE" && !l.agentOnly && !l.launchSentAt) {
+        if (window.confirm(`המכירה "${l.name}" נפתחה.\n\nלעבור עכשיו לשליחת הודעת פתיחה ללקוחות (עם קובץ ההזמנה)?`)) {
+          window.location.href = `/admin/broadcast?launch=${encodeURIComponent(l.id)}`;
         }
       }
     } catch (e: any) {
@@ -384,48 +329,13 @@ export default function PricelistsPage() {
                       הוא הוביל ל-/admin/sale-status, מסך שנבנה
                       בכפילות ל-/admin/sale-control הקיים ונמחק.
                       בקרת המכירה נגישה מהתפריט הראשי, שלב ③. */}
-                  {/* §145: שליחת אקסל - רק ממכירה פעילה שאינה
-                      לנציגים בלבד. */}
-                  {/* §230: 🐛 הכפתור נשאר אחרי שהמכירה נסגרה ללקוחות.
-                      
-                      שליחת מחירון באקסל (§145) היא פעולה של **לפני**
-                      המכירה: הלקוח מקבל קובץ, ממלא כמויות, ומחזיר.
-                      אחרי שההרשמה נסגרה אין לו מה לעשות איתו - הוא
-                      ימלא, ישלח, וההזמנה תידחה.
-                      
-                      ⚠️ והגרוע יותר: הוא ישב בשורה אחת עם "סגירה
-                      סופית", ולחיצה בטעות שולחת מיילים למאות
-                      לקוחות בלי דרך חזרה. */}
-                  {/* §230: מפריד — שליחת מיילים אינה שינוי מצב.
-                      
-                      ⚠️ קו אנכי ולא רווח: הוא נראה גם כשהכפתורים
-                      נשברים לשורה שנייה בנייד, ורווח לא. */}
+                  {/* §inbound: כפתור "📊 שלח אקסל" הוסר — קובץ ההזמנה נשלח מ"📣 הודעת
+                      פתיחה" (שליחת מייל ללקוחות), ושם בוחרים גם את הנמענים. */}
                   {l.status === "ACTIVE" &&
                     !l.agentOnly &&
                     !(l.closeDate && new Date() > new Date(l.closeDate)) && (
                       <span className="w-px h-6 bg-zinc-300 mx-1 self-center" />
                     )}
-                  {l.status === "ACTIVE" &&
-                    !l.agentOnly &&
-                    !(l.closeDate && new Date() > new Date(l.closeDate)) && (
-                    <button
-                      onClick={() => sendExcel(l)}
-                      disabled={busy}
-                      title={
-                        l.excelSentAt
-                          ? `נשלח ב-${fmtDateTime(l.excelSentAt)} · ${l.excelSentCount} נמענים`
-                          : "שליחת קבצי אקסל ללקוחות שביקשו"
-                      }
-                      className="btn-sm bg-emerald-600 text-white rounded-lg px-3 font-bold hover:opacity-90 disabled:opacity-50"
-                    >
-                      📊 שלח אקסל
-                      {!!l.excelSentAt && (
-                        <span className="text-[10px] font-normal mr-1">
-                          ✓{l.excelSentCount}
-                        </span>
-                      )}
-                    </button>
-                  )}
                   {/* §401/§403: 📣 הודעת פתיחה — פותח את "שליחת מייל ללקוחות"
                       עם הנוסח כבר ממולא למכירה הזו (מקום אחד לשליחה) */}
                   {l.status === "ACTIVE" &&
