@@ -17,6 +17,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { buildOrderExcel, type ExcelRowSpec } from "@/lib/excel-order-lib";
 import { sendExcelOrderEmail } from "@/lib/email";
+import { loadSaleExcelBase } from "@/lib/excel-sale-file";
 
 // ═══════════════════════════════════════════════════════════════
 // GET - מי יקבל
@@ -211,60 +212,10 @@ export async function POST(req: Request) {
   //
   // ⚠️ המוצרים זהים לכולם, ולכן אין טעם לבנות אותם מחדש לכל לקוח.
   // מה שמשתנה הוא הכותרת (שם, טלפון, נקודה) והכמויות הקיימות.
+  // מקור אחד לשורות הקובץ (lib/excel-sale-file) — אותם מחירים ויחידות כמו
+  // בהודעת הפתיחה ובאתר (מחיר בודדים, הערכה לקרטון במחיר לק"ג)
   const surcharge = Number(pricelist.singleSurcharge ?? 0);
-  const baseRows: ExcelRowSpec[] = [];
-  for (const pp of pricelist.products) {
-    const p = pp.product;
-    if (!p.isActive) continue;
-    const base = Number(pp.price ?? p.cartonPrice);
-    const kashrut = p.kashrutRef?.name || p.kashrut || "";
-    const category = p.category?.name || "כללי";
-
-    baseRows.push({
-      productId: p.id,
-      isSingle: false,
-      categoryName: category,
-      productName: p.name,
-      kashrut,
-      // §313: 🐛 priceType אינו saleType.
-      //
-      // priceType=PER_KG אומר **איך מתמחרים** (לפי ק"ג), ולא
-      // **איך מוכרים**. כבד ארוז מתומחר לק"ג ונמכר ביחידות -
-      // והוא הוצג באקסל כ"קרטון".
-      //
-      // ⚠️ saleType הוא הקובע: PACKAGE = קרטון, השאר יחידות.
-      // אותה הבחנה של §233, §284 ו-§312.
-      unit:
-        p.saleType === "PACKAGE"
-          ? p.priceType === "PER_KG"
-            ? 'קרטון (מחיר לק"ג)'
-            : "קרטון"
-          : p.unit || "יחידה",
-      unitPrice: base,
-      // מחיר לק"ג × משקל ממוצע לקרטון — "סה"כ משוער" כמו באתר
-      ...(p.priceType === "PER_KG" && p.avgWeightPerUnit != null ? { estimateFactor: Number(p.avgWeightPerUnit) } : {}),
-    });
-
-    if (p.allowSingles) {
-      baseRows.push({
-        productId: p.id,
-        isSingle: true,
-        categoryName: category,
-        productName: p.name,
-        kashrut,
-        unit: p.singlesMode === "UNITS" ? "יחידות" : 'ק"ג',
-        unitPrice:
-          p.singleUnitPrice != null ? Number(p.singleUnitPrice) : base + surcharge,
-      });
-    }
-  }
-
-  baseRows.sort(
-    (a, b2) =>
-      a.categoryName.localeCompare(b2.categoryName, "he") ||
-      a.productName.localeCompare(b2.productName, "he") ||
-      Number(a.isSingle) - Number(b2.isSingle)
-  );
+  const baseRows: ExcelRowSpec[] = (await loadSaleExcelBase(pricelist.id))?.rows ?? [];
 
   if (baseRows.length === 0) {
     return NextResponse.json(

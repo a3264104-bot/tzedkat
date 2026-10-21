@@ -11,6 +11,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { buildOrderExcel, type ExcelRowSpec } from "@/lib/excel-order-lib";
+import { effectiveUnitPrice } from "@/lib/pricing";
 
 export type SaleExcelBase = {
   pricelist: { id: string; name: string; deliveryDateText: string | null; closeDate: Date | null; singleSurcharge: number };
@@ -68,10 +69,18 @@ export async function loadSaleExcelBase(pricelistId: string): Promise<SaleExcelB
       productName: p.name,
       kashrut,
       // §313: saleType קובע אם זה קרטון (ולא priceType)
-      unit: p.saleType === "PACKAGE" ? (p.priceType === "PER_KG" ? 'קרטון (מחיר לק"ג)' : "קרטון") : p.unit || "יחידה",
+      unit:
+        p.saleType === "PACKAGE"
+          ? p.priceType === "PER_KG"
+            ? 'קרטון (מחיר לק"ג)'
+            : "קרטון"
+          : p.priceType === "PER_KG" && p.saleType === "UNIT"
+            ? `${p.unit || "יחידה"} (מחיר לק"ג)`
+            : p.unit || "יחידה",
       unitPrice: base,
-      // מחיר לק"ג × משקל ממוצע לקרטון — אותו חישוב כמו בהזמנה באתר
-      ...(p.priceType === "PER_KG" && p.avgWeightPerUnit != null
+      // מחיר לק"ג × משקל ממוצע (קרטון / יחידה ארוזה) — כמו smartLineEstimate באתר.
+      // נמכר לפי ק"ג (WEIGHT) — הכמות היא ק"ג, בלי מקדם.
+      ...(p.priceType === "PER_KG" && (p.saleType === "PACKAGE" || p.saleType === "UNIT") && p.avgWeightPerUnit != null
         ? { estimateFactor: Number(p.avgWeightPerUnit) }
         : {}),
     });
@@ -82,8 +91,15 @@ export async function loadSaleExcelBase(pricelistId: string): Promise<SaleExcelB
         categoryName: category,
         productName: p.name,
         kashrut,
-        unit: p.singlesMode === "UNITS" ? "יחידות" : 'ק"ג',
-        unitPrice: p.singleUnitPrice != null ? Number(p.singleUnitPrice) : base + surcharge,
+        unit: p.singlesMode === "UNITS" ? "יחידות (שלם)" : 'ק"ג (מינ׳ 2, קפיצות 0.5)',
+        // 🐛 היה singleUnitPrice תמיד — באתר הוא חל רק במצב UNITS; בק"ג זה בסיס + תוספת
+        unitPrice: effectiveUnitPrice(
+          base,
+          true,
+          surcharge,
+          p.singlesMode,
+          p.singleUnitPrice != null ? Number(p.singleUnitPrice) : null
+        ),
       });
     }
   }

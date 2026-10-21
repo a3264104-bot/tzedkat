@@ -11,6 +11,10 @@
 import { prisma } from "@/lib/prisma";
 import { canChargeCard, expiryMessage } from "@/lib/card-expiry-lib";
 import { isCashFor, newOrderPaymentMethod } from "@/lib/cash-customer";
+import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
+
+// כמו באתר (OrderFlow): בודדים בק"ג — מינימום 2 ק"ג, בקפיצות של חצי ק"ג.
+const MIN_SINGLES_KG = 2;
 
 export type ExcelOrderRow = { productId: string; isSingle: boolean; quantity: number };
 
@@ -34,6 +38,8 @@ export type ExcelOrderResult =
       orderNumber: number;
       replacedOrderNumber: number | null;
       items: { name: string; quantity: number; unit: string; isSingle: boolean; estimatedPrice: number }[];
+      /** שורות שלא נקלטו (כמות לא תקינה לסוג המוצר וכו') — מדווחות ללקוח */
+      skipped: { productName: string; reason: string }[];
       orderFee: number;
       estimatedTotal: number;
       pointName: string;
@@ -96,6 +102,7 @@ export async function createExcelOrder(opts: {
                 singlesMode: true,
                 singleUnitPrice: true,
                 avgWeightPerUnit: true,
+                saleType: true,
               },
             },
           },
@@ -138,38 +145,88 @@ export async function createExcelOrder(opts: {
   const byId = new Map(pricelist.products.map((pp) => [pp.product.id, pp]));
   const surcharge = Number(pricelist.singleSurcharge ?? 0);
   const itemsData: any[] = [];
+  const labels: string[] = [];
+  const skipped: { productName: string; reason: string }[] = [];
 
   for (const r of rows) {
     const pp = byId.get(r.productId);
-    if (!pp || !pp.product.isActive) continue;
-    if (r.isSingle && !pp.product.allowSingles) continue;
+    if (!pp || !pp.product.isActive) {
+      skipped.push({ productName: pp?.product.name ?? "מוצר", reason: "המוצר כבר לא זמין במכירה" });
+      continue;
+    }
+    const p = pp.product;
+    if (r.isSingle && !p.allowSingles) {
+      skipped.push({ productName: p.name, reason: "המוצר לא נמכר בבודדים" });
+      continue;
+    }
     const qty = Number(r.quantity);
     if (!Number.isFinite(qty) || qty <= 0) continue;
 
-    const base = Number(pp.price ?? pp.product.cartonPrice);
-    const unitPrice = r.isSingle
-      ? pp.product.singleUnitPrice != null
-        ? Number(pp.product.singleUnitPrice)
-        : base + surcharge
-      : base;
-    const avgW = pp.product.avgWeightPerUnit != null ? Number(pp.product.avgWeightPerUnit) : null;
-    const estimatedWeight = r.isSingle ? qty : avgW ? avgW * qty : null;
-    const estimatedPrice =
-      !r.isSingle && pp.product.priceType === "PER_KG" && avgW ? unitPrice * avgW * qty : unitPrice * qty;
+    // ── כמות לפי סוג המוצר — כמו באתר ──
+    const singlesUnits = r.isSingle && p.singlesMode === "UNITS";
+    const singlesKg = r.isSingle && !singlesUnits;
+    if (!r.isSingle && !Number.isInteger(qty)) {
+      skipped.push({ productName: p.name, reason: `כמות ${qty} — קרטונים/יחידות רק במספר שלם` });
+      continue;
+    }
+    if (singlesUnits && !Number.isInteger(qty)) {
+      skipped.push({ productName: p.name + " (בודדים)", reason: `כמות ${qty} — בודדים ביחידות רק במספר שלם` });
+      continue;
+    }
+    if (singlesKg && qty < MIN_SINGLES_KG) {
+      skipped.push({ productName: p.name + " (בודדים)", reason: `מינימום ${MIN_SINGLES_KG} ק"ג בבודדים (נרשם ${qty})` });
+      continue;
+    }
+    if (singlesKg && Math.round(qty * 2) !== qty * 2) {
+      skipped.push({ productName: p.name + " (בודדים)", reason: `ק"ג בקפיצות של חצי (נרשם ${qty})` });
+      continue;
+    }
+
+    // ── מחיר, הערכה ומשקל — אותן פונקציות כמו ב-/api/orders ──
+    const base = Number(pp.price ?? p.cartonPrice);
+    const unitPrice = effectiveUnitPrice(
+      base,
+      r.isSingle,
+      surcharge,
+      p.singlesMode,
+      p.singleUnitPrice != null ? Number(p.singleUnitPrice) : null
+    );
+    const avgW = p.avgWeightPerUnit != null ? Number(p.avgWeightPerUnit) : null;
+    const isSinglesKgPriced = r.isSingle && p.priceType === "PER_KG";
+    const est = isSinglesKgPriced
+      ? Math.round(unitPrice * qty * 100) / 100
+      : smartLineEstimate(unitPrice, qty, p.saleType, p.priceType, avgW);
+    const estimatedWeight = singlesUnits
+      ? null
+      : isSinglesKgPriced
+        ? Math.round(qty * 1000) / 1000
+        : (p.saleType === "UNIT" || p.saleType === "PACKAGE") && p.priceType === "PER_KG" && avgW
+          ? Math.round(avgW * qty * 1000) / 1000
+          : null;
 
     itemsData.push({
       productId: r.productId,
-      productName: pp.product.name,
-      unit: r.isSingle ? (pp.product.singlesMode === "UNITS" ? "יחידות" : 'ק"ג') : pp.product.unit || "יחידה",
+      productName: p.name,
+      // כמו באתר: יחידת המוצר. בודדים מזוהים לפי isSingle.
+      unit: p.unit,
       isSingle: r.isSingle,
       quantity: qty,
       unitPrice,
       estimatedWeight,
-      estimatedPrice: Math.round(estimatedPrice * 100) / 100,
+      estimatedPrice: est ?? 0,
     });
+    labels.push(r.isSingle ? (singlesUnits ? "יח׳" : 'ק"ג') : p.saleType === "PACKAGE" ? "קרטון" : p.unit || "יח׳");
   }
 
-  if (itemsData.length === 0) return { ok: false, code: "NO_ITEMS", error: "אין פריטים תקינים ליצירת הזמנה" };
+  if (itemsData.length === 0) {
+    return {
+      ok: false,
+      code: "NO_ITEMS",
+      error: skipped.length
+        ? `אף שורה לא נקלטה: ${skipped.map((x) => `${x.productName} — ${x.reason}`).join("; ")}`
+        : "אין פריטים תקינים ליצירת הזמנה",
+    };
+  }
 
   const itemsTotal = itemsData.reduce((s, i) => s + i.estimatedPrice, 0);
   const orderFee = Number(pricelist.orderFee ?? 0);
@@ -247,10 +304,11 @@ export async function createExcelOrder(opts: {
       orderId: created.id,
       orderNumber: created.orderNumber,
       replacedOrderNumber,
-      items: itemsData.map((i) => ({
+      skipped,
+      items: itemsData.map((i, k) => ({
         name: i.productName,
         quantity: i.quantity,
-        unit: i.unit,
+        unit: labels[k],
         isSingle: i.isSingle,
         estimatedPrice: i.estimatedPrice,
       })),
