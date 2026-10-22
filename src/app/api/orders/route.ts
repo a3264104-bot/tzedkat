@@ -706,6 +706,13 @@ export async function POST(req: Request) {
       console.error("[orders] email send failed (order was saved):", err);
     }
 
+    // 🛒 ההזמנה נשלחה — הסל ששמרנו לתזכורת כבר לא רלוונטי
+    if (customerId) {
+      await prisma.webCart
+        .deleteMany({ where: { customerId, pricelistId: data.pricelistId } })
+        .catch((e) => console.error("[orders] cart cleanup failed:", e));
+    }
+
     return NextResponse.json({
       ok: true,
       orderNumber: order.orderNumber,

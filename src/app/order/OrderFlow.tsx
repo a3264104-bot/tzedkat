@@ -105,6 +105,7 @@ export function OrderFlow({
   customerId = "",
   hasSeenOrderIntro = false,
   existingOrder = null,
+  draftCart = null,
   editMode = null,
 }: {
   pricelist: Pricelist;
@@ -149,6 +150,8 @@ export function OrderFlow({
   customerId?: string;
   hasSeenOrderIntro?: boolean;
   existingOrder?: { id: string; orderNumber: number } | null;
+  /** 🛒 סל שהלקוח התחיל ולא שלח (WebCart) — חוזר לסל */
+  draftCart?: Record<string, { cartonQty: number; singlesQty: number }> | null;
   editMode?: {
     orderId: string;
     orderNumber: number;
@@ -179,7 +182,7 @@ export function OrderFlow({
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [dateConfirmed, setDateConfirmed] = useState(false);
   const [cart, setCart] = useState<Record<string, CartLine>>(
-    editMode?.initialCart || {}
+    editMode?.initialCart || draftCart || {}
   );
   // טלפון ראשי מהחשבון. אם חסר — משלים בסיכום.
   const [phone, setPhone] = useState(customer.phone ?? "");
@@ -973,6 +976,38 @@ export function OrderFlow({
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [step, itemCount, catalogOnly]);
+
+  // 🛒 שמירת הסל בשרת (לקוח בלבד, הזמנה חדשה) — כדי שאם לא ישלח, יקבל
+  // תזכורת אחת במייל. השהיה של 3 שניות: לא שומרים על כל לחיצת "+".
+  useEffect(() => {
+    if (onBehalfOfCustomerId || editMode || catalogOnly || step === "done") return;
+    const t = setTimeout(() => {
+      if (submitLockRef.current) return;
+      fetch("/api/customer/cart-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pricelistId: pricelist.id,
+          items: cartLines.map((l) => ({
+            productId: l.product.id,
+            isSingle: l.isSingle,
+            name: l.product.name,
+            qty: l.qty,
+            unit: l.isSingle
+              ? l.product.singlesMode === "UNITS"
+                ? "יח׳"
+                : 'ק"ג'
+              : l.product.saleType === "PACKAGE"
+                ? "קרטון"
+                : "יח׳",
+          })),
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    }, 3000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartLines, step]);
 
   // השליחה עצמה - נקראת ישירות (לקוח מאומת) או אוטומטית אחרי אימות
   async function doSubmit() {

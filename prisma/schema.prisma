@@ -1478,3 +1478,24 @@ model BroadcastRecipient {
 
   @@index([broadcastId, status])
 }
+
+// ═══════════════════════════════════════════════════════════════
+// סל שלא נשלח — לקוח בחר מוצרים באתר ולא לחץ "שלח את ההזמנה".
+// נשמר תוך כדי בחירה; אם תוך כמה שעות לא נוצרה הזמנה — נשלח לו מייל
+// תזכורת אחד (reminderSentAt), כל עוד המכירה פתוחה. נמחק כשנוצרת הזמנה.
+// בלי relations בכוונה: טבלת עזר זמנית, ולא נוגעים במודלים הקיימים.
+// ═══════════════════════════════════════════════════════════════
+model WebCart {
+  id             String    @id @default(cuid())
+  customerId     String
+  pricelistId    String
+  itemCount      Int       @default(0)
+  // [{ name, qty, unit }] — לתצוגה במייל בלבד
+  itemsJson      String?
+  reminderSentAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([customerId, pricelistId])
+  @@index([updatedAt])
+}
