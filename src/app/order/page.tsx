@@ -198,6 +198,29 @@ export default async function OrderPage({
     }
   }
 
+  // 🛒 סל שהתחיל ולא נשלח (WebCart) — חוזר לסל כשהלקוח חוזר למסך.
+  // כך מי שקיבל מייל תזכורת לוחץ, ורק צריך לשלוח.
+  let draftCart: Record<string, { cartonQty: number; singlesQty: number }> | null = null;
+  if (!editOrderId && !catalogOnly) {
+    const wc = await prisma.webCart
+      .findUnique({ where: { customerId_pricelistId: { customerId, pricelistId: catalogSource.id } } })
+      .catch(() => null);
+    if (wc?.itemsJson) {
+      try {
+        const cart: Record<string, { cartonQty: number; singlesQty: number }> = {};
+        for (const it of JSON.parse(wc.itemsJson) as { productId: string; isSingle: boolean; qty: number }[]) {
+          if (!it.productId || !(it.qty > 0)) continue;
+          cart[it.productId] ??= { cartonQty: 0, singlesQty: 0 };
+          if (it.isSingle) cart[it.productId].singlesQty = it.qty;
+          else cart[it.productId].cartonQty = it.qty;
+        }
+        if (Object.keys(cart).length) draftCart = cart;
+      } catch {
+        // סל פגום — מתחילים ריק
+      }
+    }
+  }
+
   // §12: בדיקה אם ללקוח יש הזמנה קיימת למכירה הזו
   // אם יש - מפנים אוטומטית לעמוד ההצלחה של ההזמנה הקיימת,
   // כדי למנוע יצירת הזמנה כפולה בטעות.
@@ -375,6 +398,7 @@ export default async function OrderPage({
       customerId={customerRecord.id}
       hasSeenOrderIntro={customerRecord.hasSeenOrderIntro}
       existingOrder={null}
+      draftCart={draftCart}
       editMode={
         editOrder
           ? { orderId: editOrder.id, orderNumber: editOrder.orderNumber, initialCart, initialNotes: (editOrder as any).customerNote ?? null }

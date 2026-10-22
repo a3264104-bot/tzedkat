@@ -1526,6 +1526,64 @@ export type ExcelProblemKind =
   | "bad_file"
   | "other";
 
+/**
+ * 🛒 תזכורת: התחלת להזמין ולא שלחת. קצר וחם — לא מטיף.
+ * נשלח פעם אחת למכירה (WebCart.reminderSentAt), רק כשהמכירה עוד פתוחה.
+ */
+export async function sendCartReminder(params: {
+  to: string;
+  customerName: string;
+  saleName: string;
+  closeText: string | null;
+  items: { name: string; qty: number; unit: string }[];
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+    if (!settings.sendEmailToCustomer) return { ok: true };
+    const first = params.customerName.trim().split(/\s+/)[0] || params.customerName;
+    const shown = params.items.slice(0, 6);
+    const more = params.items.length - shown.length;
+    const list = shown
+      .map(
+        (i) =>
+          `<li style="padding:2px 0;">${escapeHtml(i.name)} — <span style="color:#666;">${i.qty} ${escapeHtml(i.unit)}</span></li>`
+      )
+      .join("");
+    const body = `
+      <p style="font-size:16px;">שלום ${escapeHtml(first)} 👋</p>
+      <p style="font-size:15px;line-height:1.7;">
+        שמנו לב שהתחלת להכין הזמנה ב<strong>${escapeHtml(params.saleName)}</strong> — אבל היא עוד לא נשלחה.
+        שמרנו לך את מה שבחרת:
+      </p>
+      <ul style="margin:8px 0 14px;padding-right:20px;font-size:14px;line-height:1.6;">
+        ${list}${more > 0 ? `<li style="color:#666;">ועוד ${more}…</li>` : ""}
+      </ul>
+      <p style="text-align:center;margin:18px 0;">
+        <a href="${APP_URL}/order" style="background:#059669;color:#fff;text-decoration:none;font-weight:bold;font-size:16px;padding:12px 22px;border-radius:10px;display:inline-block;">
+          ✅ להשלמת ההזמנה
+        </a>
+      </p>
+      ${
+        params.closeText
+          ? `<p style="text-align:center;font-size:13px;color:#8b5a00;">ההזמנות נסגרות ${escapeHtml(params.closeText)}</p>`
+          : ""
+      }
+      <p style="font-size:12px;color:#888;margin-top:16px;">
+        כבר הזמנת בדרך אחרת, או שהחלטת לוותר? אפשר פשוט להתעלם מהמייל הזה 🙂
+      </p>`;
+    await getResend().emails.send({
+      from: FROM_ADDRESS,
+      to: params.to,
+      replyTo: settings.adminEmail,
+      subject: `🛒 ההזמנה שלך מחכה — עוד לא נשלחה`,
+      html: baseTemplate("ההזמנה שלך עוד לא נשלחה", body),
+    });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 500) };
+  }
+}
+
 export async function sendExcelOrderProblem(params: {
   to: string;
   customerName?: string | null;

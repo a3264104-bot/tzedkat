@@ -15,6 +15,19 @@
 //   2. מעביר עותק למנהל, כדי ששום מייל (שאלה, תלונה) לא ילך לאיבוד.
 
 export default {
+  // ⏰ כל חצי שעה: תזכורות לסלים שלא נשלחו (באתר — /api/cron/cart-reminders).
+  // התזמון כאן ולא ב-Vercel: שם cron מוגבל לפעם ביום.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      fetch(env.CART_REMINDERS_URL, {
+        method: "POST",
+        headers: { "x-inbound-secret": env.INBOUND_SECRET },
+      })
+        .then(async (r) => console.log("cart-reminders", r.status, (await r.text()).slice(0, 300)))
+        .catch((e) => console.log("cart-reminders error", String(e)))
+    );
+  },
+
   async email(message, env) {
     const raw = await new Response(message.raw).arrayBuffer();
 

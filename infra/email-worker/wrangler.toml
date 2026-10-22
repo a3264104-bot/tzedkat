@@ -9,5 +9,10 @@ workers_dev = false
 
 [vars]
 INBOUND_URL = "https://tzidkat.com/api/inbound/email"
+CART_REMINDERS_URL = "https://tzidkat.com/api/cron/cart-reminders"
 # FORWARD_TO הוסר: העותק למנהל נשלח מהאתר דרך אמזון (forwardInboundToAdmin),
 # בלי תלות באימות כתובת היעד ב-Cloudflare. אם יוגדר שוב — יהיו עותקים כפולים.
+
+# ⏰ תזכורות לסלים שלא נשלחו — כל חצי שעה (ראו scheduled ב-worker.js)
+[triggers]
+crons = ["*/30 * * * *"]
