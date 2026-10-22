@@ -11,6 +11,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+import { voiceInBackground } from "@/lib/phone-voice";
+
+// ההקלטה ברקע (waitUntil) לוקחת 10-20 שניות
+export const maxDuration = 60;
 
 export async function GET(req: Request) {
   const g = await requireAdmin();
@@ -59,6 +63,9 @@ export async function GET(req: Request) {
         // §401: 🔂 הודעת פתיחה — פעם אחת לכל מתקשר
         oncePerCaller: r.oncePerCaller,
         heardCount: r._count.heard,
+        // §410: 🎙️ מצב הקול הטבעי
+        hasVoice: !!r.audioPath,
+        voiceError: r.voiceError,
       };
     })
   );
@@ -97,6 +104,8 @@ export async function POST(req: Request) {
     },
     select: { id: true },
   });
+  // §410: 🎙️ קול טבעי ברקע
+  voiceInBackground([created.id]);
 
   return NextResponse.json({ ok: true, id: created.id });
 }
@@ -117,15 +126,37 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "ההודעה ארוכה מדי" }, { status: 400 });
     }
     data.text = t;
+    // טקסט חדש = הקלטה חדשה. עד שתהיה — הקראה רגילה של הטקסט החדש.
+    data.audioPath = null;
+    data.voiceError = null;
   }
+  // §410: "🎙️ הקלט מחדש" (הקול הקודם לא מצא חן)
+  const revoice = !!b.revoice;
   if ("expiresAt" in b) {
     data.expiresAt = b.expiresAt ? new Date(b.expiresAt) : null;
   }
-  if (Object.keys(data).length === 0) {
+  if (Object.keys(data).length === 0 && !revoice) {
     return NextResponse.json({ error: "אין שדות לעדכון" }, { status: 400 });
   }
 
+  if (revoice) {
+    data.audioPath = null;
+    data.voiceError = null;
+  }
   await prisma.phoneAnnouncement.update({ where: { id }, data });
+  if ("text" in data || revoice) {
+    if (revoice) {
+      // ⚠️ אחרת attachNaturalVoice ימצא "תאום" עם אותו טקסט וייקח את הקובץ הישן
+      const self = await prisma.phoneAnnouncement.findUnique({ where: { id }, select: { text: true } });
+      if (self) {
+        await prisma.phoneAnnouncement.updateMany({
+          where: { text: self.text, id: { not: id } },
+          data: { audioPath: null },
+        });
+      }
+    }
+    voiceInBackground([id]);
+  }
   return NextResponse.json({ ok: true });
 }
 

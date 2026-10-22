@@ -4,6 +4,7 @@
 // 3 מצבים: כולם / לפי נקודת חלוקה / בחירה ידנית
 
 import { useEffect, useState, useMemo } from "react";
+import VoicePreview from "@/components/VoicePreview";
 import {
   MAX_BROADCAST_ATTACHMENTS,
   type BroadcastAttachment,
@@ -799,6 +800,12 @@ export default function AdminBroadcastPage() {
               maxLength={450}
               className="w-full mt-1 px-3 py-2 border-2 border-zinc-300 rounded-lg text-sm"
             />
+            {/* §410: 🔊 השמעה לפני פרסום */}
+            {phoneText.trim() && (
+              <div className="mt-2">
+                <VoicePreview text={phoneText} />
+              </div>
+            )}
           </label>
         )}
 
@@ -834,6 +841,12 @@ export default function AdminBroadcastPage() {
               אחרי מועד זה ההודעה מפסיקה להישמע אוטומטית. חשוב במיוחד בעדכונים
               על שעות — הודעה על שינוי בחלוקה של היום לא צריכה להישמע מחר.
             </p>
+            {/* §410: 🔊 בטלפון נשמעים הכותרת והתוכן יחד */}
+            {(subject.trim() || message.trim()) && (
+              <div className="mt-2">
+                <VoicePreview text={`${subject}. ${message}`.slice(0, 450)} />
+              </div>
+            )}
           </label>
         )}
       </div>

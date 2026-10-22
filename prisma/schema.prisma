@@ -1311,6 +1311,10 @@ model PhoneAnnouncement {
   heard         PhoneAnnouncementHeard[]
   // תפוגה אוטומטית: הודעה על חלוקה של אתמול לא צריכה להישמע היום
   expiresAt    DateTime?
+  // §410: 🎙️ קול טבעי — נתיב הקובץ בימות (בלי סיומת). ריק = הקראה רגילה.
+  audioPath    String?
+  // למה אין קול טבעי (מוצג למנהל). ריק = הצליח או עוד לא נוסה.
+  voiceError   String?
 
   createdBy    String?
   createdAt    DateTime @default(now())
