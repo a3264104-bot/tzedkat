@@ -26,6 +26,7 @@ import {
   yemotResponse,
   playMessage,
   say,
+  sayAnnouncement,
   prompt,
   sayNumber,
   sayDigits,
@@ -444,7 +445,7 @@ async function handle(req: Request): Promise<Response> {
         heard: { none: { customerId: customer.id } },
       },
       orderBy: { createdAt: "desc" },
-      select: { id: true, text: true },
+      select: { id: true, text: true, audioPath: true },
     });
     if (launch?.text) {
       // ⚠️ createMany+skipDuplicates: שתי בקשות מקבילות של ימות לא
@@ -459,7 +460,7 @@ async function handle(req: Request): Promise<Response> {
         read(
           messages(
             say(`שלום ${customer.name}`),
-            say(launch.text),
+            sayAnnouncement(launch),
             prompt("launch_continue", "לתפריט ההזמנות הקש 1")
           ),
           { name: "LAUNCH", max: 1, min: 1, allowed: "1" }
@@ -499,7 +500,7 @@ async function handle(req: Request): Promise<Response> {
             OR: [{ expiresAt: null }, { expiresAt: { gt: nowForAnn } }],
           },
           orderBy: [{ pointId: "desc" }, { createdAt: "desc" }],
-          select: { text: true, pointId: true },
+          select: { text: true, pointId: true, audioPath: true },
         })
       : Promise.resolve([]),
   ]);
@@ -524,7 +525,7 @@ async function handle(req: Request): Promise<Response> {
         read(
           messages(
             prompt("announcement_intro", "הודעה חשובה"),
-            say(ann.text),
+            sayAnnouncement(ann),
             // §107: אותה מלכודת - חלופה מוסברת נוספה
             prompt("announcement_continue", "להמשך הקש 1, או כוכבית לתפריט הראשי")
           ),

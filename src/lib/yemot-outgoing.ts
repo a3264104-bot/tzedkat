@@ -7,6 +7,8 @@
 // ⚠️ ההגדרות של ימות נדרשות: YEMOT_USER ו-YEMOT_PASSWORD במשתני הסביבה.
 // בלעדיהם הפונקציה לא שולחת ומחזירה שגיאה מפורשת במקום להיכשל בשקט.
 
+import { speakableHebrew } from "@/lib/hebrew-speech";
+
 const YEMOT_API = "https://www.call2all.co.il/ym/api";
 
 type SendResult = { ok: boolean; error?: string; skipped?: boolean };
@@ -36,7 +38,9 @@ async function login(): Promise<string | null> {
  * נקודה, מקף, & ו-= הם מפרידים בפרוטוקול ושוברים את הבקשה.
  */
 function clean(text: string): string {
-  return String(text ?? "")
+  // §410: תאריכים, שעות וקיצורים במילים — ופסיק במקום נקודה בין משפטים
+  return speakableHebrew(text)
+    .replace(/\./g, ",")
     .replace(/[.\-–—]/g, " ")
     .replace(/[&=]/g, " ")
     .replace(/["'`׳״]/g, " ")

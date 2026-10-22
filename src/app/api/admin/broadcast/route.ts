@@ -40,6 +40,7 @@ import {
   createPhoneAnnouncement,
   expiryForDelivery,
 } from "@/lib/announcement-helper";
+import { voiceInBackground } from "@/lib/phone-voice";
 
 // 🐛 Resend מגביל ל-2 בקשות בשנייה. 8 מיילים במקביל כל 1.2 שניות חרגו
 // פי 3 — בהודעת הפתיחה של חשון נכשלו 575 מתוך 743. עכשיו: Batch API
@@ -234,7 +235,7 @@ export async function POST(req: Request) {
       where: { pricelistId: launchSale.id, oncePerCaller: true, isActive: true },
       data: { isActive: false },
     });
-    await prisma.phoneAnnouncement.create({
+    const launchAnn = await prisma.phoneAnnouncement.create({
       data: {
         pricelistId: launchSale.id,
         pointId: null,
@@ -245,7 +246,10 @@ export async function POST(req: Request) {
         expiresAt: launchSale.closeDate ?? null,
         createdBy: g.session?.user?.email ?? null,
       },
+      select: { id: true },
     });
+    // §410: 🎙️ קול טבעי ברקע
+    voiceInBackground([launchAnn.id]);
     announcementCreated = true;
   } else if (body?.alsoPhone) {
     // §396: 🔁 ההודעה הקולית נקשרת **למכירה שהמתקשר שומע**.

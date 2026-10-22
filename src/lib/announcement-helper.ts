@@ -10,6 +10,7 @@
 // ושוכח את הטלפון.
 
 import { prisma } from "@/lib/prisma";
+import { voiceInBackground } from "@/lib/phone-voice";
 
 /**
  * תפוגה אוטומטית בסוף יום החלוקה.
@@ -75,6 +76,8 @@ export async function createPhoneAnnouncement(params: {
       },
       select: { id: true },
     });
+    // §410: 🎙️ קול טבעי ברקע
+    voiceInBackground([created.id]);
     return { ok: true, id: created.id };
   } catch (e: any) {
     // לא זורקים: כישלון ביצירת ההודעה הקולית לא צריך להפיל שליחת

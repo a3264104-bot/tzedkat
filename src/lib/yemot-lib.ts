@@ -6,6 +6,9 @@
 //
 // תיעוד: https://f2.freeivr.co.il/topic/56
 
+import { speechSentences } from "@/lib/hebrew-speech";
+import { naturalVoiceEnabled } from "@/lib/phone-voice-flag";
+
 /** פרמטרים שימות שולחים בכל קריאה */
 export type YemotParams = Record<string, string>;
 
@@ -76,6 +79,24 @@ export function sanitizeTts(text: string): string {
 /** הודעת טקסט להשמעה */
 export function say(text: string): string {
   return `t-${sanitizeTts(text)}`;
+}
+
+/**
+ * §410: הקראת טקסט חופשי שהמנהל כתב (הודעות, פתיחת מכירה).
+ *
+ * בניגוד ל-say: תאריכים עבריים, שעות וקיצורים מתורגמים למילים
+ * (hebrew-speech), וכל משפט הוא מקטע נפרד — כך יש הפסקה בסוף משפט.
+ */
+export function sayText(text: string): string {
+  return speechSentences(text).map(say).join(".");
+}
+
+/**
+ * §410: הודעה של המנהל — קובץ הקול הטבעי אם הוקלט, אחרת הקראה.
+ */
+export function sayAnnouncement(ann: { text: string; audioPath?: string | null }): string {
+  if (ann.audioPath && naturalVoiceEnabled()) return `f-${ann.audioPath}`;
+  return sayText(ann.text);
 }
 
 /**

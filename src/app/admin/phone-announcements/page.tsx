@@ -10,6 +10,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/client";
+import VoicePreview from "@/components/VoicePreview";
 
 type Row = {
   id: string;
@@ -27,6 +28,9 @@ type Row = {
   /** §401: 🔂 הודעת פתיחה — פעם אחת לכל מתקשר */
   oncePerCaller?: boolean;
   heardCount?: number;
+  /** §410: 🎙️ קול טבעי */
+  hasVoice?: boolean;
+  voiceError?: string | null;
 };
 
 type Pricelist = { id: string; name: string; status: string };
@@ -135,6 +139,23 @@ export default function AnnouncementsPage() {
     }
   }
 
+  // §410: הקלטה מחדש בקול הטבעי
+  async function revoice(r: Row) {
+    setBusy(r.id);
+    try {
+      await api("/api/admin/phone-announcements", {
+        method: "PATCH",
+        body: JSON.stringify({ id: r.id, revoice: true }),
+      });
+      alert("ההקלטה החדשה תהיה מוכנה בעוד כחצי דקה");
+      setTimeout(load, 25_000);
+    } catch (e: any) {
+      alert("שגיאה: " + e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function remove(r: Row) {
     if (!confirm("למחוק את ההודעה?")) return;
     setBusy(r.id);
@@ -222,7 +243,7 @@ export default function AnnouncementsPage() {
           />
           <div className="flex justify-between text-xs mt-1">
             <span className="text-zinc-500">
-              ההודעה תוקרא בהקראה ממוחשבת. כדאי לכתוב במשפטים קצרים.
+              ההודעה תוקלט אוטומטית בקול טבעי. תאריכים (י&quot;א חשון) ושעות (22:00) נאמרים במילים.
             </span>
             <span className={fText.length > MAX_LEN - 50 ? "text-amber-700" : "text-zinc-400"}>
               <bdi>
@@ -247,6 +268,8 @@ export default function AnnouncementsPage() {
             על חלוקה שעברה לא תמשיך להישמע.
           </p>
         </label>
+
+        {fText.trim() && <VoicePreview text={fText} />}
 
         <button
           onClick={create}
@@ -311,6 +334,15 @@ export default function AnnouncementsPage() {
                     )}
                   </div>
                   <p className="text-sm text-brand-slatedark">{r.text}</p>
+                  <p className="text-xs mt-1">
+                    {r.hasVoice ? (
+                      <span className="text-emerald-700">🎙️ מושמע בקול טבעי</span>
+                    ) : r.voiceError ? (
+                      <span className="text-amber-700">🤖 מוקרא בהקראה ממוחשבת — {r.voiceError}</span>
+                    ) : (
+                      <span className="text-zinc-500">⏳ מקליט בקול טבעי… (עד אז — הקראה ממוחשבת)</span>
+                    )}
+                  </p>
                   <p className="text-xs text-zinc-400 mt-1">
                     נוצר {fmtDate(r.createdAt)}
                     {r.expiresAt && ` · תפוגה ${fmtDate(r.expiresAt)}`}
@@ -324,6 +356,14 @@ export default function AnnouncementsPage() {
                     className="btn-ghost btn-sm"
                   >
                     {r.isActive ? "כבה" : "הפעל"}
+                  </button>
+                  <button
+                    onClick={() => revoice(r)}
+                    disabled={busy === r.id}
+                    className="btn-ghost btn-sm"
+                    title="הקלטה חדשה בקול הטבעי"
+                  >
+                    🎙️ הקלט מחדש
                   </button>
                   <button
                     onClick={() => remove(r)}
