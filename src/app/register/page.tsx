@@ -220,7 +220,8 @@ function RegisterPageInner() {
   // §290: אחרי סגירת החלונית — ממשיכים לאן שהלקוח התכוון.
   function finishCardStep() {
     setCardForCustomerId(null);
-    router.replace(pendingRedirect || "/");
+    // אחרי ההרשמה — ישר לבחירת מוצרים (ולא לדף הבית), כדי שההרשמה לא תיראה כמו הזמנה
+    router.replace(pendingRedirect || "/order");
   }
 
   return (
@@ -608,6 +609,7 @@ function RegisterPageInner() {
         <UpdateCardModal
           customerId={cardForCustomerId}
           hasCurrentCard={false}
+          notAnOrderYet
           onSuccess={finishCardStep}
           onClose={finishCardStep}
         />

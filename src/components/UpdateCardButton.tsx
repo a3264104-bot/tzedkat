@@ -38,6 +38,8 @@ type Props = {
   buttonLabel?: string;
   // callback אחרי הצלחה
   onSuccess?: () => void;
+  /** לקוח ששומר כרטיס בעצמו: להבהיר שזו **לא הזמנה** (ראו UpdateCardModal) */
+  notAnOrderYet?: boolean;
 };
 
 // ═════════════════════════════════════════════════════════
@@ -50,6 +52,7 @@ export function UpdateCardButton({
   buttonClassName,
   buttonLabel,
   onSuccess,
+  notAnOrderYet,
 }: Props) {
   const [open, setOpen] = useState(false);
 
@@ -75,6 +78,7 @@ export function UpdateCardButton({
         <UpdateCardModal
           customerId={customerId}
           hasCurrentCard={hasCurrentCard}
+          notAnOrderYet={notAnOrderYet}
           onClose={() => setOpen(false)}
           onSuccess={() => {
             setOpen(false);
@@ -96,11 +100,18 @@ export function UpdateCardModal({
   hasCurrentCard,
   onClose,
   onSuccess,
+  notAnOrderYet = false,
 }: {
   customerId: string;
   hasCurrentCard?: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  /**
+   * 🐛 לקוחות נרשמו, הזינו כרטיס, חויבו ₪1 וראו "✅ אומת בהצלחה" — ובטוחים
+   * שהזמינו. בפועל עוד לא בחרו מוצר (19 לקוחות במכירת חשון). במצב הזה:
+   * הסבר מפורש שזו לא הזמנה, ובלי סגירה אוטומטית — הלקוח לוחץ "לבחירת מוצרים".
+   */
+  notAnOrderYet?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "verifying" | "success" | "error">(
@@ -179,7 +190,7 @@ export function UpdateCardModal({
         if (data.verified && newVerifiedAt && newVerifiedAt !== initial) {
           processingRef.current = true;
           setStatus("success");
-          setTimeout(() => onSuccess(), 1500); // מציג הודעת הצלחה לרגע
+          if (!notAnOrderYet) setTimeout(() => onSuccess(), 1500); // מציג הודעת הצלחה לרגע
         }
       } catch {
         // מתעלמים
@@ -286,7 +297,7 @@ export function UpdateCardModal({
           console.log("[UpdateCard] Token saved successfully:", saveData);
           processingRef.current = true;
           setStatus("success");
-          setTimeout(() => onSuccess(), 1500);
+          if (!notAnOrderYet) setTimeout(() => onSuccess(), 1500);
         } else {
           console.error("[UpdateCard] Failed to save token:", saveData);
           setStatus("error");
@@ -409,11 +420,28 @@ export function UpdateCardModal({
                 </svg>
               </div>
               <p className="font-extrabold text-brand-slatedark text-lg">
-                הכרטיס אומת בהצלחה!
+                {notAnOrderYet ? "הכרטיס נשמר" : "הכרטיס אומת בהצלחה!"}
               </p>
-              <p className="text-sm text-zinc-500 mt-1">
-                מהחיוב הבא ואילך ישתמש בכרטיס החדש
-              </p>
+              {notAnOrderYet ? (
+                <>
+                  <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-right text-sm leading-relaxed text-amber-900">
+                    <b>⚠️ שימו לב: עדיין לא בוצעה הזמנה.</b>
+                    <br />
+                    החיוב של ₪1 הוא רק אימות הכרטיס (ומקוזז מההזמנה). עכשיו בוחרים מוצרים ולוחצים{" "}
+                    <b>&quot;✅ שלח את ההזמנה&quot;</b>.
+                  </div>
+                  <button
+                    onClick={onSuccess}
+                    className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-base font-extrabold text-white hover:bg-emerald-700"
+                  >
+                    לבחירת מוצרים ←
+                  </button>
+                </>
+              ) : (
+                <p className="text-sm text-zinc-500 mt-1">
+                  מהחיוב הבא ואילך ישתמש בכרטיס החדש
+                </p>
+              )}
             </div>
           ) : cardRejected ? (
             // §46: מסך כרטיס נדחה - זו לא תקלה טכנית אלא מידע לפעולה

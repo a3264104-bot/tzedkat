@@ -401,7 +401,8 @@ export function AccountClient({
                     <UpdateCardButton
                       customerId={customer.id}
                       hasCurrentCard={false}
-                      onSuccess={() => window.location.reload()}
+                      notAnOrderYet
+                      onSuccess={() => (window.location.href = "/order")}
                     />
                   </div>
                 </div>
