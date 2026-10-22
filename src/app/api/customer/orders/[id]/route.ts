@@ -120,6 +120,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       data.pointId = body.pointId;
       data.pointNameSnapshot = point.name;
     }
+    // 📝 הערת הלקוח (§133) — נשמרת גם מעריכת ההזמנה
+    if ("customerNote" in body) {
+      const n = String(body.customerNote || "").trim().slice(0, 500);
+      data.customerNote = n.length > 0 ? n : null;
+      data.customerNoteAt = n.length > 0 ? new Date() : null;
+    }
     if ("notes" in body) {
       const n = String(body.notes || "").trim();
       data.notes = n.length > 0 ? n : null;

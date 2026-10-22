@@ -671,7 +671,9 @@ function buildDistributionSheet(
           (isLate ? "⭐ חדש · " : "") +
           `#${o.orderNumber}  ` +
           (o.customer?.name || o.customerName) +
-          "\n☐ הכל מוכן";
+          "\n☐ הכל מוכן" +
+          // 📝 הערת הלקוח (§133) — שהנציג יראה אותה גם על הנייר ביום החלוקה
+          (o.customerNote ? `\n📝 ${String(o.customerNote).slice(0, 120)}` : "");
         maxLines = Math.max(maxLines, linesFor(String(nameCell.value), 18, 10));
         nameCell.font = {
           bold: true,
