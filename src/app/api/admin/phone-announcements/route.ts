@@ -14,7 +14,7 @@ import { requireAdmin } from "@/lib/guard";
 import { voiceInBackground } from "@/lib/phone-voice";
 
 // ההקלטה ברקע (waitUntil) לוקחת 10-20 שניות
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function GET(req: Request) {
   const g = await requireAdmin();

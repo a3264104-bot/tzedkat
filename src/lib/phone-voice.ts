@@ -12,7 +12,7 @@
 //   GEMINI_API_KEY        — ההקלטה
 //   YEMOT_TOKEN           — "מספר-מערכת:סיסמה", להעלאת הקובץ לימות
 //   YEMOT_NATURAL_VOICE   — "false" מכבה את השמעת הקבצים (חזרה להקראה)
-//   YEMOT_VOICE_NAME      — קול של Gemini (ברירת מחדל Kore)
+//   YEMOT_VOICE_NAME      — קול של Gemini (ברירת מחדל Charon — קול גבר; רק קול גבר!)
 //   YEMOT_VOICE_DIR       — תיקייה בימות לקבצים (ברירת מחדל: שורש)
 
 import { waitUntil } from "@vercel/functions";
@@ -55,6 +55,31 @@ export async function generateVoiceWav(
   if (!key) return { ok: false, error: "חסר GEMINI_API_KEY", spoken };
   if (!spoken) return { ok: false, error: "אין טקסט להקלטה", spoken };
 
+  // ⚠️ המנוע לפעמים "נתקע" וחוזר על הטקסט (נמדדה הקלטה של 143 שניות
+  // לטקסט של 20). בודקים שהאורך סביר, ואם לא — מקליטים שוב.
+  const maxSeconds = Math.max(12, spoken.length * 0.16);
+  const minSeconds = spoken.length * 0.03;
+  let lastError = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const r = await callTts(key, spoken);
+    if (!r.ok) {
+      lastError = r.error;
+      continue;
+    }
+    const seconds = (r.wav.length - 44) / 2 / r.rate;
+    if (seconds > maxSeconds || seconds < minSeconds) {
+      lastError = `ההקלטה יצאה באורך חריג (${Math.round(seconds)} שניות)`;
+      continue;
+    }
+    return { ok: true, wav: r.wav, spoken };
+  }
+  return { ok: false, error: lastError || "ההקלטה נכשלה", spoken };
+}
+
+async function callTts(
+  key: string,
+  spoken: string
+): Promise<{ ok: true; wav: Buffer; rate: number } | { ok: false; error: string }> {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 40_000);
@@ -69,10 +94,8 @@ export async function generateVoiceWav(
             {
               parts: [
                 {
-                  text:
-                    "הקריאי בעברית, בקול חם וברור, בקצב רגוע, עם הפסקה קצרה בסוף כל משפט — " +
-                    "כמו הודעה מוקלטת במערכת טלפונית לקהל חרדי. אל תוסיפי שום מילה מעבר לטקסט:\n\n" +
-                    spoken,
+                  // ⚠️ קול גבר בלבד (בקשת המנהל) — גם בהנחיה וגם בבחירת הקול
+                  text: `קרא בקול גברי, חם וברור, בקצב רגוע, פעם אחת בלבד:\n${spoken}`,
                 },
               ],
             },
@@ -81,7 +104,7 @@ export async function generateVoiceWav(
             responseModalities: ["AUDIO"],
             speechConfig: {
               voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: process.env.YEMOT_VOICE_NAME || "Kore" },
+                prebuiltVoiceConfig: { voiceName: process.env.YEMOT_VOICE_NAME || "Charon" },
               },
             },
           },
@@ -93,12 +116,12 @@ export async function generateVoiceWav(
     const part = j?.candidates?.[0]?.content?.parts?.find((p: any) => p?.inlineData)?.inlineData;
     if (!res.ok || !part?.data) {
       const msg = String(j?.error?.message ?? `HTTP ${res.status}`).slice(0, 200);
-      return { ok: false, error: `ההקלטה נכשלה: ${msg}`, spoken };
+      return { ok: false, error: `ההקלטה נכשלה: ${msg}` };
     }
     const rate = Number(String(part.mimeType ?? "").match(/rate=(\d+)/)?.[1] ?? 24000);
-    return { ok: true, wav: pcmToWav(Buffer.from(part.data, "base64"), rate), spoken };
+    return { ok: true, wav: pcmToWav(Buffer.from(part.data, "base64"), rate), rate };
   } catch (e: any) {
-    return { ok: false, error: `ההקלטה נכשלה: ${String(e?.message ?? e).slice(0, 200)}`, spoken };
+    return { ok: false, error: `ההקלטה נכשלה: ${String(e?.message ?? e).slice(0, 200)}` };
   }
 }
 
