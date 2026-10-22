@@ -377,7 +377,7 @@ export default async function OrderPage({
       existingOrder={null}
       editMode={
         editOrder
-          ? { orderId: editOrder.id, orderNumber: editOrder.orderNumber, initialCart }
+          ? { orderId: editOrder.id, orderNumber: editOrder.orderNumber, initialCart, initialNotes: (editOrder as any).customerNote ?? null }
           : null
       }
     />

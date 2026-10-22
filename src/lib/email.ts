@@ -68,6 +68,8 @@ type OrderLike = {
   phone: string;
   phone2?: string | null;
   notes?: string | null;
+  /** 📝 הערת הלקוח לנציג/מנהל (§133) */
+  customerNote?: string | null;
   pointNameSnapshot?: string | null;
   deliveryDateSnapshot?: string | null;
   pricelistNameSnapshot?: string | null;
@@ -185,6 +187,7 @@ export async function sendAdminOrderNotification(
         <tr><td style="padding:4px 0;color:#666;">נקודה:</td><td>${escapeHtml(order.pointNameSnapshot ?? "")}</td></tr>
         ${order.deliveryDateSnapshot ? `<tr><td style="padding:4px 0;color:#666;">תאריך חלוקה:</td><td>${escapeHtml(order.deliveryDateSnapshot)}</td></tr>` : ""}
         ${order.notes ? `<tr><td style="padding:4px 0;color:#666;">הערות:</td><td>${escapeHtml(order.notes)}</td></tr>` : ""}
+        ${order.customerNote ? `<tr><td style="padding:4px 0;color:#b45309;font-weight:bold;">📝 הערת הלקוח:</td><td style="font-weight:bold;">${escapeHtml(order.customerNote)}</td></tr>` : ""}
       </table>
       <table style="width:100%;border-collapse:collapse;font-size:14px;">
         <thead><tr style="background:#FFE000;">

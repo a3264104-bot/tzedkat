@@ -153,6 +153,8 @@ export function OrderFlow({
     orderId: string;
     orderNumber: number;
     initialCart: Record<string, { cartonQty: number; singlesQty: number }>;
+    /** הערה שכבר נכתבה להזמנה (במצב עריכה) */
+    initialNotes?: string | null;
   } | null;
 }) {
   // §11: אם ללקוח יש נקודה שמורה ופעילה במכירה — דילוג ישירות למוצרים
@@ -188,6 +190,8 @@ export function OrderFlow({
   // 2. polling כל 3 שניות של /api/customer/verification-status
   // בלי מנעול, שני הם קוראים לdoSubmit ו-נוצרות 2 הזמנות!
   const submitLockRef = useRef<boolean>(false);
+  // 📝 הערה לנציג / למנהל — בקשה מיוחדת, תוספת וכו'. מוצגת להם בהזמנה ובדף החלוקה.
+  const [orderNote, setOrderNote] = useState<string>(editMode?.initialNotes ?? "");
   // 🔒 תשובת כרטיס מנדרים מתקבלת רק אחרי לחיצה על "שמור כרטיס" כאן
   const awaitingCardResponseRef = useRef<boolean>(false);
   const [orderNumber, setOrderNumber] = useState<number | null>(null);
@@ -955,6 +959,21 @@ export function OrderFlow({
     }
     await doSubmit();
   }
+  // ⚠️ לקוחות בחרו מוצרים, סגרו את הדפדפן, ובטוחים שהזמינו. כשיש מוצרים
+  // בסל ועוד לא נשלחה הזמנה — הדפדפן שואל "לצאת מהאתר?" לפני סגירה /
+  // יציאה. (הנוסח של החלון נקבע ע"י הדפדפן ולא ניתן לשינוי.)
+  useEffect(() => {
+    const dirty = step !== "done" && itemCount > 0 && !catalogOnly;
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (submitLockRef.current) return; // באמצע שליחה / אחרי שליחה
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [step, itemCount, catalogOnly]);
+
   // השליחה עצמה - נקראת ישירות (לקוח מאומת) או אוטומטית אחרי אימות
   async function doSubmit() {
     // 🚨 מנעול חד-פעמי - מונע קריאה כפולה
@@ -975,6 +994,7 @@ export function OrderFlow({
             pointId,
             customerName: customer.name,
             phone: (phone || customer.phone || "").trim(),
+            customerNote: orderNote.trim() || null,
             items: cartLines.map((l) => ({
               productId: l.product.id,
               isSingle: l.isSingle,
@@ -988,6 +1008,9 @@ export function OrderFlow({
             phone: (phone || customer.phone || "").trim(),
             phone2: null,
             notes: null,
+            // 📝 הערת הלקוח — אותו שדה כמו "הערה לנציג" באזור האישי (§133),
+            // כך שהיא מופיעה בדיוק באותם מקומות אצל הנציג והמנהל
+            customerNote: orderNote.trim() || null,
             requestedInstallments: estimatedTotal > 800 ? installments : 1,
             // §160: מחירים מותאמים למוצרים מועדפים. השרת מאמת
             // שהמוצר באמת מועדף ושהמחיר אינו נמוך מהמחירון.
@@ -1907,6 +1930,13 @@ export function OrderFlow({
                 </div>
               ))}
             </div>
+            {/* ⚠️ "בחרתי מוצרים = הזמנתי" — הטעות הנפוצה. כל עוד יש מוצרים
+                בסל ולא נשלח, אומרים את זה במפורש מעל הכפתור. */}
+            {itemCount > 0 && !catalogOnly && (
+              <div className="sticky bottom-24 z-10 mx-auto mt-3 max-w-xl rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-center text-sm font-bold text-amber-900 shadow">
+                🛒 בחרת {itemCount} מוצרים — <u>ההזמנה עוד לא נשלחה</u>. לחצו &quot;לסיכום ושליחת ההזמנה&quot; למטה.
+              </div>
+            )}
             <BottomBar>
               {/* §223: במחירון אין נקודת חלוקה - החזרה היא לדף
                   הבית, ולא לשלב שלא היה. */}
@@ -1957,7 +1987,7 @@ export function OrderFlow({
                     <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
                       {itemCount}
                     </span>
-                    <span>לסיכום</span>
+                    <span>לסיכום ושליחת ההזמנה</span>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                     </svg>
@@ -1970,7 +2000,12 @@ export function OrderFlow({
         {/* STEP: summary (ח3: כולל גם את הסל — אין שלב cart נפרד) */}
         {step === "summary" && point && (
           <section className="step-enter">
-            <h2 className="text-lg font-extrabold text-brand-slatedark mb-3">סיכום הזמנה</h2>
+            <h2 className="text-lg font-extrabold text-brand-slatedark mb-2">סיכום הזמנה</h2>
+            {/* ⚠️ זה עדיין לא אישור — רק סיכום. אומרים את זה בבירור. */}
+            <div className="mb-3 rounded-xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-center text-sm font-bold text-red-800">
+              ⚠️ ההזמנה <u>עוד לא נשלחה</u>. בדקו את הפרטים ולחצו על הכפתור{" "}
+              <span className="whitespace-nowrap">&quot;✅ {editMode ? "שמור את השינויים" : "שלח את ההזמנה"}&quot;</span> בתחתית.
+            </div>
             {/* פרטי חלוקה */}
             <div className="card p-4 space-y-2 text-sm">
               <Row label="נקודת חלוקה" value={point.name} />
@@ -2187,6 +2222,21 @@ export function OrderFlow({
                 עד אז תוכל/י לערוך או לבטל את ההזמנה באזור האישי.
               </div>
             )}
+            {/* 📝 הערה לנציג / למנהל — רואים אותה בהזמנה ובדף החלוקה */}
+            <div className="card p-3 mt-3">
+              <label className="block text-sm font-bold text-brand-slatedark" htmlFor="order-note">
+                📝 הערה לנציג / למנהל <span className="font-normal text-zinc-500">(לא חובה)</span>
+              </label>
+              <textarea
+                id="order-note"
+                value={orderNote}
+                onChange={(e) => setOrderNote(e.target.value.slice(0, 500))}
+                rows={2}
+                placeholder="בקשה מיוחדת, תוספת, איך לחתוך, שעת איסוף…"
+                className="mt-1.5 w-full rounded-lg border-2 border-zinc-200 p-2 text-sm focus:border-brand-rust focus:outline-none"
+              />
+              <div className="text-left text-[10px] text-zinc-400">{orderNote.length}/500</div>
+            </div>
             {error && <p className="text-red-600 text-sm mt-3 font-medium">{error}</p>}
             <BottomBar>
               <button onClick={() => setStep("products")} className="btn-ghost flex-1">
@@ -2195,7 +2245,7 @@ export function OrderFlow({
               <button
                 disabled={submitting || cartLines.length === 0 || catalogOnly}
                 onClick={submit}
-                className="btn-primary flex-1"
+                className="flex-1 rounded-xl bg-emerald-600 py-3 text-base font-extrabold text-white shadow-md transition-all hover:bg-emerald-700 hover:shadow-lg disabled:opacity-50"
               >
                 {/* §221: הכפתור מסביר למה הוא מושבת.
                     
@@ -2206,8 +2256,8 @@ export function OrderFlow({
                   : submitting
                     ? "שולח..."
                     : editMode
-                      ? "עדכן הזמנה"
-                      : "שליחת הזמנה"}
+                      ? "✅ שמור את השינויים"
+                      : "✅ שלח את ההזמנה"}
               </button>
             </BottomBar>
           </section>

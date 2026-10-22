@@ -17,6 +17,8 @@ const schema = z.object({
   // phone2/notes הם פר-הזמנה ונשארים כשדות אופציונליים מהלקוח
   phone2: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  // 📝 הערת הלקוח לנציג/מנהל בזמן ההזמנה (אותו שדה כמו §133)
+  customerNote: z.string().max(500).nullable().optional(),
   // §13: מספר תשלומים (1 או 2)
   requestedInstallments: z.number().min(1).max(2).optional(),
   // אם נציג מזמין בשם לקוח - מזהה הלקוח שעבורו מזמינים
@@ -651,6 +653,9 @@ export async function POST(req: Request) {
         phone: customer.phone ?? "",
         phone2: data.phone2 || null,
         notes: data.notes || null,
+        ...(data.customerNote && data.customerNote.trim()
+          ? { customerNote: data.customerNote.trim().slice(0, 500), customerNoteAt: new Date() }
+          : {}),
         requestedInstallments: data.requestedInstallments ?? 1,
         estimatedTotal,
         // §401: 💵 מזומן רק במכירה הזו → "מזומן להזמנה זו" (§332).
