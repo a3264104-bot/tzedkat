@@ -39,6 +39,7 @@ import {
   goToFolder,
 } from "@/lib/yemot-lib";
 import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
+import { loadVoicedPrompts } from "@/lib/voiced-prompts";
 // §64: קוד התחברות ללקוח שנרשם בטלפון
 // §76: decryptCode בלבד - ה-IVR מקריא קודים, לא מייצר אותם
 import { decryptCode } from "@/lib/login-code";
@@ -3181,6 +3182,8 @@ async function finalizeOrder(
 
 export async function GET(req: Request) {
   try {
+    // §411: 🎙️ הודעות המערכת בקול טבעי (מטמון של דקה)
+    await loadVoicedPrompts();
     return await handle(req);
   } catch (e: any) {
     console.error("[phone-ivr] error:", e);

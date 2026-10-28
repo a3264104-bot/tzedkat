@@ -11,6 +11,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/client";
 import VoicePreview from "@/components/VoicePreview";
+import SystemPromptsVoice from "@/components/SystemPromptsVoice";
 
 type Row = {
   id: string;
@@ -285,6 +286,9 @@ export default function AnnouncementsPage() {
           שגיאה: {err}
         </div>
       )}
+
+      {/* §411: הודעות המערכת בקול טבעי */}
+      <SystemPromptsVoice />
 
       {/* רשימה */}
       {loading ? (

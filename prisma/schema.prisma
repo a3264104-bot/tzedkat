@@ -857,6 +857,10 @@ model OrderItem {
 // הגדרות מערכת גלובליות - שורה יחידה, נערכת מאזור הניהול
 model SystemSettings {
   id                    String  @id @default("singleton")
+  // §411: 🎙️ הודעות המערכת שהוקלטו בקול טבעי (אין להן הקלטה אנושית).
+  // JSON { שם-הודעה: הטקסט שהוקלט }. מושמע רק אם voicedPromptsOn.
+  voicedPrompts         String?
+  voicedPromptsOn       Boolean @default(false)
   adminEmail            String  @default("m5402088@gmail.com")
   adminWhatsappPhone    String?
   sendEmailToCustomer   Boolean @default(true)
