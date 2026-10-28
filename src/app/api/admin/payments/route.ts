@@ -122,6 +122,12 @@ export async function GET(req: NextRequest) {
             paymentMethod: { notIn: ["CASH", "MANUAL"] },
             customer: { NOT: { paymentPreference: "CASH" } },
           },
+          // 🐛 NOT IN ב-SQL מפיל NULL: הזמנה בלי אמצעי תשלום (38 בחודש
+          // האחרון) לא הופיעה אף פעם ב"מוכן לחיוב". NULL = לא מזומן.
+          {
+            paymentMethod: null,
+            customer: { NOT: { paymentPreference: "CASH" } },
+          },
           // מזומן שכבר שילם חלקית — היתרה על הכרטיס
           { amountPaid: { gt: 0 } },
         ];
