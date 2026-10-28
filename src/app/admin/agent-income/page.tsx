@@ -32,6 +32,10 @@ type Row = {
   walkins: number;
   walkinCount: number;
   debtCollected: number;
+  /** 💸 חוב שהנציג רשם ונגבה — כלול בנטו */
+  debtAgent: number;
+  /** 💸 חוב של המנהל שנגבה — לא נספר אצל הנציג */
+  debtAdmin: number;
   pending: number;
   pendingOrders: number;
 };
@@ -48,6 +52,8 @@ const NUM_KEYS = [
   "adminCash",
   "walkins",
   "debtCollected",
+  "debtAgent",
+  "debtAdmin",
   "pending",
   "pendingOrders",
 ] as const;
@@ -139,8 +145,8 @@ export default function AgentIncomePage() {
         </h1>
         <p className="text-sm text-zinc-600 mt-1 max-w-3xl leading-relaxed">
           <b>נטו</b> = מה שנגבה מהמכירה פחות דמי ההזמנה (₪3 לכל הזמנה ששולמה). זה הסכום
-          למשבצת של הנציג באקסל. חוב קודם שנגבה באותן הזמנות לא נכלל (הוא מופיע בנפרד),
-          וטרם נגבה מופיע לחוד.
+          למשבצת של הנציג באקסל. <b>חוב שהנציג רשם ונגבה — נכלל בנטו שלו</b>; חוב שהמנהל
+          רשם — לא נכלל (מופיע בעמודה נפרדת), גם אם הלקוח בנקודה של הנציג. טרם נגבה מופיע לחוד.
         </p>
       </div>
 
@@ -196,7 +202,8 @@ export default function AgentIncomePage() {
                   <th className="text-left p-2">💵 אצל הנציג</th>
                   <th className="text-left p-2">💵 אצלך</th>
                   <th className="text-left p-2">⏳ טרם נגבה</th>
-                  <th className="text-left p-2">חוב קודם שנגבה</th>
+                  <th className="text-left p-2">💸 חוב של הנציג (בנטו)</th>
+                  <th className="text-left p-2">חוב של המנהל</th>
                 </tr>
               </thead>
               <tbody>
@@ -215,7 +222,8 @@ export default function AgentIncomePage() {
                   <Money v={grand.agentCash} />
                   <Money v={grand.adminCash} />
                   <Money v={grand.pending} />
-                  <Money v={grand.debtCollected} />
+                  <Money v={grand.debtAgent} />
+                  <Money v={grand.debtAdmin} />
                 </tr>
               </tbody>
             </table>
@@ -246,7 +254,8 @@ function GroupRows({ agent, rows, total }: { agent: string; rows: Row[]; total: 
         <Money v={total.agentCash} bold />
         <Money v={total.adminCash} bold />
         <Money v={total.pending} bold />
-        <Money v={total.debtCollected} bold />
+        <Money v={total.debtAgent} bold />
+        <Money v={total.debtAdmin} bold />
       </tr>
       {rows.length > 1 &&
         rows.map((r) => (
@@ -265,12 +274,13 @@ function GroupRows({ agent, rows, total }: { agent: string; rows: Row[]; total: 
             <Money v={r.agentCash} />
             <Money v={r.adminCash} />
             <Money v={r.pending} />
-            <Money v={r.debtCollected} />
+            <Money v={r.debtAgent} />
+            <Money v={r.debtAdmin} />
           </tr>
         ))}
       {rows.length === 1 && (
         <tr className="border-t border-zinc-100">
-          <td colSpan={10} className="p-1 pr-6 text-xs text-zinc-500">
+          <td colSpan={11} className="p-1 pr-6 text-xs text-zinc-500">
             📍 {rows[0].pointName}
             {rows[0].city ? ` · ${rows[0].city}` : ""}
           </td>

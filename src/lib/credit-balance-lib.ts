@@ -11,6 +11,8 @@
 // שתלוי באיזה ערוץ הזמין.
 
 import { fmt } from "@/lib/pricing";
+import { Prisma } from "@prisma/client";
+import { addOwners, ownersForBalance } from "@/lib/debt-owners-lib";
 
 export type CreditApplication = {
   /** כמה קוזז בפועל בהזמנה הזו */
@@ -107,7 +109,7 @@ export async function applyBalanceToOrder(
     prisma.customer.findUnique({
       where: { id: customerId },
       // §263: החוב נשלף יחד עם הזכות - שניהם משפיעים על הסכום.
-      select: { creditBalance: true, debtBalance: true },
+      select: { creditBalance: true, debtBalance: true, debtOwners: true },
     }),
     prisma.order.findUnique({
       where: { id: orderId },
@@ -115,6 +117,7 @@ export async function applyBalanceToOrder(
       select: {
         appliedCreditBalance: true,
         appliedDebt: true,
+        appliedDebtOwners: true,
         orderNumber: true,
         pricelistId: true,
       },
@@ -147,6 +150,12 @@ export async function applyBalanceToOrder(
   // ⚠️ **כל** החוב נגבה, לא חלקי: חוב הוא כסף שכבר חייבים,
   // ואין סיבה לפרוס אותו על כמה הזמנות.
   const debtApplied = Math.round(debtAvailable * 100) / 100;
+  // 💸 הפירוק לפי בעלים עובר יחד עם החוב (מה שעל הלקוח + מה שכבר
+  // על ההזמנה — אותה אידמפוטנטיות).
+  const debtOwnersNow = addOwners(
+    ownersForBalance(customer?.debtOwners, Number(customer?.debtBalance ?? 0)),
+    ownersForBalance(order?.appliedDebtOwners, alreadyDebt)
+  );
   const totalWithDebt = Math.round((totalBeforeCredit + debtApplied) * 100) / 100;
 
   const { applied, remaining, payable } = applyCreditBalance(
@@ -166,7 +175,7 @@ export async function applyBalanceToOrder(
           // ⚠️ ההערה נמחקת יחד איתו: "חוב ₪0 על מכירת פסח"
           // מבלבל, והלקוח כבר שילם.
           ...(debtApplied > 0
-            ? { debtBalance: 0, debtNote: null }
+            ? { debtBalance: 0, debtNote: null, debtOwners: Prisma.DbNull }
             : {}),
         },
       }),
@@ -175,28 +184,31 @@ export async function applyBalanceToOrder(
         data: {
           appliedCreditBalance: applied > 0 ? applied : null,
           appliedDebt: debtApplied > 0 ? debtApplied : null,
+          appliedDebtOwners: debtApplied > 0 ? debtOwnersNow : Prisma.DbNull,
         },
       }),
       // §368: 📒 תנועת גבייה — רק כשהחוב **חדש** בהזמנה הזו.
       //
       // ⚠️ אידמפוטנטי: applyBalance רץ בכל שקילה. תנועה נכתבת רק
       // כש-debtApplied השתנה, אחרת כל שקילה הייתה רושמת "נגבה".
+      // 💸 שורה לכל בעלים — כדי שיהיה ברור כמה מהגבייה של הנציג.
       ...(debtApplied > 0 && debtApplied !== alreadyDebt
-        ? [
+        ? Object.entries(debtOwnersNow).map(([ownerKey, amt]) =>
             prisma.debtLedger.create({
               data: {
                 customerId,
                 kind: "COLLECT",
-                amount: -debtApplied,
+                amount: -amt,
                 balanceAfter: 0,
                 note: `נגבה בהזמנה #${orderNum ?? "?"}`,
                 orderId,
                 pricelistId: pricelistId ?? null,
                 agentId: agentId ?? null,
+                ownerKey,
                 createdBy: agentId ?? "system",
               },
-            }),
-          ]
+            })
+          )
         : []),
     ]);
   }

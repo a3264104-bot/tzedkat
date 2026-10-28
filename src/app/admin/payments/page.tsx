@@ -19,6 +19,7 @@ import {
 // §296: מקור אמת יחיד לפריסה
 import { INSTALLMENT_OPTIONS } from "@/lib/installments-lib";
 import { payStatusLabel, payStatusColor, payStatusNeedsAttention } from "@/lib/pay-status-lib";
+import { DebtsView } from "./DebtsView";
 
 // מבנה PayOrder כפי שמוחזר מ-/api/admin/payments
 type PayOrder = {
@@ -60,6 +61,9 @@ type PayOrder = {
   activeItemsCount?: number;
   /** §400: הנציג סימן V */
   agentClosedAt?: string | null;
+  /** 🔒 ננעל (✓ של הנציג / נעילת משקלים) — רק אז "מוכן לחיוב" */
+  locked?: boolean;
+  orderStatus?: string;
 };
 
 /** §400: הזמנה שלא תיכלל בחיוב — מהשרת, בלי קשר לסינון */
@@ -80,25 +84,24 @@ type Pricelist = { id: string; name: string; status: string };
 
 // אפשרויות סינון סטטוס
 const FILTER_OPTIONS: { value: string; label: string }[] = [
-  // §258: 🐛 הבורר הציע סטטוסים שלא קיימים במערכת.
+  // 🧭 הסינונים לפי סדר העבודה. כל אחד אומר בדיוק מה הוא מציג.
   //
-  // "מוכן לחיוב" סינן לפי READY_TO_CHARGE - סטטוס שאף אחד לא
-  // מסמן (§250). המנהל בחר בו, קיבל רשימה ריקה, והסיק שאין מה
-  // לחייב - בזמן שהיו 4 הזמנות מוכנות.
-  //
-  // ⚠️ "ניתן לחייב עכשיו" מסנן לפי **מחיר סופי**, בדיוק כמו
-  // הכפתור. מה שהבורר מבטיח הוא מה שהוא נותן.
-  { value: "chargeable", label: "💳 ניתן לחייב עכשיו" },
+  // ⚠️ "מוכן לחיוב" = נשקל **וננעל** (הנציג סימן ✓). הזמנה שנשקלה ולא
+  // ננעלה עדיין יכולה להשתנות — היא בסינון נפרד, ולא נגבית בסבב.
+  { value: "chargeable", label: "💳 מוכן לחיוב — נשקל וננעל ✓" },
+  { value: "unlocked", label: "⏳ נשקל — ממתין לנעילה (אין ✓)" },
+  { value: "AWAITING_WEIGHING", label: "⚖️ טרם נשקל" },
+  { value: "FAILED", label: "❌ חיוב נכשל" },
+  { value: "CARD_UPDATE_NEEDED", label: "🪪 נדרש עדכון כרטיס" },
+  // §389: תשלום חלקי — מי שנותרה לו יתרה, מכל שיטה
+  { value: "PARTIALLY_PAID", label: "⚠️ שולם חלקית — נותרה יתרה" },
   // §383: לקוחות מזומן — לסימון תשלום בחלוקה
   { value: "cash", label: "💵 לקוחות מזומן" },
-  // §389: תשלום חלקי — מי שנותרה לו יתרה, מכל שיטה
-  { value: "PARTIALLY_PAID", label: "⚠️ תשלום חלקי — נותרה יתרה" },
-  { value: "default", label: "פעולות פתוחות" },
-  { value: "all", label: "כל הסטטוסים" },
-  { value: "FAILED", label: "חיוב נכשל בלבד" },
-  { value: "CARD_UPDATE_NEEDED", label: "נדרש עדכון כרטיס בלבד" },
-  { value: "AWAITING_WEIGHING", label: "ממתין לשקילה בלבד" },
-  { value: "PAID", label: "שולם בלבד" },
+  // 💸 חובות לקוחות — לפי מי רשם, עם גבייה מיידית
+  { value: "debts", label: "💸 חובות לקוחות" },
+  { value: "PAID", label: "✅ שולם" },
+  { value: "default", label: "📋 כל מה שלא שולם (כל המצבים)" },
+  { value: "all", label: "🗂️ הכל — כולל שולם ומבוטל" },
 ];
 
 // אילו סטטוסים מאפשרים ללחוץ "חייב עכשיו"?
@@ -265,6 +268,11 @@ export default function PaymentsPage() {
   const fetchOrders = useCallback(async () => {
     // §380: ממתינים לבחירה — לא טוענים "הכל" ואז שוב את הנבחרת.
     if (!fPricelist) return;
+    // 💸 תצוגת החובות טוענת בעצמה (DebtsView)
+    if (filter === "debts") {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setFetchError(null);
     try {
@@ -427,6 +435,9 @@ export default function PaymentsPage() {
       chargeOverride ??
       Math.max(0, Math.round((Number(amount) - paidSoFar) * 100) / 100);
     const confirmMsg =
+      (order.locked === false
+        ? `⚠️ ההזמנה עוד לא ננעלה — הנציג לא סימן ✓, והמשקלים עדיין יכולים להשתנות.\n\n`
+        : "") +
       `לחייב את הזמנה #${order.orderNumber}?\n\n` +
       `לקוח: ${order.customerName}\n` +
       (paidSoFar > 0
@@ -627,6 +638,9 @@ export default function PaymentsPage() {
     // אמיתית קטנה (פריט ב-2 + טיפול 3 − שקל = 4). מה שקובע
     // הוא אם יש סחורה, לא כמה היא עולה.
     if ((o.activeItemsCount ?? 1) === 0) return false;
+    // 🔒 רק מה שננעל (✓) נכנס לסבב החיוב
+    if (o.locked === false) return false;
+    if (o.orderStatus === "CANCELLED") return false;
     return true;
   });
   // §397: 🐛 **הסכום לחיוב = היתרה, לא כל ההזמנה.**
@@ -1144,17 +1158,19 @@ export default function PaymentsPage() {
         )}
       </div>
 
+      {filter === "debts" && <DebtsView pricelistId={fPricelist} />}
+
       {/* שגיאת טעינה */}
-      {fetchError && (
+      {filter !== "debts" && fetchError && (
         <div className="bg-red-50 text-red-800 border border-red-200 rounded-lg p-4 mb-4 text-sm">
           שגיאה בטעינת רשימת התשלומים: {fetchError}
         </div>
       )}
 
-      {loading && <div className="text-center py-12 text-zinc-500">טוען...</div>}
+      {filter !== "debts" && loading && <div className="text-center py-12 text-zinc-500">טוען...</div>}
 
       {/* מצב ריק */}
-      {!loading && !fetchError && orders.length === 0 && (
+      {filter !== "debts" && !loading && !fetchError && orders.length === 0 && (
         <div className="text-center py-12 bg-white rounded-xl border border-zinc-200">
           <p className="font-medium text-brand-slatedark">אין הזמנות בסינון הנוכחי</p>
           <p className="text-sm text-zinc-500 mt-1">
@@ -1166,7 +1182,7 @@ export default function PaymentsPage() {
       )}
 
       {/* רשימת הזמנות */}
-      {!loading && orders.length > 0 && (
+      {filter !== "debts" && !loading && orders.length > 0 && (
         <div className="space-y-3">
           {/* §261: חיווי כשהחיפוש מסתיר תוצאות.
               
@@ -1289,9 +1305,27 @@ function OrderCard({
     order.customer?.paymentPreference === "CASH" ||
     order.paymentMethod === "CASH" ||
     order.paymentMethod === "MANUAL";
-  const statusLabel = payStatusLabel(order.paymentStatus);
-  const statusColor = payStatusColor(order.paymentStatus);
-  const showCharge = canCharge(order.paymentStatus, order.finalTotal, order.paymentStatus);
+  // ⏳ נשקל ולא שולם — אבל לא ננעל: לא "מוכן לחיוב" עדיין
+  const awaitingLock =
+    order.locked === false &&
+    order.finalTotal != null &&
+    !["PAID", "CHARGING", "REFUNDED", "CANCELLED", "DEBT_CARRIED", "PAYMENT_PENDING"].includes(
+      order.paymentStatus
+    );
+  const statusLabel =
+    order.orderStatus === "CANCELLED"
+      ? "🚫 הזמנה מבוטלת"
+      : awaitingLock
+        ? "⏳ נשקל — ממתין לנעילה (✓)"
+        : order.finalTotal == null && ["PENDING", "AWAITING_WEIGHING", "TOKEN_CREATED"].includes(order.paymentStatus)
+          ? "⚖️ טרם נשקל"
+          : payStatusLabel(order.paymentStatus);
+  const statusColor = awaitingLock
+    ? "bg-amber-100 text-amber-800"
+    : payStatusColor(order.paymentStatus);
+  const showCharge =
+    order.orderStatus !== "CANCELLED" &&
+    canCharge(order.paymentStatus, order.finalTotal, order.paymentStatus);
   const cardBlocked = order.customer.cardNeedsUpdate;
   const hasFinalTotal = order.finalTotal !== null;
 
@@ -1524,7 +1558,7 @@ function OrderCard({
             disabled={isCharging || cardBlocked || !hasFinalTotal || !order.customer.hasToken}
             className="px-4 py-2 bg-brand-rust text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {isCharging ? "מחייב..." : "💳 חייב עכשיו"}
+            {isCharging ? "מחייב..." : awaitingLock ? "💳 גבה בכל זאת (לא ננעל)" : "💳 גבה עכשיו"}
           </button>
           )}
           {/* §390: 💳 חלקי — "תחייב 500, השאר מזומן". */}

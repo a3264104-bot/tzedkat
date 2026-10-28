@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { restoreDebtOwners } from "@/lib/debt-restore-lib";
 // §124: קיזוז יתרת זכות
 import { applyBalanceToOrder } from "@/lib/credit-balance-lib";
 import { requireAdmin } from "@/lib/guard";
@@ -219,6 +220,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       });
       // §368: 📒 תנועת החזרה בספר
       if (restoreDebt > 0) {
+        // 💸 גם הבעלות על החוב חוזרת ללקוח (נציג / מנהל)
+        await restoreDebtOwners(current.customerId, (current as any).appliedDebtOwners, restoreDebt);
         const cust = await prisma.customer.findUnique({
           where: { id: current.customerId },
           select: { debtBalance: true },
@@ -580,6 +583,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       customerId: true,
       paymentStatus: true,
       appliedDebt: true,
+      appliedDebtOwners: true,
       appliedCreditBalance: true,
       amountPaid: true,
     },
@@ -630,6 +634,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     });
     // §368: תנועה בספר
     if (debt > 0) {
+      await restoreDebtOwners(order.customerId, order.appliedDebtOwners, debt);
       const c = await prisma.customer.findUnique({
         where: { id: order.customerId },
         select: { debtBalance: true },
