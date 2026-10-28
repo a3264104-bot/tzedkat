@@ -133,7 +133,7 @@ function voicePath(announcementId: string): string {
   return dir ? `${dir}/${name}` : name;
 }
 
-async function uploadToYemot(path: string, wav: Buffer): Promise<string | null> {
+export async function uploadToYemot(path: string, wav: Buffer): Promise<string | null> {
   const token = process.env.YEMOT_TOKEN;
   if (!token || !token.includes(":")) return "חסר YEMOT_TOKEN";
   const fd = new FormData();

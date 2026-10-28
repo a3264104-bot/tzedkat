@@ -172,6 +172,9 @@ export const USE_RECORDINGS = process.env.YEMOT_USE_RECORDINGS !== "false";
  */
 export function prompt(file: string, text: string): string {
   if (!USE_RECORDINGS) return say(text);
+  // §411: 🎙️ אין הקלטה אנושית — הקלטה בקול טבעי (רק אם הנוסח זהה למה שהוקלט)
+  const voiced = voicedPromptFile(file, text);
+  if (voiced) return voiced;
   // הודעות שסומנו כנדירות נשארות בהקראה ממוחשבת גם כשהמתג דלוק -
   // אין טעם להקליט הודעות שגיאה שרוב הלקוחות לעולם לא ישמעו.
   // §101: הקלטה שסומנה כמוכנה גוברת על רשימת ה-TTS
@@ -288,6 +291,29 @@ const RECORDED = new Set(
     .map((x) => x.trim())
     .filter(Boolean)
 );
+
+// ─────────────────────────────────────────────────────────────
+// §411: 🎙️ הודעות מערכת בקול טבעי
+// ─────────────────────────────────────────────────────────────
+//
+// הודעות שאין להן הקלטה אנושית הוקלטו אוטומטית (מסך "הודעות טלפוניות"
+// → "הודעות המערכת") ועלו לימות בשם nv_<שם>.wav. הרשימה נשמרת במסד
+// ונטענת בתחילת כל שיחה (loadVoicedPrompts, עם מטמון של דקה).
+//
+// ⚠️ הקלטה אנושית תמיד גוברת: הכלי לא מקליט הודעה שיש לה קובץ בימות.
+
+let VOICED: Record<string, string> = {};
+
+export function setVoicedPrompts(map: Record<string, string>): void {
+  VOICED = map;
+}
+
+/** הקובץ להשמעה, או null אם אין הקלטה טבעית תואמת */
+export function voicedPromptFile(file: string, text: string): string | null {
+  if (!naturalVoiceEnabled()) return null;
+  if (VOICED[file] !== text) return null;
+  return `f-nv_${file}`;
+}
 
 /** שרשור כמה הודעות ברצף - מופרדות בנקודה לפי הפרוטוקול */
 export function messages(...parts: string[]): string {
