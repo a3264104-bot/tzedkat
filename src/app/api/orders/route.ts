@@ -1,4 +1,5 @@
 import { isCashFor, newOrderPaymentMethod } from "@/lib/cash-customer";
+import { loadAgentPrices, usableSavedPrice, isHiddenProduct } from "@/lib/agent-prices-lib";
 import { NextResponse } from "next/server";
 // §202: תוקף כרטיס האשראי
 import { canChargeCard } from "@/lib/card-expiry-lib";
@@ -427,6 +428,10 @@ export async function POST(req: Request) {
     // build server-side priced items - לא סומכים על מחירים מהלקוח
     const itemsData = [];
     let estimatedTotal = 0;
+    // 🏷️ המחירים השמורים של הנציג/המנהל שמזמין — ברירת מחדל למוצר נסתר
+    const savedPrices = placedByAgentId
+      ? await loadAgentPrices(placedByAgentId)
+      : new Map<string, number>();
     for (const item of data.items) {
       let pp = pricelist.products.find((x) => x.productId === item.productId);
 
@@ -515,7 +520,12 @@ export async function POST(req: Request) {
       // ⚠️ unitPrice נשאר **מחיר המחירון** - הוא הבסיס לחישוב
       // העמלה. מה שנגבה בפועל יושב ב-agentSetPrice.
       let agentSetPrice: number | null = null;
-      const wanted = data.favoritePrices?.[pp.product.id];
+      // 🏷️ לא נשלח מחיר — נופלים למחיר השמור של הנציג (אם תקף)
+      const wanted =
+        data.favoritePrices?.[pp.product.id] ??
+        (placedByAgentId && isHiddenProduct(pp.product)
+          ? usableSavedPrice(savedPrices.get(pp.product.id), unitPrice) ?? undefined
+          : undefined);
       // §170: תמחור עצמי - מועדף **או** מוצר שאינו פעיל באתר.
       // שניהם "מוצר שהלקוח לא רואה והנציג מוכר לפי בקשה".
       if (

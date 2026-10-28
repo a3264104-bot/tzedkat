@@ -24,7 +24,8 @@
 // לכן הם מוצגים כאן בקבוצה נפרדת ומסומנת, ולא מעורבבים ברשימה -
 // כדי שברור שזו החלטה ולא בחירה מקרית.
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useAgentSavedPrices } from "./useAgentSavedPrices";
 import { effectiveUnitPrice, fmt } from "@/lib/pricing";
 
 export type AddableProduct = {
@@ -67,6 +68,12 @@ export function AddOrderItem({
   const [qty, setQty] = useState("1");
   // §119: מחיר שהנציג קובע במוצר מועדף
   const [customPrice, setCustomPrice] = useState("");
+  // 🏷️ המחיר השמור של הנציג ממולא כשבוחרים מוצר נסתר
+  const savedPrices = useAgentSavedPrices();
+  useEffect(() => {
+    const saved = productId ? savedPrices[productId] : undefined;
+    setCustomPrice(saved != null ? saved.toFixed(2) : "");
+  }, [productId, savedPrices]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 

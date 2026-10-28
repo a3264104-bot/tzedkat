@@ -319,6 +319,26 @@ export function OrderFlow({
   // ⚠️ מוגדר **לפני** cartLines: החישוב תלוי בו, וב-JS
   // const אינו עולה למעלה כמו function.
   const [favPrices, setFavPrices] = useState<Record<string, string>>({});
+  // 🏷️ המחירים השמורים של הנציג (/agent/my-prices) ממולאים מראש.
+  // מחיר שהנציג כבר הקליד במסך הזה לא נדרס.
+  useEffect(() => {
+    if (!onBehalfOfCustomerId) return;
+    let alive = true;
+    fetch("/api/agent/my-prices", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive || !d?.products) return;
+        const saved: Record<string, string> = {};
+        for (const p of d.products) {
+          if (p.savedPrice != null) saved[p.id] = Number(p.savedPrice).toFixed(2);
+        }
+        setFavPrices((prev) => ({ ...saved, ...prev }));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [onBehalfOfCustomerId]);
   // §397: ⚖️ **משקל בפועל כבר בהזמנה** — נציג בלבד, הזמנה חדשה בלבד.
   //
   // הצורך מהשטח: הרבה הזמנות של נציג הן ללקוח שכבר לקח את הסחורה.
