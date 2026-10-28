@@ -190,7 +190,7 @@ export default function AgentIncomePage() {
           </div>
 
           <div className="bg-white border border-zinc-200 rounded-xl overflow-x-auto">
-            <table className="w-full text-sm min-w-[860px]">
+            <table className="w-full text-sm min-w-[1080px]">
               <thead className="bg-zinc-50 text-zinc-600 text-xs">
                 <tr>
                   <th className="text-right p-2">נקודה</th>
@@ -230,7 +230,7 @@ export default function AgentIncomePage() {
           </div>
           {grand.walkins > 0 && (
             <p className="text-xs text-zinc-500">
-              כולל ₪{fmt(grand.walkins)} ממזדמנים ישנים (לפני שהומרו ללקוחות) — בלי דמי הזמנה.
+              כולל {fmt(grand.walkins)} ממזדמנים ישנים (לפני שהומרו ללקוחות) — בלי דמי הזמנה.
             </p>
           )}
         </>
@@ -292,8 +292,8 @@ function GroupRows({ agent, rows, total }: { agent: string; rows: Row[]; total: 
 
 function Money({ v, bold }: { v: number; bold?: boolean }) {
   return (
-    <td className={`p-2 text-left tabular-nums ${bold ? "font-bold" : ""} ${v === 0 ? "text-zinc-300" : ""}`} dir="ltr">
-      {v === 0 ? "—" : `₪${fmt(v)}`}
+    <td className={`p-2 text-left tabular-nums whitespace-nowrap ${bold ? "font-bold" : ""} ${v === 0 ? "text-zinc-300" : ""}`} dir="ltr">
+      {v === 0 ? "—" : fmt(v)}
     </td>
   );
 }
@@ -307,7 +307,7 @@ function Kpi({ label, value, strong, warn }: { label: string; value: number; str
     >
       <div className="text-xs text-zinc-600">{label}</div>
       <div className={`text-xl font-extrabold tabular-nums ${strong ? "text-emerald-800" : "text-brand-slatedark"}`} dir="ltr">
-        ₪{fmt(value)}
+        {fmt(value)}
       </div>
     </div>
   );
