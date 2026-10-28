@@ -1092,6 +1092,70 @@ function WeightCell({
   const [error, setError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // 🐛 **משקל של קרטון שני "לא נשמר" (הזמנה 802: [7.54, null]).**
+  //
+  // המשבצות היו disabled בזמן שמירה. הנציג מילא קרטון 1 ועבר לקרטון
+  // 2 — ה-blur של 1 התחיל שמירה, ושתי המשבצות ננעלו. משבצת נעולה
+  // מאבדת פוקוס בלי blur, ולכן מה שהוקלד בקרטון 2 לא נשלח לעולם.
+  // על המסך הערך נראה, ביציאה וחזרה — ריק.
+  //
+  // ✅ עכשיו: המשבצות לא ננעלות, והשמירות רצות בתור אחת אחרי השנייה.
+  // כל שמירה קוראת את הערכים **ברגע הריצה** (partsRef), כך שהאחרונה
+  // תמיד שולחת את המצב העדכני. שמירה זהה לאחרונה שנשלחה — מדלגים.
+  const cartonChainRef = useRef<Promise<void>>(Promise.resolve());
+  const cartonSentRef = useRef<string>(
+    JSON.stringify(parts.map((x) => x.trim()))
+  );
+  function queueCartonSave() {
+    cartonChainRef.current = cartonChainRef.current.then(async () => {
+      const cur = [...partsRef.current];
+      const key = JSON.stringify(cur.map((x) => x.trim()));
+      if (key === cartonSentRef.current) return;
+      const filled = cur.filter((x) => x.trim() !== "");
+      let body: Record<string, unknown>;
+      let sum: number | null = null;
+      if (filled.length === 0) {
+        // כל המשבצות ריקות — מחיקה
+        body = { agentEnteredWeight: null };
+      } else if (filled.length < cur.length) {
+        // §394: חלקי — הפריט נשאר חסר, הפירוט נשמר
+        body = {
+          agentEnteredWeight: null,
+          weightParts: cur.map((x) => (x.trim() === "" ? null : Number(x) || 0)),
+        };
+      } else {
+        // §400: דיוק של גרם
+        sum = Math.round(cur.reduce((a, x) => a + (Number(x) || 0), 0) * 1000) / 1000;
+        body = { agentEnteredWeight: sum, weightParts: cur.map((x) => Number(x) || 0) };
+      }
+      setSaving(true);
+      try {
+        const res = await fetch(`/api/agent/order-item/${cell.itemId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || "שמירת המשקל נכשלה");
+        cartonSentRef.current = key;
+        setVal(sum != null ? String(sum) : "");
+        onItemUpdate(cell.orderId, cell.itemId, {
+          agentEnteredWeight: json.item?.agentEnteredWeight ?? null,
+          actualWeight: json.item?.actualWeight ?? null,
+          weightParts: json.item?.weightParts ?? null,
+        });
+      } catch (e: any) {
+        // ⚠️ בלי טעינה מחדש: היא הייתה מוחקת את מה שהנציג הקליד.
+        // הערכים נשארים, והיציאה הבאה מהמשבצת תנסה שוב.
+        setError(true);
+        setTimeout(() => setError(false), 2000);
+        alert(e?.message || "שמירת המשקל נכשלה");
+      } finally {
+        setSaving(false);
+      }
+    });
+  }
+
   useEffect(() => {
     setVal(cell.agentEnteredWeight !== null ? String(cell.agentEnteredWeight) : "");
   }, [cell.agentEnteredWeight]);
@@ -1164,36 +1228,6 @@ function WeightCell({
   //
   // ⚠️ override מפורש: מי שיודע מה הערך מעביר אותו, ומי שלא
   // נופל ל-state כרגיל. אין הסתמכות על תזמון.
-  // §394: שמירת פירוט חלקי — חלק מהקרטונים מולאו, חלק ריקים.
-  //
-  // ⚠️ המשקל נשלח null: הפריט **לא שקול** עד שכל קרטון קיבל ערך.
-  // הפירוט נשמר כדי שמה שהנציג כבר הקליד לא ייעלם ברענון.
-  async function savePartial(cur: string[]) {
-    const partsPayload = cur.map((x) => (x.trim() === "" ? null : Number(x) || 0));
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/agent/order-item/${cell.itemId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentEnteredWeight: null, weightParts: partsPayload }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "שגיאה");
-      onItemUpdate(cell.orderId, cell.itemId, {
-        agentEnteredWeight: null,
-        actualWeight: json.item?.actualWeight ?? null,
-        weightParts: json.item?.weightParts ?? partsPayload,
-      });
-    } catch (e: any) {
-      setError(true);
-      setTimeout(() => setError(false), 2000);
-      alert(e?.message || "שמירת המשקל נכשלה");
-      onNeedsReload();
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function save(override?: string, partsOverride?: string[]) {
     const raw = (override ?? val).trim();
 
@@ -1386,7 +1420,8 @@ function WeightCell({
                 step={0.001}
                 min={0}
                 dir="ltr"
-                disabled={readOnly || saving}
+                // ⚠️ לא נועלים בזמן שמירה — ראה queueCartonSave
+                disabled={readOnly}
                 value={p}
                 onChange={(e) => {
                   const next = [...partsRef.current];
@@ -1396,50 +1431,14 @@ function WeightCell({
                   partsRef.current = next;
                   setParts(next);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
                 onBlur={() => {
-                  // ⚠️ הסכום הוא מה שנשמר — הפריט מחזיק משקל אחד.
-                  //
-                  // §346: מה-ref ולא מה-state — הוא מכיל את מה
-                  // שהוקלד ברגע זה, ולא את הצילום מהרינדור.
-                  const cur = [...partsRef.current];
-                  const filled = cur.filter((x) => x.trim() !== "");
-
-                  // כל המשבצות ריקות — מחיקה, כמו קודם
-                  if (filled.length === 0) {
-                    setVal("");
-                    save("", cur);
-                    return;
-                  }
-
-                  // §394: 🐛 **קרטון שני שלא מולא — עבר כ"הושלם".**
-                  //
-                  // לקוח לקח 2 קרטונים, הנציג מילא רק את הראשון,
-                  // והפריט נחשב שקול: V עבר, והלקוח חויב על קרטון
-                  // אחד. השני נשכח.
-                  //
-                  // ✅ עכשיו: משבצת ריקה = הפריט **חסר**. הפירוט
-                  // נשמר (כדי שמה שהוקלד לא ייעלם), אבל המשקל
-                  // נשאר null — התא אדום, "חסר" נספר, V חסום.
-                  //
-                  // ⚠️ מי ששקל את כל הקרטונים יחד: מזין את הסכום
-                  // בראשונה ו-0 בשאר. 0 הוא החלטה מפורשת, ריק
-                  // הוא שכחה.
-                  if (filled.length < cur.length) {
-                    setVal("");
-                    savePartial(cur);
-                    return;
-                  }
-
-                  const sum = cur.reduce((a, x) => a + (Number(x) || 0), 0);
-                  // §400: דיוק של גרם — 3.465 נשאר 3.465 (היה מעוגל ל-3.47)
-                  const rounded = Math.round(sum * 1000) / 1000;
-                  // ⚠️ "0" נשמר כ-0 ולא כריק: כל הקרטונים 0 = לא קיבל.
-                  const next = String(rounded);
-                  setVal(next);
-                  // §345: מעבירים את הערך ישירות — בלי להסתמך
-                  // על כך ש-setVal יסתיים לפני save().
-                  // §349: וגם את הפירוט, לשמירה.
-                  save(next, cur);
+                  queueCartonSave();
                 }}
                 placeholder={`קרטון ${i + 1}`}
                 // §394: משבצת ריקה אדומה — כל קרטון חייב ערך (גם 0)

@@ -322,6 +322,70 @@ export function AgentSaleClient({ pricelistId }: { pricelistId: string }) {
       // כתובת לא תקינה — מתעלמים, המסך נטען כרגיל
     }
   }, []);
+  // 📍 **חזרה מעריכת הזמנה — לאותה נקודה, לא לכל הנקודות.**
+  //
+  // 🐛 הסינון חי רק בזיכרון: הנציג/המנהל נכנס להזמנה מהטבלה (למשל
+  // לסמן מסירה), חזר — והמסך נטען מחדש על "כל הנקודות".
+  //
+  // ✅ הסינון נשמר ב-sessionStorage לכל מכירה. ובלחיצה על הזמנה
+  // כשמוצגות כל הנקודות — נשמרת הנקודה של אותו לקוח, כך שהחזרה
+  // נוחתת לפחות על הנקודה שלו.
+  const viewKey = `agentSaleView:${pricelistId}`;
+  const [viewRestored, setViewRestored] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(viewKey);
+      if (raw) {
+        const v = JSON.parse(raw);
+        if (typeof v.point === "string") setFilterPoint(v.point);
+        if (["all", "pending", "done", "failed"].includes(v.mode)) setFilterMode(v.mode);
+        if (v.view === "cards" || v.view === "table") setViewMode(v.view);
+      }
+    } catch {
+      // אין גישה לאחסון — נשארים בברירת המחדל
+    }
+    setViewRestored(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewKey]);
+  useEffect(() => {
+    if (!viewRestored) return;
+    try {
+      sessionStorage.setItem(
+        viewKey,
+        JSON.stringify({ point: filterPoint, mode: filterMode, view: viewMode })
+      );
+    } catch {
+      // לא קריטי
+    }
+  }, [viewKey, viewRestored, filterPoint, filterMode, viewMode]);
+  // לחיצה על הזמנה (בכל רכיב — טבלה או כרטיסים) כשאין סינון נקודה
+  useEffect(() => {
+    if (filterPoint || !data) return;
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement | null)?.closest?.("a[href^='/agent/orders/']");
+      if (!a) return;
+      const id = (a.getAttribute("href") || "").split("/")[3]?.split(/[?#]/)[0];
+      const o = data.orders.find((x) => x.id === id);
+      if (!o?.point?.id) return;
+      try {
+        sessionStorage.setItem(
+          viewKey,
+          JSON.stringify({ point: o.point.id, mode: filterMode, view: viewMode })
+        );
+      } catch {
+        // לא קריטי
+      }
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [data, filterPoint, filterMode, viewMode, viewKey]);
+  // הגענו ממסך ההזמנה עם ?order= — "הצג הכל" יחזור לנקודה של הלקוח
+  useEffect(() => {
+    if (!data || focusOrderNumber == null || filterPoint) return;
+    const o = data.orders.find((x) => x.orderNumber === focusOrderNumber);
+    if (o?.point?.id) setFilterPoint(o.point.id);
+  }, [data, focusOrderNumber, filterPoint]);
+
   function clearFocusOrder() {
     setFocusOrderNumber(null);
     try {

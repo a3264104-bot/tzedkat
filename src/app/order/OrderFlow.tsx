@@ -330,6 +330,9 @@ export function OrderFlow({
   // ערך: משבצת לכל קרטון (כמו בטבלת המשקלים, §301/§394).
   const [agentWeights, setAgentWeights] = useState<Record<string, string[]>>({});
   const weighInline = !!onBehalfOfCustomerId && !editMode;
+  // נציג/מנהל שמזמין ללקוח — אישור אחד בלבד. הכפתור התחתון שולח ישר,
+  // בלי מסך "סיכום" שדורש אישור נוסף (הסיכום נועד ללקוח באתר).
+  const agentDirect = !!onBehalfOfCustomerId && !editMode;
 
   // §400: 🛒 **שני מצבים לנציג — ולא שאלה בכל שורה.**
   //
@@ -1969,8 +1972,14 @@ export function OrderFlow({
                 בסל ולא נשלח, אומרים את זה במפורש מעל הכפתור. */}
             {itemCount > 0 && !catalogOnly && (
               <div className="sticky bottom-24 z-10 mx-auto mt-3 max-w-xl rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-center text-sm font-bold text-amber-900 shadow">
-                🛒 בחרת {itemCount} מוצרים — <u>ההזמנה עוד לא נשלחה</u>. לחצו &quot;לסיכום ושליחת ההזמנה&quot; למטה.
+                🛒 בחרת {itemCount} מוצרים — <u>ההזמנה עוד לא נשלחה</u>. לחצו &quot;
+                {agentDirect ? "שלח את ההזמנה" : "לסיכום ושליחת ההזמנה"}&quot; למטה.
               </div>
+            )}
+            {agentDirect && error && (
+              <p className="sticky bottom-24 z-10 mx-auto mt-3 max-w-xl rounded-xl bg-red-50 border-2 border-red-300 px-3 py-2 text-center text-red-700 text-sm font-bold">
+                {error}
+              </p>
             )}
             <BottomBar>
               {/* §223: במחירון אין נקודת חלוקה - החזרה היא לדף
@@ -1991,7 +2000,7 @@ export function OrderFlow({
                 </button>
               )}
               <button
-                disabled={itemCount === 0 || catalogOnly}
+                disabled={itemCount === 0 || catalogOnly || (agentDirect && submitting)}
                 onClick={() => {
                   // §400: במכירה במקום — לא ממשיכים עם קרטון בלי משקל
                   const miss = spotMissingCartons();
@@ -1999,6 +2008,10 @@ export function OrderFlow({
                     alert(
                       `חסר משקל לקרטון ב:\n${miss.join("\n")}\n\nיש למלא כל קרטון — ומה שלא נלקח: 0.`
                     );
+                    return;
+                  }
+                  if (agentDirect) {
+                    submit();
                     return;
                   }
                   setStep("summary");
@@ -2022,7 +2035,13 @@ export function OrderFlow({
                     <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
                       {itemCount}
                     </span>
-                    <span>לסיכום ושליחת ההזמנה</span>
+                    <span>
+                      {agentDirect
+                        ? submitting
+                          ? "שולח..."
+                          : `✅ שלח את ההזמנה · ${fmt(estimatedTotal)}`
+                        : "לסיכום ושליחת ההזמנה"}
+                    </span>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                     </svg>

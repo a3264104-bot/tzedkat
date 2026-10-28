@@ -303,9 +303,7 @@ export default function PaymentsPage() {
   // ⚠️ ולוג חי: כל חיוב מדווח מיד. אם משהו נתקע, המנהל רואה
   // איפה ולא מנחש.
   //
-  // ⚠️ ועצירה על כישלון רצוף: שלושה כישלונות ברצף = בעיה
-  // מערכתית (נדרים למטה, טוקן פג), ולא כדאי להמשיך ל-27
-  // הנותרות.
+  // ⚠️ כישלון של לקוח לא עוצר את הסבב — ראה בתוך הפונקציה.
   async function chargeBatch() {
     if (batchTargets.length === 0) return;
     if (
@@ -319,9 +317,19 @@ export default function PaymentsPage() {
 
     setBatchRunning(true);
     setBatchLog([]);
-    let consecutiveFails = 0;
+    // 🔁 **כישלון של לקוח לא עוצר את הסבב.**
+    //
+    // 🐛 הסבב נעצר אחרי כמה כישלונות ברצף (כרטיס פג, סירוב בנק) —
+    // והלקוחות שאחריהם לא חויבו בכלל. כישלון של לקוח הוא בעיה של
+    // הלקוח: מדלגים, ממשיכים, ובסוף מקבלים רשימה של מי לא עבר.
+    //
+    // ⚠️ עצירה רק על תקלה מערכתית: 3 פעמים ברצף "לא ידוע אם חויב"
+    // (timeout / שגיאת רשת מול נדרים). שם המשך היה משאיר עוד ועוד
+    // הזמנות "בחיוב" שצריך לבדוק ידנית אחת-אחת.
+    let unknownInARow = 0;
 
     for (const o of batchTargets) {
+      let unknown = false;
       try {
         const res = await fetch("/api/admin/charge", {
           method: "POST",
@@ -330,29 +338,31 @@ export default function PaymentsPage() {
         });
         const d = await res.json().catch(() => ({}));
         if (!res.ok || d.ok === false) {
+          unknown = !!d.requiresManualVerification;
           throw new Error(d.error || `שגיאה (${res.status})`);
         }
-        consecutiveFails = 0;
+        unknownInARow = 0;
         setBatchLog((l) => [
           ...l,
           { name: o.customerName, ok: true, msg: fmtIls(Number(o.finalTotal ?? 0)) },
         ]);
       } catch (e: any) {
-        consecutiveFails++;
+        unknownInARow = unknown ? unknownInARow + 1 : 0;
         setBatchLog((l) => [
           ...l,
-          { name: o.customerName, ok: false, msg: e?.message || "שגיאה" },
+          {
+            name: o.customerName,
+            ok: false,
+            msg: (unknown ? "⚠️ לא ידוע אם חויב — לבדוק בנדרים: " : "") + (e?.message || "שגיאה"),
+          },
         ]);
-        // §391: 6 ולא 3 — אחרי §388 הכישלונות הם אמיתיים
-        // (כרטיס פג, סירוב בנק), לא מזומן שנסתנן פנימה. שישה
-        // ברצף עדיין מעידים על תקלה מערכתית.
-        if (consecutiveFails >= 6) {
+        if (unknownInARow >= 3) {
           setBatchLog((l) => [
             ...l,
             {
               name: "⏹ נעצר",
               ok: false,
-              msg: "6 כישלונות ברצף — בדוק את המערכת לפני שתמשיך",
+              msg: "3 פעמים ברצף אין תשובה מנדרים (תקלת רשת/שרת). בדוק בנדרים ונסה שוב — מי שלא חויב יופיע שוב ברשימה.",
             },
           ]);
           break;
