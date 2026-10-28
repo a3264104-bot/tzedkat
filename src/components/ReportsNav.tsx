@@ -61,7 +61,7 @@ export function SaleLink({
   );
 }
 
-type Current = "summary" | "control" | "reports" | null;
+type Current = "summary" | "control" | "weights" | "reports" | null;
 
 const ITEMS: {
   id: Exclude<Current, null>;
@@ -88,6 +88,14 @@ const ITEMS: {
     href: (id) => `/admin/sale-control${id ? `/${id}` : ""}`,
   },
   {
+    id: "weights",
+    icon: "⚖️",
+    title: "סיכום משקלים",
+    question: "מה נשקל לכל לקוח?",
+    when: "כל ההזמנות והמשקלים, לפי נקודה — עם אקסל גיליון לכל נקודה",
+    href: (id) => `/admin/sale-weights${id ? `?pricelistId=${id}` : ""}`,
+  },
+  {
     id: "reports",
     icon: "📈",
     title: "דוחות ויצוא",
@@ -108,7 +116,7 @@ export function ReportsNav({
   return (
     <nav
       aria-label="מסכי סיכום"
-      className="no-print grid grid-cols-1 sm:grid-cols-3 gap-2"
+      className="no-print grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2"
     >
       {ITEMS.map((it) => {
         const active = it.id === current;

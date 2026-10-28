@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
       paymentStatus?: string | { in: string[] } | { notIn: string[] };
       // §258: לסינון "ניתן לחייב עכשיו"
       // §270: הטיפוס לפי מה ש-Prisma מקבל בפועל.
-      finalTotal?: { gt: number };
+      finalTotal?: { gt: number } | null;
       // §383: סינון מזומן — העדפת לקוח או שיטת הזמנה
       OR?: Array<Record<string, unknown>>;
       // §388: סינון מזומן/ללא-כרטיס מרשימת החיוב
@@ -84,6 +84,10 @@ export async function GET(req: NextRequest) {
       pricelistId?: string;
       // §396: סינון לפי סוג מכירה
       pricelist?: Record<string, unknown>;
+      AND?: Array<Record<string, unknown>>;
+      agentClosedAt?: null;
+      weightsLockedAt?: null;
+      status?: Record<string, unknown>;
     } = {};
     if (statusParam === "all") {
       // בלי סינון סטטוס
@@ -118,11 +122,36 @@ export async function GET(req: NextRequest) {
             paymentMethod: { notIn: ["CASH", "MANUAL"] },
             customer: { NOT: { paymentPreference: "CASH" } },
           },
+          // 🐛 NOT IN ב-SQL מפיל NULL: הזמנה בלי אמצעי תשלום (38 בחודש
+          // האחרון) לא הופיעה אף פעם ב"מוכן לחיוב". NULL = לא מזומן.
+          {
+            paymentMethod: null,
+            customer: { NOT: { paymentPreference: "CASH" } },
+          },
           // מזומן שכבר שילם חלקית — היתרה על הכרטיס
           { amountPaid: { gt: 0 } },
         ];
         // ⚠️ חייב פריט פעיל אחד לפחות — הזמנה שכל פריטיה בוטלו
         // מסתכמת בדמי טיפול, והלקוח לא קיבל דבר.
+        whereClause.items = { some: { isCancelled: false } };
+        // 🔒 **מוכן לחיוב = ננעל.** הזמנה שנשקלה אבל הנציג עוד לא סימן
+        // ✓ (או שהמשקלים לא ננעלו במייל) — עדיין יכולה להשתנות, ולכן
+        // היא לא "מוכנה לחיוב". היא מופיעה בסינון "ממתין לנעילה".
+        whereClause.AND = [
+          { OR: [{ agentClosedAt: { not: null } }, { weightsLockedAt: { not: null } }] },
+        ];
+      } else if (statusParam === "unlocked") {
+        // ⏳ נשקל (יש סכום) — אבל עוד לא ננעל. לא לחיוב עדיין.
+        whereClause.finalTotal = { gt: 0 };
+        whereClause.paymentStatus = {
+          notIn: ["PAID", "CHARGING", "PAYMENT_PENDING", "DEBT_CARRIED", "REFUNDED", "CANCELLED"],
+        };
+        whereClause.agentClosedAt = null;
+        whereClause.weightsLockedAt = null;
+      } else if (statusParam === "AWAITING_WEIGHING") {
+        // ⚖️ טרם נשקל — אין עדיין סכום סופי (לא לפי סטטוס שאיש לא מסמן)
+        whereClause.finalTotal = null;
+        whereClause.paymentStatus = { notIn: ["PAID", "REFUNDED", "CANCELLED", "DEBT_CARRIED"] };
         whereClause.items = { some: { isCancelled: false } };
       } else if (statusParam === "cash") {
         // §383: 💵 לקוחות מזומן — לסימון תשלום בחלוקה.
@@ -142,6 +171,10 @@ export async function GET(req: NextRequest) {
       }
     } else {
       whereClause.paymentStatus = { in: DEFAULT_STATUSES };
+    }
+    // 🚫 הזמנה מבוטלת לא מוצגת בשום רשימת עבודה (רק ב"הכל")
+    if (statusParam !== "all") {
+      whereClause.status = { not: "CANCELLED" };
     }
     if (pricelistId) {
       whereClause.pricelistId = pricelistId;
@@ -202,6 +235,8 @@ export async function GET(req: NextRequest) {
         deliveryDateSnapshot: true,
         // §400: V של הנציג — לזיהוי "סומן טופל ואין סכום" (לא ייגבה)
         agentClosedAt: true,
+        weightsLockedAt: true,
+        status: true,
         customer: {
           select: {
             id: true,
@@ -255,6 +290,9 @@ export async function GET(req: NextRequest) {
       pointNameSnapshot: o.pointNameSnapshot,
       deliveryDateSnapshot: o.deliveryDateSnapshot,
       agentClosedAt: o.agentClosedAt ? o.agentClosedAt.toISOString() : null,
+      // 🔒 ננעל = הנציג סימן ✓ או שהמשקלים ננעלו במייל
+      locked: !!(o.agentClosedAt || o.weightsLockedAt),
+      orderStatus: o.status,
       customer: {
         id: o.customer.id,
         name: o.customer.name,
@@ -300,6 +338,7 @@ export async function GET(req: NextRequest) {
         estimatedTotal: true,
         amountPaid: true,
         agentClosedAt: true,
+        weightsLockedAt: true,
         customer: { select: { paymentToken: true, paymentPreference: true } },
       },
     });
@@ -323,6 +362,8 @@ export async function GET(req: NextRequest) {
           reason = "לקוח מזומן — לגבות בחלוקה";
         } else if (!hasToken) {
           reason = "אין כרטיס שמור";
+        } else if (!o.agentClosedAt && !o.weightsLockedAt) {
+          reason = "⏳ נשקל אבל לא ננעל — הנציג עוד לא סימן ✓";
         }
         if (!reason) return null;
         return {

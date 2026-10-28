@@ -216,6 +216,13 @@ export async function POST(req: Request) {
     }
 
     // בדיקות שלמות (רק לפני נעילה - הודעות שגיאה ידידותיות)
+    // 🚫 הזמנה מבוטלת לא מחויבת — גם לא ₪3 דמי הזמנה.
+    if (preOrder.status === "CANCELLED") {
+      return NextResponse.json(
+        { error: "ההזמנה מבוטלת — אין חיוב", paymentStatus: preOrder.paymentStatus },
+        { status: 400 }
+      );
+    }
     if (preOrder.paymentStatus === "PAID") {
       return NextResponse.json({ error: "already paid", paymentStatus: "PAID" }, { status: 409 });
     }
@@ -362,6 +369,7 @@ export async function POST(req: Request) {
     const lockResult = await prisma.order.updateMany({
       where: {
         id: orderId,
+        status: { not: "CANCELLED" },
         paymentStatus: CHARGEABLE_STATUSES_FOR_LOCK,
         // §398: 🐛 היתרה חושבה מ-amountPaid שנקרא לפני הנעילה. אם נציג
         // סימן מזומן חלקי בדיוק באמצע — החיוב היה גובה את היתרה הישנה

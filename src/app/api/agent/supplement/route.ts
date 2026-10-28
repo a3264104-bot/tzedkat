@@ -19,6 +19,7 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { loadAgentPrices, usableSavedPrice, isHiddenProduct } from "@/lib/agent-prices-lib";
 import { requireAgent } from "@/lib/agent-guard";
 import { effectiveUnitPrice, smartLineEstimate } from "@/lib/pricing";
 import { validateAgentPrice } from "@/lib/commission-lib";
@@ -160,8 +161,17 @@ export async function POST(req: Request) {
 
   // §119: מחיר שהנציג קבע - מוצר מועדף בלבד, העלאה בלבד
   let agentSetPrice: number | null = null;
+  // 🏷️ לא נשלח מחיר — המחיר השמור של הנציג למוצר הזה (אם תקף)
+  if (
+    (b.agentSetPrice === null || b.agentSetPrice === undefined || b.agentSetPrice === "") &&
+    isHiddenProduct(product)
+  ) {
+    const saved = (await loadAgentPrices(g.agent.id, [product.id])).get(product.id);
+    agentSetPrice = usableSavedPrice(saved, unitPrice);
+  }
   if (b.agentSetPrice !== null && b.agentSetPrice !== undefined && b.agentSetPrice !== "") {
-    if (!product.isFavorite) {
+    // §170: מועדף **או** לא-פעיל — שניהם "מוצר נסתר" (כמו ב-/api/orders)
+    if (!isHiddenProduct(product)) {
       return NextResponse.json(
         { error: "ניתן לקבוע מחיר מותאם רק במוצר מועדף" },
         { status: 400 }

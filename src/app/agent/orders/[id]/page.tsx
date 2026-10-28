@@ -1,5 +1,6 @@
 import Link from "next/link";
 // §359: סיכום חיוב — שליחה או הורדה
+import { CancelOrderButton, RestoreOrderButton } from "@/components/CancelOrderButton";
 import SummaryButton from "@/components/SummaryButton";
 // §333: כפתור חזרה — צעד אחד אחורה
 import BackButton from "@/components/BackButton";
@@ -739,6 +740,26 @@ export default async function AgentOrderDetailPage({
               products={allAddable}
             />
           )}
+
+        {/* 🗑️ ביטול כל ההזמנה (הסחורה לא הגיעה) / ♻️ שחזור */}
+        {order.status !== "CANCELLED" ? (
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-3">
+            <CancelOrderButton
+              orderId={order.id}
+              orderNumber={order.orderNumber}
+              customerName={order.customerName}
+              isPaid={Number(order.amountPaid ?? 0) > 0 || order.paymentStatus === "PAID"}
+              isAdmin={role === "ADMIN"}
+            />
+          </div>
+        ) : (
+          <div className="bg-zinc-100 rounded-2xl border border-zinc-300 p-3 space-y-2">
+            <div className="text-sm font-bold text-zinc-700">🚫 ההזמנה מבוטלת — לא תיגבה</div>
+            {role === "ADMIN" && (
+              <RestoreOrderButton orderId={order.id} orderNumber={order.orderNumber} />
+            )}
+          </div>
+        )}
 
         {/* §120: קישור להזמנה המקורית, אם זו תוספת */}
         {order.parentOrderId && (

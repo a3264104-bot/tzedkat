@@ -17,6 +17,8 @@ import { NextResponse } from "next/server";
 // §405: החוב נכנס מיד להזמנה הפתוחה של המכירה הנוכחית
 import { recomputeOrderTotal } from "@/lib/order-total-lib";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { ownerKeyForActor, ownersForBalance, addOwners, reduceOwners } from "@/lib/debt-owners-lib";
 // ⚠️ @/lib/auth ולא @/auth — זה הנתיב בפרויקט הזה.
 import { auth } from "@/lib/auth";
 
@@ -58,7 +60,7 @@ export async function PATCH(
 
   const customer = await prisma.customer.findUnique({
     where: { id },
-    select: { id: true, name: true, debtBalance: true },
+    select: { id: true, name: true, debtBalance: true, debtOwners: true },
   });
   if (!customer) {
     return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 404 });
@@ -85,6 +87,16 @@ export async function PATCH(
   // הוא חוב ממכירה, ADJUST הוא תיקון של המנהל.
   const delta = Math.round((next - current) * 100) / 100;
   const actor = session?.user?.email ?? role;
+  // 💸 של מי החוב: נציג שרושם — החוב שלו (נספר בהכנסה שלו כשייגבה);
+  // מנהל שרושם — של המנהל. הפחתה יורדת קודם מהחוב של מי שמפחית.
+  const ownerKey = ownerKeyForActor(role, (session?.user as any)?.id ?? null);
+  const before = ownersForBalance(customer.debtOwners, current);
+  const owners =
+    delta > 0
+      ? addOwners(before, { [ownerKey]: delta })
+      : delta < 0
+        ? reduceOwners(before, next, ownerKey)
+        : before;
   await prisma.$transaction([
     prisma.customer.update({
       where: { id },
@@ -95,6 +107,7 @@ export async function PATCH(
         debtNote: next > 0 ? note : null,
         debtUpdatedAt: new Date(),
         debtUpdatedBy: actor,
+        debtOwners: next > 0 ? owners : Prisma.DbNull,
       },
     }),
     ...(delta !== 0
@@ -107,6 +120,8 @@ export async function PATCH(
               balanceAfter: next,
               note: note || null,
               pricelistId: (body as any).pricelistId ?? null,
+              ownerKey,
+              agentId: role === "AGENT" ? ((session?.user as any)?.id ?? null) : null,
               createdBy: actor,
             },
           }),
@@ -131,7 +146,10 @@ export async function PATCH(
   // ⚠️ רק כשהחוב **עלה**. הקטנת חוב שכבר נכנס להזמנה — ראה הודעה.
   let message: string | null = null;
   let appliedOrder: { orderNumber: number; finalTotal: number | null } | null = null;
-  if (delta !== 0) {
+  // 💳 "לגבות עכשיו": החוב נשאר על הלקוח (לא נכנס להזמנה פתוחה), והממשק
+  // מחייב מיד את הכרטיס דרך /debt/charge. אם החיוב ייכשל — ייגבה בהבאה.
+  const collectNow = (body as any).collectNow === true && next > 0;
+  if (delta !== 0 && !collectNow) {
     const open = await prisma.order.findFirst({
       where: {
         customerId: id,

@@ -20,6 +20,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
 import { classifyOrderMoney, ORDER_MONEY_SELECT, splitPaid } from "@/lib/agent-money-lib";
+import { ownersForBalance, agentIdOfOwner } from "@/lib/debt-owners-lib";
 import { parseSaleKind, pricelistKindWhere } from "@/lib/weekly-sales";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -47,6 +48,10 @@ export type IncomeRow = {
   walkinCount: number;
   /** חוב קודם שקוזז ונגבה בהזמנות בנקודה — לא חלק מהמכירה */
   debtCollected: number;
+  /** 💸 מתוכו (וגם גבייה מיידית): חוב שהנציג רשם — **נספר בנטו שלו** */
+  debtAgent: number;
+  /** 💸 חוב של המנהל שנגבה — לא נספר אצל הנציג */
+  debtAdmin: number;
   pending: number;
   pendingOrders: number;
 };
@@ -77,6 +82,7 @@ export async function GET(req: Request) {
       where: orderWhere,
       select: {
         ...ORDER_MONEY_SELECT,
+        appliedDebtOwners: true,
         pricelist: { select: { orderFee: true } },
       },
     }),
@@ -127,12 +133,45 @@ export async function GET(req: Request) {
         walkins: 0,
         walkinCount: 0,
         debtCollected: 0,
+        debtAgent: 0,
+        debtAdmin: 0,
         pending: 0,
         pendingOrders: 0,
       };
       rows.set(key, r);
     }
     return r;
+  };
+
+  // 💸 חוב שנציג רשם נזקף לשורה שלו: הנקודה של ההזמנה אם הוא משויך
+  // אליה, אחרת הנקודה הראשונה שלו.
+  const agentPointRows = await prisma.agentPoint.findMany({
+    select: { agentId: true, pointId: true },
+  });
+  const pointsOfAgent = new Map<string, string[]>();
+  for (const ap of agentPointRows) {
+    pointsOfAgent.set(ap.agentId, [...(pointsOfAgent.get(ap.agentId) ?? []), ap.pointId]);
+  }
+  const missingPoints = [...new Set(agentPointRows.map((x) => x.pointId))].filter(
+    (id) => !pointById.has(id)
+  );
+  if (missingPoints.length > 0) {
+    const more = await prisma.deliveryPoint.findMany({
+      where: { id: { in: missingPoints } },
+      select: {
+        id: true,
+        name: true,
+        city: true,
+        agentPoints: { select: { agent: { select: { name: true } } } },
+        agents: { select: { name: true } },
+      },
+    });
+    for (const p of more) pointById.set(p.id, p);
+  }
+  const rowForAgent = (agentId: string, orderPointId: string | null): IncomeRow => {
+    const pts = pointsOfAgent.get(agentId) ?? [];
+    if (orderPointId && pts.includes(orderPointId)) return rowFor(orderPointId);
+    return rowFor(pts[0] ?? orderPointId);
   };
 
   for (const o of orders) {
@@ -151,7 +190,19 @@ export async function GET(req: Request) {
     // חוב קודם שנגבה בפועל בהזמנה הזו — אותו כלל של classifyOrderMoney:
     // החוב יורד ראשון מהתשלום
     if (m.debtPart > 0) {
-      r.debtCollected += Math.min(m.debtPart, splitPaid(o as any).paid);
+      const got = Math.min(m.debtPart, splitPaid(o as any).paid);
+      r.debtCollected += got;
+      // 💸 של מי החוב שנגבה: חלק הנציג נספר בנטו של הנציג שרשם אותו
+      if (got > 0) {
+        const owners = ownersForBalance((o as any).appliedDebtOwners, m.debtPart);
+        const share = got / m.debtPart;
+        for (const [k, v] of Object.entries(owners)) {
+          const amt = r2(v * share);
+          const aid = agentIdOfOwner(k);
+          if (aid) rowForAgent(aid, o.pointId).debtAgent += amt;
+          else r.debtAdmin += amt;
+        }
+      }
     }
     if (m.pending > 0 && o.status !== "CANCELLED") {
       r.pending += m.pending;
@@ -170,16 +221,45 @@ export async function GET(req: Request) {
     else r.card += amt;
   }
 
+  // 💳 חוב שנגבה מיידית בכרטיס (בלי הזמנה) — לפי בעלים
+  let ledgerPricelistIds: string[] | null = null;
+  if (pricelistId) ledgerPricelistIds = [pricelistId];
+  else if (saleKind) {
+    const pls = await prisma.pricelist.findMany({
+      where: pricelistKindWhere(saleKind),
+      select: { id: true },
+    });
+    ledgerPricelistIds = pls.map((p) => p.id);
+  }
+  const instant = await prisma.debtLedger.findMany({
+    where: {
+      kind: "COLLECT",
+      method: "CARD",
+      ...(ledgerPricelistIds ? { pricelistId: { in: ledgerPricelistIds } } : {}),
+    },
+    select: { amount: true, ownerKey: true, customer: { select: { defaultPointId: true } } },
+  });
+  for (const l of instant) {
+    const amt = -Number(l.amount);
+    if (!(amt > 0)) continue;
+    const aid = agentIdOfOwner(l.ownerKey ?? "admin");
+    if (aid) rowForAgent(aid, l.customer.defaultPointId).debtAgent += amt;
+    else rowFor(l.customer.defaultPointId).debtAdmin += amt;
+  }
+
   const list = [...rows.values()].map((r) => ({
     ...r,
     gross: r2(r.gross),
     fees: r2(r.fees),
-    net: r2(r.gross - r.fees),
+    // 💸 חוב שהנציג רשם ונגבה — חלק מהנטו שלו (₪3 דמי ההזמנה לא)
+    net: r2(r.gross - r.fees + r.debtAgent),
     card: r2(r.card),
     agentCash: r2(r.agentCash),
     adminCash: r2(r.adminCash),
     walkins: r2(r.walkins),
     debtCollected: r2(r.debtCollected),
+    debtAgent: r2(r.debtAgent),
+    debtAdmin: r2(r.debtAdmin),
     pending: r2(r.pending),
   }));
   list.sort(
@@ -201,6 +281,8 @@ export async function GET(req: Request) {
     adminCash: sum("adminCash"),
     walkins: sum("walkins"),
     debtCollected: sum("debtCollected"),
+    debtAgent: sum("debtAgent"),
+    debtAdmin: sum("debtAdmin"),
     pending: sum("pending"),
     pendingOrders: sum("pendingOrders"),
   };

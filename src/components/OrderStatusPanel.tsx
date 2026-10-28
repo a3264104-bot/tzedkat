@@ -13,6 +13,7 @@
 // הפתרון: ציר התקדמות שמראה איפה ההזמנה עומדת, ו*פעולה אחת* בולטת -
 // הצעד הבא בלבד. שאר האפשרויות זמינות אך לא צועקות.
 
+import { CancelOrderButton, RestoreOrderButton } from "./CancelOrderButton";
 import { useState } from "react";
 // §200: תאריכים בשעון ישראל — השרת רץ ב-UTC
 import { fmtDateTime } from "@/lib/date-lib";
@@ -99,13 +100,9 @@ export function OrderStatusPanel({
               <p className="text-xs text-zinc-500 mt-0.5">{order.internalNotes}</p>
             )}
           </div>
-          <button
-            onClick={() => onSetStatus("PENDING_REVIEW")}
-            disabled={saving}
-            className="btn-ghost btn-sm"
-          >
-            שחזר הזמנה
-          </button>
+          <div className="w-full sm:w-auto">
+            <RestoreOrderButton orderId={order.id} orderNumber={order.orderNumber} onDone={onCancel} />
+          </div>
         </div>
       </div>
     );
@@ -242,13 +239,15 @@ export function OrderStatusPanel({
 
             {/* ביטול הזמנה. מוצג באדום ובנפרד כי זו פעולה הרסנית,
                 ומכיל אזהרה מפורשת אם ההזמנה כבר חויבה. */}
-            <button
-              onClick={onCancel}
-              disabled={saving}
-              className="w-full py-2 rounded-lg border border-red-300 text-red-700 text-sm font-bold hover:bg-red-50 disabled:opacity-50"
-            >
-              ✗ בטל את ההזמנה
-            </button>
+            {/* 🗑️ אישור כפול + גיבוי (CancelOrderButton) */}
+            <CancelOrderButton
+              orderId={order.id}
+              orderNumber={order.orderNumber}
+              customerName={order.customerName}
+              isPaid={isPaid || Number(order.amountPaid ?? 0) > 0}
+              isAdmin
+              onDone={onCancel}
+            />
             {isPaid && (
               <p className="text-[11px] text-red-700">
                 ⚠️ ההזמנה כבר שולמה. ביטול לא מבצע החזר כספי אוטומטי — יש

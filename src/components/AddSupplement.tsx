@@ -16,7 +16,8 @@
 // לקוח בלי כרטיס שלא יכול לשלם במזומן היה יוצר בדיוק את החוב
 // שהמערכת נבנתה כדי לסיים.
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useAgentSavedPrices } from "./useAgentSavedPrices";
 import { useRouter } from "next/navigation";
 import { effectiveUnitPrice, fmt } from "@/lib/pricing";
 import type { AddableProduct } from "@/components/AddOrderItem";
@@ -49,6 +50,12 @@ export function AddSupplement({
   const [isSingle, setIsSingle] = useState(false);
   const [qty, setQty] = useState("1");
   const [customPrice, setCustomPrice] = useState("");
+  // 🏷️ המחיר השמור של הנציג ממולא כשבוחרים מוצר נסתר
+  const savedPrices = useAgentSavedPrices();
+  useEffect(() => {
+    const saved = productId ? savedPrices[productId] : undefined;
+    setCustomPrice(saved != null ? saved.toFixed(2) : "");
+  }, [productId, savedPrices]);
   // ברירת המחדל: מזומן אם אין כרטיס. אחרת אשראי.
   const [payCash, setPayCash] = useState(!hasCard);
   const [busy, setBusy] = useState(false);

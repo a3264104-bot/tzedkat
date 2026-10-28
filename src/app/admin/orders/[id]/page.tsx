@@ -237,35 +237,6 @@ export default function OrderDetail() {
     }
   }
 
-  // ביטול הזמנה. שונה ממחיקה: ההזמנה נשמרת לתיעוד ולדוחות,
-  // רק מסומנת כבוטלה ויוצאת מכל הספירות.
-  async function cancelOrder() {
-    const paid = order.paymentStatus === "PAID";
-    const msg = paid
-      ? // §272: הזיכוי אוטומטי — האזהרה הישנה אמרה "טפל בנפרד",
-        // וזה בדיוק מה שלא קורה בפועל.
-        `לבטל את הזמנה #${order.orderNumber}?\n\n` +
-        `⚠️ ההזמנה כבר שולמה (${fmt(Number(order.amountPaid || order.finalTotal))}).\n\n` +
-        `✅ הסכום ייזקף כיתרת זכות ללקוח, ויקוזז אוטומטית מההזמנה הבאה שלו.\n\n` +
-        `אם נדרש החזר כספי בפועל — יש לטפל מול נדרים בנפרד.`
-      : `לבטל את הזמנה #${order.orderNumber}?\n\nההזמנה תישמר לתיעוד אך תצא מכל הספירות והדוחות.`;
-    if (!confirm(msg)) return;
-    const reason = prompt("סיבת הביטול (תישמר בהערות הפנימיות):");
-    if (reason === null) return;
-    setSaving(true);
-    try {
-      await api(`/api/admin/orders/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "CANCELLED", cancelReason: reason || null }),
-      });
-      await load();
-    } catch (e: any) {
-      alert(e.message || "שגיאה בביטול");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function saveAll() {
     setSaving(true);
     const items = order.items.map((it: any) => ({
@@ -450,7 +421,8 @@ export default function OrderDetail() {
         onSetStatus={setStatus}
         onMarkDelivered={markDelivered}
         onUndoDelivered={undoDelivered}
-        onCancel={cancelOrder}
+        // הביטול/השחזור עצמם ב-CancelOrderButton (אישור כפול + גיבוי) — כאן רק רענון
+        onCancel={load}
       />
 
 

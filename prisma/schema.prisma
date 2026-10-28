@@ -251,6 +251,11 @@ model Customer {
   updatedAt            DateTime  @updatedAt
   /// §368: ספר חובות
   debtLedger DebtLedger[]
+  /// בעלות על החוב: { "agent:<id>": סכום, "admin": סכום }. הסכום של כולם
+  /// ≤ debtBalance; היתרה (חוב ישן בלי בעלים) נחשבת של המנהל.
+  debtOwners Json?
+  /// מחירים שמורים של הנציג למוצרים נסתרים
+  agentProductPrices AgentProductPrice[]
 
   // §399: ⚡ אינדקסים — Postgres לא יוצר אינדקס למפתח זר לבד
   @@index([defaultPointId])
@@ -342,6 +347,39 @@ model Product {
   // ⚠️ ההבחנה חשובה כי רק במוצר מועדף הנציג רשאי לקבוע מחיר
   // גבוה מהמחירון ולקחת את ההפרש (ראה OrderItem.agentSetPrice).
   isFavorite    Boolean  @default(false)
+  agentPrices   AgentProductPrice[]
+}
+
+/// מחיר שמור של נציג למוצר נסתר (מועדף / לא פעיל). ממולא אוטומטית בכל
+/// פעם שהנציג מוסיף את המוצר ללקוח. לכל נציג בנפרד.
+model AgentProductPrice {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Customer @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  price     Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([agentId, productId])
+  @@index([productId])
+}
+
+/// גיבוי מלא של הזמנה לפני ביטול — לשחזור אם בוטלה בטעות.
+model OrderBackup {
+  id          String    @id @default(cuid())
+  orderId     String
+  orderNumber Int
+  kind        String    @default("CANCEL")
+  reason      String?
+  snapshot    Json
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  restoredAt  DateTime?
+  restoredBy  String?
+
+  @@index([orderId])
 }
 
 model DeliveryPoint {
@@ -692,6 +730,8 @@ model Order {
   // ⚠️ מקביל ל-appliedCreditBalance: מאפשר לראות בדיוק כמה
   // חוב נסגר בכל תשלום, ולהציג ללקוח פירוט.
   appliedDebt          Decimal?  @db.Decimal(10, 2)
+  /// פירוק appliedDebt לפי בעלים ({ "agent:<id>": סכום, "admin": סכום })
+  appliedDebtOwners    Json?
   creditReason    String?
   creditById      String?
   creditAt        DateTime?
@@ -913,6 +953,11 @@ model DebtLedger {
   orderId      String?
   pricelistId  String?
   agentId      String?
+  /// "agent:<id>" / "admin" — של מי החוב (מי רשם אותו / של מי הגבייה)
+  ownerKey     String?
+  /// בגבייה מיידית: CARD וכו'
+  method       String?
+  transactionId String?
   createdBy    String
   createdAt    DateTime @default(now())
 

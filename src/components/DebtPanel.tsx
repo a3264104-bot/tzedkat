@@ -35,6 +35,8 @@ export function DebtPanel({
   const [note, setNote] = useState(debtNote || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // 💳 מתי לגבות: עכשיו מהכרטיס השמור, או עם המכירה הבאה (כמו תמיד)
+  const [when, setWhen] = useState<"next" | "now">("next");
 
   async function save() {
     const n = Number(amount);
@@ -54,12 +56,39 @@ export function DebtPanel({
       const res = await fetch(`/api/admin/customers/${customerId}/debt`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: n, note: note.trim(), mode: "set" }),
+        body: JSON.stringify({
+          amount: n,
+          note: note.trim(),
+          mode: "set",
+          collectNow: when === "now" && n > 0,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "שמירה נכשלה");
-      // §405: איפה החוב ייגבה — עכשיו בהזמנה הפתוחה, או בהבאה
-      if (data.message) alert(data.message);
+      if (when === "now" && n > 0) {
+        const cr = await fetch(`/api/admin/customers/${customerId}/debt/charge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const cd = await cr.json().catch(() => ({}));
+        if (cr.ok && cd.ok) {
+          alert(`✓ החוב נגבה עכשיו מהכרטיס: ₪${Number(cd.charged).toFixed(2)}`);
+        } else {
+          alert(
+            `החוב נשמר, אבל הגבייה המיידית לא עברה:
+${cd.error || cr.status}
+
+` +
+              (cd.requiresManualVerification
+                ? "יש לבדוק בנדרים אם החיוב בוצע."
+                : "החוב ייגבה עם ההזמנה הבאה של הלקוח (אפשר לנסות שוב ממסך התשלומים → חובות).")
+          );
+        }
+      } else if (data.message) {
+        // §405: איפה החוב ייגבה — עכשיו בהזמנה הפתוחה, או בהבאה
+        alert(data.message);
+      }
       setOpen(false);
       onDone?.();
     } catch (e: any) {
@@ -98,7 +127,7 @@ export function DebtPanel({
           )}
           {!hasDebt && (
             <div className="text-[11px] text-zinc-500 mt-0.5">
-              חוב מהעבר — ייגבה עם ההזמנה הבאה
+              חוב מהעבר — לגבות עכשיו או עם ההזמנה הבאה
             </div>
           )}
         </div>
@@ -115,8 +144,8 @@ export function DebtPanel({
             {/* ⚠️ ההסבר קונקרטי: המנהל צריך לדעת **מתי** זה ייגבה,
                 אחרת הוא לא בטוח אם רשם או גבה. */}
             <p className="text-[11px] text-zinc-600 leading-relaxed">
-              החוב יתווסף לחיוב של ההזמנה הבאה של הלקוח, ויוצג לו בפירוט
-              עם ההסבר שתכתוב כאן.
+              בחר מתי לגבות: עכשיו מהכרטיס השמור, או עם ההזמנה הבאה של
+              הלקוח (יוצג לו בפירוט עם ההסבר שתכתוב כאן).
             </p>
 
             <div>
@@ -152,6 +181,36 @@ export function DebtPanel({
               />
             </div>
 
+            <div>
+              <div className="text-xs font-bold text-zinc-600 mb-1">מתי לגבות?</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWhen("now")}
+                  className={`py-2 rounded-lg text-sm font-bold border-2 ${
+                    when === "now" ? "border-brand-rust bg-brand-rust text-white" : "border-zinc-300 bg-white"
+                  }`}
+                >
+                  💳 עכשיו מהכרטיס
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWhen("next")}
+                  className={`py-2 rounded-lg text-sm font-bold border-2 ${
+                    when === "next" ? "border-brand-rust bg-brand-rust text-white" : "border-zinc-300 bg-white"
+                  }`}
+                >
+                  🛒 עם המכירה הבאה
+                </button>
+              </div>
+              {when === "now" && (
+                <p className="text-[10px] text-zinc-500 mt-1">
+                  כל החוב ({Number(amount) > 0 ? `₪${Number(amount).toFixed(2)}` : "—"}) ייגבה מיד מהכרטיס
+                  השמור. אם החיוב נכשל — החוב נשאר וייגבה עם ההזמנה הבאה.
+                </p>
+              )}
+            </div>
+
             {err && (
               <p className="text-sm text-red-600 font-bold">{err}</p>
             )}
@@ -169,7 +228,7 @@ export function DebtPanel({
                 disabled={saving}
                 className="flex-1 py-2.5 rounded-xl bg-brand-rust text-white font-bold disabled:opacity-50"
               >
-                {saving ? "שומר..." : "שמור"}
+                {saving ? "שומר..." : when === "now" && Number(amount) > 0 ? "שמור וגבה עכשיו" : "שמור"}
               </button>
             </div>
           </div>

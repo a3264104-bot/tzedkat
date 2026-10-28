@@ -431,6 +431,25 @@ export default async function AgentIndexPage() {
           </Link>
 
           <Link
+            href="/agent/my-prices"
+            className="bg-white border border-zinc-200 rounded-2xl p-4 hover:border-brand-rust/40 hover:shadow-sm transition-all"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center text-2xl shrink-0">
+                🏷️
+              </div>
+              <div className="min-w-0">
+                <div className="font-bold text-brand-slatedark">
+                  המחירים שלי
+                </div>
+                <div className="text-xs text-zinc-500">
+                  מוצרים נסתרים — ממולא לבד בהזמנה
+                </div>
+              </div>
+            </div>
+          </Link>
+
+          <Link
             href="/agent/my-debts"
             className="bg-white border border-zinc-200 rounded-2xl p-4 hover:border-brand-rust/40 hover:shadow-sm transition-all"
           >
