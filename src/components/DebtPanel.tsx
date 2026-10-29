@@ -13,7 +13,7 @@
 // ⚠️ הרכיב זהה במנהל ובנציג: אותה פעולה, אותו מסך. הבדל היה
 // אומר שהם רואים מצב שונה של אותו לקוח.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 // §368: היסטוריית חוב
 import DebtHistory from "./DebtHistory";
 
@@ -23,12 +23,15 @@ export function DebtPanel({
   debtBalance,
   debtNote,
   onDone,
+  isAdmin = false,
 }: {
   customerId: string;
   customerName: string;
   debtBalance: number;
   debtNote?: string | null;
   onDone?: () => void;
+  /** מנהל: אפשר לשייך את החוב לנציג (ברירת מחדל — של המנהל) */
+  isAdmin?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(String(debtBalance || ""));
@@ -37,6 +40,33 @@ export function DebtPanel({
   const [err, setErr] = useState<string | null>(null);
   // 💳 מתי לגבות: עכשיו מהכרטיס השמור, או עם המכירה הבאה (כמו תמיד)
   const [when, setWhen] = useState<"next" | "now">("next");
+  // 💸 של מי החוב: הפירוק הנוכחי, ולמנהל — בחירת נציג לחוב החדש
+  const [owners, setOwners] = useState<Record<string, number> | null>(null);
+  const [agentNames, setAgentNames] = useState<Record<string, string>>({});
+  const [agents, setAgents] = useState<{ id: string; name: string; ofPoint: boolean }[]>([]);
+  const [ownerAgentId, setOwnerAgentId] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setOwnerAgentId("");
+    fetch(`/api/admin/customers/${customerId}/debt`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        setOwners(d.owners ?? {});
+        setAgentNames(d.agentNames ?? {});
+        // נציגי הנקודה של הלקוח קודם
+        setAgents(
+          [...(d.agents ?? [])].sort(
+            (a: any, b: any) => Number(b.ofPoint) - Number(a.ofPoint) || a.name.localeCompare(b.name, "he")
+          )
+        );
+      })
+      .catch(() => {});
+  }, [open, customerId]);
+
+  const ownerLabel = (k: string) =>
+    k === "admin" ? "המנהל" : k.startsWith("agent:") ? `נציג: ${agentNames[k.slice(6)] ?? "?"}` : k;
 
   async function save() {
     const n = Number(amount);
@@ -61,6 +91,7 @@ export function DebtPanel({
           note: note.trim(),
           mode: "set",
           collectNow: when === "now" && n > 0,
+          ...(isAdmin && ownerAgentId ? { ownerAgentId } : {}),
         }),
       });
       const data = await res.json();
@@ -180,6 +211,39 @@ ${cd.error || cr.status}
                 maxLength={120}
               />
             </div>
+
+            {owners && Object.keys(owners).length > 0 && (
+              <div className="text-[11px] text-zinc-600 bg-zinc-50 rounded-lg px-2 py-1.5">
+                <b>החוב היום שייך ל:</b>{" "}
+                {Object.entries(owners)
+                  .map(([k, v]) => `${ownerLabel(k)} ₪${v.toFixed(2)}`)
+                  .join(" · ")}
+              </div>
+            )}
+
+            {isAdmin && (
+              <div>
+                <label className="text-xs font-bold text-zinc-600">של מי החוב?</label>
+                <select
+                  value={ownerAgentId}
+                  onChange={(e) => setOwnerAgentId(e.target.value)}
+                  className="w-full mt-1 rounded-lg border-2 border-zinc-300 px-3 py-2 text-sm bg-white"
+                >
+                  <option value="">המנהל (לא נספר אצל הנציג)</option>
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      נציג: {a.name}
+                      {a.ofPoint ? " (הנקודה של הלקוח)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-zinc-400 mt-1">
+                  {ownerAgentId
+                    ? "החוב ייספר בהכנסה של הנציג כשייגבה."
+                    : "ברירת מחדל: של המנהל. בחר נציג אם החוב שייך לעסקה שלו."}
+                </p>
+              </div>
+            )}
 
             <div>
               <div className="text-xs font-bold text-zinc-600 mb-1">מתי לגבות?</div>

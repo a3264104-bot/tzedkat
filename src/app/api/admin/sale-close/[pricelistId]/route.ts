@@ -15,6 +15,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/guard";
+import { agentIdForPoint } from "@/lib/point-agent-lib";
+import { ADMIN_OWNER, agentOwnerKey, addOwners, ownersForBalance } from "@/lib/debt-owners-lib";
 
 type Hole = {
   id: string;
@@ -165,10 +167,25 @@ export async function POST(
       // ⚠️ משקלים חסרים — אין סכום להעביר. חייב לשקול קודם.
       if (h.kind === "MISSING_WEIGHTS" || h.remaining <= 0) continue;
 
+      // 💸 חוב מהמכירה — של הנציג של הנקודה, לא של המנהל. הנציג
+      // חייב את כל כסף המכירה, והחוב נשאר אצלו עד שהלקוח משלים.
+      // נקודה בלי נציג → של המנהל.
+      const ord = await prisma.order.findUnique({ where: { id: h.id }, select: { pointId: true } });
+      const agentId = await agentIdForPoint(ord?.pointId);
+      const ownerKey = agentId ? agentOwnerKey(agentId) : ADMIN_OWNER;
+
       await prisma.$transaction(async (tx) => {
+        const prev = await tx.customer.findUnique({
+          where: { id: h.customerId },
+          select: { debtBalance: true, debtOwners: true },
+        });
+        const owners = addOwners(ownersForBalance(prev?.debtOwners, Number(prev?.debtBalance ?? 0)), {
+          [ownerKey]: h.remaining,
+        });
         const cust = await tx.customer.update({
           where: { id: h.customerId },
           data: {
+            debtOwners: owners,
             debtBalance: { increment: h.remaining },
             debtNote: `יתרה מהזמנה #${h.orderNumber} (${h.reason})`,
             debtUpdatedAt: new Date(),
@@ -199,6 +216,8 @@ export async function POST(
             note: `יתרה מהזמנה #${h.orderNumber} — ${h.reason}`,
             orderId: h.id,
             pricelistId,
+            ownerKey,
+            agentId,
             createdBy: actor,
           },
         });
