@@ -59,6 +59,23 @@ export async function GET(req: Request) {
   ]);
   const names = Object.fromEntries(agents.map((a) => [a.id, a.name]));
 
+  // ⚠️ חוב שנכנס להזמנה נרשם בספר כבר בשקילה — אבל הוא *נגבה* רק
+  // כשההזמנה שולמה. מציגים כ"נגבה" רק הזמנות ששולמו (גם חלקית).
+  const orderIds = [...new Set(ledger.map((l) => l.orderId).filter((x): x is string => !!x))];
+  const paidOrders = new Map(
+    (
+      await prisma.order.findMany({
+        where: { id: { in: orderIds } },
+        select: { id: true, orderNumber: true, amountPaid: true, paymentStatus: true, status: true },
+      })
+    ).map((o) => [o.id, o])
+  );
+  const isCollected = (l: (typeof ledger)[number]) => {
+    if (!l.orderId) return true; // גבייה מיידית
+    const o = paidOrders.get(l.orderId);
+    return !!o && o.status !== "CANCELLED" && (o.paymentStatus === "PAID" || Number(o.amountPaid ?? 0) > 0);
+  };
+
   return NextResponse.json({
     agents: names,
     open: customers.map((c) => ({
@@ -74,7 +91,7 @@ export async function GET(req: Request) {
       cardLast4: c.cardLast4,
       isCash: c.paymentPreference === "CASH",
     })),
-    collected: ledger.map((l) => ({
+    collected: ledger.filter(isCollected).map((l) => ({
       id: l.id,
       customerName: l.customer.name,
       amount: -Number(l.amount),
@@ -83,6 +100,7 @@ export async function GET(req: Request) {
       agentId: agentIdOfOwner(l.ownerKey ?? ADMIN_OWNER),
       method: l.method ?? (l.orderId ? "ORDER" : null),
       note: l.note,
+      orderNumber: l.orderId ? paidOrders.get(l.orderId)?.orderNumber ?? null : null,
       createdAt: l.createdAt,
     })),
   });

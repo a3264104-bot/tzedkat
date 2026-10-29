@@ -89,7 +89,7 @@ const FILTER_OPTIONS: { value: string; label: string }[] = [
   // ⚠️ "מוכן לחיוב" = נשקל **וננעל** (הנציג סימן ✓). הזמנה שנשקלה ולא
   // ננעלה עדיין יכולה להשתנות — היא בסינון נפרד, ולא נגבית בסבב.
   { value: "chargeable", label: "💳 מוכן לחיוב — נשקל וננעל ✓" },
-  { value: "unlocked", label: "⏳ נשקל — ממתין לנעילה (אין ✓)" },
+  { value: "unlocked", label: "⏳ נשקל — חסר ✓ של הנציג" },
   { value: "AWAITING_WEIGHING", label: "⚖️ טרם נשקל" },
   { value: "FAILED", label: "❌ חיוב נכשל" },
   { value: "CARD_UPDATE_NEEDED", label: "🪪 נדרש עדכון כרטיס" },
@@ -1041,7 +1041,7 @@ export default function PaymentsPage() {
                 maximumFractionDigits: 2,
               })}
               {" · "}
-              יש להן מחיר סופי וטרם שולמו
+              נשקלו, ננעלו ✓ וטרם שולמו
             </div>
           </div>
           {/* ⚠️ הכפתור רק כשלא כבר בסינון הזה - אחרת הוא לא
@@ -1153,7 +1153,7 @@ export default function PaymentsPage() {
           </span>
         )}
 
-        {!loading && (
+        {!loading && filter !== "debts" && (
           <span className="text-sm text-zinc-500 mr-auto">{orders.length} הזמנות</span>
         )}
       </div>
@@ -1316,7 +1316,7 @@ function OrderCard({
     order.orderStatus === "CANCELLED"
       ? "🚫 הזמנה מבוטלת"
       : awaitingLock
-        ? "⏳ נשקל — ממתין לנעילה (✓)"
+        ? "⏳ נשקל — חסר ✓ של הנציג"
         : order.finalTotal == null && ["PENDING", "AWAITING_WEIGHING", "TOKEN_CREATED"].includes(order.paymentStatus)
           ? "⚖️ טרם נשקל"
           : payStatusLabel(order.paymentStatus);

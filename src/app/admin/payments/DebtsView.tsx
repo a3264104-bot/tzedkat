@@ -30,6 +30,7 @@ type CollectedRow = {
   ownerKey: string;
   method: string | null;
   note: string | null;
+  orderNumber?: number | null;
   createdAt: string;
 };
 
@@ -209,7 +210,7 @@ export function DebtsView({ pricelistId }: { pricelistId: string }) {
                   : r.method === "CARD_UNKNOWN"
                     ? "⚠️ לבדוק בנדרים"
                     : r.method === "ORDER"
-                      ? "בהזמנה"
+                      ? `בהזמנה #${r.orderNumber ?? ""} (שולמה)`
                       : ""}
               </span>
               <span className="text-xs text-zinc-400">

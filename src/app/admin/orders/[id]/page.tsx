@@ -432,7 +432,15 @@ export default function OrderDetail() {
           <div>
             <div className="text-sm text-zinc-500">סטטוס תשלום</div>
             <div className="font-bold text-brand-slatedark">
-              {payStatusLabel(order.paymentStatus)}
+              {/* 🔒 נשקל אבל בלי ✓ — עוד לא "מוכן לחיוב" (כמו במסך התשלומים) */}
+              {order.finalTotal != null &&
+              !order.agentClosedAt &&
+              !order.weightsLockedAt &&
+              ["READY_TO_CHARGE", "PENDING", "FAILED"].includes(order.paymentStatus)
+                ? order.paymentStatus === "FAILED"
+                  ? "חיוב נכשל · חסר ✓ של הנציג"
+                  : "⏳ נשקל — חסר ✓ של הנציג"
+                : payStatusLabel(order.paymentStatus)}
               {order.paymentMethod && (
                 <span className="text-zinc-400 font-normal mr-2">
                   ({PAYMENT_METHOD_LABELS[order.paymentMethod]})

@@ -1,8 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
 // /api/agent/my-prices — המחירים השמורים של הנציג למוצרים נסתרים
 // ═══════════════════════════════════════════════════════════════
-// GET → כל המוצרים הנסתרים שבמכירות פתוחות (וכל מוצר שכבר יש לו מחיר
-//       שמור), עם מחיר המחירון והמחיר השמור של הנציג המחובר.
+// GET → כל המוצרים הנסתרים (מועדף / לא פעיל) וכל מוצר שכבר יש לו מחיר
+//       שמור, עם מחיר המחירון והמחיר השמור של הנציג המחובר.
 // PUT { productId, price } → שמירה. price=null/"" → מחיקה (חוזרים למחירון).
 //
 // ⚠️ הכל לפי המשתמש המחובר בלבד: נציג לא רואה ולא משנה מחירים של
@@ -37,20 +37,10 @@ export async function GET() {
   });
   const savedIds = saved.map((s) => s.productId);
 
+  // ⚠️ אותם מוצרים שמסך ההזמנה מציע לנציג: כל מועדף או לא-פעיל.
+  // הם בדרך כלל *מחוץ* למחירון (§169), ולכן לא מסננים לפי מכירה.
   const products = await prisma.product.findMany({
-    where: {
-      OR: [
-        // מוצר נסתר שמופיע במכירה פתוחה
-        {
-          AND: [
-            { OR: [{ isFavorite: true }, { isActive: false }] },
-            { pricelists: { some: { pricelist: { status: "ACTIVE" } } } },
-          ],
-        },
-        // וכל מוצר נסתר שכבר שמרתי לו מחיר
-        { id: { in: savedIds }, OR: [{ isFavorite: true }, { isActive: false }] },
-      ],
-    },
+    where: { OR: [{ isFavorite: true }, { isActive: false }, { id: { in: savedIds } }] },
     select: { id: true, name: true, unit: true, cartonPrice: true, saleType: true },
     orderBy: { name: "asc" },
   });
