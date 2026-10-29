@@ -18,9 +18,37 @@ import { NextResponse } from "next/server";
 import { recomputeOrderTotal } from "@/lib/order-total-lib";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { ownerKeyForActor, ownersForBalance, addOwners, reduceOwners } from "@/lib/debt-owners-lib";
+import {
+  ownerKeyForActor,
+  ownersForBalance,
+  addOwners,
+  reduceOwners,
+  agentOwnerKey,
+} from "@/lib/debt-owners-lib";
+import { listAgentsForPoint } from "@/lib/point-agent-lib";
 // ⚠️ @/lib/auth ולא @/auth — זה הנתיב בפרויקט הזה.
 import { auth } from "@/lib/auth";
+
+// GET → מי מחזיק את החוב עכשיו, ולמנהל — רשימת הנציגים לשיוך
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
+  const role = (session?.user as any)?.role;
+  if (role !== "ADMIN" && role !== "AGENT") {
+    return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+  }
+  const { id } = await params;
+  const c = await prisma.customer.findUnique({
+    where: { id },
+    select: { debtBalance: true, debtOwners: true, defaultPointId: true },
+  });
+  if (!c) return NextResponse.json({ error: "לקוח לא נמצא" }, { status: 404 });
+  const agents = await listAgentsForPoint(c.defaultPointId);
+  return NextResponse.json({
+    owners: ownersForBalance(c.debtOwners, Number(c.debtBalance ?? 0)),
+    agentNames: Object.fromEntries(agents.map((a) => [a.id, a.name])),
+    agents: role === "ADMIN" ? agents : [],
+  });
+}
 
 export async function PATCH(
   req: Request,
@@ -89,7 +117,19 @@ export async function PATCH(
   const actor = session?.user?.email ?? role;
   // 💸 של מי החוב: נציג שרושם — החוב שלו (נספר בהכנסה שלו כשייגבה);
   // מנהל שרושם — של המנהל. הפחתה יורדת קודם מהחוב של מי שמפחית.
-  const ownerKey = ownerKeyForActor(role, (session?.user as any)?.id ?? null);
+  //
+  // מנהל יכול לשייך את החוב לנציג (ownerAgentId) — למשל לקוח של נציג
+  // שהגיע למנהל וסגר איתו. ברירת המחדל: של המנהל.
+  let ownerKey = ownerKeyForActor(role, (session?.user as any)?.id ?? null);
+  const ownerAgentId = typeof body.ownerAgentId === "string" ? body.ownerAgentId : "";
+  if (role === "ADMIN" && ownerAgentId) {
+    const ag = await prisma.customer.findFirst({
+      where: { id: ownerAgentId, role: "AGENT" },
+      select: { id: true },
+    });
+    if (!ag) return NextResponse.json({ error: "נציג לא נמצא" }, { status: 400 });
+    ownerKey = agentOwnerKey(ag.id);
+  }
   const before = ownersForBalance(customer.debtOwners, current);
   const owners =
     delta > 0

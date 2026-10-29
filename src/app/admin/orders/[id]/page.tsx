@@ -965,6 +965,7 @@ export default function OrderDetail() {
           {order.customer?.id && (
             <div className="mb-3">
               <DebtPanel
+                isAdmin
                 customerId={order.customer.id}
                 customerName={order.customer.name ?? ""}
                 debtBalance={Number((order.customer as any).debtBalance ?? 0)}

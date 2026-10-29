@@ -1577,6 +1577,7 @@ export default function AdminCustomersPage() {
             {editing.role === "CUSTOMER" && (
               <div className="border-t pt-3">
                 <DebtPanel
+                  isAdmin
                   customerId={editing.id}
                   customerName={editing.name}
                   debtBalance={Number((editing as any).debtBalance ?? 0)}

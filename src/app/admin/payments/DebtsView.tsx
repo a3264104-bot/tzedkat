@@ -119,8 +119,9 @@ export function DebtsView({ pricelistId }: { pricelistId: string }) {
   return (
     <div className="space-y-4">
       <div className="rounded-xl bg-white border border-zinc-200 p-3 text-sm text-zinc-700 leading-relaxed">
-        <b>של מי החוב:</b> חוב שנציג רשם — שלו, ונספר בהכנסה שלו כשהוא נגבה. חוב שהמנהל רשם — של
-        המנהל, ולא נספר אצל הנציג (גם אם הלקוח בנקודה שלו). חוב ישן שנרשם לפני ההפרדה — נחשב של המנהל.
+        <b>של מי החוב:</b> חוב מהמכירה (יתרה שהועברה לחוב בסגירת מכירה) — של הנציג של הנקודה, ונספר
+        בהכנסה שלו כשהוא נגבה. חוב שנציג רשם — שלו. חוב שהמנהל רשם — של המנהל ולא נספר אצל הנציג, אלא
+        אם המנהל שייך אותו לנציג. חוב ישן שנרשם לפני ההפרדה — נחשב של המנהל.
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
