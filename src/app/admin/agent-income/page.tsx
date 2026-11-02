@@ -371,6 +371,9 @@ type CardOrder = {
   cardRev: number;
 };
 
+// ⚠️ סימן LRM לפני המינוס: בלעדיו הדפדפן מציג "₪1.00−" בתוך עמוד RTL
+const neg = (v: number) => `‎−${fmt(v)}`;
+
 // 💳 ממה מורכב סכום האשראי — הזמנה אחר הזמנה
 function CardDetail({
   title,
@@ -414,8 +417,7 @@ function CardDetail({
           {note ? <span className="text-zinc-400"> · {note}</span> : null}
         </span>
         <span className="tabular-nums" dir="ltr">
-          {sign === "-" ? "−" : ""}
-          {fmt(v)}
+          {sign === "-" ? neg(v) : fmt(v)}
         </span>
       </div>
     ) : null;
@@ -486,7 +488,7 @@ function CardDetail({
                       {o.cardDebt > 0 && (
                         <div className="flex justify-between gap-2 text-zinc-500">
                           <span>מתוכו חוב קודם (מופיע בעמודות החוב, לא כאן)</span>
-                          <span className="tabular-nums" dir="ltr">−{fmt(o.cardDebt)}</span>
+                          <span className="tabular-nums" dir="ltr">{neg(o.cardDebt)}</span>
                         </div>
                       )}
                       <div className="flex justify-between gap-2 font-bold text-emerald-800">
