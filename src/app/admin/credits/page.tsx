@@ -11,6 +11,7 @@
 // עד היום היה רק מספר מצטבר בבקרת המכירה ("קוזזו 145 ש\"ח"), בלי
 // מי, כמה ולמה. ולא הייתה שום דרך לדעת לאיזה לקוח יש יתרה פתוחה.
 
+import { MoneyTabs } from "@/components/MoneyTabs";
 import { useEffect, useState } from "react";
 // §380: בורר מכירה מרכזי
 import {
@@ -105,6 +106,7 @@ export default function CreditsPage() {
   return (
     <main dir="rtl" className="p-4 sm:p-6 max-w-5xl mx-auto space-y-5">
       <div>
+        <MoneyTabs hub="debts" />
         <h1 className="text-2xl font-extrabold text-brand-slatedark">
           זיכויים ויתרות זכות
         </h1>

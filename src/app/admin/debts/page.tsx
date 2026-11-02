@@ -1,5 +1,6 @@
 "use client";
 
+import { MoneyTabs } from "@/components/MoneyTabs";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client";
 import { fmt, PAYMENT_STATUS_LABELS } from "@/lib/pricing";
@@ -108,6 +109,7 @@ export default function DebtsPage() {
 
   return (
     <div className="space-y-5">
+      <MoneyTabs hub="debts" />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold text-brand-slatedark">חובות ותזכורות</h1>

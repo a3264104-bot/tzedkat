@@ -7,6 +7,7 @@
 // (₪3 להזמנה) — שאינם של הנציג. כאן: ברוטו, דמי הזמנה, ו**נטו** —
 // לכל נקודה, עם סיכום לכל נציג וכפתור העתקה שמדביקים ישר באקסל.
 
+import { MoneyTabs } from "@/components/MoneyTabs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { fmt } from "@/lib/pricing";
@@ -74,6 +75,8 @@ export default function AgentIncomePage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState<string>("");
+  // 💳 פירוט האשראי של נקודה / נציג (לחיצה על הסכום בעמודה)
+  const [cardFor, setCardFor] = useState<{ title: string; pointIds: string[]; expected: number } | null>(null);
 
   const load = useCallback(async () => {
     if (!selected) return;
@@ -137,8 +140,9 @@ export default function AgentIncomePage() {
   return (
     <div className="space-y-4">
       <div>
+        <MoneyTabs hub="income" />
         <Link href="/admin/agent-debts" className="text-sm text-brand-rust font-bold">
-          → חובות נציגים
+          → התחשבנות עם נציגים
         </Link>
         <h1 className="text-2xl font-extrabold text-brand-slatedark mt-1">
           📥 כמה נכנס — לפי נציג ונקודה
@@ -208,7 +212,13 @@ export default function AgentIncomePage() {
               </thead>
               <tbody>
                 {groups.map((g) => (
-                  <GroupRows key={g.agent} agent={g.agent} rows={g.rows} total={g.total} />
+                  <GroupRows
+                    key={g.agent}
+                    agent={g.agent}
+                    rows={g.rows}
+                    total={g.total}
+                    onCard={(title, pointIds, expected) => setCardFor({ title, pointIds, expected })}
+                  />
                 ))}
                 <tr className="bg-brand-slatedark text-white font-bold">
                   <td className="p-2">סה&quot;כ</td>
@@ -228,6 +238,9 @@ export default function AgentIncomePage() {
               </tbody>
             </table>
           </div>
+          <p className="text-xs text-zinc-500">
+            💳 לחיצה על סכום בעמודת האשראי מציגה ממה הוא מורכב — כל הזמנה וסכומיה.
+          </p>
           {grand.walkins > 0 && (
             <p className="text-xs text-zinc-500">
               כולל {fmt(grand.walkins)} ממזדמנים ישנים (לפני שהומרו ללקוחות) — בלי דמי הזמנה.
@@ -235,11 +248,32 @@ export default function AgentIncomePage() {
           )}
         </>
       )}
+      {cardFor && selected && (
+        <CardDetail
+          title={cardFor.title}
+          pointIds={cardFor.pointIds}
+          expected={cardFor.expected}
+          selected={selected}
+          onClose={() => setCardFor(null)}
+        />
+      )}
     </div>
   );
 }
 
-function GroupRows({ agent, rows, total }: { agent: string; rows: Row[]; total: Totals }) {
+type OnCard = (title: string, pointIds: string[], expected: number) => void;
+
+function GroupRows({
+  agent,
+  rows,
+  total,
+  onCard,
+}: {
+  agent: string;
+  rows: Row[];
+  total: Totals;
+  onCard: OnCard;
+}) {
   return (
     <>
       <tr className="bg-brand-cream/60 border-t-2 border-zinc-300">
@@ -250,7 +284,11 @@ function GroupRows({ agent, rows, total }: { agent: string; rows: Row[]; total: 
         <Money v={total.net} bold />
         <Money v={total.gross} bold />
         <Money v={total.fees} bold />
-        <Money v={total.card} bold />
+        <Money
+          v={total.card}
+          bold
+          onClick={() => onCard(agent, rows.map((r) => r.pointId), total.card)}
+        />
         <Money v={total.agentCash} bold />
         <Money v={total.adminCash} bold />
         <Money v={total.pending} bold />
@@ -270,7 +308,7 @@ function GroupRows({ agent, rows, total }: { agent: string; rows: Row[]; total: 
             <Money v={r.net} />
             <Money v={r.gross} />
             <Money v={r.fees} />
-            <Money v={r.card} />
+            <Money v={r.card} onClick={() => onCard(r.pointName, [r.pointId], r.card)} />
             <Money v={r.agentCash} />
             <Money v={r.adminCash} />
             <Money v={r.pending} />
@@ -290,11 +328,210 @@ function GroupRows({ agent, rows, total }: { agent: string; rows: Row[]; total: 
   );
 }
 
-function Money({ v, bold }: { v: number; bold?: boolean }) {
+function Money({ v, bold, onClick }: { v: number; bold?: boolean; onClick?: () => void }) {
   return (
     <td className={`p-2 text-left tabular-nums whitespace-nowrap ${bold ? "font-bold" : ""} ${v === 0 ? "text-zinc-300" : ""}`} dir="ltr">
-      {v === 0 ? "—" : fmt(v)}
+      {v === 0 ? (
+        "—"
+      ) : onClick ? (
+        <button onClick={onClick} className="underline decoration-dotted underline-offset-2 hover:text-brand-rust" title="ממה מורכב הסכום">
+          {fmt(v)}
+        </button>
+      ) : (
+        fmt(v)
+      )}
     </td>
+  );
+}
+
+type CardOrder = {
+  orderNumber: number;
+  customerName: string;
+  point: string | null;
+  sale: string | null;
+  paidAt: string | null;
+  transactionId: string | null;
+  status: string;
+  paymentStatus: string | null;
+  parts: {
+    items: number;
+    orderFee: number;
+    delivery: number;
+    extra: number;
+    extraReason: string | null;
+    credit: number;
+    creditReason: string | null;
+    creditBalance: number;
+    debt: number;
+  };
+  total: number;
+  paid: number;
+  cardPaid: number;
+  cardDebt: number;
+  cardRev: number;
+};
+
+// 💳 ממה מורכב סכום האשראי — הזמנה אחר הזמנה
+function CardDetail({
+  title,
+  pointIds,
+  expected,
+  selected,
+  onClose,
+}: {
+  title: string;
+  pointIds: string[];
+  expected: number;
+  selected: string;
+  onClose: () => void;
+}) {
+  const [d, setD] = useState<{
+    orders: CardOrder[];
+    walkins: { walkinNumber: number; customerName: string; amount: number }[];
+    totals: { cardPaid: number; cardDebt: number; cardRev: number; walkins: number; column: number };
+  } | null>(null);
+  const [err, setErr] = useState("");
+  const [open, setOpen] = useState<number | null>(null);
+
+  useEffect(() => {
+    const q = new URLSearchParams();
+    applySaleSelection(q, selected);
+    q.set("pointIds", pointIds.join(","));
+    fetch(`/api/admin/agent-income/card-detail?${q}`, { cache: "no-store" })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `שגיאה (${r.status})`);
+        setD(j);
+      })
+      .catch((e) => setErr(e.message || "שגיאה"));
+  }, [pointIds, selected]);
+
+  const line = (label: string, v: number, sign: "+" | "-" = "+", note?: string | null) =>
+    v > 0 ? (
+      <div className="flex justify-between gap-2">
+        <span>
+          {label}
+          {note ? <span className="text-zinc-400"> · {note}</span> : null}
+        </span>
+        <span className="tabular-nums" dir="ltr">
+          {sign === "-" ? "−" : ""}
+          {fmt(v)}
+        </span>
+      </div>
+    ) : null;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-3 overflow-y-auto" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-2xl p-4 my-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="font-extrabold text-brand-slatedark">💳 אשראי/העברה — {title}</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">כל הזמנה שנכנס בה כסף באשראי. לחיצה על שורה — ממה מורכב הסכום.</p>
+          </div>
+          <button onClick={onClose} className="text-zinc-500 text-xl leading-none px-2">
+            ×
+          </button>
+        </div>
+
+        {err && <p className="text-sm text-red-700 mt-3">{err}</p>}
+        {!d && !err && <p className="text-zinc-500 mt-4">טוען…</p>}
+        {d && (
+          <>
+            <div className="mt-3 divide-y divide-zinc-100 border border-zinc-200 rounded-xl">
+              {d.orders.length === 0 && d.walkins.length === 0 && (
+                <div className="p-3 text-sm text-zinc-500">אין תשלומי אשראי.</div>
+              )}
+              {d.orders.map((o) => (
+                <div key={o.orderNumber}>
+                  <button
+                    onClick={() => setOpen(open === o.orderNumber ? null : o.orderNumber)}
+                    className="w-full flex items-center gap-2 p-2.5 text-sm text-right hover:bg-zinc-50"
+                  >
+                    <span className="text-zinc-400 w-4">{open === o.orderNumber ? "▾" : "▸"}</span>
+                    <span className="flex-1 min-w-0 truncate">
+                      <b>{o.customerName}</b> <span className="text-zinc-400">#{o.orderNumber}</span>
+                      {pointIds.length > 1 && o.point ? <span className="text-xs text-zinc-400"> · {o.point}</span> : null}
+                      {o.status === "CANCELLED" ? <span className="text-xs text-red-600"> · מבוטלת</span> : null}
+                    </span>
+                    {o.cardDebt > 0 && (
+                      <span className="text-[11px] text-zinc-500">כולל חוב {fmt(o.cardDebt)}</span>
+                    )}
+                    <span className="font-bold tabular-nums" dir="ltr">
+                      {fmt(o.cardRev)}
+                    </span>
+                  </button>
+                  {open === o.orderNumber && (
+                    <div className="px-8 pb-3 text-xs text-zinc-700 space-y-0.5">
+                      {line("מוצרים", o.parts.items)}
+                      {line("דמי הזמנה", o.parts.orderFee)}
+                      {line("משלוח", o.parts.delivery)}
+                      {line("חיוב נוסף", o.parts.extra, "+", o.parts.extraReason)}
+                      {line("זיכוי", o.parts.credit, "-", o.parts.creditReason)}
+                      {line("יתרת זכות שקוזזה", o.parts.creditBalance, "-")}
+                      {line("חוב קודם שנגבה", o.parts.debt)}
+                      <div className="flex justify-between gap-2 border-t border-zinc-200 pt-1 font-bold">
+                        <span>סכום ההזמנה</span>
+                        <span className="tabular-nums" dir="ltr">{fmt(o.total)}</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span>שולם באשראי</span>
+                        <span className="tabular-nums" dir="ltr">{fmt(o.cardPaid)}</span>
+                      </div>
+                      {o.paid > o.cardPaid && (
+                        <div className="flex justify-between gap-2 text-zinc-500">
+                          <span>שולם במזומן</span>
+                          <span className="tabular-nums" dir="ltr">{fmt(Math.round((o.paid - o.cardPaid) * 100) / 100)}</span>
+                        </div>
+                      )}
+                      {o.cardDebt > 0 && (
+                        <div className="flex justify-between gap-2 text-zinc-500">
+                          <span>מתוכו חוב קודם (מופיע בעמודות החוב, לא כאן)</span>
+                          <span className="tabular-nums" dir="ltr">−{fmt(o.cardDebt)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between gap-2 font-bold text-emerald-800">
+                        <span>נספר בעמודת האשראי</span>
+                        <span className="tabular-nums" dir="ltr">{fmt(o.cardRev)}</span>
+                      </div>
+                      {o.transactionId && <div className="text-zinc-400">מספר עסקה בנדרים: {o.transactionId}</div>}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {d.walkins.map((w) => (
+                <div key={`w${w.walkinNumber}`} className="flex items-center gap-2 p-2.5 text-sm">
+                  <span className="w-4" />
+                  <span className="flex-1">
+                    <b>{w.customerName}</b> <span className="text-zinc-400">מזדמן #{w.walkinNumber}</span>
+                  </span>
+                  <span className="font-bold tabular-nums" dir="ltr">{fmt(w.amount)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-3 rounded-xl bg-zinc-50 border border-zinc-200 p-3 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span>
+                  {d.orders.length} הזמנות{d.walkins.length > 0 ? ` + ${d.walkins.length} מזדמנים` : ""}
+                </span>
+                <span className="font-extrabold tabular-nums" dir="ltr">{fmt(d.totals.column)}</span>
+              </div>
+              {d.totals.cardDebt > 0 && (
+                <div className="flex justify-between text-xs text-zinc-500">
+                  <span>חוב קודם שנגבה באשראי בהזמנות האלה (לא בסכום)</span>
+                  <span className="tabular-nums" dir="ltr">{fmt(d.totals.cardDebt)}</span>
+                </div>
+              )}
+              {Math.abs(d.totals.column - expected) > 0.01 && (
+                <div className="text-xs text-red-700 font-bold">
+                  ⚠️ הסכום לא תואם לעמודה ({fmt(expected)}) — רענן את המסך.
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
