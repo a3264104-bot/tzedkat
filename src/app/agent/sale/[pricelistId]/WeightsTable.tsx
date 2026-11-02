@@ -24,6 +24,7 @@
 //   • 0 הוא ערך **תקף** ומולא במפורש - "הלקוח לא קיבל" שונה
 //     מ"שכחתי למלא", ורק ההבחנה הזו מאפשרת לחסום את השני.
 
+import { expectedForBox, weightWarning } from "@/lib/weight-sanity";
 import { useEffect, useMemo, useRef, useState, Fragment } from "react";
 // §359: סיכום חיוב — שליחה או הורדה
 import OrderSummaryModal from "@/components/OrderSummaryModal";
@@ -100,6 +101,8 @@ type Cell = {
   isInactive?: boolean;
   agentSetPrice?: number | null;
   estimatedWeight: number | null;
+  /** ⚖️ ממוצע לקרטון — לבדיקת סבירות ("האם אתה בטוח?") */
+  avgPerCarton?: number | null;
   agentEnteredWeight: number | null;
   /** §349: פירוט לפי קרטון — לשחזור המשבצות אחרי רענון */
   /** §394: null במקום = משבצת קרטון שטרם מולאה */
@@ -347,6 +350,7 @@ export function WeightsTable({
             isInactive: !!(it as any).isInactive,
             agentSetPrice: (it as any).agentSetPrice ?? null,
             estimatedWeight: it.estimatedWeight,
+            avgPerCarton: it.product?.avgWeightPerUnit ?? null,
             agentEnteredWeight: w ?? null,
             // §349: הפירוט לשחזור המשבצות אחרי רענון
             weightParts: (it as any).weightParts ?? null,
@@ -1103,6 +1107,8 @@ function WeightCell({
   // כל שמירה קוראת את הערכים **ברגע הריצה** (partsRef), כך שהאחרונה
   // תמיד שולחת את המצב העדכני. שמירה זהה לאחרונה שנשלחה — מדלגים.
   const cartonChainRef = useRef<Promise<void>>(Promise.resolve());
+  // ⚖️ ערכים שהמשתמש כבר אישר ב"האם אתה בטוח?" — לא שואלים שוב
+  const confirmedRef = useRef<Record<number, string>>({});
   const cartonSentRef = useRef<string>(
     JSON.stringify(parts.map((x) => x.trim()))
   );
@@ -1296,6 +1302,20 @@ function WeightCell({
         JSON.stringify((cell.weightParts ?? []).map((x) => Number(x ?? -1)));
     if (w === cell.agentEnteredWeight && !partsChanged) return;
 
+    // ⚖️ "האם אתה בטוח?" — רק על סטייה גדולה (4 ומעלה), ראה weight-sanity
+    if (!partsOverride || partsOverride.length <= 1) {
+      const warn = weightWarning(
+        w,
+        expectedForBox({ ...cell, boxes: 1 }),
+        { units: !!cell.noWeighing, productName: cell.productName }
+      );
+      if (warn && !window.confirm(warn)) {
+        setVal(cell.agentEnteredWeight !== null ? String(cell.agentEnteredWeight) : "");
+        setTimeout(() => inputRef.current?.focus(), 0);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const res = await fetch(`/api/agent/order-item/${cell.itemId}`, {
@@ -1438,6 +1458,25 @@ function WeightCell({
                   }
                 }}
                 onBlur={() => {
+                  // ⚖️ "האם אתה בטוח?" על הקרטון הזה — פעם אחת לכל ערך
+                  const v = (partsRef.current[i] ?? "").trim();
+                  const warn =
+                    v === "" || confirmedRef.current[i] === v
+                      ? null
+                      : weightWarning(
+                          Number(v),
+                          expectedForBox({ ...cell, boxes: cartonCount }),
+                          { units: false, productName: cell.productName, box: i + 1 }
+                        );
+                  if (warn && !window.confirm(warn)) {
+                    const saved = cell.weightParts?.[i];
+                    const next = [...partsRef.current];
+                    next[i] = saved != null ? String(saved) : "";
+                    partsRef.current = next;
+                    setParts(next);
+                    return;
+                  }
+                  confirmedRef.current[i] = v;
                   queueCartonSave();
                 }}
                 placeholder={`קרטון ${i + 1}`}

@@ -11,6 +11,7 @@ import { ImpersonateButton } from "@/components/ImpersonateButton";
 import { UpdateCardModal } from "@/components/UpdateCardButton";
 // §331: רישום חוב — אותו רכיב של מסך ההזמנה
 import { DebtPanel } from "@/components/DebtPanel";
+import { CustomerCreditPanel } from "@/components/CustomerCreditPanel";
 
 type Customer = {
   id: string;
@@ -1085,6 +1086,15 @@ export default function AdminCustomersPage() {
                             {/* §126: יתרת זכות - כסף שהעמותה חייבת
                                 ללקוח. גלוי ברשימה כדי שהמנהל יראה
                                 למי חייבים בלי להיכנס לכל כרטיס. */}
+                            {/* §263: 💸 חוב — גם בתצוגת הטבלה, לא רק בכרטיסים */}
+                            {Number((c as any).debtBalance ?? 0) > 0 && (
+                              <span
+                                className="text-[10px] font-bold bg-red-600 text-white rounded px-1.5 py-0.5 whitespace-nowrap"
+                                title={(c as any).debtNote || "חוב"}
+                              >
+                                💸 ₪{Number((c as any).debtBalance).toFixed(0)}
+                              </span>
+                            )}
                             {!!c.creditBalance && c.creditBalance > 0 && (
                               <span
                                 className="text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 rounded px-1.5 py-0.5"
@@ -1584,6 +1594,15 @@ export default function AdminCustomersPage() {
                   debtNote={(editing as any).debtNote ?? null}
                   onDone={reload}
                 />
+                {/* ↩️ זיכוי — הצד ההפוך של החוב, יקוזז מההזמנה הבאה */}
+                <div className="mt-2">
+                  <CustomerCreditPanel
+                    customerId={editing.id}
+                    customerName={editing.name}
+                    creditBalance={Number(editing.creditBalance ?? 0)}
+                    onDone={reload}
+                  />
+                </div>
               </div>
             )}
 

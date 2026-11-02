@@ -86,6 +86,8 @@ export default async function AgentCustomersPage() {
       cardExpiry: true,
       cardNeedsUpdate: true,
       paymentToken: true,
+      debtBalance: true,
+      debtNote: true,
       defaultPoint: { select: { name: true } },
     },
     orderBy: { name: "asc" },
@@ -156,6 +158,15 @@ export default async function AgentCustomersPage() {
                 <div className="min-w-0">
                   <div className="font-bold text-brand-slatedark truncate">
                     {c.name}
+                    {/* 💸 חוב פתוח — רואים בלי להיכנס לכרטיס */}
+                    {Number(c.debtBalance ?? 0) > 0 && (
+                      <span
+                        className="mr-1.5 text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded font-bold align-middle"
+                        title={c.debtNote || "חוב"}
+                      >
+                        💸 חוב ₪{Number(c.debtBalance).toFixed(0)}
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs text-zinc-500" dir="ltr">
                     {c.phone}
