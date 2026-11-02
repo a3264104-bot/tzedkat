@@ -16,7 +16,7 @@ import { useState, useEffect } from "react";
 // §144: כניסה מהירה כלקוח, בלי לחפש במסך הלקוחות
 import { QuickImpersonate } from "./QuickImpersonate";
 
-type NavItem = { href: string; label: string; icon: string };
+type NavItem = { href: string; label: string; icon: string; also?: string[] };
 
 type NavGroup = {
   id: string;
@@ -80,18 +80,17 @@ const NAV_GROUPS: NavGroup[] = [
     step: 4,
     hint: "חיוב וגבייה",
     items: [
-      { href: "/admin/payments", label: "תשלומים", icon: "💳" },
-      { href: "/admin/debts", label: "חובות לקוחות ותזכורות", icon: "💰" },
-      // §376: ספר החובות — עד עכשיו הגיעו אליו רק מקישור בדשבורד
-      { href: "/admin/debt-ledger", label: "ספר החובות", icon: "📒" },
-      // §126: זיכויים ויתרות. שייך לשלב הכספים - זה כסף שיוצא
-      // מהקופה, וכל נציג יכול לתת אותו בלי אישור מראש.
-      { href: "/admin/credits", label: "זיכויים ויתרות", icon: "↩️" },
-      { href: "/admin/agent-debts", label: "חובות נציגים", icon: "🧮" },
-      // §401: כמה נכנס לכל נציג ונקודה — נטו, בלי דמי ההזמנה
-      { href: "/admin/agent-income", label: "כמה נכנס לפי נציג", icon: "📥" },
-      // היומן מציג רק סימוני תשלום במזומן (PaymentAuditLog) — השם אומר את זה
-      { href: "/admin/payment-audit", label: "יומן תשלומים במזומן", icon: "🗒️" },
+      // 🧭 ארבעה מסכים, כל אחד עונה על שאלה אחת. המסכים הישנים לא נעלמו —
+      // הם לשוניות בתוך המסך שלהם (MoneyTabs), והקישורים אליהם עובדים.
+      { href: "/admin/payments", label: "גבייה — את מי לחייב", icon: "💳" },
+      { href: "/admin/agent-income", label: "כמה נכנס", icon: "📥", also: ["/admin/payment-audit"] },
+      {
+        href: "/admin/debts",
+        label: "חובות וזיכויים",
+        icon: "💰",
+        also: ["/admin/debt-ledger", "/admin/credits"],
+      },
+      { href: "/admin/agent-debts", label: "התחשבנות עם נציגים", icon: "🧮" },
     ],
   },
   {
@@ -163,7 +162,7 @@ export default function AdminNav() {
 
   useEffect(() => {
     for (const group of NAV_GROUPS) {
-      if (group.items.some((item) => pathname.startsWith(item.href))) {
+      if (group.items.some((item) => itemActive(item))) {
         setOpenGroup(group.id);
         return;
       }
@@ -174,6 +173,7 @@ export default function AdminNav() {
     if (href === "/admin") return pathname === "/admin";
     return pathname === href || pathname.startsWith(href + "/");
   };
+  const itemActive = (item: NavItem) => isActive(item.href) || (item.also ?? []).some(isActive);
 
   return (
     <nav className="space-y-1" aria-label="ניווט ניהול">
@@ -187,7 +187,7 @@ export default function AdminNav() {
 
       {NAV_GROUPS.map((group, idx) => {
         const isOpen = openGroup === group.id;
-        const hasActive = group.items.some((item) => isActive(item.href));
+        const hasActive = group.items.some((item) => itemActive(item));
         const isFirstNonStep = group.step === null && NAV_GROUPS[idx - 1]?.step !== null;
 
         return (
@@ -247,7 +247,7 @@ export default function AdminNav() {
             {isOpen && (
               <div className="mt-1 mr-3 space-y-0.5 border-r-2 border-brand-slate/15 pr-3">
                 {group.items.map((item) => (
-                  <NavLink key={item.href} item={item} active={isActive(item.href)} small />
+                  <NavLink key={item.href} item={item} active={itemActive(item)} small />
                 ))}
               </div>
             )}

@@ -12,6 +12,7 @@
 // ⚠️ שלושה מסננים, טבלה אחת: לפי לקוח, מכירה, או נציג. הנתונים
 // זהים — הזווית שונה.
 
+import { MoneyTabs } from "@/components/MoneyTabs";
 import { useEffect, useState } from "react";
 
 type Row = {
@@ -112,6 +113,7 @@ export default function DebtLedgerPage() {
   return (
     <main dir="rtl" className="max-w-4xl mx-auto p-4 space-y-4">
       <div>
+        <MoneyTabs hub="debts" />
         <h1 className="text-2xl font-extrabold text-brand-slatedark">📒 ספר החובות</h1>
         <p className="text-sm text-zinc-500 mt-1">
           כל תנועת חוב — מי, כמה, מתי, ודרך מי

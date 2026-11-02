@@ -6,6 +6,7 @@
 // הייתה שום דרך לראות אותה מהממשק. המסך הזה חושף אותה: מי קיבל, כמה,
 // מתי, מול איזה מחיר סופי, ועם איזו הערה.
 
+import { MoneyTabs } from "@/components/MoneyTabs";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/client";
@@ -96,6 +97,7 @@ export default function PaymentAuditPage() {
   return (
     <div className="space-y-5">
       <div>
+        <MoneyTabs hub="income" />
         <h1 className="text-2xl font-extrabold text-brand-slatedark">יומן תשלומים</h1>
         <p className="text-sm text-brand-slate/60 mt-0.5">
           תיעוד קבוע של כל סימון תשלום ידני — מי קיבל, כמה, ומול איזה מחיר סופי.
