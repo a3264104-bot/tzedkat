@@ -10,6 +10,7 @@
 import { MoneyTabs } from "@/components/MoneyTabs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { SheetView } from "./SheetView";
 import { fmt } from "@/lib/pricing";
 import {
   useSelectedPricelist,
@@ -75,6 +76,20 @@ export default function AgentIncomePage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState<string>("");
+  // 📋 "כמו באקסל" — העמודות של הגיליון של המנהל. נזכר בין כניסות.
+  const [mode, setModeState] = useState<"sheet" | "detail">("sheet");
+  useEffect(() => {
+    try {
+      const m = localStorage.getItem("agentIncomeMode");
+      if (m === "detail" || m === "sheet") setModeState(m);
+    } catch {}
+  }, []);
+  const setMode = (m: "sheet" | "detail") => {
+    setModeState(m);
+    try {
+      localStorage.setItem("agentIncomeMode", m);
+    } catch {}
+  };
   // 💳 פירוט האשראי של נקודה / נציג (לחיצה על הסכום בעמודה)
   const [cardFor, setCardFor] = useState<{ title: string; pointIds: string[]; expected: number } | null>(null);
 
@@ -160,6 +175,8 @@ export default function AgentIncomePage() {
           ↻ רענן
         </button>
         <span className="flex-1" />
+        {mode === "detail" && (
+        <>
         <button
           onClick={copyByAgent}
           disabled={!rows || rows.length === 0}
@@ -174,8 +191,31 @@ export default function AgentIncomePage() {
         >
           {copied === "points" ? "✓ הועתק" : "📋 העתק — לפי נקודה"}
         </button>
+        </>
+        )}
       </div>
 
+      <div className="inline-flex rounded-lg border border-zinc-300 overflow-hidden text-sm font-bold">
+        {(
+          [
+            ["sheet", "📋 כמו באקסל"],
+            ["detail", "📊 פירוט מלא"],
+          ] as const
+        ).map(([m, label]) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={`px-3 py-1.5 ${mode === m ? "bg-brand-rust text-white" : "bg-white text-zinc-600"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "sheet" && selected ? (
+        <SheetView selected={selected} />
+      ) : (
+      <>
       {error && (
         <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{error}</p>
       )}
@@ -247,6 +287,8 @@ export default function AgentIncomePage() {
             </p>
           )}
         </>
+      )}
+      </>
       )}
       {cardFor && selected && (
         <CardDetail
