@@ -59,6 +59,7 @@ export default function DebtsPage() {
   const [loading, setLoading] = useState(true);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+  const [payingId, setPayingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   async function load() {
@@ -83,6 +84,54 @@ export default function DebtsPage() {
       setError(`הזמנה #${debt.orderNumber}: ${e.message}`);
     } finally {
       setSendingId(null);
+    }
+  }
+
+  // 💵 "שולם מזומן" — אותו סימון של טבלת המשקלים (cash-payment): הסכום
+  // ממולא ביתרה, תשלום חלקי מקבל אישור נוסף, והשרת מחליט PAID/חלקי.
+  async function markCash(d: Debt) {
+    setError("");
+    const remaining = Math.round((d.finalTotal - d.amountPaid) * 100) / 100;
+    const entered = window.prompt(
+      d.amountPaid > 0
+        ? `${d.customerName} (#${d.orderNumber}) שילם כבר ${d.amountPaid} ש"ח.
+
+כמה שילם עכשיו במזומן? (נותר ${remaining} ש"ח)`
+        : `כמה שילם ${d.customerName} (#${d.orderNumber}) במזומן?
+
+סכום ההזמנה: ${d.finalTotal} ש"ח`,
+      String(remaining)
+    );
+    if (entered === null) return;
+    const amt = Number(entered.trim());
+    if (!Number.isFinite(amt) || amt <= 0) return setError("סכום לא תקין");
+    if (amt > remaining + 0.01) return setError(`הסכום גבוה מהיתרה (${remaining} ש"ח) — בדוק שלא נפלה טעות.`);
+    const cumulative = Math.round((amt + d.amountPaid) * 100) / 100;
+    const isPartial = cumulative < d.finalTotal - 0.01;
+    if (
+      isPartial &&
+      !window.confirm(
+        `${d.customerName} שילם ${amt} ש"ח מתוך ${remaining}.
+
+יישאר חוב של ${(d.finalTotal - cumulative).toFixed(2)} ש"ח.`
+      )
+    )
+      return;
+    setPayingId(d.id);
+    try {
+      await api(`/api/admin/orders/${d.id}/cash-payment`, {
+        method: "POST",
+        body: JSON.stringify({
+          amountPaid: cumulative,
+          expectedPrevPaid: d.amountPaid,
+          note: isPartial ? `שולם ${amt} במזומן (מסך חובות)` : "שולם במזומן (מסך חובות)",
+        }),
+      });
+      await load();
+    } catch (e: any) {
+      setError(`הזמנה #${d.orderNumber}: ${e.message}`);
+    } finally {
+      setPayingId(null);
     }
   }
 
@@ -205,6 +254,18 @@ export default function DebtsPage() {
                     </td>
                     <td>
                       <div className="flex gap-1 justify-end">
+                        {/* 💵 סימון תשלום במזומן. לא בזמן חיוב אשראי, ולא
+                            כשהיתרה כבר הועברה לחוב (השרת חוסם גם הוא). */}
+                        {d.paymentStatus !== "CHARGING" && d.paymentStatus !== "DEBT_CARRIED" && (
+                          <button
+                            onClick={() => markCash(d)}
+                            disabled={payingId === d.id}
+                            className="btn-sm rounded-lg px-2 font-bold bg-emerald-600 text-white disabled:opacity-50"
+                            title="סימון שהלקוח שילם במזומן"
+                          >
+                            {payingId === d.id ? "שומר..." : "💵 שולם מזומן"}
+                          </button>
+                        )}
                         {/* וואטסאפ - עם הודעה מוכנה + לינק תשלום */}
                         {d.phone && (
                           <a
