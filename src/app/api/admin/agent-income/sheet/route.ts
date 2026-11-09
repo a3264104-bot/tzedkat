@@ -2,6 +2,8 @@
 // 📋 "כמו באקסל" — שורה לכל נקודה, בדיוק בעמודות של גיליון המנהל
 // ═══════════════════════════════════════════════════════════════
 // GET /api/admin/agent-income/sheet?pricelistId=X   (או saleKind=… / בלי)
+// GET …&pointIds=a,b   → גם orders: התרומה של כל הזמנה לכל עמודה
+//                        (הפירוט שנפתח בלחיצה על תא)
 //
 // העמודות (לפי הגיליון שהמנהל עובד איתו):
 //   הזמנות · שולמו · משקל קרטונים · משקל בודדים
@@ -17,6 +19,9 @@
 // ⚠️ העמלות — אותו כלל של סיכום הנציג (agent-summary-lib): התעריפים של
 // הנציג (ברירת מחדל 1 ו-4 לק"ג בבודדים = 1 + 3), ובמוצר שהנציג תמחר —
 // הפרש המחיר במקום הכלל הרגיל.
+//
+// ⚠️ שורת נקודה = סכום התרומות של ההזמנות שלה. כך הפירוט בלחיצה תמיד
+// מסתכם בדיוק למספר שבתא.
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -28,10 +33,8 @@ import { parseSaleKind, pricelistKindWhere } from "@/lib/weekly-sales";
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
-export type SheetRow = {
-  pointId: string;
-  pointName: string;
-  agentLabel: string;
+/** הערכים המספריים של שורה — גם של נקודה וגם של הזמנה אחת */
+type Nums = {
   orders: number;
   paidOrders: number;
   kgCarton: number;
@@ -43,10 +46,16 @@ export type SheetRow = {
   commTotal: number;
   netGoods: number;
   cardReceived: number;
-  /** חוב של המנהל שנגבה באשראי בנקודה — יורד מהאשראי לנציג */
+  /** חוב של המנהל שנגבה באשראי — יורד מהאשראי לנציג */
   cardAdminDebt: number;
   cardForAgent: number;
 };
+const NUM_KEYS: (keyof Nums)[] = [
+  "orders", "paidOrders", "kgCarton", "kgSingles", "gross", "fees", "commWeight",
+  "commSingles", "commTotal", "netGoods", "cardReceived", "cardAdminDebt", "cardForAgent",
+];
+
+export type SheetRow = Nums & { pointId: string; pointName: string; agentLabel: string };
 
 export async function GET(req: Request) {
   const g = await requireAdmin();
@@ -54,22 +63,26 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const pricelistId = url.searchParams.get("pricelistId");
   const saleKind = parseSaleKind(url.searchParams.get("saleKind"));
+  const detailPoints = (url.searchParams.get("pointIds") || "").split(",").filter(Boolean);
 
   const where: any = { status: { not: "CANCELLED" } };
   if (pricelistId) where.pricelistId = pricelistId;
   else if (saleKind) where.pricelist = pricelistKindWhere(saleKind);
+  if (detailPoints.length > 0) where.pointId = { in: detailPoints };
 
   const orders = await prisma.order.findMany({
     where,
     select: {
       ...ORDER_MONEY_SELECT,
       appliedDebtOwners: true,
+      pointNameSnapshot: true,
       pricelist: { select: { orderFee: true } },
       items: {
         where: { isCancelled: false },
         select: { agentEnteredWeight: true, isSingle: true, agentSetPrice: true, unitPrice: true },
       },
     },
+    orderBy: { orderNumber: "asc" },
   });
 
   const pointIds = [...new Set(orders.map((o) => o.pointId))];
@@ -98,74 +111,86 @@ export async function GET(req: Request) {
     }
   }
 
+  /** התרומה של הזמנה אחת לכל עמודה */
+  const contrib = (o: (typeof orders)[number]): Nums => {
+    const rate = ratesOf.get(o.pointId) ?? { carton: 1, singles: 4 };
+    const m = classifyOrderMoney(o as any);
+    const sp = splitPaid(o as any);
+    let kgCarton = 0, kgSingles = 0, commWeight = 0, commSingles = 0;
+    for (const it of o.items) {
+      const w = it.agentEnteredWeight != null ? Number(it.agentEnteredWeight) : 0;
+      if (!(w > 0)) continue;
+      if (it.isSingle) kgSingles += w;
+      else kgCarton += w;
+      // מוצר שהנציג תמחר: הפרש המחיר מעל "רצפת הנציג" — במקום הכלל הרגיל
+      if (it.agentSetPrice != null) {
+        const perKg = Number(it.agentSetPrice) - (Number(it.unitPrice) - rate.carton);
+        if (perKg > 0) {
+          commSingles += perKg * w;
+          continue;
+        }
+      }
+      commWeight += rate.carton * w;
+      if (it.isSingle) commSingles += (rate.singles - rate.carton) * w;
+    }
+    // חוב קודם שנגבה באשראי — החלק של המנהל לא נזקף לנציג
+    let cardAdminDebt = 0;
+    const cardDebt = sp.card - m.cardRev;
+    if (cardDebt > 0 && m.debtPart > 0) {
+      const owners = ownersForBalance(o.appliedDebtOwners, m.debtPart);
+      cardAdminDebt = cardDebt * ((owners[ADMIN_OWNER] ?? 0) / m.debtPart);
+    }
+    const fees = Number(o.pricelist?.orderFee ?? 0);
+    const commTotal = commWeight + commSingles;
+    return {
+      orders: 1,
+      paidOrders: sp.paid > 0 ? 1 : 0,
+      kgCarton,
+      kgSingles,
+      gross: m.due,
+      fees,
+      commWeight,
+      commSingles,
+      commTotal,
+      netGoods: m.due - fees - commTotal,
+      cardReceived: sp.card,
+      cardAdminDebt,
+      cardForAgent: sp.card - fees - cardAdminDebt,
+    };
+  };
+  const round = (n: Nums): Nums => {
+    const out: any = {};
+    for (const k of NUM_KEYS) out[k] = k === "kgCarton" || k === "kgSingles" ? r3(n[k]) : r2(n[k]);
+    return out;
+  };
+
   const rows = new Map<string, SheetRow>();
+  const perOrder: (Nums & { orderNumber: number; customerName: string; pointName: string; paymentStatus: string | null })[] = [];
   for (const o of orders) {
+    const c = round(contrib(o));
+    perOrder.push({
+      orderNumber: o.orderNumber,
+      customerName: o.customerName,
+      pointName: pointName.get(o.pointId) ?? o.pointNameSnapshot ?? "—",
+      paymentStatus: o.paymentStatus,
+      ...c,
+    });
     let r = rows.get(o.pointId);
     if (!r) {
       r = {
         pointId: o.pointId,
         pointName: pointName.get(o.pointId) ?? "—",
         agentLabel: (agentsOf.get(o.pointId) ?? []).sort().join(" + ") || "—",
-        orders: 0, paidOrders: 0, kgCarton: 0, kgSingles: 0, gross: 0, fees: 0,
-        commWeight: 0, commSingles: 0, commTotal: 0, netGoods: 0,
-        cardReceived: 0, cardAdminDebt: 0, cardForAgent: 0,
-      };
+        ...Object.fromEntries(NUM_KEYS.map((k) => [k, 0])),
+      } as SheetRow;
       rows.set(o.pointId, r);
     }
-    const rate = ratesOf.get(o.pointId) ?? { carton: 1, singles: 4 };
-    const m = classifyOrderMoney(o as any);
-    const sp = splitPaid(o as any);
-
-    r.orders++;
-    if (sp.paid > 0) r.paidOrders++;
-    r.gross += m.due;
-    r.fees += Number(o.pricelist?.orderFee ?? 0);
-
-    for (const it of o.items) {
-      const w = it.agentEnteredWeight != null ? Number(it.agentEnteredWeight) : 0;
-      if (!(w > 0)) continue;
-      if (it.isSingle) r.kgSingles += w;
-      else r.kgCarton += w;
-      // מוצר שהנציג תמחר: הפרש המחיר מעל "רצפת הנציג" — במקום הכלל הרגיל
-      if (it.agentSetPrice != null) {
-        const perKg = Number(it.agentSetPrice) - (Number(it.unitPrice) - rate.carton);
-        if (perKg > 0) {
-          r.commSingles += perKg * w;
-          continue;
-        }
-      }
-      r.commWeight += rate.carton * w;
-      if (it.isSingle) r.commSingles += (rate.singles - rate.carton) * w;
-    }
-
-    r.cardReceived += sp.card;
-    // חוב קודם שנגבה באשראי — החלק של המנהל לא נזקף לנציג
-    const cardDebt = sp.card - m.cardRev;
-    if (cardDebt > 0 && m.debtPart > 0) {
-      const owners = ownersForBalance(o.appliedDebtOwners, m.debtPart);
-      r.cardAdminDebt += cardDebt * ((owners[ADMIN_OWNER] ?? 0) / m.debtPart);
-    }
+    for (const k of NUM_KEYS) (r as any)[k] += c[k];
   }
 
   const list = [...rows.values()]
-    .map((r) => {
-      const commTotal = r2(r.commWeight + r.commSingles);
-      return {
-        ...r,
-        kgCarton: r3(r.kgCarton),
-        kgSingles: r3(r.kgSingles),
-        gross: r2(r.gross),
-        fees: r2(r.fees),
-        commWeight: r2(r.commWeight),
-        commSingles: r2(r.commSingles),
-        commTotal,
-        netGoods: r2(r.gross - r.fees - commTotal),
-        cardReceived: r2(r.cardReceived),
-        cardAdminDebt: r2(r.cardAdminDebt),
-        cardForAgent: r2(r.cardReceived - r.fees - r.cardAdminDebt),
-      };
-    })
+    .map((r) => ({ ...r, ...round(r) }))
     .sort((a, b) => a.agentLabel.localeCompare(b.agentLabel, "he") || a.pointName.localeCompare(b.pointName, "he"));
 
-  return NextResponse.json({ rows: list });
+  return NextResponse.json({ rows: list, ...(detailPoints.length > 0 ? { orders: perOrder } : {}) });
 }
