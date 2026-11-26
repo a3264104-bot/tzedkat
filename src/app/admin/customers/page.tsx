@@ -206,7 +206,19 @@ export default function AdminCustomersPage() {
     }
   }
 
-  async function setPaymentPref(pref: "CASH" | "CREDIT") {
+  // 💵→💳 ביטול "מזומן במכירה הזו" — גם ההזמנות הפתוחות שלו במכירה חוזרות לאשראי
+  async function cancelCashThisSale() {
+    if (!editing) return;
+    if (
+      !window.confirm(
+        `לבטל ל${editing.name} את "מזומן במכירה הזו"?\n\nהוא חוזר לאשראי כבר עכשיו, וההזמנות הפתוחות שלו במכירה הזו (שעוד לא שולמו) יעברו לחיוב בכרטיס.`
+      )
+    )
+      return;
+    await setPaymentPref("CREDIT", true);
+  }
+
+  async function setPaymentPref(pref: "CASH" | "CREDIT", revertSaleCashOrders = false) {
     if (!editing) return;
     setSaving(true);
     setError("");
@@ -214,7 +226,7 @@ export default function AdminCustomersPage() {
       const res = await fetch(`/api/admin/customers/${editing.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentPreference: pref }),
+        body: JSON.stringify({ paymentPreference: pref, ...(revertSaleCashOrders ? { revertSaleCashOrders: true } : {}) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "שגיאה");
@@ -230,7 +242,9 @@ export default function AdminCustomersPage() {
         (json.warning ||
           (pref === "CASH"
             ? "הלקוח סומן כלקוח מזומן ויכול להזמין"
-            : "הלקוח הועבר לתשלום באשראי")) + codeMsg
+            : "הלקוח הועבר לתשלום באשראי")) +
+          (json.revertedOrders ? ` · ${json.revertedOrders} הזמנות במכירה הזו עברו לחיוב באשראי` : "") +
+          codeMsg
       );
       await reload();
     } catch (e: any) {
@@ -1397,8 +1411,22 @@ export default function AdminCustomersPage() {
                 {/* §401: מזומן למכירה אחת — כשהלקוח באשראי */}
                 {editing.paymentPreference !== "CASH" &&
                   (editing.cashPricelistId ? (
-                    <div className="bg-lime-50 border border-lime-300 rounded-lg p-2.5 text-xs text-lime-800 font-bold">
-                      💵 מסומן כמזומן במכירה אחת בלבד — במכירה הבאה חוזר לאשראי.
+                    // ⚠️ בולט: כפתור "אשראי" למעלה מסומן, ובלי התיבה הזו נראה
+                    // שהלקוח באשראי — אבל במכירה הזו ההזמנות שלו נשמרות כמזומן.
+                    <div className="bg-lime-100 border-2 border-lime-500 rounded-lg p-2.5 text-xs text-lime-900 space-y-2">
+                      <div className="font-extrabold text-sm">💵 במכירה הזו — מזומן</div>
+                      <div>
+                        ההזמנות שלו במכירה הנוכחית נשמרות כמזומן ולא מחויבות באשראי. במכירה הבאה
+                        חוזר לאשראי.
+                      </div>
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={cancelCashThisSale}
+                        className="w-full py-1.5 rounded-lg font-bold border-2 border-emerald-600 bg-white text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        ↩️ בטל — חזרה לאשראי כבר במכירה הזו
+                      </button>
                     </div>
                   ) : (
                     <button
