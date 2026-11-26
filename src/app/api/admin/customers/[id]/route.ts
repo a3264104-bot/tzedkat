@@ -253,6 +253,9 @@ export async function PATCH(
   // §114: הקוד שהופק אוטומטית, אם הופק. מוחזר למסך כדי שהמנהל
   // יוכל למסור אותו ללקוח מיד ולא יצטרך לחפש אותו אחר כך.
   let generatedCode: string | null = null;
+  // 💵→💳 ביטול "מזומן במכירה הזו": המכירה שההזמנות שלה חוזרות לאשראי
+  let revertSaleId: string | null = null;
+  let revertedOrders = 0;
 
   // §151: 🐛 שינוי סיסמה לא עבד כלל.
   //
@@ -437,6 +440,12 @@ export async function PATCH(
 
     data.paymentPreference = pref;
     // §401: קבוע/אשראי מבטל "מזומן במכירה אחת"
+    // 💵→💳 בביטול מפורש (revertSaleCashOrders) — גם ההזמנות הפתוחות של
+    // אותה מכירה, שנשמרו כמזומן (MANUAL), חוזרות לחיוב באשראי.
+    if (pref === "CREDIT" && (body as any).revertSaleCashOrders === true) {
+      const cur = await prisma.customer.findUnique({ where: { id }, select: { cashPricelistId: true } });
+      revertSaleId = cur?.cashPricelistId ?? null;
+    }
     data.cashPricelistId = null;
 
     // §114: סימון כלקוח מזומן = הלקוח הוקם ויכול להזמין. זה הרגע
@@ -653,7 +662,23 @@ export async function PATCH(
       where: { id },
       data,
     });
-    return NextResponse.json({ ok: true, customer, warning: prefWarning, generatedCode, movedOrders });
+    if (revertSaleId) {
+      // ⚠️ רק הזמנות שלא נגבה בהן כלום ולא בחיוב כרגע — מזומן שכבר
+      // התקבל נשאר מזומן.
+      const r = await prisma.order.updateMany({
+        where: {
+          customerId: id,
+          pricelistId: revertSaleId,
+          paymentMethod: "MANUAL",
+          status: { not: "CANCELLED" },
+          paymentStatus: { notIn: ["PAID", "PARTIALLY_PAID", "CHARGING", "DEBT_CARRIED", "REFUNDED"] },
+          OR: [{ amountPaid: null }, { amountPaid: 0 }],
+        },
+        data: { paymentMethod: null },
+      });
+      revertedOrders = r.count;
+    }
+    return NextResponse.json({ ok: true, customer, warning: prefWarning, generatedCode, movedOrders, revertedOrders });
   } catch (e: any) {
     console.error("customer update error:", e);
     return NextResponse.json({ error: e.message || "שגיאה" }, { status: 500 });
